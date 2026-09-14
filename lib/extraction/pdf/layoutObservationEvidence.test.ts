@@ -151,6 +151,40 @@ describe('selective PDF layout observation evidence', () => {
     })).toEqual([]);
   });
 
+  it('persists original OCR pixel evidence and exact page dimensions for visual verification', () => {
+    const token = identifiedOcrToken('ocr:item:rate', '$8.75', 25, 600);
+    token.ocr_source_geometry = {
+      bbox: { x0: 50, y0: 340, x1: 130, y1: 380 },
+      pixel_width: 1224,
+      pixel_height: 1584,
+    };
+    const effectiveDigest = token.observation_identity!.page_representation_digest;
+    const sourceRef = {
+      ...ref(token),
+      x_min: 50, x_max: 130, y_min: 340, y_max: 380,
+    };
+    const sourceLayout = layout([token]);
+    sourceLayout.pages[0]!.effective_representation_digest = effectiveDigest;
+
+    const built = buildPdfLayoutObservationsLayer({
+      layout: sourceLayout,
+      reconstruction: reconstruction([sourceRef]),
+      context: CONTEXT,
+    });
+
+    expect(built.observations[0]?.location.bounding_box).toEqual({
+      x_min: 50, x_max: 130, y_min: 340, y_max: 380,
+    });
+    expect(built.source_page_geometries).toEqual([{
+      physical_page_number: 7,
+      source_layer: 'ocr',
+      page_representation_digest: effectiveDigest,
+      pixel_width: 1224,
+      pixel_height: 1584,
+    }]);
+    expect(built.closure.status).toBe('complete');
+  });
+
   it('materializes exact accepted observations with complete closure and deterministic order', () => {
     const a = identifiedToken('item:4', 'Alpha', 10, 100);
     const b = identifiedToken('item:5', 'Alpha', 10, 100);

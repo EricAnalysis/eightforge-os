@@ -441,13 +441,14 @@ function isRowSpineToken(token: PdfToken): boolean {
 }
 
 function sourceRefForToken(token: PdfToken): PricedScheduleCellSourceRef {
+  const ocrBox = token.source === 'ocr_fallback' ? token.ocr_source_geometry?.bbox : undefined;
   return {
     ...(token.observation_id ? { observation_id: token.observation_id } : {}),
     text: token.text,
-    x_min: token.x,
-    x_max: token.x + token.width,
-    y_min: token.y,
-    y_max: token.y + token.height,
+    x_min: ocrBox?.x0 ?? token.x,
+    x_max: ocrBox?.x1 ?? token.x + token.width,
+    y_min: ocrBox?.y0 ?? token.y,
+    y_max: ocrBox?.y1 ?? token.y + token.height,
     ...(token.source ? { source: token.source } : {}),
     ...(token.confidence == null ? {} : { confidence: token.confidence }),
   };
@@ -679,10 +680,17 @@ function candidateEvidence(tokens: readonly PdfToken[]) {
     observationId: token.observation_id,
     sourceLayer: token.source === 'ocr_fallback' ? 'ocr' as const : 'pdf_native_text' as const,
     rawText: token.text.trim(),
-    boundingBox: {
-      xMin: token.x, xMax: token.x + token.width,
-      yMin: token.y, yMax: token.y + token.height,
-    },
+    boundingBox: token.source === 'ocr_fallback' && token.ocr_source_geometry
+      ? {
+          xMin: token.ocr_source_geometry.bbox.x0,
+          xMax: token.ocr_source_geometry.bbox.x1,
+          yMin: token.ocr_source_geometry.bbox.y0,
+          yMax: token.ocr_source_geometry.bbox.y1,
+        }
+      : {
+          xMin: token.x, xMax: token.x + token.width,
+          yMin: token.y, yMax: token.y + token.height,
+        },
   }] : []);
 }
 

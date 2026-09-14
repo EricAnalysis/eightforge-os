@@ -243,6 +243,29 @@ it('admits only policy-allowed recovery types during candidate generation', () =
     candidate.recoveryType === 'pricing_rate_multi_observation_cluster')).toBe(false);
 });
 
+it('keeps normalized OCR geometry internal while candidates retain original pixel evidence', () => {
+  const layout = splitAmbiguousPageLayout();
+  for (const token of layout.pages.flatMap((page) => page.lines)
+    .flatMap((line) => line.tokens).filter((entry) => entry.observation_id)) {
+    token.source = 'ocr_fallback';
+    token.ocr_source_geometry = {
+      bbox: { x0: token.x * 2, y0: 100, x1: (token.x + token.width) * 2, y1: 120 },
+      pixel_width: 1224,
+      pixel_height: 1584,
+    };
+  }
+  const generated = buildPagePricedScheduleReconstruction({
+    layout,
+    recoveryCandidateBuildContext: candidateBuildContext,
+  }).recovery_candidates ?? [];
+  const candidate = generated.find((entry) =>
+    entry.recoveryType === 'pricing_rate_multi_observation_cluster');
+  expect(candidate).toBeDefined();
+  expect(candidate!.evidence.every((entry) => entry.sourceLayer === 'ocr')).toBe(true);
+  expect(candidate!.evidence[0]!.boundingBox.yMin).toBe(100);
+  expect(candidate!.evidence[0]!.boundingBox.yMax).toBe(120);
+});
+
 const confirm = (observationId: string, text: string): ConfirmedRateObservation =>
   ({ observation_id: observation(observationId), confirmed_raw_text: text });
 

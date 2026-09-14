@@ -65,6 +65,11 @@ function wordToToken(
   params: {
     pageNumber: number;
     wordIndex: number;
+    ocrWidth: number;
+    ocrHeight: number;
+    pageWidth: number;
+    pageHeight: number;
+    normalizeToPdf: boolean;
     pageRepresentationDigest: string | null;
     identityContext?: PdfLayoutObservationIdentityContext | null;
   },
@@ -77,6 +82,11 @@ function wordToToken(
   const width = Math.max(0, x1 - x0);
   const height = Math.max(0, y1 - y0);
   if (width === 0 && height === 0) return null;
+  if (params.ocrWidth <= 0 || params.ocrHeight <= 0 || params.pageWidth <= 0 || params.pageHeight <= 0) {
+    return null;
+  }
+  const scaleX = params.pageWidth / params.ocrWidth;
+  const scaleY = params.pageHeight / params.ocrHeight;
   // Tesseract reports word confidence on a 0-100 scale; normalize to 0-1 here
   // so it's directly comparable against the codebase's existing 0.85/0.65
   // confidence-label convention instead of carrying a second scale downstream.
@@ -95,20 +105,42 @@ function wordToToken(
     : null;
   return {
     text,
-    x: Math.round(x0 * 1000) / 1000,
-    y: Math.round(y0 * 1000) / 1000,
-    width: Math.round(width * 1000) / 1000,
-    height: Math.round(height * 1000) / 1000,
+    // Canonical layout space is PDF page points with a bottom-left, Y-up
+    // origin. Original OCR pixel geometry remains in the located-OCR sidecar.
+    x: Math.round((params.normalizeToPdf ? x0 * scaleX : x0) * 1000) / 1000,
+    y: Math.round((params.normalizeToPdf ? params.pageHeight - (y1 * scaleY) : y0) * 1000) / 1000,
+    width: Math.round((params.normalizeToPdf ? width * scaleX : width) * 1000) / 1000,
+    height: Math.round((params.normalizeToPdf ? height * scaleY : height) * 1000) / 1000,
     source: 'ocr_fallback',
     confidence,
+    ocr_source_geometry: {
+      bbox: { x0, y0, x1, y1 },
+      pixel_width: params.ocrWidth,
+      pixel_height: params.ocrHeight,
+    },
     ...(observationIdentity
       ? { observation_id: observationIdentity.id, observation_identity: observationIdentity }
       : {}),
   };
 }
 
-function lineCenter(token: PdfToken): number {
-  return token.y + (token.height / 2);
+/**
+ * Line grouping runs in the OCR engine's own top-left render space, where its
+ * tolerances were established. Normalization changes only the coordinates
+ * handed downstream, never which words share a line.
+ */
+function sourceLineCenter(token: PdfToken): number {
+  const bbox = token.ocr_source_geometry?.bbox;
+  return bbox ? (bbox.y0 + bbox.y1) / 2 : token.y + (token.height / 2);
+}
+
+function sourceHeight(token: PdfToken): number {
+  const bbox = token.ocr_source_geometry?.bbox;
+  return bbox ? Math.max(0, bbox.y1 - bbox.y0) : token.height;
+}
+
+function sourceX(token: PdfToken): number {
+  return token.ocr_source_geometry?.bbox.x0 ?? token.x;
 }
 
 function median(values: number[]): number {
@@ -123,8 +155,17 @@ function median(values: number[]): number {
 export function buildOcrLayoutPages(
   pages: OcrGeometryPage[],
   identityContext?: PdfLayoutObservationIdentityContext | null,
+  targetPages?: ReadonlyMap<number, PdfLayoutPage>,
 ): PdfLayoutPage[] {
-  return pages.map((page) => {
+  return pages.flatMap((page) => {
+    const targetPage = targetPages?.get(page.page_number);
+    // Direct callers without a target layout retain the legacy coordinate
+    // scale. Merge callers always supply the native PDF page dimensions.
+    const ocrWidth = page.width ?? targetPage?.width ?? 1;
+    const ocrHeight = page.height ?? targetPage?.height ?? 1;
+    const pageWidth = targetPage?.width ?? page.width ?? ocrWidth;
+    const pageHeight = targetPage?.height ?? page.height ?? ocrHeight;
+    const normalizeToPdf = Boolean(targetPage?.width && targetPage?.height && page.width && page.height);
     const pageRepresentationDigest = identityContext
       ? pdfLayoutPageRepresentationDigest({
           representation_key: page.representation_key ?? null,
@@ -140,18 +181,24 @@ export function buildOcrLayoutPages(
       .map((word, wordIndex) => wordToToken(word, {
         pageNumber: page.page_number,
         wordIndex,
+        ocrWidth,
+        ocrHeight,
+        pageWidth,
+        pageHeight,
+        normalizeToPdf,
         pageRepresentationDigest,
         identityContext,
       }))
       .filter((token): token is PdfToken => token != null)
-      .sort((left, right) => lineCenter(left) - lineCenter(right) || left.x - right.x);
+      .sort((left, right) => sourceLineCenter(left) - sourceLineCenter(right)
+        || sourceX(left) - sourceX(right));
 
-    const medianHeight = median(tokens.map((token) => token.height).filter((height) => height > 0));
+    const medianHeight = median(tokens.map(sourceHeight).filter((height) => height > 0));
     const tolerance = Math.max(8, medianHeight * 0.65);
     const buckets: Array<{ center: number; tokens: PdfToken[] }> = [];
 
     for (const token of tokens) {
-      const center = lineCenter(token);
+      const center = sourceLineCenter(token);
       const bucket = buckets.find((candidate) => Math.abs(candidate.center - center) <= tolerance);
       if (bucket) {
         bucket.tokens.push(token);
@@ -162,10 +209,26 @@ export function buildOcrLayoutPages(
     }
 
     buckets.sort((left, right) => left.center - right.center);
+    // A line's position leaves in the same space as its tokens: bottom-left
+    // PDF points when normalized, legacy render pixels otherwise.
+    // Native pdf.js tokens on one visual line share a baseline, and
+    // reconstruction groups tokens by that shared value. A normalized OCR line
+    // therefore gives every word the line's baseline (its lowest source edge in
+    // PDF points); each word's exact render box stays in ocr_source_geometry.
+    const baselineFor = (bucketTokens: readonly PdfToken[]) => pageHeight
+      - (Math.max(...bucketTokens.map((token) => token.ocr_source_geometry?.bbox.y1 ?? 0))
+        * (pageHeight / ocrHeight));
+    const lineY = (bucket: Readonly<{ center: number; tokens: readonly PdfToken[] }>) => normalizeToPdf
+      ? baselineFor(bucket.tokens)
+      : bucket.center;
 
     const lines = buckets
       .map((bucket, index) => {
-        bucket.tokens.sort((left, right) => left.x - right.x);
+        bucket.tokens.sort((left, right) => sourceX(left) - sourceX(right));
+        if (normalizeToPdf) {
+          const baseline = Math.round(baselineFor(bucket.tokens) * 1000) / 1000;
+          bucket.tokens = bucket.tokens.map((token) => ({ ...token, y: baseline }));
+        }
         const text = bucket.tokens.map((token) => token.text).join(' ').trim();
         const first = bucket.tokens[0];
         const last = bucket.tokens.at(-1);
@@ -177,7 +240,7 @@ export function buildOcrLayoutPages(
           kind: classifyLine(text, bucket.tokens),
           x_min: first?.x ?? 0,
           x_max: last ? last.x + last.width : 0,
-          y: Math.round(bucket.center * 1000) / 1000,
+          y: Math.round(lineY(bucket) * 1000) / 1000,
           source: 'ocr_fallback',
         } satisfies PdfLayoutLine;
       })
@@ -185,20 +248,58 @@ export function buildOcrLayoutPages(
 
     return {
       page_number: page.page_number,
+      width: pageWidth,
+      height: pageHeight,
       lines,
       source: 'ocr_fallback',
+      ...(pageRepresentationDigest ? { effective_representation_digest: pageRepresentationDigest } : {}),
     };
   });
 }
+
+function normalizedText(value: string): string {
+  return value.normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function overlaps(left: PdfToken, right: PdfToken): boolean {
+  const x = Math.max(0, Math.min(left.x + left.width, right.x + right.width) - Math.max(left.x, right.x));
+  const y = Math.max(0, Math.min(left.y + left.height, right.y + right.height) - Math.max(left.y, right.y));
+  const intersection = x * y;
+  const smaller = Math.min(left.width * left.height, right.width * right.height);
+  return smaller > 0 && intersection / smaller >= 0.5;
+}
+
+function effectiveDigest(page: PdfLayoutPage): string | undefined {
+  return page.effective_representation_digest
+    ?? page.lines.flatMap((line) => line.tokens)
+      .find((token) => token.observation_identity)?.observation_identity?.page_representation_digest;
+}
+
+/**
+ * Two layout representations are produced from the same native layout and OCR
+ * geometry, because their consumers were built on different coordinate spaces:
+ *
+ * - `reconciled_pdf_points` (priced-schedule reconstruction, layout
+ *   observations, recovery candidates): OCR geometry normalized into
+ *   bottom-left PDF points, and non-duplicate OCR admitted onto pages that also
+ *   carry native text, so a stamp or header cannot discard an OCR table.
+ * - `legacy_render_pixels` (default; structural table, text and form layers):
+ *   unchanged merge semantics. Native pages win whole, and OCR-only pages keep
+ *   top-left render pixels, which the OCR table geometry heuristics depend on.
+ */
+export type OcrLayoutRepresentation = 'reconciled_pdf_points' | 'legacy_render_pixels';
 
 export function mergeOcrFallbackLayout(params: {
   nativeLayout: PdfLayout;
   ocrPages: OcrGeometryPage[];
   ocrTextPageNumbers?: number[];
   observationIdentity?: PdfLayoutObservationIdentityContext | null;
+  representation?: OcrLayoutRepresentation;
 }): OcrLayoutMergeResult {
+  const reconciled = params.representation === 'reconciled_pdf_points';
+  const nativeByPage = new Map(params.nativeLayout.pages.map((page) => [page.page_number, page] as const));
   const ocrLayoutByPage = new Map(
-    buildOcrLayoutPages(params.ocrPages, params.observationIdentity)
+    buildOcrLayoutPages(params.ocrPages, params.observationIdentity, reconciled ? nativeByPage : undefined)
       .map((page) => [page.page_number, page] as const),
   );
   const ocrTextPageSet = new Set(params.ocrTextPageNumbers ?? []);
@@ -209,6 +310,50 @@ export function mergeOcrFallbackLayout(params: {
   let ocrTableCandidateCount = 0;
 
   const pages = params.nativeLayout.pages.map((nativePage) => {
+    const ocrPage = ocrLayoutByPage.get(nativePage.page_number);
+    // Native and OCR evidence may share a page only once both are in PDF points.
+    // Without exact page and render dimensions, native precedence is kept.
+    const ocrSource = params.ocrPages.find((page) => page.page_number === nativePage.page_number);
+    const normalizable = Boolean(nativePage.width && nativePage.height
+      && ocrSource?.width && ocrSource?.height);
+    if (reconciled && normalizable
+      && nativePage.lines.length > 0 && ocrPage && ocrPage.lines.length > 0) {
+      const nativeTokens = nativePage.lines.flatMap((line) => line.tokens);
+      const admittedOcrLines = ocrPage.lines.flatMap((line) => {
+        const tokens = line.tokens.filter((ocrToken) => !nativeTokens.some((nativeToken) =>
+          normalizedText(nativeToken.text) === normalizedText(ocrToken.text) && overlaps(nativeToken, ocrToken)));
+        if (tokens.length === 0) return [];
+        const text = tokens.map((token) => token.text).join(' ').trim();
+        return [{
+          ...line,
+          text,
+          tokens,
+          kind: classifyLine(text, tokens),
+          x_min: tokens[0]?.x ?? 0,
+          x_max: (tokens.at(-1)?.x ?? 0) + (tokens.at(-1)?.width ?? 0),
+        } satisfies PdfLayoutLine];
+      });
+      if (admittedOcrLines.length > 0) {
+        pagesUsingNative.push(nativePage.page_number);
+        pagesUsingOcr.push(nativePage.page_number);
+        ocrLineCount += admittedOcrLines.length;
+        ocrTableCandidateCount += admittedOcrLines.filter((line) => line.kind === 'table_candidate').length;
+        const nativeDigest = effectiveDigest(nativePage) ?? null;
+        const ocrDigest = effectiveDigest(ocrPage) ?? null;
+        return {
+          ...nativePage,
+          lines: [...nativePage.lines, ...admittedOcrLines]
+            .sort((left, right) => (right.y - left.y) || (left.x_min - right.x_min)),
+          source: 'mixed',
+          ...(params.observationIdentity ? {
+            effective_representation_digest: pdfLayoutPageRepresentationDigest({
+              representation: 'mixed_native_ocr_v1', native_digest: nativeDigest, ocr_digest: ocrDigest,
+            }),
+          } : {}),
+        } satisfies PdfLayoutPage;
+      }
+    }
+
     if (nativePage.lines.length > 0) {
       pagesUsingNative.push(nativePage.page_number);
       return {
@@ -217,7 +362,6 @@ export function mergeOcrFallbackLayout(params: {
       } satisfies PdfLayoutPage;
     }
 
-    const ocrPage = ocrLayoutByPage.get(nativePage.page_number);
     if (ocrPage && ocrPage.lines.length > 0) {
       pagesUsingOcr.push(nativePage.page_number);
       ocrLineCount += ocrPage.lines.length;

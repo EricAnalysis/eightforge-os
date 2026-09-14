@@ -130,15 +130,15 @@ describe('OCR geometry layout recovery', () => {
     expect(merged.diagnostics.ocr_derived_line_count).toBe(1);
   });
 
-  it('does not override native layout when native lines exist', () => {
+  it('keeps legacy native precedence and render pixels for structural consumers', () => {
     const merged = mergeOcrFallbackLayout({
       nativeLayout: {
         page_count: 1,
         gaps: [],
-        pages: [{ page_number: 1, lines: [nativeLine('Native PDF text')] }],
+        pages: [{ page_number: 1, width: 612, height: 792, lines: [nativeLine('Native PDF text')] }],
       },
       ocrPages: [{
-        page_number: 1,
+        page_number: 1, width: 1224, height: 1584,
         words: [word('OCR', 10, 20), word('text', 50, 20)],
       }],
       ocrTextPageNumbers: [1],
@@ -147,6 +147,104 @@ describe('OCR geometry layout recovery', () => {
     expect(merged.layout.pages[0]?.lines[0]?.text).toBe('Native PDF text');
     expect(merged.diagnostics.pages_using_native_layout).toEqual([1]);
     expect(merged.diagnostics.pages_using_ocr_derived_layout).toEqual([]);
+  });
+
+  it('admits non-overlapping OCR beside native text in the reconciled representation', () => {
+    const merged = mergeOcrFallbackLayout({
+      nativeLayout: {
+        page_count: 1,
+        gaps: [],
+        pages: [{ page_number: 1, width: 612, height: 792, lines: [nativeLine('DocuSign Envelope')] }],
+      },
+      ocrPages: [{
+        page_number: 1, width: 1224, height: 1584,
+        words: [word('Unit', 100, 400), word('Price', 180, 400)],
+      }],
+      ocrTextPageNumbers: [1],
+      representation: 'reconciled_pdf_points',
+    });
+
+    expect(merged.layout.pages[0]?.lines.map((line) => line.text).sort()).toEqual([
+      'DocuSign Envelope', 'Unit Price',
+    ]);
+    expect(merged.layout.pages[0]?.source).toBe('mixed');
+    expect(merged.layout.pages[0]?.effective_representation_digest).toBeUndefined();
+    expect(merged.diagnostics.pages_using_native_layout).toEqual([1]);
+    expect(merged.diagnostics.pages_using_ocr_derived_layout).toEqual([1]);
+  });
+
+  it('keeps native precedence when a mixed page cannot be normalized exactly', () => {
+    const merged = mergeOcrFallbackLayout({
+      nativeLayout: { page_count: 1, gaps: [], pages: [{ page_number: 1, lines: [nativeLine('Native')] }] },
+      ocrPages: [{ page_number: 1, words: [word('OCR', 10, 400)] }],
+      representation: 'reconciled_pdf_points',
+    });
+    expect(merged.layout.pages[0]?.lines.map((line) => line.text)).toEqual(['Native']);
+  });
+
+  it('normalizes OCR render pixels into bottom-left PDF points before reconstruction', () => {
+    const merged = mergeOcrFallbackLayout({
+      nativeLayout: {
+        page_count: 1, gaps: [], pages: [{ page_number: 1, width: 612, height: 792, lines: [] }],
+      },
+      ocrPages: [{
+        page_number: 1, width: 1224, height: 1584,
+        words: [{ text: 'Rate', bbox: { x0: 200, y0: 300, x1: 400, y1: 340 } }],
+      }],
+      representation: 'reconciled_pdf_points',
+    });
+    const token = merged.layout.pages[0]!.lines[0]!.tokens[0]!;
+    expect(token).toMatchObject({ x: 100, y: 622, width: 100, height: 20 });
+    expect(token.ocr_source_geometry).toEqual({
+      bbox: { x0: 200, y0: 300, x1: 400, y1: 340 }, pixel_width: 1224, pixel_height: 1584,
+    });
+  });
+
+  it('gives normalized OCR words on one visual line one shared baseline in reading order', () => {
+    const merged = mergeOcrFallbackLayout({
+      nativeLayout: {
+        page_count: 1, gaps: [], pages: [{ page_number: 1, width: 612, height: 792, lines: [] }],
+      },
+      ocrPages: [{
+        page_number: 1, width: 1224, height: 1584,
+        words: [
+          { text: 'Hauling', bbox: { x0: 330, y0: 300, x1: 460, y1: 346 } },
+          { text: 'Loading', bbox: { x0: 100, y0: 302, x1: 230, y1: 340 } },
+          { text: 'Debris', bbox: { x0: 100, y0: 360, x1: 210, y1: 400 } },
+        ],
+      }],
+      representation: 'reconciled_pdf_points',
+    });
+    const [first, second] = merged.layout.pages[0]!.lines;
+    expect(first!.text).toBe('Loading Hauling');
+    expect(new Set(first!.tokens.map((token) => token.y))).toEqual(new Set([619]));
+    expect(first!.y).toBe(619);
+    expect(second!.text).toBe('Debris');
+    // Bottom-left Y-up: the visually lower line has the smaller y.
+    expect(second!.y).toBeLessThan(first!.y);
+  });
+
+  it('deduplicates spatially overlapping equal text with native precedence', () => {
+    const line = nativeLine('Rate');
+    const nativeToken = line.tokens[0]!;
+    const merged = mergeOcrFallbackLayout({
+      nativeLayout: { page_count: 1, gaps: [], pages: [{ page_number: 1, width: 612, height: 792, lines: [line] }] },
+      ocrPages: [{
+        page_number: 1, width: 612, height: 792,
+        words: [{
+          text: 'Rate',
+          bbox: {
+            x0: nativeToken.x,
+            y0: 792 - nativeToken.y - nativeToken.height,
+            x1: nativeToken.x + nativeToken.width,
+            y1: 792 - nativeToken.y,
+          },
+        }],
+      }],
+      representation: 'reconciled_pdf_points',
+    });
+    expect(merged.layout.pages[0]!.lines).toEqual([line]);
+    expect(merged.layout.pages[0]!.source).toBe('pdfjs');
   });
 
   it('emits a diagnostic warning when OCR text exists but geometry is missing', () => {

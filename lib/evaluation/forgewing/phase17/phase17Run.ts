@@ -347,10 +347,30 @@ function statistics(values: readonly number[]) {
   };
 }
 
+/**
+ * Read every operator control exactly once. Execution mode, provenance, ceilings,
+ * pricing and artifact location all derive from this frozen snapshot, so a getter
+ * cannot make `live` and `providerExecution` disagree (e.g. execute with the real
+ * provider while provenance reads `dry_run` and skips the integrity refusal).
+ */
+function snapshotPhase17RunParams(params: Phase17RunParams): Phase17RunParams {
+  return Object.freeze({
+    mode: params.mode,
+    corpusBytes: params.corpusBytes,
+    artifactRoot: params.artifactRoot,
+    maxCalls: params.maxCalls,
+    maxSpendUsd: params.maxSpendUsd,
+    inputUsdPerMillionTokens: params.inputUsdPerMillionTokens,
+    outputUsdPerMillionTokens: params.outputUsdPerMillionTokens,
+  } satisfies { readonly [Key in keyof Required<Phase17RunParams>]: Phase17RunParams[Key] });
+}
+
 export async function runPhase17ContinuationEvaluation(
-  params: Phase17RunParams,
+  rawParams: Phase17RunParams,
   dependencies: Phase17RunDependencies = {},
 ): Promise<Phase17RunOutcome> {
+  // Both caller-owned objects are read once, synchronously, before anything else.
+  const params = snapshotPhase17RunParams(rawParams);
   const injected = snapshotPhase17RunDependencies(dependencies);
   const live = params.mode === 'provider_enabled';
   if (params.mode !== 'dry_run' && !live) fail('invalid_mode', String(params.mode));

@@ -412,6 +412,99 @@ describe('Phase 17 run orchestration', () => {
       expect(realClaudeClient).not.toHaveBeenCalled();
     });
 
+    /**
+     * Operator params whose `key` getter returns `first` on the first read and
+     * `later` on every read after it. Reads are counted.
+     */
+    function statefulParams<Key extends keyof Phase17RunParams>(base: Phase17RunParams, key: Key,
+      first: Phase17RunParams[Key], later: Phase17RunParams[Key]) {
+      const reads = { count: 0 };
+      const object = { ...base } as Record<string, unknown>;
+      delete object[key];
+      Object.defineProperty(object, key, {
+        enumerable: true,
+        get: () => {
+          reads.count += 1;
+          return reads.count === 1 ? first : later;
+        },
+      });
+      return { params: object as unknown as Phase17RunParams, reads };
+    }
+
+    describe('operator params are snapshotted once (TOCTOU)', () => {
+      it('refuses a provider_enabled-then-dry_run mode getter before any cohort, artifact or call', async () => {
+        // The re-check attack: `live` from one read, provenance from another.
+        // Before the fix this executed 48 real-provider calls recorded as dry_run.
+        const root = tempRoot();
+        const { params: stateful, reads } = statefulParams(liveParams({ artifactRoot: root }),
+          'mode', 'provider_enabled', 'dry_run');
+        let injectedCohortCalls = 0;
+        // Real observed seam (no createProvider) plus injected behavioral hooks.
+        const { createProvider: _mock, ...injectedHooks } = dependencies({
+          buildCohort: async () => {
+            injectedCohortCalls += 1;
+            return cohort;
+          },
+        });
+        await expect(runPhase17ContinuationEvaluation(stateful, injectedHooks))
+          .rejects.toThrow(/HARNESS_INTEGRITY_NOT_TRUSTED/);
+        expect(reads.count).toBe(1);
+        expect(injectedCohortCalls).toBe(0);
+        expect(readdirSync(root)).toEqual([]); // no freeze, summary or raw file
+        expect(realClaudeClient).not.toHaveBeenCalled();
+        expect(supabaseAdmin).not.toHaveBeenCalled();
+      });
+
+      it('keeps a dry_run-then-provider_enabled mode getter a pure dry run', async () => {
+        const counter = { count: 0 };
+        const { params: stateful, reads } = statefulParams(liveParams(), 'mode', 'dry_run', 'provider_enabled');
+        const outcome = await runPhase17ContinuationEvaluation(stateful, dependencies({}, counter));
+        expect(reads.count).toBe(1);
+        expect(counter.count).toBe(0);
+        expect(outcome).toMatchObject({ providerExecution: 'dry_run', localRawPath: null });
+        expect(outcome.freeze).toMatchObject({ executionMode: 'dry_run', providerExecution: 'dry_run' });
+        expect(outcome.summary).toMatchObject({ executionMode: 'dry_run',
+          accounting: { executedCalls: 0, providerInvocations: 0 } });
+        expect(realClaudeClient).not.toHaveBeenCalled();
+      });
+
+      it('records and enforces the call ceiling that was validated, not a later getter value', async () => {
+        const { params: stateful, reads } = statefulParams(liveParams(), 'maxCalls', 48, 1_000);
+        const outcome = await runPhase17ContinuationEvaluation(stateful, dependencies());
+        expect(reads.count).toBe(1);
+        expect(outcome.freeze.callPlan.maxCalls).toBe(48);
+        expect(outcome.summary.accounting).toMatchObject({ maxCalls: 48, executedCalls: 48 });
+      }, 30_000);
+
+      it('writes every artifact under the artifact root that was captured', async () => {
+        const captured = tempRoot();
+        const decoy = tempRoot();
+        const { params: stateful, reads } = statefulParams(liveParams({ artifactRoot: captured }),
+          'artifactRoot', captured, decoy);
+        const outcome = await runPhase17ContinuationEvaluation(stateful, dependencies());
+        expect(reads.count).toBe(1);
+        for (const artifact of [outcome.freezePath, outcome.summaryPath, outcome.localRawPath!]) {
+          expect(path.resolve(artifact).startsWith(path.resolve(captured))).toBe(true);
+        }
+        expect(readdirSync(decoy)).toEqual([]);
+      }, 30_000);
+
+      it('prices, bounds and records spend from the pricing that was captured', async () => {
+        const input = statefulParams(liveParams(), 'inputUsdPerMillionTokens', 3, 1_000_000);
+        const { params: stateful, reads: outputReads } = statefulParams(input.params,
+          'outputUsdPerMillionTokens', 15, 1_000_000);
+        const spend = statefulParams(stateful, 'maxSpendUsd', 2, 0.000_001);
+        const outcome = await runPhase17ContinuationEvaluation(spend.params, dependencies());
+        expect({ input: input.reads.count, output: outputReads.count, spend: spend.reads.count })
+          .toEqual({ input: 1, output: 1, spend: 1 });
+        expect(outcome.freeze.cost).toMatchObject({
+          inputUsdPerMillionTokens: 3, outputUsdPerMillionTokens: 15, maxSpendUsd: 2 });
+        expect(outcome.freeze.cost.estimatedMaxSpendUsd).toBeLessThan(2);
+        // Per-call cost uses the captured prices: mock usage is 2,000 in / 40 out.
+        expect(outcome.summary.units[0]!.estimatedCostUsd).toBeCloseTo((2_000 * 3 + 40 * 15) / 1_000_000, 12);
+      }, 30_000);
+    });
+
     it('keeps dependency injection for mocked runs, tagged and never recommendable', async () => {
       const outcome = await runPhase17ContinuationEvaluation(liveParams(), dependencies());
       expect(outcome.harnessIntegrity).toBe('injected_test_hooks');

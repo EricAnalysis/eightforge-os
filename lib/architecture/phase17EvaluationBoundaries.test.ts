@@ -231,6 +231,26 @@ describe('Phase 17 evaluation boundaries', () => {
       expect(classifier.slice(0, classifier.indexOf('): Promise'))).not.toContain('trustedSeams');
     });
 
+    it('reads each caller-owned object exactly once, into a frozen snapshot, before anything else', () => {
+      const run = code(RUN);
+      const body = run.slice(run.indexOf('export async function runPhase17ContinuationEvaluation('));
+      // The raw operator object is read only by its snapshot.
+      expect([...run.matchAll(/\brawParams\b/g)].length).toBe(2);
+      expect(body).toMatch(/const params = snapshotPhase17RunParams\(rawParams\);\s*const injected = snapshotPhase17RunDependencies\(dependencies\);/);
+      expect(body.indexOf('const params = snapshotPhase17RunParams(rawParams);'))
+        .toBeLessThan(body.indexOf('await '));
+      expect(run).toMatch(/function snapshotPhase17RunParams[\s\S]*?Object\.freeze\(/);
+      // Every operator key must be captured: omitting or adding one fails type-checking.
+      expect(run).toContain('satisfies { readonly [Key in keyof Required<Phase17RunParams>]: Phase17RunParams[Key] }');
+      // The raw object is dereferenced only inside its snapshot constructor.
+      const snapshotter = run.slice(run.indexOf('function snapshotPhase17RunParams('),
+        run.indexOf('export async function runPhase17ContinuationEvaluation('));
+      expect([...snapshotter.matchAll(/\bparams\.([A-Za-z]+)/g)].map((match) => match[1]).sort())
+        .toEqual(['artifactRoot', 'corpusBytes', 'inputUsdPerMillionTokens', 'maxCalls', 'maxSpendUsd',
+          'mode', 'outputUsdPerMillionTokens']);
+      expect(body).not.toMatch(/\brawParams\./);
+    });
+
     it('decides integrity before reading the corpus, labels, pins or writing anything', () => {
       const run = code(RUN);
       const gate = run.indexOf("fail('harness_integrity_not_trusted'");

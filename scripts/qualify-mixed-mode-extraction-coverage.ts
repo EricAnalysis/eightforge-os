@@ -83,6 +83,12 @@ const SOURCES = {
     documentType: 'price_sheet',
     guidancePages: [3],
   },
+  horner: {
+    path: requiredPath('MIXED_MODE_HORNER_SOURCE_PDF', process.env.MIXED_MODE_HORNER_SOURCE_PDF),
+    sha256: 'fa92143f08b639d3fd1d29606fb845c0d50bfee1dea40a2616698cead7c7666a',
+    documentType: 'contract',
+    guidancePages: [] as number[],
+  },
 } as const;
 
 type ExtractionRecord = Record<string, unknown>;
@@ -124,8 +130,9 @@ async function extractTwice(key: keyof typeof SOURCES, identity: Readonly<{ docu
 }
 
 type CoveragePage = Readonly<{
-  page_number: number; final_state: string; priority: boolean;
+  page_number: number; final_state: string; priority: boolean; reasons: readonly string[];
   ocr: Readonly<{ state: string }>; native: Readonly<{ state: string }>;
+  render_decode?: Readonly<{ state: string; decode_failures: ReadonlyArray<Readonly<{ decoder: string }>> }>;
 }>;
 
 function coveragePages(pdf: ExtractionRecord): Map<number, CoveragePage> {
@@ -225,11 +232,64 @@ assert(hillsdaleCoverage.get(3)?.priority === true && hillsdaleCoverage.get(3)?.
 assert(hillsdaleCoverage.get(1)?.final_state === 'native_complete',
   'Hillsdale native page 1 must not be OCRed');
 
+// Horner: stamp-over-scan pages whose JPEG2000 scans do not decode server-side.
+// A render that skipped the scan is not OCR coverage of it, whatever the stamp
+// OCR returned, so exactly these pages must fail closed and carry no OCR evidence.
+const HORNER_DECODE_FAILED_PAGES = [
+  ...Array.from({ length: 27 }, (_, index) => 35 + index),
+  ...Array.from({ length: 16 }, (_, index) => 74 + index),
+  96, 97, 99, 101,
+];
+assert(HORNER_DECODE_FAILED_PAGES.length === 47, 'the frozen Horner decode-failure set has 47 pages');
+const horner = await extractTwice('horner', {
+  documentId: '61800000-0000-4000-8000-0000000000c1', artifactId: '61800000-0000-4000-8000-0000000001c1',
+});
+const hornerCoverage = coveragePages(horner);
+const hornerDecodeFailed = [...hornerCoverage.values()]
+  .filter((page) => page.render_decode !== undefined)
+  .map((page) => page.page_number)
+  .sort((left, right) => left - right);
+assert(JSON.stringify(hornerDecodeFailed) === JSON.stringify(HORNER_DECODE_FAILED_PAGES),
+  `Horner decode-failure pages changed: ${hornerDecodeFailed.join(',')}`);
+for (const pageNumber of HORNER_DECODE_FAILED_PAGES) {
+  const page = hornerCoverage.get(pageNumber);
+  assert(page?.final_state === 'coverage_failed' && page.ocr.state === 'failed'
+    && page.reasons.includes('image_decode_failed')
+    && page.render_decode?.state === 'failed'
+    && (page.render_decode.decode_failures.length ?? 0) > 0,
+  `Horner page ${pageNumber} must fail closed on its undecoded image, not claim coverage`);
+}
+const hornerOcrComplete = [...hornerCoverage.values()].filter((page) => page.final_state === 'ocr_complete');
+assert(hornerOcrComplete.length === 36 && hornerOcrComplete.every((page) =>
+  !HORNER_DECODE_FAILED_PAGES.includes(page.page_number) && page.ocr.state === 'produced'),
+`Horner decodable OCR pages must remain ocr_complete (${hornerOcrComplete.length})`);
+for (const pageNumber of [1, 9, 175]) {
+  // Native-complete pages with small undecodable logos never relied on the image.
+  assert(hornerCoverage.get(pageNumber)?.final_state === 'native_complete',
+    `Horner native page ${pageNumber} must remain native_complete`);
+}
+const hornerFailedSet = new Set(HORNER_DECODE_FAILED_PAGES);
+const hornerObservations = (horner.layout_observations_v1 as {
+  observations?: Array<{ physical_page_number: number; source_method: string }>;
+} | undefined)?.observations ?? [];
+assert(hornerObservations.every((observation) => !(observation.source_method === 'ocr_fallback'
+  && hornerFailedSet.has(observation.physical_page_number))),
+'no OCR observation may come from a Horner page whose image did not decode');
+const hornerReconstruction = horner.priced_schedule_reconstruction_v1 as {
+  pages?: Array<{ physical_page_number: number; rows: Array<{ cells: Array<{ source_refs: Array<{ source?: string }> }> }> }>;
+} | undefined;
+assert((hornerReconstruction?.pages ?? []).every((page) => !hornerFailedSet.has(page.physical_page_number)
+  || page.rows.every((row) => row.cells.every((cell) =>
+    cell.source_refs.every((ref) => ref.source !== 'ocr_fallback')))),
+'no reconstructed row may cite OCR from a Horner page whose image did not decode');
+
 assert(networkAttempts.length === 0, `network or provider access was attempted: ${networkAttempts.join(', ')}`);
 
 process.stdout.write(
   'MIXED-MODE EXTRACTION COVERAGE QUALIFICATION: PASS '
   + `(DN p106 ${dnUnits.size} native units, p107 OCR-covered; `
   + `Golden ${goldenPriced.length} OCR-backed priced page(s), ${goldenRendered} OCR boxes renderable; `
-  + 'Hillsdale p3 OCR-covered; 2 identical runs per source; 0 network calls)\n',
+  + 'Hillsdale p3 OCR-covered; '
+  + `Horner ${hornerDecodeFailed.length} undecoded pages failed closed, ${hornerOcrComplete.length} OCR-covered; `
+  + '2 identical runs per source; 0 network calls)\n',
 );

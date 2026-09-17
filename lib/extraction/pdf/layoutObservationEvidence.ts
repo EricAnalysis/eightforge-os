@@ -587,26 +587,49 @@ function buildCanonicalGeometrySidecar(
   layout: PdfLayout,
   durableObservationIds: ReadonlySet<string>,
 ): PdfLayoutCanonicalGeometrySidecar | null {
-  const pages = layout.pages.flatMap((page) => page.canonical_frame ? [Object.freeze({
-    physical_page_number: page.page_number,
-    page_representation_digest: page.effective_representation_digest ?? null,
-    frame: page.canonical_frame,
-  })] : []);
-  const seen = new Set<string>();
-  const observations = layout.pages.flatMap((page) => page.lines.flatMap((line) =>
-    line.tokens.flatMap((token) => {
-      const id = token.observation_id;
-      if (!id || !durableObservationIds.has(id) || seen.has(id) || !token.canonical_bbox) return [];
-      seen.add(id);
-      const source = sourceGeometryOf(token);
-      return [Object.freeze({
-        observation_id: String(id),
+  // One observation id must describe one token. A repeated id is exactly the
+  // condition the closure reports as `duplicate_observation_ids`, so its
+  // geometry is ambiguous and is dropped rather than resolved by first-wins.
+  const candidates = new Map<string, Readonly<{
+    observation_id: string;
+    physical_page_number: number;
+    source_coordinate_space: Exclude<GeometryCoordinateSpace, 'canonical_v1'>;
+    source_bounding_box: Readonly<{ x_min: number; x_max: number; y_min: number; y_max: number }>;
+    canonical_bounding_box: CanonicalBox;
+  }> | null>();
+  for (const page of layout.pages) {
+    for (const line of page.lines) {
+      for (const token of line.tokens) {
+        const id = token.observation_id;
+        if (!id || !durableObservationIds.has(id)) continue;
+        if (candidates.has(id)) {
+          candidates.set(id, null);
+          continue;
+        }
+        if (!token.canonical_bbox) continue;
+        const source = sourceGeometryOf(token);
+        candidates.set(id, Object.freeze({
+          observation_id: String(id),
+          physical_page_number: page.page_number,
+          source_coordinate_space: source.space,
+          source_bounding_box: Object.freeze(source.box),
+          canonical_bounding_box: token.canonical_bbox,
+        }));
+      }
+    }
+  }
+  const observations = [...candidates.values()].flatMap((entry) => entry ? [entry] : []);
+  // Frames are carried only for pages this sidecar actually describes; a frame
+  // for a page with no canonical observation would be persisted weight that
+  // nothing reads (the viewer derives its frame from the rendered page).
+  const describedPages = new Set(observations.map((entry) => entry.physical_page_number));
+  const pages = layout.pages.flatMap((page) => page.canonical_frame && describedPages.has(page.page_number)
+    ? [Object.freeze({
         physical_page_number: page.page_number,
-        source_coordinate_space: source.space,
-        source_bounding_box: Object.freeze(source.box),
-        canonical_bounding_box: token.canonical_bbox,
-      })];
-    })));
+        page_representation_digest: page.effective_representation_digest ?? null,
+        frame: page.canonical_frame,
+      })]
+    : []);
   if (pages.length === 0 && observations.length === 0) return null;
   return Object.freeze({
     frame_version: CANONICAL_FRAME_VERSION,
@@ -635,14 +658,13 @@ export function resolveCanonicalObservationBoxes(
   const resolved = new Map<string, CanonicalBox>();
   if (!isRecord(sidecar) || sidecar.frame_version !== CANONICAL_FRAME_VERSION
     || !Array.isArray(sidecar.observations)) return resolved;
-  const byId = new Map<string, Record<string, unknown>>();
+  // The persisted sidecar is untrusted. An id defined more than once is
+  // ambiguous and stays unusable however many times it repeats, so it is
+  // poisoned rather than deleted (a third copy must not resurrect it).
+  const byId = new Map<string, Record<string, unknown> | null>();
   for (const entry of sidecar.observations) {
     if (!isRecord(entry) || typeof entry.observation_id !== 'string') continue;
-    if (byId.has(entry.observation_id)) {
-      byId.delete(entry.observation_id);
-      continue;
-    }
-    byId.set(entry.observation_id, entry);
+    byId.set(entry.observation_id, byId.has(entry.observation_id) ? null : entry);
   }
   for (const target of expected) {
     const entry = byId.get(target.observationId);

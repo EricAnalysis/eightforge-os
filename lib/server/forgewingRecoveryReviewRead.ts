@@ -88,6 +88,8 @@ export type RecoveryReviewCandidate = Readonly<{
   sourceDocumentId: string;
   sourceArtifactId: string | null;
   pageRepresentationDigest: string | null;
+  ocrPixelWidth?: number;
+  ocrPixelHeight?: number;
   /** The deterministic reason the row was never emitted. */
   recoveryReason: string;
   proposedValue: string;
@@ -121,6 +123,29 @@ type SelectResult = { data: unknown; error: { message?: string } | null };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value != null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function exactOcrPageGeometry(
+  extractionData: unknown,
+  scope: Readonly<{ sourceArtifactId: string; physicalPageNumber: number;
+    pageRepresentationDigest: string }>,
+): Readonly<{ width: number; height: number }> | null {
+  const root = isRecord(extractionData) ? extractionData : null;
+  const extraction = isRecord(root?.extraction) ? root.extraction : null;
+  const layers = isRecord(extraction?.content_layers_v1) ? extraction.content_layers_v1 : null;
+  const pdf = isRecord(layers?.pdf) ? layers.pdf : null;
+  const observations = isRecord(pdf?.layout_observations_v1) ? pdf.layout_observations_v1 : null;
+  if (observations?.source_artifact_id !== scope.sourceArtifactId) return null;
+  const geometries = Array.isArray(observations.source_page_geometries)
+    ? observations.source_page_geometries.filter(isRecord) : [];
+  const matches = geometries.filter((entry) => entry.source_layer === 'ocr'
+    && entry.physical_page_number === scope.physicalPageNumber
+    && entry.page_representation_digest === scope.pageRepresentationDigest);
+  if (matches.length !== 1) return null;
+  const width = Number(matches[0]!.pixel_width);
+  const height = Number(matches[0]!.pixel_height);
+  return Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0
+    ? { width, height } : null;
 }
 
 function observations(
@@ -236,7 +261,7 @@ export async function readRecoveryReviewQueue(
 
   const proposalRead: SelectResult = await admin
     .from(RECOVERY_PROPOSAL_TABLE)
-    .select('id, proposal_id, proposal_digest_sha256, proposal_version, recovery_type, source_artifact_id, physical_page_number, page_representation_digest, recovery_reason, selected_observation_id, selected_candidate_id, proposed_value, reason_category, certainty, evidence, recovery_candidates, created_at')
+    .select('id, proposal_id, proposal_digest_sha256, proposal_version, recovery_type, source_artifact_id, extraction_snapshot_id, physical_page_number, page_representation_digest, recovery_reason, selected_observation_id, selected_candidate_id, proposed_value, reason_category, certainty, evidence, recovery_candidates, created_at')
     .eq('organization_id', query.organizationId)
     .eq('source_document_id', query.sourceDocumentId);
   if (proposalRead.error) {
@@ -244,6 +269,23 @@ export async function readRecoveryReviewQueue(
   }
   const proposals = (Array.isArray(proposalRead.data) ? proposalRead.data : []).filter(isRecord);
   if (proposals.length === 0) return { status: 'ok', candidates: [] };
+
+  const extractionIds = [...new Set(proposals.flatMap((row) =>
+    typeof row.extraction_snapshot_id === 'string' ? [row.extraction_snapshot_id] : []))];
+  const extractionById = new Map<string, unknown>();
+  if (extractionIds.length > 0) {
+    const extractionRead: SelectResult = await admin.from('document_extractions')
+      .select('id, data')
+      .eq('organization_id', query.organizationId)
+      .eq('document_id', query.sourceDocumentId)
+      .in('id', extractionIds);
+    if (!extractionRead.error) {
+      for (const extractionRow of (Array.isArray(extractionRead.data)
+        ? extractionRead.data : []).filter(isRecord)) {
+        if (typeof extractionRow.id === 'string') extractionById.set(extractionRow.id, extractionRow.data);
+      }
+    }
+  }
 
   const reviewRead: SelectResult = await admin
     .from(RECOVERY_REVIEW_TABLE)
@@ -297,6 +339,13 @@ export async function readRecoveryReviewQueue(
     const physicalPageNumber = Number(row.physical_page_number);
     const pageRepresentationDigest = typeof row.page_representation_digest === 'string'
       ? row.page_representation_digest : null;
+    const extractionSnapshotId = typeof row.extraction_snapshot_id === 'string'
+      ? row.extraction_snapshot_id : null;
+    const ocrGeometry = sourceArtifactId && Number.isInteger(physicalPageNumber)
+      && physicalPageNumber > 0 && pageRepresentationDigest && extractionSnapshotId
+      ? exactOcrPageGeometry(extractionById.get(extractionSnapshotId), {
+          sourceArtifactId, physicalPageNumber, pageRepresentationDigest,
+        }) : null;
     const selectableCandidates = proposalVersion === 2
       && sourceArtifactId && Number.isInteger(physicalPageNumber) && physicalPageNumber > 0
       && pageRepresentationDigest
@@ -334,6 +383,10 @@ export async function readRecoveryReviewQueue(
       sourceDocumentId: query.sourceDocumentId,
       sourceArtifactId,
       pageRepresentationDigest,
+      ...(ocrGeometry ? {
+        ocrPixelWidth: ocrGeometry.width,
+        ocrPixelHeight: ocrGeometry.height,
+      } : {}),
       recoveryReason: typeof row.recovery_reason === 'string' ? row.recovery_reason : 'unknown',
       proposedValue: typeof row.proposed_value === 'string' ? row.proposed_value : '',
       reasonCategory: typeof row.reason_category === 'string' ? row.reason_category : 'unknown',

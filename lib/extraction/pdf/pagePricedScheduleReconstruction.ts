@@ -256,7 +256,24 @@ export type PricedSchedulePage = {
 export type ConfirmedRateObservation = {
   readonly observation_id: NonNullable<PdfToken['observation_id']>;
   readonly confirmed_raw_text: string;
+  /**
+   * The page representation the human reviewed. Null for legacy confirmations
+   * persisted without one; such a confirmation can never be proven to describe
+   * the current evidence, so it never applies.
+   */
+  readonly page_representation_digest: string | null;
 };
+
+/**
+ * The evidence a page currently presents to reconstruction. A confirmation
+ * applies only to the exact evidence state a human reviewed.
+ */
+export type CurrentPageEvidence = Readonly<{
+  /** Effective digest of the representation reconstruction consumes; null if unknown. */
+  pageRepresentationDigest: string | null;
+  /** Whether page coverage is trusted enough for recovery to act on it. */
+  recoveryAllowed: boolean;
+}>;
 
 /** Why a supplied confirmation produced no recovery. Always fail-closed. */
 export type PricedScheduleRecoveryDiagnosticReason =
@@ -266,6 +283,16 @@ export type PricedScheduleRecoveryDiagnosticReason =
    * changed the page changes every id on it. Never rebound by text.
    */
   | 'confirmed_recovery_unbound'
+  /**
+   * The confirmation binds by identity, but the page's current effective
+   * evidence digest differs from the one the human reviewed. Never reapplied.
+   */
+  | 'confirmed_recovery_evidence_changed'
+  /**
+   * The reviewed or the current evidence digest is missing, so equivalence
+   * cannot be proven. This is not a claim that the evidence changed.
+   */
+  | 'confirmed_recovery_evidence_unverifiable'
   /** The resolver supplied the same confirmation identity more than once. */
   | 'duplicate_recovery_confirmation'
   /** Bound to a token, but no priced row was admitted through it. */
@@ -276,6 +303,8 @@ export type PricedScheduleRecoveryDiagnostic = {
   readonly observation_id: NonNullable<PdfToken['observation_id']>;
   readonly candidate_id?: string;
   readonly physical_page_number: number | null;
+  /** Present only when a bound, digest-equal confirmation was held back by untrusted coverage. */
+  readonly blocked_by?: 'coverage_not_trusted';
   readonly recovery_applied: false;
 };
 
@@ -441,13 +470,14 @@ function isRowSpineToken(token: PdfToken): boolean {
 }
 
 function sourceRefForToken(token: PdfToken): PricedScheduleCellSourceRef {
+  const ocrBox = token.source === 'ocr_fallback' ? token.ocr_source_geometry?.bbox : undefined;
   return {
     ...(token.observation_id ? { observation_id: token.observation_id } : {}),
     text: token.text,
-    x_min: token.x,
-    x_max: token.x + token.width,
-    y_min: token.y,
-    y_max: token.y + token.height,
+    x_min: ocrBox?.x0 ?? token.x,
+    x_max: ocrBox?.x1 ?? token.x + token.width,
+    y_min: ocrBox?.y0 ?? token.y,
+    y_max: ocrBox?.y1 ?? token.y + token.height,
     ...(token.source ? { source: token.source } : {}),
     ...(token.confidence == null ? {} : { confidence: token.confidence }),
   };
@@ -679,10 +709,17 @@ function candidateEvidence(tokens: readonly PdfToken[]) {
     observationId: token.observation_id,
     sourceLayer: token.source === 'ocr_fallback' ? 'ocr' as const : 'pdf_native_text' as const,
     rawText: token.text.trim(),
-    boundingBox: {
-      xMin: token.x, xMax: token.x + token.width,
-      yMin: token.y, yMax: token.y + token.height,
-    },
+    boundingBox: token.source === 'ocr_fallback' && token.ocr_source_geometry
+      ? {
+          xMin: token.ocr_source_geometry.bbox.x0,
+          xMax: token.ocr_source_geometry.bbox.x1,
+          yMin: token.ocr_source_geometry.bbox.y0,
+          yMax: token.ocr_source_geometry.bbox.y1,
+        }
+      : {
+          xMin: token.x, xMax: token.x + token.width,
+          yMin: token.y, yMax: token.y + token.height,
+        },
   }] : []);
 }
 
@@ -1253,6 +1290,11 @@ export function buildPagePricedScheduleReconstruction(params: {
   confirmedRateObservations?: readonly ConfirmedRateObservation[];
   /** Exact persisted V2 candidates selected by a human; never browser-supplied. */
   confirmedRecoveryCandidates?: readonly RecoveryCandidateV2[];
+  /**
+   * Current effective evidence per physical page. Consulted only for supplied
+   * confirmations: a page absent here cannot prove its evidence is unchanged.
+   */
+  currentPageEvidence?: Readonly<Record<number, CurrentPageEvidence>>;
   /** Enables a deterministic candidate-generation pass before Forgewing. */
   recoveryCandidateBuildContext?: RecoveryCandidateBuildContext;
 }): PagePricedScheduleReconstruction {
@@ -1274,11 +1316,75 @@ export function buildPagePricedScheduleReconstruction(params: {
       .filter((entry) => !duplicateConfirmationIds.has(entry.observation_id))
       .map((entry) => [entry.observation_id, entry]),
   );
-  const confirmedCandidates = (params.confirmedRecoveryCandidates ?? [])
+  const parsedConfirmedCandidates = (params.confirmedRecoveryCandidates ?? [])
     .flatMap((candidate) => {
       const parsed = RecoveryCandidateV2Schema.safeParse(candidate);
       return parsed.success ? [parsed.data] : [];
     });
+
+  // Where each observation lives in this parse, if anywhere. A confirmation
+  // that no longer binds is reported and dropped: observation identity carries
+  // the page representation digest, so rebinding by text would be a guess.
+  const pageByObservation = new Map<string, number>();
+  for (const page of params.layout.pages) {
+    for (const line of page.lines) {
+      for (const token of line.tokens) {
+        if (token.observation_id) pageByObservation.set(token.observation_id, page.page_number);
+      }
+    }
+  }
+
+  // A human confirmed one evidence state. A confirmation that still binds by
+  // identity applies only when the page's current effective evidence is that
+  // same state, provably, and coverage is trusted. Anything else is held back
+  // with the reason; nothing is rebound by text, position or similarity.
+  const evidenceHeld: PricedScheduleRecoveryDiagnostic[] = [];
+  const evidenceGate = (reviewedDigest: string | null, page: number):
+    Pick<PricedScheduleRecoveryDiagnostic, 'reason' | 'blocked_by'> | null => {
+    const current = params.currentPageEvidence?.[page];
+    if (reviewedDigest == null || current?.pageRepresentationDigest == null) {
+      return { reason: 'confirmed_recovery_evidence_unverifiable' };
+    }
+    if (current.pageRepresentationDigest !== reviewedDigest) {
+      return { reason: 'confirmed_recovery_evidence_changed' };
+    }
+    if (!current.recoveryAllowed) {
+      return { reason: 'confirmed_recovery_not_applied', blocked_by: 'coverage_not_trusted' };
+    }
+    return null;
+  };
+  for (const [observationId, entry] of [...confirmed]) {
+    const page = pageByObservation.get(observationId);
+    if (page == null) continue; // Unbound: reported below exactly as before.
+    const held = evidenceGate(entry.page_representation_digest, page);
+    if (!held) continue;
+    confirmed.delete(observationId);
+    evidenceHeld.push({
+      ...held,
+      observation_id: observationId,
+      physical_page_number: page,
+      recovery_applied: false,
+    });
+  }
+  const confirmedCandidates = parsedConfirmedCandidates.filter((candidate) => {
+    const ids = [
+      ...candidate.orderedObservationIds,
+      ...(candidate.targetContextEvidence?.orderedObservationIds ?? []),
+    ];
+    if (!ids.every((id) => pageByObservation.get(id) === candidate.physicalPageNumber)) {
+      return true; // Unbound or cross-page: reported below exactly as before.
+    }
+    const held = evidenceGate(candidate.pageRepresentationDigest, candidate.physicalPageNumber);
+    if (!held) return true;
+    evidenceHeld.push({
+      ...held,
+      observation_id: candidate.orderedObservationIds[0] as NonNullable<PdfToken['observation_id']>,
+      candidate_id: candidate.candidateId,
+      physical_page_number: candidate.physicalPageNumber,
+      recovery_applied: false,
+    });
+    return false;
+  });
   const appliedConfirmations = new Set<string>();
   const appliedCandidates = new Set<string>();
   const generatedCandidates: RecoveryCandidateV2[] = [];
@@ -1302,20 +1408,8 @@ export function buildPagePricedScheduleReconstruction(params: {
           left.candidateId.localeCompare(right.candidateId, 'en-US')) }
       : {}),
   };
-  if (supplied.length === 0 && confirmedCandidates.length === 0) return base;
+  if (supplied.length === 0 && parsedConfirmedCandidates.length === 0) return base;
 
-  // Where each confirmed observation still lives in this parse, if anywhere.
-  // A confirmation that no longer binds is reported and dropped: observation
-  // identity carries the page representation digest, so a reparse that changed
-  // the page changed the id, and rebinding by text would be a guess.
-  const pageByObservation = new Map<string, number>();
-  for (const page of params.layout.pages) {
-    for (const line of page.lines) {
-      for (const token of line.tokens) {
-        if (token.observation_id) pageByObservation.set(token.observation_id, page.page_number);
-      }
-    }
-  }
   const recovery_diagnostics: PricedScheduleRecoveryDiagnostic[] = [...new Set([
     ...confirmed.keys(),
     ...duplicateConfirmationIds,
@@ -1332,6 +1426,7 @@ export function buildPagePricedScheduleReconstruction(params: {
       physical_page_number: pageByObservation.get(observationId) ?? null,
       recovery_applied: false,
     }));
+  recovery_diagnostics.push(...evidenceHeld);
   for (const candidate of confirmedCandidates) {
     if (appliedCandidates.has(candidate.candidateId)) continue;
     const expectedIds = [

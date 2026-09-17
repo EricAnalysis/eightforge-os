@@ -53,7 +53,23 @@ import {
   type PdfLayoutObservationsLayer,
 } from '@/lib/extraction/pdf/layoutObservationEvidence';
 import type { PdfLayoutObservationIdentityContext } from '@/lib/extraction/pdf/layoutObservationIdentity';
-import { extractRateTableViaVision } from '@/lib/extraction/pdf/visionRateTableSupplement';
+import {
+  PAGE_EXTRACTION_COVERAGE_VERSION,
+  coverageAllowsRecovery,
+  evaluatePageExtractionCoverage,
+  finalizePageExtractionCoverage,
+  finalizePageExtractionCoverageForDecode,
+  omittedPageCoverage,
+  selectPagesForOcr,
+  type PageExtractionCoverage,
+  type PageExtractionCoverageLayer,
+} from '@/lib/extraction/pdf/pageExtractionCoverage';
+import {
+  classifyDecodeFailures,
+  inspectPageImageDecoding,
+  type InspectablePdfPage,
+  type RenderDecodeInspection,
+} from '@/lib/extraction/pdf/renderDecodeInspection';
 import { buildPdfFormExtraction } from '@/lib/extraction/pdf/extractForms';
 import { buildEvidenceMap as buildPdfEvidenceMap } from '@/lib/extraction/pdf/buildEvidenceMap';
 import { buildElementEvidence } from '@/lib/extraction/pdf/buildElementEvidence';
@@ -168,6 +184,11 @@ export type DocumentMetadata = {
   name: string;
   document_type: string | null;
   storage_path: string;
+  /** Persisted operator guidance; controls inspection priority, never extracted truth. */
+  rate_schedule_page_hints?: readonly number[];
+  rate_schedule_page_ranges?: readonly Readonly<{ start: number; end: number }>[] | null;
+  rate_schedule_included?: 'yes' | 'no' | 'unsure' | null;
+  rate_schedule_guidance_state?: 'absent' | 'loaded' | 'malformed' | 'unavailable';
 };
 
 export type ExtractionProvenanceContext = {
@@ -933,6 +954,12 @@ type PdfOcrExtractionResult = {
     height: number;
     text_detected: boolean;
   }>;
+  /**
+   * Per rendered page: whether every painted image provably decoded. A page
+   * that is not `clean` is never recognized, because OCR over a render with a
+   * skipped image cannot establish coverage of that image.
+   */
+  decodeInspections?: Array<{ page_number: number; inspection: RenderDecodeInspection }>;
 };
 
 function extractOcrGeometryWords(data: unknown): OcrGeometryWord[] {
@@ -1024,9 +1051,22 @@ async function extractPdfPageTextViaOcr(
       const geometryPages: OcrGeometryPage[] = [];
       const confidences: number[] = [];
       const pageImages: NonNullable<PdfOcrExtractionResult['pageImages']> = [];
+      const decodeInspections: NonNullable<PdfOcrExtractionResult['decodeInspections']> = [];
+      const pdfjsOps = (pdfjs as unknown as { OPS?: Record<string, number> }).OPS;
+      let pagesRecognized = 0;
 
       for (const pageNum of pagesToRender) {
         const page = await pdfDoc.getPage(pageNum);
+        const inspection = recognitionPages.has(pageNum)
+          ? await classifyDecodeFailures(
+              pdfDoc as unknown as Parameters<typeof classifyDecodeFailures>[0],
+              pageNum,
+              await inspectPageImageDecoding(page as unknown as InspectablePdfPage, pdfjsOps),
+            )
+          : null;
+        if (inspection) decodeInspections.push({ page_number: pageNum, inspection });
+        const recognize = inspection?.state === 'clean';
+        if (recognize) pagesRecognized += 1;
         const viewport = page.getViewport({ scale: 2 });
         const width = Math.floor(viewport.width);
         const height = Math.floor(viewport.height);
@@ -1041,7 +1081,7 @@ async function extractPdfPageTextViaOcr(
         await page.render(renderContext).promise;
         const pngBuffer = canvas.toBuffer('image/png');
         const renderSha256 = sha256Hex(pngBuffer);
-        const result = recognitionPages.has(pageNum)
+        const result = recognize
           ? await worker.recognize(
               pngBuffer,
               {},
@@ -1084,12 +1124,13 @@ async function extractPdfPageTextViaOcr(
       return {
         pages: out.length > 0 ? out : null,
         geometryPages,
-        pagesAttempted: recognitionPages.size,
+        pagesAttempted: pagesRecognized,
         confidenceAvg:
           confidences.length > 0
             ? Number((confidences.reduce((sum, value) => sum + value, 0) / confidences.length).toFixed(2))
             : null,
         pageImages,
+        decodeInspections,
         totalPhysicalPages: pdfDoc.numPages,
       };
     } finally {
@@ -1460,6 +1501,7 @@ function applyPdfContentLayers(
     pdfEvidenceLayer: ReturnType<typeof buildPdfEvidenceMap>;
     parsedElementsLayer?: ParsedElementsV1 | null;
     layoutDiagnostics?: OcrLayoutDiagnostics | null;
+    pageExtractionCoverage?: PageExtractionCoverageLayer | null;
   },
 ): void {
   const parsedElementEvidence =
@@ -1496,6 +1538,7 @@ function applyPdfContentLayers(
       confidence: params.pdfEvidenceLayer.confidence,
       gaps,
       layout_diagnostics: params.layoutDiagnostics ?? null,
+      page_extraction_coverage_v1: params.pageExtractionCoverage ?? null,
     },
   };
 }
@@ -1714,6 +1757,7 @@ export async function extractDocument(
   }
 
   if (isPdf(fileName, mimeType)) {
+    const pdfExtractionStartedAt = Date.now();
     const ocrDebug = process.env.EIGHTFORGE_OCR_DEBUG === '1';
     const pdfDebug = ocrDebug || process.env.EIGHTFORGE_PDF_EXTRACT_DEBUG === '1';
     const logPdf = (message: string, data?: Record<string, unknown>) => {
@@ -1725,6 +1769,7 @@ export async function extractDocument(
       extractPdfText(cloneArrayBuffer(fileBytes)),
       extractPdfPageTextNative(cloneArrayBuffer(fileBytes)),
     ]);
+    const nativeExtractionCompletedAt = Date.now();
 
     const ocrEligible = (() => {
       const docType = (metadata.document_type ?? '').toLowerCase();
@@ -1869,12 +1914,57 @@ export async function extractDocument(
         source_method: 'pdf_text' as EvidenceSourceMethod,
       }));
     }
+    const nativeEvidencePageText: readonly PageTextEvidence[] = [...evidencePageText];
 
+    const preflightStartedAt = Date.now();
+    // Malformed or unreadable guidance widens nothing and narrows nothing: every
+    // page is still evaluated, and the state is recorded on the coverage layer.
+    const guidanceRangesWellFormed = metadata.rate_schedule_page_ranges == null
+      || (Array.isArray(metadata.rate_schedule_page_ranges)
+        && metadata.rate_schedule_page_ranges.every((range) => range != null
+          && typeof range === 'object'
+          && Number.isSafeInteger(range.start)
+          && Number.isSafeInteger(range.end)
+          && range.start >= 1
+          && range.end >= range.start));
+    const operatorGuidanceState = !guidanceRangesWellFormed
+      ? 'malformed' as const
+      : metadata.rate_schedule_guidance_state
+        ?? ((metadata.rate_schedule_page_hints?.length ?? 0) > 0 ? 'loaded' as const : 'absent' as const);
+    const expectedPricingPages = [...new Set((guidanceRangesWellFormed
+      ? metadata.rate_schedule_page_hints ?? [] : [])
+      .filter((page) => Number.isSafeInteger(page) && page >= 1))]
+      .sort((left, right) => left - right);
+    const expectedPricingPageSet = new Set(expectedPricingPages);
     const pdfLayout = await loadPdfLayout(cloneArrayBuffer(fileBytes), {
       maxPages: MAX_EVIDENCE_PAGES,
+      priorityPageNumbers: expectedPricingPages,
       observationIdentity: pdfLayoutObservationIdentityContext,
     });
     observePhysicalPageCount(pdfLayout.page_count);
+    const coverageByPage = new Map<number, PageExtractionCoverage>();
+    for (const page of pdfLayout.pages) {
+      coverageByPage.set(page.page_number, evaluatePageExtractionCoverage({
+        page,
+        ocrEligible,
+        expectedPricing: expectedPricingPageSet.has(page.page_number),
+      }));
+    }
+    for (let pageNumber = 1; pageNumber <= pdfLayout.page_count; pageNumber += 1) {
+      if (!coverageByPage.has(pageNumber)) {
+        coverageByPage.set(pageNumber, omittedPageCoverage({
+          pageNumber,
+          expectedPricing: expectedPricingPageSet.has(pageNumber),
+        }));
+      }
+    }
+    for (const pageNumber of expectedPricingPages.filter((page) => page > pdfLayout.page_count)) {
+      coverageByPage.set(pageNumber, {
+        ...omittedPageCoverage({ pageNumber, expectedPricing: true }),
+        reasons: ['operator_guidance_page_out_of_bounds'],
+      });
+    }
+    const preflightCompletedAt = Date.now();
     const pdfGateTextLayer = buildPdfTextExtraction({
       layout: pdfLayout,
       fallbackText: null,
@@ -1934,149 +2024,70 @@ export async function extractDocument(
       extractionMode = 'pdf_text';
       fallbackReason = null;
     } else if (ocrEligible && fallbackAllowed) {
+      // Page-level coverage below decides exactly which selected pages need OCR.
+      // Do not render an entire long document merely because aggregate text is weak.
+      extractedText = extractedTextFull ?? '';
+      extractionMode = 'pdf_fallback';
+      fallbackReason = 'page_coverage_pending';
+    }
+
+    const pagesRequiringOcr = selectPagesForOcr(coverageByPage.values());
+    let ocrElapsedMs = 0;
+    if (pagesRequiringOcr.length > 0) {
+      const ocrStartedAt = Date.now();
       didAttemptOcr = true;
-      didAttemptOcrPrimary = true;
-      extractionMode = 'ocr_recovery';
-      ocrTriggerReason = 'pdf_parse_full_weak_contract_like';
-      fallbackReason = ocrTriggerReason;
-
-      logPdf('ocr recovery triggered for weak contract pdf', {
-        fileName,
-        page_count: pdfLayout.page_count,
-        extracted_text_length: extractedTextFull?.length ?? 0,
-        fallback_allowed: fallbackAllowed,
-        ocr_trigger_reason: ocrTriggerReason,
+      didAttemptOcrPrimary = pagesRequiringOcr.length === pdfLayout.pages.length;
+      didAttemptOcrTargeted = !didAttemptOcrPrimary;
+      ocrTriggerReason = pagesRequiringOcr.some((page) => page.priority)
+        ? 'expected_pricing_page_incomplete'
+        : 'page_visual_coverage_incomplete';
+      const ocrResult = await extractPdfPageTextViaOcr(cloneArrayBuffer(fileBytes), {
+        pageNumbers: pagesRequiringOcr.map((coverage) => coverage.page_number),
       });
-
-      const ocrResult = await extractPdfPageTextViaOcr(cloneArrayBuffer(fileBytes));
       observePhysicalPageCount(ocrResult.totalPhysicalPages);
-      const ocrPages = ocrResult.pages;
-      ocrGeometryPages = ocrResult.geometryPages;
-      ocrPageImages = ocrResult.pageImages ?? [];
-      const extractedTextOcr = combinePageTextEvidence(ocrPages);
-      const ocrLen = extractedTextOcr?.length ?? 0;
-      ocrCombinedTextLength = ocrLen;
-      ocrEvidencePageCount = ocrPages?.length ?? 0;
+      ocrGeometryPages = mergeOcrGeometryPages(ocrGeometryPages, ocrResult.geometryPages);
+      ocrPageImages = [...ocrPageImages, ...(ocrResult.pageImages ?? [])];
       ocrPagesAttempted = ocrResult.pagesAttempted;
       ocrConfidenceAvg = ocrResult.confidenceAvg;
-
-      logPdf('ocr recovery complete', {
-        ocr_text_length: ocrLen,
-        ocr_pages_attempted: ocrPagesAttempted,
-        ocr_confidence_avg: ocrConfidenceAvg,
-      });
-
-      extractedText = extractedTextOcr ?? '';
-      fallbackReason = extractedTextOcr && extractedTextOcr.trim().length > 0
-        ? 'ocr_recovery_used_full_document'
-        : 'ocr_recovery_attempted_but_empty';
-
-      if (ocrPages && ocrPages.length > 0) {
-        evidencePageText = ocrPages;
+      const ocrPages = ocrResult.pages ?? [];
+      ocrEvidencePageCount = ocrPages.length;
+      ocrCombinedTextLength = combinePageTextEvidence(ocrPages)?.length ?? 0;
+      const textPages = new Set(ocrPages.map((page) => page.page_number));
+      const geometryPages = new Set(ocrResult.geometryPages
+        .filter((page) => page.words.length > 0).map((page) => page.page_number));
+      const attempted = ocrResult.pagesAttempted > 0;
+      const decodeByPage = new Map((ocrResult.decodeInspections ?? [])
+        .map((entry) => [entry.page_number, entry.inspection] as const));
+      for (const coverage of pagesRequiringOcr) {
+        const decode = decodeByPage.get(coverage.page_number);
+        coverageByPage.set(coverage.page_number, decode && decode.state !== 'clean'
+          // Visual content that did not provably decode was never seen by OCR,
+          // so the page stays uncovered whatever the render produced.
+          ? finalizePageExtractionCoverageForDecode(coverage, decode)
+          : finalizePageExtractionCoverage(
+            coverage,
+            textPages.has(coverage.page_number) && geometryPages.has(coverage.page_number)
+              ? 'produced'
+              : attempted ? 'abstained' : 'failed',
+          ));
       }
+      if (ocrPages.length > 0) {
+        const byPage = new Map(evidencePageText.map((page) => [page.page_number, page] as const));
+        for (const page of ocrPages) byPage.set(page.page_number, page);
+        evidencePageText = [...byPage.values()].sort((left, right) => left.page_number - right.page_number);
+        extractedText = combinePageTextEvidence(evidencePageText) ?? extractedText;
+        // The document-level mode only becomes OCR recovery when native text is
+        // not meaningful anywhere; page OCR inside a native document stays pdf_text.
+        if (fullWeak && !meaningfulPdfText) extractionMode = 'ocr_recovery';
+      }
+      ocrElapsedMs = Date.now() - ocrStartedAt;
     }
-
-    // If this is an OCR-eligible document (contract or price_sheet), we may have strong later-page
-    // body text but image-only front matter. OCR the weak front/signature pages so canonical
-    // contractor/date facts can see the introductory paragraph, commencement clause, and signature block.
-    if (ocrEligible && !didAttemptOcr && meaningfulPdfText) {
-      const preliminary = buildEvidenceV1({
-        pageText: evidencePageText,
-        documentTypeHint: metadata.document_type ?? null,
-      });
-      const structured = (preliminary.structured_fields ?? {}) as Record<string, unknown>;
-      const frontPages = evidencePageText
-        .filter((page) => page.page_number >= 1 && page.page_number <= 10);
-      const weakFrontPages = frontPages
-        .filter((page) => {
-          const text = page.text ?? '';
-          return text.trim().length < 80 || countReadableWords(text) < 12;
-        })
-        .map((page) => page.page_number);
-      const missingExecutedDate =
-        !(typeof structured.executed_date === 'string' && structured.executed_date.trim().length > 0);
-      const weakStructuredContractor =
-        !(typeof structured.contractor_name === 'string' && structured.contractor_name.trim().length > 5) ||
-        /^[a-z]/.test(String(structured.contractor_name).trim());
-
-      if (frontPages.length >= 4 && weakFrontPages.length >= 4 && (missingExecutedDate || weakStructuredContractor)) {
-        didAttemptOcr = true;
-        didAttemptOcrTargeted = true;
-        const ocrResult = await extractPdfPageTextViaOcr(cloneArrayBuffer(fileBytes), {
-          pageNumbers: weakFrontPages,
-        });
-        observePhysicalPageCount(ocrResult.totalPhysicalPages);
-        const ocrPages = ocrResult.pages;
-        ocrGeometryPages = mergeOcrGeometryPages(ocrGeometryPages, ocrResult.geometryPages);
-        ocrPageImages = [
-          ...ocrPageImages,
-          ...(ocrResult.pageImages ?? []),
-        ];
-        const targetedOcrLen = combinePageTextEvidence(ocrPages)?.length ?? 0;
-        if (targetedOcrLen > ocrCombinedTextLength) {
-          ocrCombinedTextLength = targetedOcrLen;
-        }
-        ocrEvidencePageCount = Math.max(ocrEvidencePageCount, ocrPages?.length ?? 0);
-        ocrPagesAttempted = Math.max(ocrPagesAttempted, ocrResult.pagesAttempted);
-        if (typeof ocrResult.confidenceAvg === 'number' && Number.isFinite(ocrResult.confidenceAvg)) {
-          ocrConfidenceAvg = ocrResult.confidenceAvg;
-        }
-        if (ocrPages && ocrPages.length > 0) {
-          const byPage = new Map<number, PageTextEvidence>();
-          for (const p of evidencePageText) byPage.set(p.page_number, p);
-          for (const p of ocrPages) byPage.set(p.page_number, p);
-          evidencePageText = Array.from(byPage.values()).sort((a, b) => a.page_number - b.page_number);
-          extractedText = combinePageTextEvidence(evidencePageText) ?? extractedText;
-        }
-      }
-    }
-
-    // If this is contract-like, we may have strong body text but image-only rate pages.
-    // Deterministic targeted OCR: if evidence_v1 does NOT detect a rate section and
-    // the likely attachment pages are nearly empty, OCR only those pages.
-    // Skip when native/layout already yielded meaningful text (no OCR in that case).
-    if (ocrEligible && !didAttemptOcr && !meaningfulPdfText) {
-      const preliminary = buildEvidenceV1({
-        pageText: evidencePageText,
-        documentTypeHint: metadata.document_type ?? null,
-      });
-      const signals = (preliminary.section_signals ?? {}) as Record<string, unknown>;
-      const ratePresent = signals.rate_section_present === true || signals.unit_price_structure_present === true;
-
-      const weakAttachmentPages = evidencePageText.filter((p) => p.page_number >= 8 && p.page_number <= 11)
-        .every((p) => (p.text ?? '').trim().length < 40);
-
-      if (!ratePresent && weakAttachmentPages) {
-        didAttemptOcr = true;
-        didAttemptOcrTargeted = true;
-        const ocrResult = await extractPdfPageTextViaOcr(cloneArrayBuffer(fileBytes), {
-          pageNumbers: [1, 2, 8, 9, 10, 11],
-        });
-        observePhysicalPageCount(ocrResult.totalPhysicalPages);
-        const ocrPages = ocrResult.pages;
-        ocrGeometryPages = mergeOcrGeometryPages(ocrGeometryPages, ocrResult.geometryPages);
-        ocrPageImages = [
-          ...ocrPageImages,
-          ...(ocrResult.pageImages ?? []),
-        ];
-        const targetedOcrLen = combinePageTextEvidence(ocrPages)?.length ?? 0;
-        if (targetedOcrLen > ocrCombinedTextLength) {
-          ocrCombinedTextLength = targetedOcrLen;
-        }
-        ocrEvidencePageCount = Math.max(ocrEvidencePageCount, ocrPages?.length ?? 0);
-        ocrPagesAttempted = Math.max(ocrPagesAttempted, ocrResult.pagesAttempted);
-        if (typeof ocrResult.confidenceAvg === 'number' && Number.isFinite(ocrResult.confidenceAvg)) {
-          ocrConfidenceAvg = ocrResult.confidenceAvg;
-        }
-        if (ocrPages && ocrPages.length > 0) {
-          const byPage = new Map<number, PageTextEvidence>();
-          for (const p of evidencePageText) byPage.set(p.page_number, p);
-          for (const p of ocrPages) byPage.set(p.page_number, p);
-          evidencePageText = Array.from(byPage.values()).sort((a, b) => a.page_number - b.page_number);
-
-          // Do not change extractionMode; we still have pdf text, but now have OCR evidence for weak pages.
-        }
-      }
+    if (fallbackReason === 'page_coverage_pending') {
+      fallbackReason = extractionMode === 'ocr_recovery'
+        ? 'ocr_recovery_used_required_pages'
+        : pagesRequiringOcr.length > 0
+          ? 'ocr_recovery_attempted_but_empty'
+          : 'page_coverage_found_no_ocr_required';
     }
 
     const textPreview: string | null =
@@ -2105,7 +2116,91 @@ export async function extractDocument(
         .map((page) => page.page_number),
       observationIdentity: pdfLayoutObservationIdentityContext,
     });
+    // Structural text, table and form layers keep their established layout:
+    // native precedence and OCR render pixels, which the OCR table geometry
+    // heuristics depend on.
     const structuredLayout = ocrLayoutMerge.layout;
+    // Priced-schedule reconstruction, its observations and recovery candidates
+    // consume one reconciled page evidence representation in PDF points.
+    const reconciledLayoutMerge = mergeOcrFallbackLayout({
+      nativeLayout: pdfLayout,
+      ocrPages: ocrGeometryPages,
+      ocrTextPageNumbers: evidencePageText
+        .filter((page) => page.source_method === 'ocr')
+        .map((page) => page.page_number),
+      observationIdentity: pdfLayoutObservationIdentityContext,
+      representation: 'reconciled_pdf_points',
+    });
+    const reconciledLayout = reconciledLayoutMerge.layout;
+    // Page text must describe the same representation as the page's layout.
+    // Pages whose effective layout includes OCR take their text from that
+    // reconciled layout. A page whose OCR evidence was fully absorbed by native
+    // observations reverts to its native text, so text never claims OCR while
+    // geometry stays native. Native-only pages keep their native text unchanged.
+    const ocrLayoutPages = new Map(reconciledLayout.pages
+      .filter((page) => page.source === 'ocr_fallback' || page.source === 'mixed')
+      .map((page) => [page.page_number, page] as const));
+    const nativeLayoutPages = new Set(reconciledLayout.pages
+      .filter((page) => page.lines.length > 0 && !ocrLayoutPages.has(page.page_number))
+      .map((page) => page.page_number));
+    if (ocrGeometryPages.length > 0) {
+      const nativeTextByPage = new Map(nativeEvidencePageText
+        .map((page) => [page.page_number, page] as const));
+      const byPage = new Map(evidencePageText.map((page) => [page.page_number, page] as const));
+      // OCR text without word geometry never joined the layout; it stays as
+      // text evidence and the merge records the geometry gap for that page.
+      const ocrGeometryPageNumbers = new Set(ocrGeometryPages
+        .filter((page) => page.words.length > 0).map((page) => page.page_number));
+      for (const [pageNumber, current] of byPage) {
+        if (current.source_method !== 'ocr' || !nativeLayoutPages.has(pageNumber)
+          || !ocrGeometryPageNumbers.has(pageNumber)) continue;
+        const native = nativeTextByPage.get(pageNumber);
+        if (native) byPage.set(pageNumber, native);
+        else byPage.delete(pageNumber);
+      }
+      for (const page of ocrLayoutPages.values()) {
+        const text = page.lines.map((line) => line.text).filter(Boolean).join('\n').trim();
+        if (text) {
+          byPage.set(page.page_number, {
+            page_number: page.page_number,
+            text,
+            source_method: 'ocr' as EvidenceSourceMethod,
+          });
+        }
+      }
+      evidencePageText = [...byPage.values()].sort((left, right) => left.page_number - right.page_number);
+      if (ocrLayoutPages.size > 0 || evidencePageText.some((page) => page.source_method === 'ocr')) {
+        extractedText = combinePageTextEvidence(evidencePageText) ?? extractedText;
+      }
+    }
+    for (const page of reconciledLayout.pages) {
+      const current = coverageByPage.get(page.page_number);
+      if (current && page.effective_representation_digest) {
+        coverageByPage.set(page.page_number, {
+          ...current,
+          page_representation_digest: page.effective_representation_digest,
+        });
+      }
+    }
+    const pageExtractionCoverageLayer: PageExtractionCoverageLayer = {
+      parser_version: PAGE_EXTRACTION_COVERAGE_VERSION,
+      representations: {
+        priced_schedule_evidence: 'reconciled_pdf_points',
+        structural_layers: 'legacy_render_pixels',
+      },
+      operator_guidance: {
+        state: operatorGuidanceState,
+        expected_pricing_pages: expectedPricingPages,
+      },
+      pages: [...coverageByPage.values()].sort((left, right) => left.page_number - right.page_number),
+      performance: {
+        native_extraction_ms: nativeExtractionCompletedAt - pdfExtractionStartedAt,
+        preflight_ms: preflightCompletedAt - preflightStartedAt,
+        ocr_ms: ocrElapsedMs,
+        total_through_reconciliation_ms: Date.now() - pdfExtractionStartedAt,
+        ocr_pages_attempted: ocrPagesAttempted,
+      },
+    };
     const pdfTextLayer = buildPdfTextExtraction({
       layout: structuredLayout,
       fallbackText: extractedText ?? textPreview ?? null,
@@ -2126,12 +2221,28 @@ export async function extractDocument(
         emitWarnings: true, context: 'candidate_generation_admission',
       }),
     );
+    // The effective evidence each page currently presents. A confirmed recovery
+    // re-applies only to the exact evidence state a human reviewed, on a page
+    // whose coverage is trusted; this is independent of candidate generation.
+    const currentPageEvidence = Object.fromEntries(reconciledLayout.pages.map((page) => {
+      const coverage = coverageByPage.get(page.page_number);
+      const digest = page.effective_representation_digest
+        ?? page.lines.flatMap((line) => line.tokens)
+          .find((token) => token.observation_identity)?.observation_identity
+          ?.page_representation_digest
+        ?? null;
+      return [page.page_number, {
+        pageRepresentationDigest: digest,
+        recoveryAllowed: coverage != null && coverageAllowsRecovery(coverage),
+      }];
+    }));
     const pricedScheduleReconstructionLayer = buildPagePricedScheduleReconstruction({
-      layout: structuredLayout,
+      layout: reconciledLayout,
       // Absent or empty leaves this call byte-identical to the one made before
       // recovery re-entry existed.
       confirmedRateObservations: recoveryContext?.confirmedRateObservations,
       confirmedRecoveryCandidates: recoveryContext?.confirmedRecoveryCandidates,
+      currentPageEvidence,
       ...(admittedRecoveryTypes.length > 0
         && provenanceContext
         ? { recoveryCandidateBuildContext: {
@@ -2139,10 +2250,12 @@ export async function extractDocument(
             sourceArtifactId: provenanceContext.sourceArtifactId,
             allowedRecoveryTypes: admittedRecoveryTypes,
             pageRepresentationDigestByPage: Object.fromEntries(
-              structuredLayout.pages.flatMap((page) => {
-                const digest = page.lines.flatMap((line) => line.tokens)
-                  .find((token) => token.observation_identity)?.observation_identity
-                  ?.page_representation_digest;
+              reconciledLayout.pages.flatMap((page) => {
+                if (!coverageAllowsRecovery(coverageByPage.get(page.page_number)!)) return [];
+                const digest = page.effective_representation_digest
+                  ?? page.lines.flatMap((line) => line.tokens)
+                    .find((token) => token.observation_identity)?.observation_identity
+                    ?.page_representation_digest;
                 return digest ? [[page.page_number, digest]] : [];
               }),
             ),
@@ -2150,40 +2263,10 @@ export async function extractDocument(
         : {}),
     });
     const pdfLayoutObservationsLayer = buildPdfLayoutObservationsLayer({
-      layout: structuredLayout,
+      layout: reconciledLayout,
       reconstruction: pricedScheduleReconstructionLayer,
       context: pdfLayoutObservationIdentityContext,
     });
-    const ocrPageNumbers: number[] = ocrPageImages.map((p) => p.page_number);
-
-    for (const ocrPage of ocrPageNumbers) {
-      const tablesForPage = pdfTableLayer.tables.filter(
-        (t) => t.page_number === ocrPage,
-      );
-
-      const suspectTable = tablesForPage.find(
-        (t) =>
-          (t.headers?.length ?? 0) < 3 &&
-          t.rows.some((r) => r.cells.some((c) => /\$\d/.test(c.text))),
-      ) ?? null;
-
-      if (suspectTable) {
-        const pageImage = ocrPageImages.find(
-          (p) => p.page_number === ocrPage,
-        );
-        if (pageImage) {
-          const tableKey = `vision:p${ocrPage}:t1`;
-          const visionTable = await extractRateTableViaVision({
-            pngBuffer: pageImage.png_buffer,
-            pageNumber: ocrPage,
-            tableKey,
-          });
-          if (visionTable) {
-            pdfTableLayer.tables.push(visionTable);
-          }
-        }
-      }
-    }
     logPdf('pdf text layer built', {
       extracted_text_length: extractedText?.length ?? 0,
       text_preview_length: textPreview?.length ?? 0,
@@ -2359,7 +2442,8 @@ export async function extractDocument(
         forms: pdfFormLayer,
         pdfEvidenceLayer,
         parsedElementsLayer,
-        layoutDiagnostics: ocrLayoutMerge.diagnostics,
+        layoutDiagnostics: reconciledLayoutMerge.diagnostics,
+        pageExtractionCoverage: pageExtractionCoverageLayer,
       });
       applyDerivedFields(payload, extractedText ?? '');
       const extractionAssist = await maybeAssistTypedExtraction({
@@ -2484,7 +2568,8 @@ export async function extractDocument(
       forms: pdfFormLayer,
       pdfEvidenceLayer,
       parsedElementsLayer,
-      layoutDiagnostics: ocrLayoutMerge.diagnostics,
+      layoutDiagnostics: reconciledLayoutMerge.diagnostics,
+      pageExtractionCoverage: pageExtractionCoverageLayer,
     });
     applyDerivedFields(payload, extractedText ?? textPreview ?? '');
     const extractionAssist = await maybeAssistTypedExtraction({

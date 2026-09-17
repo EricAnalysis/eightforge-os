@@ -88,3 +88,59 @@ export function rateSchedulePageHintsFromGuidance(
   // into apparent absence before that fail-closed decision.
   return wellFormed ? expandRatePageRanges(ranges as readonly RatePageRange[]) : [];
 }
+
+export type ExtractionPageGuidanceState = 'absent' | 'loaded' | 'malformed' | 'unavailable';
+
+export type ExtractionPageGuidance = Readonly<{
+  rate_schedule_guidance_state: ExtractionPageGuidanceState;
+  rate_schedule_page_hints: readonly number[];
+  rate_schedule_page_ranges: readonly RatePageRange[] | null;
+  rate_schedule_included: ContractUploadGuidanceRateScheduleIncluded | null;
+}>;
+
+/**
+ * Operator page guidance as extraction consumes it: where to look first and
+ * which pages must receive an explicit coverage decision. Never evidence.
+ *
+ * A read failure or malformed persisted ranges do not stop extraction, because
+ * guidance only widens inspection; every page is still evaluated. The state is
+ * carried into the coverage record so the degradation is never silent, and
+ * malformed ranges remain blocked by the downstream pricing-scope resolver.
+ */
+export async function loadExtractionPageGuidance(
+  admin: SupabaseClient,
+  documentId: string,
+): Promise<ExtractionPageGuidance> {
+  let guidance: ContractUploadGuidanceRow | null;
+  try {
+    guidance = await loadContractUploadGuidanceForDocument(admin, documentId);
+  } catch (error) {
+    console.warn('[contractUploadGuidance] extraction page guidance unavailable', {
+      documentId,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      rate_schedule_guidance_state: 'unavailable',
+      rate_schedule_page_hints: [],
+      rate_schedule_page_ranges: null,
+      rate_schedule_included: null,
+    };
+  }
+  if (!guidance) {
+    return {
+      rate_schedule_guidance_state: 'absent',
+      rate_schedule_page_hints: [],
+      rate_schedule_page_ranges: null,
+      rate_schedule_included: null,
+    };
+  }
+  const hints = rateSchedulePageHintsFromGuidance(guidance);
+  const ranges = guidance.rate_schedule_page_ranges;
+  const malformed = ranges != null && (!Array.isArray(ranges) || (ranges.length > 0 && hints.length === 0));
+  return {
+    rate_schedule_guidance_state: malformed ? 'malformed' : 'loaded',
+    rate_schedule_page_hints: hints,
+    rate_schedule_page_ranges: malformed ? null : ranges,
+    rate_schedule_included: guidance.rate_schedule_included ?? null,
+  };
+}

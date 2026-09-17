@@ -53,6 +53,14 @@ export type PdfLayoutObservationsLayer = Readonly<{
   source_artifact_id: string | null;
   total_physical_pages: number;
   observations: readonly PdfLayoutTokenObservation[];
+  /** Exact original OCR render geometry, projected only for source verification. */
+  source_page_geometries?: readonly Readonly<{
+    physical_page_number: number;
+    source_layer: 'ocr';
+    page_representation_digest: string;
+    pixel_width: number;
+    pixel_height: number;
+  }>[];
   closure: PdfLayoutObservationClosure;
 }>;
 
@@ -115,11 +123,13 @@ function tokenObservation(params: {
     pageRepresentationDigest: identity.page_representation_digest,
   });
   if (expectedIdentity.id !== identity.id) return null;
+  const ocrBox = params.token.source === 'ocr_fallback'
+    ? params.token.ocr_source_geometry?.bbox : undefined;
   const boundingBox = {
-    x_min: params.token.x,
-    x_max: params.token.x + params.token.width,
-    y_min: params.token.y,
-    y_max: params.token.y + params.token.height,
+    x_min: ocrBox?.x0 ?? params.token.x,
+    x_max: ocrBox?.x1 ?? params.token.x + params.token.width,
+    y_min: ocrBox?.y0 ?? params.token.y,
+    y_max: ocrBox?.y1 ?? params.token.y + params.token.height,
   };
   const confidence = params.token.confidence == null
     ? (params.token.source === 'pdfjs' ? 0.95 : 0.5)
@@ -556,6 +566,22 @@ export function buildPdfLayoutObservationsLayer(params: {
     const rightIntegrity = observationIntegrityKey(right);
     return leftIntegrity === rightIntegrity ? 0 : leftIntegrity < rightIntegrity ? -1 : 1;
   });
+  const sourcePageGeometries = params.layout.pages.flatMap((page) => {
+    const ocrTokens = page.lines.flatMap((line) => line.tokens)
+      .filter((token) => token.source === 'ocr_fallback' && token.ocr_source_geometry);
+    if (ocrTokens.length === 0 || !page.effective_representation_digest) return [];
+    const dimensions = new Set(ocrTokens.map((token) =>
+      `${token.ocr_source_geometry!.pixel_width}:${token.ocr_source_geometry!.pixel_height}`));
+    if (dimensions.size !== 1) return [];
+    const geometry = ocrTokens[0]!.ocr_source_geometry!;
+    return [Object.freeze({
+      physical_page_number: page.page_number,
+      source_layer: 'ocr' as const,
+      page_representation_digest: page.effective_representation_digest,
+      pixel_width: geometry.pixel_width,
+      pixel_height: geometry.pixel_height,
+    })];
+  }).sort((left, right) => left.physical_page_number - right.physical_page_number);
   const closure = validatePdfLayoutObservationClosure({
     reconstruction: params.reconstruction,
     observations,
@@ -571,6 +597,9 @@ export function buildPdfLayoutObservationsLayer(params: {
     source_artifact_id: params.context?.sourceArtifactId ?? null,
     total_physical_pages: params.layout.page_count,
     observations: Object.freeze(observations),
+    ...(sourcePageGeometries.length > 0
+      ? { source_page_geometries: Object.freeze(sourcePageGeometries) }
+      : {}),
     closure,
   });
 }

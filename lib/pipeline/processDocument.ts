@@ -38,6 +38,7 @@ import {
 } from '@/lib/extraction/persistence/complianceShadow';
 import { getLocatedOcrObservations } from '@/lib/extraction/ocrObservationSidecar';
 import { buildStep3SemanticInterpretation } from '@/lib/interpretation/step3ShadowBridge';
+import { loadExtractionPageGuidance } from '@/lib/contracts/contractUploadGuidance';
 import { persistUploadedSourceArtifactIdentity } from '@/lib/extraction/persistence/sourceArtifactIdentity';
 
 const BUCKET = process.env.NEXT_PUBLIC_SUPABASE_DOCS_BUCKET || 'documents';
@@ -321,12 +322,14 @@ export async function processDocument(params: {
     const bytes = await fileData.arrayBuffer();
     const fileName = (docRow.name as string) ?? storagePath.split('/').pop() ?? 'file';
     const mimeType = (fileData as Blob & { type?: string }).type ?? null;
+    const pageGuidance = await loadExtractionPageGuidance(admin, params.documentId);
     const metadata = {
       id: docRow.id as string,
       title: (docRow.title as string | null) ?? null,
       name: (docRow.name as string) ?? fileName,
       document_type: (docRow.document_type as string | null) ?? null,
       storage_path: storagePath,
+      ...pageGuidance,
     };
 
     const storageVersionAfterDownload = await captureStorageObjectVersion(

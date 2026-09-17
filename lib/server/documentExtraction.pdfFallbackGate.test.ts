@@ -13,6 +13,7 @@ const MOCKED_MODULES = [
   '@/lib/extraction/pdf/partitionWithUnstructured',
   '@napi-rs/canvas',
   'pdfjs-dist/legacy/build/pdf.mjs',
+  'openai',
   'tesseract.js',
 ] as const;
 
@@ -43,7 +44,25 @@ beforeAll(async () => {
   vi.resetModules();
 }, 30_000);
 
-function mockCommonPdfPipeline(pageCount: number) {
+type MockLayoutPage = Readonly<{ nativeText?: string; scanned?: boolean }>;
+
+const NATIVE_BODY_PAGES: readonly MockLayoutPage[] = [
+  { nativeText: 'Native agreement body text with enough words to cover this page on its own.', scanned: false },
+  { nativeText: 'Native rate schedule body text with enough words to cover this page on its own.', scanned: false },
+];
+
+/** Operator codes the OCR path needs to prove every painted image decoded. */
+const MOCK_PDFJS_OPS = { paintImageXObject: 85, paintInlineImageXObject: 86 } as const;
+
+/**
+ * Default pages model a scanned page: no native text layer and one full-page
+ * image, which is what the page-level coverage preflight sees on a real scan.
+ */
+function mockCommonPdfPipeline(
+  pageCount: number,
+  layoutPages: readonly MockLayoutPage[] = [],
+  options: Readonly<{ realLineClassification?: boolean }> = {},
+) {
   const buildPdfTextExtraction = vi.fn((
     { layout, fallbackText, fallbackPages }: BuildPdfTextArgs,
   ) => ({
@@ -71,18 +90,44 @@ function mockCommonPdfPipeline(pageCount: number) {
     })),
   }));
 
-  vi.doMock('@/lib/extraction/pdf/extractText', () => ({
+  vi.doMock('@/lib/extraction/pdf/extractText', async () => ({
     loadPdfLayout: vi.fn(async () => ({
       page_count: pageCount,
-      pages: Array.from({ length: pageCount }, (_, index) => ({
-        page_number: index + 1,
-        lines: [],
-      })),
+      pages: Array.from({ length: pageCount }, (_, index) => {
+        const page = layoutPages[index] ?? { scanned: true };
+        const text = page.nativeText ?? '';
+        return {
+          page_number: index + 1,
+          width: 200,
+          height: 300,
+          lines: text ? [{
+            id: `pdf:line:p${index + 1}:1`,
+            page_number: index + 1,
+            text,
+            tokens: text.split(/\s+/).map((word, wordIndex) => ({
+              text: word, x: 10 + wordIndex * 12, y: 200, width: 10, height: 10, source: 'pdfjs',
+            })),
+            kind: 'text',
+            x_min: 10,
+            x_max: 190,
+            y: 200,
+          }] : [],
+          visual_coverage: {
+            image_operator_count: page.scanned === false ? 0 : 1,
+            approximate_image_coverage_ratio: page.scanned === false ? 0 : 1,
+            vector_operator_count: 0,
+          },
+        };
+      }),
       gaps: [],
     })),
     buildPdfTextExtraction,
     computeLayoutPlainCombinedText: vi.fn(() => ''),
-    classifyLine: vi.fn(() => 'text'),
+    classifyLine: options.realLineClassification
+      ? (await vi.importActual<typeof import('@/lib/extraction/pdf/extractText')>(
+        '@/lib/extraction/pdf/extractText',
+      )).classifyLine
+      : vi.fn(() => 'text'),
   }));
   vi.doMock('@/lib/extraction/pdf/extractTables', () => ({
     buildPdfTableExtraction: vi.fn(() => ({ tables: [] })),
@@ -204,7 +249,7 @@ describe('documentExtraction pdf fallback gate', () => {
   it('uses pdf_text when meaningful native page text blocks the weak fallback gate', async () => {
     vi.resetModules();
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    const { buildPdfTextExtraction } = mockCommonPdfPipeline(2);
+    const { buildPdfTextExtraction } = mockCommonPdfPipeline(2, NATIVE_BODY_PAGES);
 
     const nativePageTexts = [
       'Williamson County emergency debris removal agreement page one with enough native text to be meaningful.',
@@ -221,9 +266,11 @@ describe('documentExtraction pdf fallback gate', () => {
         })),
         getViewport: vi.fn(() => ({ width: 200, height: 300 })),
         render: vi.fn(() => ({ promise: Promise.resolve() })),
+        getOperatorList: vi.fn(async () => ({ fnArray: [], argsArray: [] })),
       })),
     };
     vi.doMock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
+      OPS: MOCK_PDFJS_OPS,
       getDocument: vi.fn(() => ({ promise: Promise.resolve(pdfDoc) })),
     }));
 
@@ -291,7 +338,7 @@ describe('documentExtraction pdf fallback gate', () => {
   it('keeps short valid native contract text on the pdf_text path when word-rich content is present', async () => {
     vi.resetModules();
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    const { buildPdfTextExtraction } = mockCommonPdfPipeline(2);
+    const { buildPdfTextExtraction } = mockCommonPdfPipeline(2, NATIVE_BODY_PAGES);
 
     const nativePageTexts = [
       'County debris contract scope rates apply to storm cleanup crews today only.',
@@ -308,9 +355,11 @@ describe('documentExtraction pdf fallback gate', () => {
         })),
         getViewport: vi.fn(() => ({ width: 200, height: 300 })),
         render: vi.fn(() => ({ promise: Promise.resolve() })),
+        getOperatorList: vi.fn(async () => ({ fnArray: [], argsArray: [] })),
       })),
     };
     vi.doMock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
+      OPS: MOCK_PDFJS_OPS,
       getDocument: vi.fn(() => ({ promise: Promise.resolve(pdfDoc) })),
     }));
 
@@ -356,7 +405,7 @@ describe('documentExtraction pdf fallback gate', () => {
     });
   });
 
-  it('runs full-page OCR recovery only after the weak contract PDF gate fires', async () => {
+  it('OCRs every scanned page of a weak contract through page-level coverage', async () => {
     vi.resetModules();
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const { buildPdfTextExtraction } = mockCommonPdfPipeline(3);
@@ -367,9 +416,11 @@ describe('documentExtraction pdf fallback gate', () => {
         getTextContent: vi.fn(async () => ({ items: [] })),
         getViewport: vi.fn(() => ({ width: 200, height: 300 })),
         render: vi.fn(() => ({ promise: Promise.resolve() })),
+        getOperatorList: vi.fn(async () => ({ fnArray: [], argsArray: [] })),
       })),
     };
     vi.doMock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
+      OPS: MOCK_PDFJS_OPS,
       getDocument: vi.fn(() => ({ promise: Promise.resolve(pdfDoc) })),
     }));
     vi.doMock('@napi-rs/canvas', () => ({
@@ -426,17 +477,105 @@ describe('documentExtraction pdf fallback gate', () => {
     const metadata = (payload.extraction.metadata ?? {}) as Record<string, unknown>;
     expect(metadata).toMatchObject({
       extraction_mode: 'ocr_recovery',
-      ocr_trigger_reason: 'pdf_parse_full_weak_contract_like',
+      ocr_trigger_reason: 'page_visual_coverage_incomplete',
       ocr_pages_attempted: 3,
       canonical_persisted: false,
     });
     expect(metadata.ocr_confidence_avg).toBe(88);
   });
 
-  it('still runs OCR recovery for genuinely weak native text snippets', async () => {
+  it('keeps suspect OCR tables deterministic and never constructs an external vision client', async () => {
     vi.resetModules();
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    const { buildPdfTextExtraction } = mockCommonPdfPipeline(2);
+    mockCommonPdfPipeline(1, [], { realLineClassification: true });
+    // The real table extractor builds the suspect table from real OCR geometry:
+    // two priced rows with fewer than three headers, the exact shape the removed
+    // vision supplement used to send to OpenAI.
+    vi.doMock('@/lib/extraction/pdf/extractTables', async () =>
+      vi.importActual<typeof import('@/lib/extraction/pdf/extractTables')>(
+        '@/lib/extraction/pdf/extractTables',
+      ));
+
+    const openAiCreate = vi.fn();
+    const openAiConstructor = vi.fn(() => ({
+      chat: { completions: { create: openAiCreate } },
+    }));
+    vi.doMock('openai', () => ({ default: openAiConstructor }));
+
+    const pdfDoc = {
+      numPages: 1,
+      getPage: vi.fn(async () => ({
+        getTextContent: vi.fn(async () => ({ items: [] })),
+        getViewport: vi.fn(() => ({ width: 1224, height: 1584 })),
+        render: vi.fn(() => ({ promise: Promise.resolve() })),
+        getOperatorList: vi.fn(async () => ({ fnArray: [], argsArray: [] })),
+      })),
+    };
+    vi.doMock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
+      OPS: MOCK_PDFJS_OPS,
+      getDocument: vi.fn(() => ({ promise: Promise.resolve(pdfDoc) })),
+    }));
+    vi.doMock('@napi-rs/canvas', () => ({
+      createCanvas: vi.fn(() => ({
+        getContext: vi.fn(() => ({})),
+        toBuffer: vi.fn(() => Buffer.from('synthetic-page-png')),
+      })),
+    }));
+    const word = (text: string, x0: number, y0: number) =>
+      ({ text, confidence: 90, bbox: { x0, y0, x1: x0 + text.length * 14, y1: y0 + 24 } });
+    vi.doMock('tesseract.js', () => ({
+      createWorker: vi.fn(async () => ({
+        setParameters: vi.fn(async () => undefined),
+        recognize: vi.fn(async () => ({
+          data: {
+            text: 'Debris hauling CY $27.00\nDebris reduction CY $9.24',
+            confidence: 88,
+            blocks: [{ paragraphs: [{ lines: [
+              { words: [word('Debris', 40, 400), word('hauling', 140, 400), word('CY', 600, 400), word('$27.00', 900, 400)] },
+              { words: [word('Debris', 40, 460), word('reduction', 140, 460), word('CY', 600, 460), word('$9.24', 900, 460)] },
+            ] }] }],
+          },
+        })),
+        terminate: vi.fn(async () => undefined),
+      })),
+    }));
+
+    const extractDocument = await loadExtractDocument();
+    const payload = await extractDocument(
+      {
+        id: 'suspect-ocr-table',
+        title: 'Suspect OCR Table',
+        name: 'suspect-ocr-table.pdf',
+        document_type: 'contract',
+        storage_path: 'test/suspect-ocr-table.pdf',
+      },
+      new TextEncoder().encode('synthetic-pdf').buffer,
+      'application/pdf',
+      'suspect-ocr-table.pdf',
+    );
+
+    const tables = (payload.extraction.content_layers_v1 as {
+      pdf?: { tables?: { tables?: Array<{ page_number?: number; rows?: Array<{ cells?: Array<{ source?: string }> }> }> } };
+    } | undefined)?.pdf?.tables?.tables ?? [];
+    const sources = tables.flatMap((table) =>
+      (table.rows ?? []).flatMap((row) => (row.cells ?? []).map((cell) => cell.source)),
+    );
+
+    expect(openAiConstructor).not.toHaveBeenCalled();
+    expect(openAiCreate).not.toHaveBeenCalled();
+    expect(tables).toHaveLength(1);
+    expect(tables[0]).toMatchObject({ page_number: 1 });
+    expect(sources).toContain('ocr_fallback');
+    expect(sources).not.toContain('vision');
+  });
+
+  it('still OCRs scanned pages whose only native text is a stamp or page number', async () => {
+    vi.resetModules();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { buildPdfTextExtraction } = mockCommonPdfPipeline(2, [
+      { nativeText: 'DocuSign Envelope ID 1234', scanned: true },
+      { nativeText: 'Page 2 of 7', scanned: true },
+    ]);
 
     const nativePageTexts = [
       'DocuSign Envelope ID 1234',
@@ -453,9 +592,11 @@ describe('documentExtraction pdf fallback gate', () => {
         })),
         getViewport: vi.fn(() => ({ width: 200, height: 300 })),
         render: vi.fn(() => ({ promise: Promise.resolve() })),
+        getOperatorList: vi.fn(async () => ({ fnArray: [], argsArray: [] })),
       })),
     };
     vi.doMock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
+      OPS: MOCK_PDFJS_OPS,
       getDocument: vi.fn(() => ({ promise: Promise.resolve(pdfDoc) })),
     }));
     vi.doMock('@napi-rs/canvas', () => ({
@@ -510,14 +651,15 @@ describe('documentExtraction pdf fallback gate', () => {
     expect(payload.extraction.mode).toBe('ocr_recovery');
     const recoveryCall = buildPdfTextExtraction.mock.calls.find(([args]) =>
       typeof args?.fallbackText === 'string'
-      && args.fallbackText.includes('Recovered weak contract page 1')
+      && args.fallbackText.includes('Recovered')
+      && args.fallbackText.includes('Recovered weak contract page 2')
       && Array.isArray(args.fallbackPages)
       && args.fallbackPages.length === 2,
     );
     expect(recoveryCall).toBeTruthy();
     expect((payload.extraction.metadata ?? {}) as Record<string, unknown>).toMatchObject({
       extraction_mode: 'ocr_recovery',
-      ocr_trigger_reason: 'pdf_parse_full_weak_contract_like',
+      ocr_trigger_reason: 'page_visual_coverage_incomplete',
       ocr_pages_attempted: 2,
       canonical_persisted: false,
     });
@@ -560,10 +702,14 @@ describe('documentExtraction pdf fallback gate', () => {
     expect(JSON.stringify(payload)).not.toContain('render_sha256');
   });
 
-  it('runs targeted front-matter OCR when later contract body text is meaningful but agreement pages are image-only', async () => {
+  it('OCRs only the image-only agreement pages when later contract body text is native', async () => {
     vi.resetModules();
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    const { buildPdfTextExtraction } = mockCommonPdfPipeline(12);
+    const { buildPdfTextExtraction } = mockCommonPdfPipeline(12, [
+      ...Array.from({ length: 10 }, () => ({ scanned: true })),
+      { nativeText: 'EXHIBIT A SCOPE OF WORK 1.1 The County seeks to contract with a qualified Vendor.', scanned: false },
+      { nativeText: 'PROJECT FUNDING PACKAGE EXHIBIT E 1. PROJECT TERM 1.1. The Vendor shall furnish services.', scanned: false },
+    ]);
 
     const nativePageTexts = [
       '', '', '', '', '', '', '', '', '', '',
@@ -581,9 +727,11 @@ describe('documentExtraction pdf fallback gate', () => {
         })),
         getViewport: vi.fn(() => ({ width: 200, height: 300 })),
         render: vi.fn(() => ({ promise: Promise.resolve() })),
+        getOperatorList: vi.fn(async () => ({ fnArray: [], argsArray: [] })),
       })),
     };
     vi.doMock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
+      OPS: MOCK_PDFJS_OPS,
       getDocument: vi.fn(() => ({ promise: Promise.resolve(pdfDoc) })),
     }));
     vi.doMock('@napi-rs/canvas', () => ({
@@ -640,5 +788,117 @@ describe('documentExtraction pdf fallback gate', () => {
       ocr_pages_attempted: 10,
       canonical_persisted: false,
     });
+  });
+  it('never recognizes or covers a scanned page whose painted image did not provably decode', async () => {
+    vi.resetModules();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockCommonPdfPipeline(3, [
+      { nativeText: 'DocuSign Envelope ID 1234', scanned: true },
+      { scanned: true },
+      { scanned: true },
+    ]);
+    const pageOperatorLists: Record<number, { fnArray: number[]; argsArray: unknown[] }> = {
+      // Page 1: a referenced image whose decoder failed resolves to null.
+      1: { fnArray: [MOCK_PDFJS_OPS.paintImageXObject], argsArray: [['img_p0_1', 1275, 1650]] },
+      // Page 2: a clean referenced image.
+      2: { fnArray: [MOCK_PDFJS_OPS.paintImageXObject], argsArray: [['img_p1_1', 1275, 1650]] },
+      // Page 3: an inline image with no decoded data -- a different decoder failure.
+      3: { fnArray: [MOCK_PDFJS_OPS.paintInlineImageXObject], argsArray: [[null]] },
+    };
+    const pools: Record<number, Map<string, unknown>> = {
+      1: new Map([['img_p0_1', null]]),
+      2: new Map([['img_p1_1', { width: 1275, height: 1650, data: new Uint8ClampedArray(4) }]]),
+      3: new Map(),
+    };
+    const pdfDoc = {
+      numPages: 3,
+      getPage: vi.fn(async (pageNumber: number) => ({
+        getTextContent: vi.fn(async () => ({ items: [] })),
+        getViewport: vi.fn(() => ({ width: 200, height: 300 })),
+        render: vi.fn(() => ({ promise: Promise.resolve() })),
+        getOperatorList: vi.fn(async () => pageOperatorLists[pageNumber]),
+        objs: {
+          has: (id: string) => pools[pageNumber]!.has(id),
+          get: (id: string) => pools[pageNumber]!.get(id),
+        },
+        commonObjs: { has: () => false, get: () => undefined },
+      })),
+    };
+    vi.doMock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
+      OPS: MOCK_PDFJS_OPS,
+      getDocument: vi.fn(() => ({ promise: Promise.resolve(pdfDoc) })),
+    }));
+    vi.doMock('@napi-rs/canvas', () => ({
+      createCanvas: vi.fn(() => ({
+        getContext: vi.fn(() => ({})),
+        toBuffer: vi.fn(() => Buffer.from('png')),
+      })),
+    }));
+    const recognize = vi.fn(async () => ({
+      data: {
+        text: 'Recovered scanned rate page',
+        confidence: 88,
+        blocks: [{ paragraphs: [{ lines: [{ words: [{
+          text: 'Recovered', confidence: 88, bbox: { x0: 12, y0: 24, x1: 88, y1: 46 },
+        }] }] }] }],
+      },
+    }));
+    vi.doMock('tesseract.js', () => ({
+      createWorker: vi.fn(async () => ({
+        setParameters: vi.fn(async () => undefined),
+        recognize,
+        terminate: vi.fn(async () => undefined),
+      })),
+    }));
+
+    const extractDocument = await loadExtractDocument();
+    const payload = await extractDocument(
+      {
+        id: 'decode-failure-contract',
+        title: 'Decode Failure Contract',
+        name: 'decode-failure-contract.pdf',
+        document_type: 'contract',
+        storage_path: 'test/decode-failure-contract.pdf',
+      },
+      new TextEncoder().encode('not-a-real-pdf').buffer,
+      'application/pdf',
+      'decode-failure-contract.pdf',
+    );
+
+    // Only the page whose image provably decoded is ever recognized.
+    expect(recognize).toHaveBeenCalledTimes(1);
+    const coverage = (payload.extraction.content_layers_v1 as {
+      pdf?: { page_extraction_coverage_v1?: { pages: Array<Record<string, unknown>> } };
+    }).pdf?.page_extraction_coverage_v1;
+    const byPage = new Map((coverage?.pages ?? []).map((page) => [page.page_number, page]));
+    expect(byPage.get(1)).toMatchObject({
+      final_state: 'coverage_failed',
+      ocr: { state: 'failed' },
+      render_decode: {
+        state: 'failed',
+        decode_failures: [{
+          object_id: 'img_p0_1', decoder: 'unknown', message_class: 'pdfjs_image_dependency_resolved_null',
+        }],
+      },
+    });
+    expect(byPage.get(1)?.reasons).toContain('image_decode_failed');
+    expect(byPage.get(2)).toMatchObject({ final_state: 'ocr_complete', ocr: { state: 'produced' } });
+    expect(byPage.get(2)).not.toHaveProperty('render_decode');
+    // The rule is decoder-agnostic: a different failure kind fails closed identically.
+    expect(byPage.get(3)).toMatchObject({
+      final_state: 'coverage_failed',
+      ocr: { state: 'failed' },
+      render_decode: {
+        state: 'failed',
+        decode_failures: [{
+          object_id: 'inline:0', decoder: 'unknown', message_class: 'pdfjs_inline_image_missing_data',
+        }],
+      },
+    });
+    // No OCR words from an undecoded render reach located evidence.
+    const located = getLocatedOcrObservations(payload);
+    expect(located?.pages.find((page) => page.page_number === 1)?.words ?? []).toEqual([]);
+    expect(located?.pages.find((page) => page.page_number === 3)?.words ?? []).toEqual([]);
+    expect(located?.pages.find((page) => page.page_number === 2)?.words).toHaveLength(1);
   });
 });

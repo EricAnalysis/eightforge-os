@@ -83,6 +83,10 @@ export const RECOVERY_CONFIRMATION_DIAGNOSTICS = [
    * changes observation identity. Never rebound by text.
    */
   'confirmed_recovery_unbound',
+  /** The confirmation binds, but the page's effective evidence digest changed since review. */
+  'confirmed_recovery_evidence_changed',
+  /** The reviewed or current evidence digest is missing, so equivalence cannot be proven. */
+  'confirmed_recovery_evidence_unverifiable',
 ] as const;
 export type RecoveryConfirmationDiagnosticCode =
   (typeof RECOVERY_CONFIRMATION_DIAGNOSTICS)[number];

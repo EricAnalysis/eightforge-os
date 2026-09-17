@@ -7,6 +7,11 @@ import {
   type PdfToken,
 } from '@/lib/extraction/pdf/extractText';
 import {
+  canonicalIntersectionOverSmaller,
+  ocrRenderBoxToCanonical,
+  type CanonicalPageFrame,
+} from '@/lib/extraction/geometry/canonicalPageFrame';
+import {
   createPdfLayoutObservationIdentity,
   pdfLayoutPageRepresentationDigest,
   type PdfLayoutObservationIdentityContext,
@@ -72,6 +77,7 @@ function wordToToken(
     normalizeToPdf: boolean;
     pageRepresentationDigest: string | null;
     identityContext?: PdfLayoutObservationIdentityContext | null;
+    canonicalFrame?: CanonicalPageFrame | null;
   },
 ): PdfToken | null {
   const text = normalizeWordText(word.text);
@@ -103,10 +109,20 @@ function wordToToken(
         pageRepresentationDigest: params.pageRepresentationDigest,
       })
     : null;
+  // Derived, additive (E2): the render already embodies rotation and crop, so
+  // only the render scale is removed. The pixel evidence below is untouched.
+  const canonicalBbox = params.canonicalFrame
+    ? ocrRenderBoxToCanonical(
+        params.canonicalFrame,
+        { x_min: x0, y_min: y0, x_max: x1, y_max: y1 },
+        { pixelWidth: params.ocrWidth, pixelHeight: params.ocrHeight },
+      )
+    : null;
   return {
     text,
-    // Canonical layout space is PDF page points with a bottom-left, Y-up
-    // origin. Original OCR pixel geometry remains in the located-OCR sidecar.
+    // The layout space downstream of this function is PDF page points with a
+    // bottom-left, Y-up origin. It is historical and unchanged by E2; canonical
+    // geometry travels separately in `canonical_bbox`.
     x: Math.round((params.normalizeToPdf ? x0 * scaleX : x0) * 1000) / 1000,
     y: Math.round((params.normalizeToPdf ? params.pageHeight - (y1 * scaleY) : y0) * 1000) / 1000,
     width: Math.round((params.normalizeToPdf ? width * scaleX : width) * 1000) / 1000,
@@ -118,6 +134,7 @@ function wordToToken(
       pixel_width: params.ocrWidth,
       pixel_height: params.ocrHeight,
     },
+    ...(canonicalBbox ? { canonical_bbox: canonicalBbox } : {}),
     ...(observationIdentity
       ? { observation_id: observationIdentity.id, observation_identity: observationIdentity }
       : {}),
@@ -166,6 +183,9 @@ export function buildOcrLayoutPages(
     const pageWidth = targetPage?.width ?? page.width ?? ocrWidth;
     const pageHeight = targetPage?.height ?? page.height ?? ocrHeight;
     const normalizeToPdf = Boolean(targetPage?.width && targetPage?.height && page.width && page.height);
+    // Canonical geometry needs the page's own frame; without it OCR evidence
+    // carries pixel geometry only and canonical consumers fail closed.
+    const canonicalFrame = page.width && page.height ? targetPage?.canonical_frame ?? null : null;
     const pageRepresentationDigest = identityContext
       ? pdfLayoutPageRepresentationDigest({
           representation_key: page.representation_key ?? null,
@@ -188,6 +208,7 @@ export function buildOcrLayoutPages(
         normalizeToPdf,
         pageRepresentationDigest,
         identityContext,
+        canonicalFrame,
       }))
       .filter((token): token is PdfToken => token != null)
       .sort((left, right) => sourceLineCenter(left) - sourceLineCenter(right)
@@ -252,6 +273,7 @@ export function buildOcrLayoutPages(
       height: pageHeight,
       lines,
       source: 'ocr_fallback',
+      ...(canonicalFrame ? { canonical_frame: canonicalFrame } : {}),
       ...(pageRepresentationDigest ? { effective_representation_digest: pageRepresentationDigest } : {}),
     };
   });
@@ -261,12 +283,19 @@ function normalizedText(value: string): string {
   return value.normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
+/**
+ * Duplicate-detection overlap, compared only in canonical_v1.
+ *
+ * Before E2 this compared native raw user-space boxes against OCR boxes that
+ * had been flipped through the *rotated* page height: two different coordinate
+ * frames, which disagreed on any rotated or cropped page. Both sides are now
+ * normalized into the page's canonical frame first. The admission rule itself
+ * is unchanged (half of the smaller box), and a token without canonical
+ * geometry is never treated as a duplicate.
+ */
 function overlaps(left: PdfToken, right: PdfToken): boolean {
-  const x = Math.max(0, Math.min(left.x + left.width, right.x + right.width) - Math.max(left.x, right.x));
-  const y = Math.max(0, Math.min(left.y + left.height, right.y + right.height) - Math.max(left.y, right.y));
-  const intersection = x * y;
-  const smaller = Math.min(left.width * left.height, right.width * right.height);
-  return smaller > 0 && intersection / smaller >= 0.5;
+  if (!left.canonical_bbox || !right.canonical_bbox) return false;
+  return canonicalIntersectionOverSmaller(left.canonical_bbox, right.canonical_bbox) >= 0.5;
 }
 
 function effectiveDigest(page: PdfLayoutPage): string | undefined {
@@ -314,8 +343,11 @@ export function mergeOcrFallbackLayout(params: {
     // Native and OCR evidence may share a page only once both are in PDF points.
     // Without exact page and render dimensions, native precedence is kept.
     const ocrSource = params.ocrPages.find((page) => page.page_number === nativePage.page_number);
+    // Mixed admission needs one shared frame for both extractors. Without the
+    // canonical frame there is no honest duplicate test, so native wins whole
+    // rather than admitting OCR that may restate the native text.
     const normalizable = Boolean(nativePage.width && nativePage.height
-      && ocrSource?.width && ocrSource?.height);
+      && ocrSource?.width && ocrSource?.height && nativePage.canonical_frame);
     if (reconciled && normalizable
       && nativePage.lines.length > 0 && ocrPage && ocrPage.lines.length > 0) {
       const nativeTokens = nativePage.lines.flatMap((line) => line.tokens);

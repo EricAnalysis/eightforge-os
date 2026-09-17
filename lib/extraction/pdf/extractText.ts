@@ -4,6 +4,12 @@ import {
   stripUnsafeTextControls,
 } from '@/lib/extraction/textSanitization';
 import {
+  buildCanonicalPageFrame,
+  nativeTextRunCanonicalBox,
+  type CanonicalBox,
+  type CanonicalPageFrame,
+} from '@/lib/extraction/geometry/canonicalPageFrame';
+import {
   createPdfLayoutObservationIdentity,
   pdfLayoutPageRepresentationDigest,
   type PdfLayoutObservationIdentity,
@@ -30,6 +36,13 @@ export interface PdfToken {
     pixel_width: number;
     pixel_height: number;
   };
+  /**
+   * Derived canonical_v1 geometry (E2), carried beside the source geometry
+   * above, which keeps its historical meaning. Additive only: `x`/`y`/`width`/
+   * `height` and `ocr_source_geometry` remain the evidence that candidate
+   * digests, proposal identity and observation exact-match checks are built on.
+   */
+  canonical_bbox?: CanonicalBox;
   /** Primitive source-observation identity assigned before downstream sorting/grouping. */
   observation_id?: PdfLayoutObservationId;
   observation_identity?: PdfLayoutObservationIdentity;
@@ -62,6 +75,12 @@ export interface PdfLayoutPage {
   };
   /** Additive identity for the exact reconciled representation consumed downstream. */
   effective_representation_digest?: string;
+  /**
+   * The page's canonical_v1 frame (viewer-visible box, rotation applied).
+   * Absent when the page box or rotation could not be established, in which
+   * case canonical consumers fail closed rather than assuming an upright page.
+   */
+  canonical_frame?: CanonicalPageFrame;
 }
 
 export interface PdfLayout {
@@ -219,6 +238,13 @@ export async function loadPdfLayout(
     for (const pageNumber of [...pageNumbers].sort((left, right) => left - right)) {
       const page = await pdfDocument.getPage(pageNumber);
       const viewport = page.getViewport({ scale: 1 });
+      // The canonical frame is the viewer-visible page: pdf.js's own view box
+      // and /Rotate, which is what this viewport reports.
+      const canonicalFrame = buildCanonicalPageFrame({
+        view: (page as unknown as { view?: number[] }).view ?? [],
+        rotation: (page as unknown as { rotate?: number }).rotate,
+        userUnit: (page as unknown as { userUnit?: number }).userUnit,
+      });
       const [textContent, operatorList] = await Promise.all([
         page.getTextContent(),
         page.getOperatorList(),
@@ -258,6 +284,15 @@ export async function loadPdfLayout(
                 pageRepresentationDigest,
               })
             : null;
+          // Derived, additive: the raw user-space values below stay exactly as
+          // they were, and the canonical box is computed from the same item.
+          const canonicalBbox = canonicalFrame && Array.isArray(item.transform)
+            ? nativeTextRunCanonicalBox(canonicalFrame, {
+                transform: item.transform,
+                width: typeof item.width === 'number' ? item.width : 0,
+                height: typeof item.height === 'number' ? item.height : 0,
+              })
+            : null;
           return {
             text: stripUnsafeTextControls(rawText).trim(),
             x: Array.isArray(item.transform) ? round(item.transform[4] ?? 0) : 0,
@@ -265,6 +300,7 @@ export async function loadPdfLayout(
             width: typeof item.width === 'number' ? round(item.width) : 0,
             height: typeof item.height === 'number' ? round(item.height) : 0,
             source: 'pdfjs' as const,
+            ...(canonicalBbox ? { canonical_bbox: canonicalBbox } : {}),
             ...(observationIdentity
               ? { observation_id: observationIdentity.id, observation_identity: observationIdentity }
               : {}),
@@ -391,6 +427,7 @@ export async function loadPdfLayout(
           approximate_image_coverage_ratio: round(Math.min(1, imageArea / pageArea)),
           vector_operator_count: vectorOperatorCount,
         },
+        ...(canonicalFrame ? { canonical_frame: canonicalFrame } : {}),
         ...(pageRepresentationDigest ? { effective_representation_digest: pageRepresentationDigest } : {}),
       });
     }

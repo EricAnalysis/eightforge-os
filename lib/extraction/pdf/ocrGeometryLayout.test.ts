@@ -3,10 +3,17 @@ import { describe, expect, it } from 'vitest';
 import { buildPdfTableExtraction } from '@/lib/extraction/pdf/extractTables';
 import type { PdfLayout, PdfLayoutLine } from '@/lib/extraction/pdf/extractText';
 import {
+  buildCanonicalPageFrame,
+  pdfUserUnrotatedBoxToCanonical,
+} from '@/lib/extraction/geometry/canonicalPageFrame';
+import {
   buildOcrLayoutPages,
   mergeOcrFallbackLayout,
   type OcrGeometryWord,
 } from '@/lib/extraction/pdf/ocrGeometryLayout';
+
+/** A real US-Letter page frame: mixed admission needs one shared canonical frame. */
+const PAGE_FRAME = buildCanonicalPageFrame({ view: [0, 0, 612, 792], rotation: 0 })!;
 
 const IDENTITY_CONTEXT = { sourceDocumentId: 'document-a', sourceArtifactId: 'artifact-a' } as const;
 
@@ -28,7 +35,11 @@ function nativeLine(text: string): PdfLayoutLine {
     id: 'pdf:line:p1:1',
     page_number: 1,
     text,
-    tokens: [{ text, x: 10, y: 10, width: text.length * 5, height: 12, source: 'pdfjs' }],
+    tokens: [{
+      text, x: 10, y: 10, width: text.length * 5, height: 12, source: 'pdfjs',
+      canonical_bbox: pdfUserUnrotatedBoxToCanonical(PAGE_FRAME,
+        { x_min: 10, x_max: 10 + text.length * 5, y_min: 10, y_max: 22 })!,
+    }],
     kind: 'text',
     x_min: 10,
     x_max: 10 + text.length * 5,
@@ -154,7 +165,7 @@ describe('OCR geometry layout recovery', () => {
       nativeLayout: {
         page_count: 1,
         gaps: [],
-        pages: [{ page_number: 1, width: 612, height: 792, lines: [nativeLine('DocuSign Envelope')] }],
+        pages: [{ page_number: 1, width: 612, height: 792, canonical_frame: PAGE_FRAME, lines: [nativeLine('DocuSign Envelope')] }],
       },
       ocrPages: [{
         page_number: 1, width: 1224, height: 1584,
@@ -228,7 +239,7 @@ describe('OCR geometry layout recovery', () => {
     const line = nativeLine('Rate');
     const nativeToken = line.tokens[0]!;
     const merged = mergeOcrFallbackLayout({
-      nativeLayout: { page_count: 1, gaps: [], pages: [{ page_number: 1, width: 612, height: 792, lines: [line] }] },
+      nativeLayout: { page_count: 1, gaps: [], pages: [{ page_number: 1, width: 612, height: 792, canonical_frame: PAGE_FRAME, lines: [line] }] },
       ocrPages: [{
         page_number: 1, width: 612, height: 792,
         words: [{

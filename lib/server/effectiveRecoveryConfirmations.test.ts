@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  loadConfirmedRecoverySelections,
   resolveEffectiveRecoveryConfirmations,
   RECOVERY_PROPOSAL_TABLE,
   RECOVERY_REVIEW_TABLE,
@@ -242,5 +243,24 @@ describe('effective recovery confirmation resolver', () => {
     expect(result.status === 'ok' && result.confirmations).toEqual([]);
     expect(result.status === 'ok' && result.candidateConfirmations?.[0]?.confirmedCandidate)
       .toEqual(candidate);
+  });
+
+  it('carries the reviewed page digest to reconstruction, and a legacy null digest as null', async () => {
+    const reviewed = proposalRow(1);
+    const legacyBase = proposalRow(2);
+    const legacy = { ...legacyBase, page_representation_digest: null };
+    const selections = await loadConfirmedRecoverySelections(query, {
+      admin: client([reviewed, legacy], [
+        reviewRow(reviewed),
+        { ...reviewRow(legacyBase), id: '66666666-6666-4666-8666-666666666666',
+          confirmed_observation_id: 'pdf:layout-token:v1:bb', confirmed_raw_text: '$52.50' },
+      ]),
+    });
+    expect(selections.confirmedRateObservations).toEqual([
+      { observation_id: 'pdf:layout-token:v1:aa', confirmed_raw_text: '$8.75',
+        page_representation_digest: 'e'.repeat(64) },
+      { observation_id: 'pdf:layout-token:v1:bb', confirmed_raw_text: '$52.50',
+        page_representation_digest: null },
+    ]);
   });
 });

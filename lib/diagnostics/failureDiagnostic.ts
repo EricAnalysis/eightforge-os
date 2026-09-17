@@ -24,6 +24,8 @@ export const DIAGNOSTIC_CODES = [
   'ambiguous_recovery_confirmation',
   'recovery_closure_failed',
   'confirmed_recovery_unbound',
+  'confirmed_recovery_evidence_changed',
+  'confirmed_recovery_evidence_unverifiable',
   'duplicate_recovery_confirmation',
   'confirmed_recovery_not_applied',
   'ambiguous_recovery_authority',

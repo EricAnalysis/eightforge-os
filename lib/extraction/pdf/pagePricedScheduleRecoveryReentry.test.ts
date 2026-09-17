@@ -9,6 +9,7 @@ import type { PdfLayout, PdfLayoutLine, PdfLayoutPage, PdfToken } from '@/lib/ex
 import {
   buildPagePricedScheduleReconstruction,
   type ConfirmedRateObservation,
+  type CurrentPageEvidence,
 } from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
 
 /**
@@ -266,16 +267,34 @@ it('keeps normalized OCR geometry internal while candidates retain original pixe
   expect(candidate!.evidence[0]!.boundingBox.yMax).toBe(120);
 });
 
-const confirm = (observationId: string, text: string): ConfirmedRateObservation =>
-  ({ observation_id: observation(observationId), confirmed_raw_text: text });
+/** The page representation every fixture confirmation was reviewed against. */
+const REVIEWED_DIGEST = 'a'.repeat(64);
+
+const confirm = (
+  observationId: string,
+  text: string,
+  pageRepresentationDigest: string | null = REVIEWED_DIGEST,
+): ConfirmedRateObservation => ({
+  observation_id: observation(observationId),
+  confirmed_raw_text: text,
+  page_representation_digest: pageRepresentationDigest,
+});
+
+/** Every fixture page presents the reviewed evidence state unless a test says otherwise. */
+function unchangedEvidence(layout: PdfLayout): Record<number, CurrentPageEvidence> {
+  return Object.fromEntries(layout.pages.map((page) => [page.page_number, {
+    pageRepresentationDigest: REVIEWED_DIGEST, recoveryAllowed: true,
+  }]));
+}
 
 function reconstruct(
   layout: PdfLayout,
   confirmedRateObservations?: readonly ConfirmedRateObservation[],
   confirmedRecoveryCandidates?: readonly RecoveryCandidateV2[],
+  currentPageEvidence: Readonly<Record<number, CurrentPageEvidence>> = unchangedEvidence(layout),
 ) {
   return buildPagePricedScheduleReconstruction({
-    layout, confirmedRateObservations, confirmedRecoveryCandidates,
+    layout, confirmedRateObservations, confirmedRecoveryCandidates, currentPageEvidence,
   });
 }
 
@@ -672,6 +691,117 @@ describe('page-digest staleness', () => {
       expect(changed.recovery_diagnostics?.[0]?.reason).toBe('confirmed_recovery_unbound');
     });
   }
+});
+
+describe('effective evidence binding', () => {
+  // A human confirmed one evidence state. Binding by observation identity is
+  // necessary but not sufficient: the page's current effective evidence must be
+  // provably that same state, and its coverage trusted.
+  const changedDigest = 'b'.repeat(64);
+
+  it('applies a V1 confirmation only when the current effective digest equals the reviewed one', () => {
+    const same = reconstruct(ambiguousPageLayout(), [confirm('obs:gamma-unit', '$8.75')]);
+    expect(gammaRow(same)).not.toBeNull();
+    expect(same.recovery_diagnostics).toEqual([]);
+  });
+
+  it('holds back a V1 confirmation whose page evidence changed since review', () => {
+    const layout = ambiguousPageLayout();
+    const result = reconstruct(layout, [confirm('obs:gamma-unit', '$8.75')], undefined, {
+      [PAGE]: { pageRepresentationDigest: changedDigest, recoveryAllowed: true },
+    });
+    expect(gammaRow(result)).toBeNull();
+    expect(rejectionReasons(result)).toContain('ambiguous_rate_clusters');
+    expect(result.recovery_diagnostics).toEqual([{
+      reason: 'confirmed_recovery_evidence_changed',
+      observation_id: 'obs:gamma-unit',
+      physical_page_number: PAGE,
+      recovery_applied: false,
+    }]);
+  });
+
+  it('holds back a legacy V1 confirmation with no reviewed digest as unverifiable, not changed', () => {
+    const result = reconstruct(ambiguousPageLayout(), [confirm('obs:gamma-unit', '$8.75', null)]);
+    expect(gammaRow(result)).toBeNull();
+    expect(result.recovery_diagnostics).toEqual([{
+      reason: 'confirmed_recovery_evidence_unverifiable',
+      observation_id: 'obs:gamma-unit',
+      physical_page_number: PAGE,
+      recovery_applied: false,
+    }]);
+  });
+
+  it('holds back a confirmation as unverifiable when the current page digest is unknown', () => {
+    const layout = ambiguousPageLayout();
+    const unknownEvidence: ReadonlyArray<Record<number, CurrentPageEvidence>> = [
+      {},
+      { [PAGE]: { pageRepresentationDigest: null, recoveryAllowed: true } },
+    ];
+    for (const currentPageEvidence of unknownEvidence) {
+      const result = reconstruct(layout, [confirm('obs:gamma-unit', '$8.75')], undefined, currentPageEvidence);
+      expect(gammaRow(result)).toBeNull();
+      expect(result.recovery_diagnostics?.map((entry) => entry.reason))
+        .toEqual(['confirmed_recovery_evidence_unverifiable']);
+    }
+    // Omitting the evidence entirely is not a bypass either.
+    const omitted = buildPagePricedScheduleReconstruction({
+      layout, confirmedRateObservations: [confirm('obs:gamma-unit', '$8.75')],
+    });
+    expect(gammaRow(omitted)).toBeNull();
+    expect(omitted.recovery_diagnostics?.map((entry) => entry.reason))
+      .toEqual(['confirmed_recovery_evidence_unverifiable']);
+  });
+
+  it('holds back a digest-equal confirmation on a page whose coverage is not trusted', () => {
+    const result = reconstruct(ambiguousPageLayout(), [confirm('obs:gamma-unit', '$8.75')], undefined, {
+      [PAGE]: { pageRepresentationDigest: REVIEWED_DIGEST, recoveryAllowed: false },
+    });
+    expect(gammaRow(result)).toBeNull();
+    expect(result.recovery_diagnostics).toEqual([{
+      reason: 'confirmed_recovery_not_applied',
+      observation_id: 'obs:gamma-unit',
+      physical_page_number: PAGE,
+      blocked_by: 'coverage_not_trusted',
+      recovery_applied: false,
+    }]);
+  });
+
+  it('never lets a held-back confirmation rebind by text to the same authored value', () => {
+    const result = reconstruct(ambiguousPageLayout(), [confirm('obs:gamma-unit', '$8.75')], undefined, {
+      [PAGE]: { pageRepresentationDigest: changedDigest, recoveryAllowed: true },
+    });
+    expect(result.pages[0]!.rows.some((row) =>
+      row.cells.some((cell) => cell.role === 'rate' && cell.raw_text === '$8.75'))).toBe(false);
+  });
+
+  it('holds back V2 cluster and continuation candidates whose page evidence changed or is unverifiable', () => {
+    const cluster = splitCandidate();
+    const clusterChanged = reconstruct(splitAmbiguousPageLayout(), undefined, [cluster], {
+      [PAGE]: { pageRepresentationDigest: changedDigest, recoveryAllowed: true },
+    });
+    expect(clusterChanged.recovery_diagnostics).toEqual([expect.objectContaining({
+      reason: 'confirmed_recovery_evidence_changed', candidate_id: cluster.candidateId,
+      physical_page_number: PAGE, recovery_applied: false,
+    })]);
+
+    const [continuation] = continuationCandidates();
+    expect(continuation).toBeDefined();
+    const applied = reconstruct(continuationAmbiguousPageLayout(), undefined, [continuation!]);
+    expect(applied.recovery_diagnostics).toEqual([]);
+    const unverifiable = reconstruct(continuationAmbiguousPageLayout(), undefined, [continuation!], {});
+    expect(unverifiable.recovery_diagnostics).toEqual([expect.objectContaining({
+      reason: 'confirmed_recovery_evidence_unverifiable', candidate_id: continuation!.candidateId,
+    })]);
+    expect(hashCanonical(unverifiable.pages))
+      .toBe(hashCanonical(reconstruct(continuationAmbiguousPageLayout()).pages));
+  });
+
+  it('still reports a confirmation whose observation no longer exists as unbound, not as evidence change', () => {
+    const result = reconstruct(ambiguousPageLayout(), [confirm('obs:gone', '$8.75')], undefined, {
+      [PAGE]: { pageRepresentationDigest: changedDigest, recoveryAllowed: true },
+    });
+    expect(result.recovery_diagnostics?.map((entry) => entry.reason)).toEqual(['confirmed_recovery_unbound']);
+  });
 });
 
 describe('default path byte identity', () => {

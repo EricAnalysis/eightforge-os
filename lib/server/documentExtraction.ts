@@ -2221,12 +2221,28 @@ export async function extractDocument(
         emitWarnings: true, context: 'candidate_generation_admission',
       }),
     );
+    // The effective evidence each page currently presents. A confirmed recovery
+    // re-applies only to the exact evidence state a human reviewed, on a page
+    // whose coverage is trusted; this is independent of candidate generation.
+    const currentPageEvidence = Object.fromEntries(reconciledLayout.pages.map((page) => {
+      const coverage = coverageByPage.get(page.page_number);
+      const digest = page.effective_representation_digest
+        ?? page.lines.flatMap((line) => line.tokens)
+          .find((token) => token.observation_identity)?.observation_identity
+          ?.page_representation_digest
+        ?? null;
+      return [page.page_number, {
+        pageRepresentationDigest: digest,
+        recoveryAllowed: coverage != null && coverageAllowsRecovery(coverage),
+      }];
+    }));
     const pricedScheduleReconstructionLayer = buildPagePricedScheduleReconstruction({
       layout: reconciledLayout,
       // Absent or empty leaves this call byte-identical to the one made before
       // recovery re-entry existed.
       confirmedRateObservations: recoveryContext?.confirmedRateObservations,
       confirmedRecoveryCandidates: recoveryContext?.confirmedRecoveryCandidates,
+      currentPageEvidence,
       ...(admittedRecoveryTypes.length > 0
         && provenanceContext
         ? { recoveryCandidateBuildContext: {

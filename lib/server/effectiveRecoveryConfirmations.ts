@@ -270,6 +270,7 @@ export async function loadConfirmedRateObservations(
   return Object.freeze(resolved.confirmations.map((confirmation) => Object.freeze({
     observation_id: confirmation.confirmedObservationId as ConfirmedRateObservation['observation_id'],
     confirmed_raw_text: confirmation.confirmedRawText,
+    page_representation_digest: confirmation.pageRepresentationDigest ?? null,
   })));
 }
 
@@ -314,6 +315,7 @@ export async function loadConfirmedRecoverySelections(
       .map((confirmation) => Object.freeze({
         observation_id: confirmation.confirmedObservationId as ConfirmedRateObservation['observation_id'],
         confirmed_raw_text: confirmation.confirmedRawText,
+        page_representation_digest: confirmation.pageRepresentationDigest ?? null,
       }))),
     confirmedRecoveryCandidates: Object.freeze(
       (resolved.candidateConfirmations ?? []).map((confirmation) => confirmation.confirmedCandidate)),

@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import { buildCanonicalPageFrame } from '@/lib/extraction/geometry/canonicalPageFrame';
-import { historicalV1CoordinateSpace, toViewportRect } from '@/lib/recovery/sourceGeometry';
+import {
+  historicalV1CoordinateSpace,
+  toViewportRect,
+  type SourcePageGeometry,
+} from '@/lib/recovery/sourceGeometry';
 import type { VisualSourceBox } from '@/lib/recovery/visualSourceEvidence';
 
 const native: VisualSourceBox = {
@@ -92,7 +96,7 @@ describe('historical v1 evidence with a page frame', () => {
 
 describe('canonical_v1 evidence', () => {
   const frame = buildCanonicalPageFrame({ view: [20, 30, 600, 780], rotation: 90 })!;
-  const rotated = {
+  const rotated: SourcePageGeometry = {
     ...page, viewportWidth: frame.width * 2, viewportHeight: frame.height * 2, rotation: 90,
     viewBox: [20, 30, 600, 780], userUnit: 1,
   };

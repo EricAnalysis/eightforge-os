@@ -1,4 +1,8 @@
 import type { PdfLayoutPage } from '@/lib/extraction/pdf/extractText';
+import type {
+  RenderDecodeFailure,
+  RenderDecodeInspection,
+} from '@/lib/extraction/pdf/renderDecodeInspection';
 
 export const PAGE_EXTRACTION_COVERAGE_VERSION = 'page_extraction_coverage_v1' as const;
 
@@ -37,6 +41,15 @@ export type PageExtractionCoverage = Readonly<{
     vector_operator_count: number;
   }>;
   ocr: Readonly<{ state: ExtractorCoverageState }>;
+  /**
+   * Present only when the page's OCR render did not provably decode every
+   * painted image. Absent means either no OCR render or a clean one.
+   */
+  render_decode?: Readonly<{
+    state: 'failed' | 'unverifiable';
+    decode_failures: readonly RenderDecodeFailure[];
+    unverifiable_reason?: RenderDecodeInspection['unverifiable_reason'];
+  }>;
   final_state: PageExtractionFinalState;
   reasons: readonly string[];
 }>;
@@ -182,6 +195,33 @@ export function finalizePageExtractionCoverage(
     reasons: outcome === 'produced'
       ? [...coverage.reasons, 'ocr_evidence_produced']
       : [...coverage.reasons, outcome === 'failed' ? 'ocr_failed' : 'ocr_abstained_without_evidence'],
+  };
+}
+
+/**
+ * A page whose painted images did not all provably decode cannot establish OCR
+ * coverage, whatever text the render produced. Decoder-agnostic: the concrete
+ * failures are recorded, and only their presence decides the state.
+ */
+export function finalizePageExtractionCoverageForDecode(
+  coverage: PageExtractionCoverage,
+  inspection: RenderDecodeInspection,
+): PageExtractionCoverage {
+  if (inspection.state === 'clean'
+    || (coverage.final_state !== 'ocr_required' && coverage.final_state !== 'mixed_ocr_required')) {
+    return coverage;
+  }
+  return {
+    ...coverage,
+    ocr: { state: 'failed' },
+    render_decode: {
+      state: inspection.state,
+      decode_failures: inspection.decode_failures,
+      ...(inspection.unverifiable_reason ? { unverifiable_reason: inspection.unverifiable_reason } : {}),
+    },
+    final_state: 'coverage_failed',
+    reasons: [...coverage.reasons,
+      inspection.state === 'failed' ? 'image_decode_failed' : 'image_decode_unverifiable'],
   };
 }
 

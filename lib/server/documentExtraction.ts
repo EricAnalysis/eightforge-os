@@ -58,11 +58,18 @@ import {
   coverageAllowsRecovery,
   evaluatePageExtractionCoverage,
   finalizePageExtractionCoverage,
+  finalizePageExtractionCoverageForDecode,
   omittedPageCoverage,
   selectPagesForOcr,
   type PageExtractionCoverage,
   type PageExtractionCoverageLayer,
 } from '@/lib/extraction/pdf/pageExtractionCoverage';
+import {
+  classifyDecodeFailures,
+  inspectPageImageDecoding,
+  type InspectablePdfPage,
+  type RenderDecodeInspection,
+} from '@/lib/extraction/pdf/renderDecodeInspection';
 import { extractRateTableViaVision } from '@/lib/extraction/pdf/visionRateTableSupplement';
 import { buildPdfFormExtraction } from '@/lib/extraction/pdf/extractForms';
 import { buildEvidenceMap as buildPdfEvidenceMap } from '@/lib/extraction/pdf/buildEvidenceMap';
@@ -948,6 +955,12 @@ type PdfOcrExtractionResult = {
     height: number;
     text_detected: boolean;
   }>;
+  /**
+   * Per rendered page: whether every painted image provably decoded. A page
+   * that is not `clean` is never recognized, because OCR over a render with a
+   * skipped image cannot establish coverage of that image.
+   */
+  decodeInspections?: Array<{ page_number: number; inspection: RenderDecodeInspection }>;
 };
 
 function extractOcrGeometryWords(data: unknown): OcrGeometryWord[] {
@@ -1039,9 +1052,22 @@ async function extractPdfPageTextViaOcr(
       const geometryPages: OcrGeometryPage[] = [];
       const confidences: number[] = [];
       const pageImages: NonNullable<PdfOcrExtractionResult['pageImages']> = [];
+      const decodeInspections: NonNullable<PdfOcrExtractionResult['decodeInspections']> = [];
+      const pdfjsOps = (pdfjs as unknown as { OPS?: Record<string, number> }).OPS;
+      let pagesRecognized = 0;
 
       for (const pageNum of pagesToRender) {
         const page = await pdfDoc.getPage(pageNum);
+        const inspection = recognitionPages.has(pageNum)
+          ? await classifyDecodeFailures(
+              pdfDoc as unknown as Parameters<typeof classifyDecodeFailures>[0],
+              pageNum,
+              await inspectPageImageDecoding(page as unknown as InspectablePdfPage, pdfjsOps),
+            )
+          : null;
+        if (inspection) decodeInspections.push({ page_number: pageNum, inspection });
+        const recognize = inspection?.state === 'clean';
+        if (recognize) pagesRecognized += 1;
         const viewport = page.getViewport({ scale: 2 });
         const width = Math.floor(viewport.width);
         const height = Math.floor(viewport.height);
@@ -1056,7 +1082,7 @@ async function extractPdfPageTextViaOcr(
         await page.render(renderContext).promise;
         const pngBuffer = canvas.toBuffer('image/png');
         const renderSha256 = sha256Hex(pngBuffer);
-        const result = recognitionPages.has(pageNum)
+        const result = recognize
           ? await worker.recognize(
               pngBuffer,
               {},
@@ -1099,12 +1125,13 @@ async function extractPdfPageTextViaOcr(
       return {
         pages: out.length > 0 ? out : null,
         geometryPages,
-        pagesAttempted: recognitionPages.size,
+        pagesAttempted: pagesRecognized,
         confidenceAvg:
           confidences.length > 0
             ? Number((confidences.reduce((sum, value) => sum + value, 0) / confidences.length).toFixed(2))
             : null,
         pageImages,
+        decodeInspections,
         totalPhysicalPages: pdfDoc.numPages,
       };
     } finally {
@@ -2030,13 +2057,20 @@ export async function extractDocument(
       const geometryPages = new Set(ocrResult.geometryPages
         .filter((page) => page.words.length > 0).map((page) => page.page_number));
       const attempted = ocrResult.pagesAttempted > 0;
+      const decodeByPage = new Map((ocrResult.decodeInspections ?? [])
+        .map((entry) => [entry.page_number, entry.inspection] as const));
       for (const coverage of pagesRequiringOcr) {
-        coverageByPage.set(coverage.page_number, finalizePageExtractionCoverage(
-          coverage,
-          textPages.has(coverage.page_number) && geometryPages.has(coverage.page_number)
-            ? 'produced'
-            : attempted ? 'abstained' : 'failed',
-        ));
+        const decode = decodeByPage.get(coverage.page_number);
+        coverageByPage.set(coverage.page_number, decode && decode.state !== 'clean'
+          // Visual content that did not provably decode was never seen by OCR,
+          // so the page stays uncovered whatever the render produced.
+          ? finalizePageExtractionCoverageForDecode(coverage, decode)
+          : finalizePageExtractionCoverage(
+            coverage,
+            textPages.has(coverage.page_number) && geometryPages.has(coverage.page_number)
+              ? 'produced'
+              : attempted ? 'abstained' : 'failed',
+          ));
       }
       if (ocrPages.length > 0) {
         const byPage = new Map(evidencePageText.map((page) => [page.page_number, page] as const));

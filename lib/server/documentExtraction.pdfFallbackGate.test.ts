@@ -50,6 +50,9 @@ const NATIVE_BODY_PAGES: readonly MockLayoutPage[] = [
   { nativeText: 'Native rate schedule body text with enough words to cover this page on its own.', scanned: false },
 ];
 
+/** Operator codes the OCR path needs to prove every painted image decoded. */
+const MOCK_PDFJS_OPS = { paintImageXObject: 85, paintInlineImageXObject: 86 } as const;
+
 /**
  * Default pages model a scanned page: no native text layer and one full-page
  * image, which is what the page-level coverage preflight sees on a real scan.
@@ -254,9 +257,11 @@ describe('documentExtraction pdf fallback gate', () => {
         })),
         getViewport: vi.fn(() => ({ width: 200, height: 300 })),
         render: vi.fn(() => ({ promise: Promise.resolve() })),
+        getOperatorList: vi.fn(async () => ({ fnArray: [], argsArray: [] })),
       })),
     };
     vi.doMock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
+      OPS: MOCK_PDFJS_OPS,
       getDocument: vi.fn(() => ({ promise: Promise.resolve(pdfDoc) })),
     }));
 
@@ -341,9 +346,11 @@ describe('documentExtraction pdf fallback gate', () => {
         })),
         getViewport: vi.fn(() => ({ width: 200, height: 300 })),
         render: vi.fn(() => ({ promise: Promise.resolve() })),
+        getOperatorList: vi.fn(async () => ({ fnArray: [], argsArray: [] })),
       })),
     };
     vi.doMock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
+      OPS: MOCK_PDFJS_OPS,
       getDocument: vi.fn(() => ({ promise: Promise.resolve(pdfDoc) })),
     }));
 
@@ -400,9 +407,11 @@ describe('documentExtraction pdf fallback gate', () => {
         getTextContent: vi.fn(async () => ({ items: [] })),
         getViewport: vi.fn(() => ({ width: 200, height: 300 })),
         render: vi.fn(() => ({ promise: Promise.resolve() })),
+        getOperatorList: vi.fn(async () => ({ fnArray: [], argsArray: [] })),
       })),
     };
     vi.doMock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
+      OPS: MOCK_PDFJS_OPS,
       getDocument: vi.fn(() => ({ promise: Promise.resolve(pdfDoc) })),
     }));
     vi.doMock('@napi-rs/canvas', () => ({
@@ -489,9 +498,11 @@ describe('documentExtraction pdf fallback gate', () => {
         })),
         getViewport: vi.fn(() => ({ width: 200, height: 300 })),
         render: vi.fn(() => ({ promise: Promise.resolve() })),
+        getOperatorList: vi.fn(async () => ({ fnArray: [], argsArray: [] })),
       })),
     };
     vi.doMock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
+      OPS: MOCK_PDFJS_OPS,
       getDocument: vi.fn(() => ({ promise: Promise.resolve(pdfDoc) })),
     }));
     vi.doMock('@napi-rs/canvas', () => ({
@@ -622,9 +633,11 @@ describe('documentExtraction pdf fallback gate', () => {
         })),
         getViewport: vi.fn(() => ({ width: 200, height: 300 })),
         render: vi.fn(() => ({ promise: Promise.resolve() })),
+        getOperatorList: vi.fn(async () => ({ fnArray: [], argsArray: [] })),
       })),
     };
     vi.doMock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
+      OPS: MOCK_PDFJS_OPS,
       getDocument: vi.fn(() => ({ promise: Promise.resolve(pdfDoc) })),
     }));
     vi.doMock('@napi-rs/canvas', () => ({
@@ -681,5 +694,117 @@ describe('documentExtraction pdf fallback gate', () => {
       ocr_pages_attempted: 10,
       canonical_persisted: false,
     });
+  });
+  it('never recognizes or covers a scanned page whose painted image did not provably decode', async () => {
+    vi.resetModules();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockCommonPdfPipeline(3, [
+      { nativeText: 'DocuSign Envelope ID 1234', scanned: true },
+      { scanned: true },
+      { scanned: true },
+    ]);
+    const pageOperatorLists: Record<number, { fnArray: number[]; argsArray: unknown[] }> = {
+      // Page 1: a referenced image whose decoder failed resolves to null.
+      1: { fnArray: [MOCK_PDFJS_OPS.paintImageXObject], argsArray: [['img_p0_1', 1275, 1650]] },
+      // Page 2: a clean referenced image.
+      2: { fnArray: [MOCK_PDFJS_OPS.paintImageXObject], argsArray: [['img_p1_1', 1275, 1650]] },
+      // Page 3: an inline image with no decoded data -- a different decoder failure.
+      3: { fnArray: [MOCK_PDFJS_OPS.paintInlineImageXObject], argsArray: [[null]] },
+    };
+    const pools: Record<number, Map<string, unknown>> = {
+      1: new Map([['img_p0_1', null]]),
+      2: new Map([['img_p1_1', { width: 1275, height: 1650, data: new Uint8ClampedArray(4) }]]),
+      3: new Map(),
+    };
+    const pdfDoc = {
+      numPages: 3,
+      getPage: vi.fn(async (pageNumber: number) => ({
+        getTextContent: vi.fn(async () => ({ items: [] })),
+        getViewport: vi.fn(() => ({ width: 200, height: 300 })),
+        render: vi.fn(() => ({ promise: Promise.resolve() })),
+        getOperatorList: vi.fn(async () => pageOperatorLists[pageNumber]),
+        objs: {
+          has: (id: string) => pools[pageNumber]!.has(id),
+          get: (id: string) => pools[pageNumber]!.get(id),
+        },
+        commonObjs: { has: () => false, get: () => undefined },
+      })),
+    };
+    vi.doMock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
+      OPS: MOCK_PDFJS_OPS,
+      getDocument: vi.fn(() => ({ promise: Promise.resolve(pdfDoc) })),
+    }));
+    vi.doMock('@napi-rs/canvas', () => ({
+      createCanvas: vi.fn(() => ({
+        getContext: vi.fn(() => ({})),
+        toBuffer: vi.fn(() => Buffer.from('png')),
+      })),
+    }));
+    const recognize = vi.fn(async () => ({
+      data: {
+        text: 'Recovered scanned rate page',
+        confidence: 88,
+        blocks: [{ paragraphs: [{ lines: [{ words: [{
+          text: 'Recovered', confidence: 88, bbox: { x0: 12, y0: 24, x1: 88, y1: 46 },
+        }] }] }] }],
+      },
+    }));
+    vi.doMock('tesseract.js', () => ({
+      createWorker: vi.fn(async () => ({
+        setParameters: vi.fn(async () => undefined),
+        recognize,
+        terminate: vi.fn(async () => undefined),
+      })),
+    }));
+
+    const extractDocument = await loadExtractDocument();
+    const payload = await extractDocument(
+      {
+        id: 'decode-failure-contract',
+        title: 'Decode Failure Contract',
+        name: 'decode-failure-contract.pdf',
+        document_type: 'contract',
+        storage_path: 'test/decode-failure-contract.pdf',
+      },
+      new TextEncoder().encode('not-a-real-pdf').buffer,
+      'application/pdf',
+      'decode-failure-contract.pdf',
+    );
+
+    // Only the page whose image provably decoded is ever recognized.
+    expect(recognize).toHaveBeenCalledTimes(1);
+    const coverage = (payload.extraction.content_layers_v1 as {
+      pdf?: { page_extraction_coverage_v1?: { pages: Array<Record<string, unknown>> } };
+    }).pdf?.page_extraction_coverage_v1;
+    const byPage = new Map((coverage?.pages ?? []).map((page) => [page.page_number, page]));
+    expect(byPage.get(1)).toMatchObject({
+      final_state: 'coverage_failed',
+      ocr: { state: 'failed' },
+      render_decode: {
+        state: 'failed',
+        decode_failures: [{
+          object_id: 'img_p0_1', decoder: 'unknown', message_class: 'pdfjs_image_dependency_resolved_null',
+        }],
+      },
+    });
+    expect(byPage.get(1)?.reasons).toContain('image_decode_failed');
+    expect(byPage.get(2)).toMatchObject({ final_state: 'ocr_complete', ocr: { state: 'produced' } });
+    expect(byPage.get(2)).not.toHaveProperty('render_decode');
+    // The rule is decoder-agnostic: a different failure kind fails closed identically.
+    expect(byPage.get(3)).toMatchObject({
+      final_state: 'coverage_failed',
+      ocr: { state: 'failed' },
+      render_decode: {
+        state: 'failed',
+        decode_failures: [{
+          object_id: 'inline:0', decoder: 'unknown', message_class: 'pdfjs_inline_image_missing_data',
+        }],
+      },
+    });
+    // No OCR words from an undecoded render reach located evidence.
+    const located = getLocatedOcrObservations(payload);
+    expect(located?.pages.find((page) => page.page_number === 1)?.words ?? []).toEqual([]);
+    expect(located?.pages.find((page) => page.page_number === 3)?.words ?? []).toEqual([]);
+    expect(located?.pages.find((page) => page.page_number === 2)?.words).toHaveLength(1);
   });
 });

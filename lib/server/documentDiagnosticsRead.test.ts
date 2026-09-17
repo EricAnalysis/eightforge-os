@@ -150,6 +150,21 @@ describe('document diagnostics read model', () => {
     });
     expect(failed.status === 'ok' && failed.diagnostics.map((entry) => entry.code))
       .toEqual(['page_ocr_failed']);
+
+    for (const reason of ['image_decode_failed', 'image_decode_unverifiable']) {
+      coverageLayer.pages[0] = {
+        ...coverageLayer.pages[0],
+        ocr: { state: 'failed' }, final_state: 'coverage_failed', reasons: ['native_text_sparse', reason],
+      };
+      const undecoded = await readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {
+        admin: admin({ documents: [{ id: DOC }], document_extractions: [coverageExtraction],
+          forgewing_recovery_generation_outcomes: [], document_analysis_jobs: [] }),
+        readRecoveryQueue: async () => ({ status: 'ok', candidates: [] }),
+      });
+      // A decode failure is named as such, never reported as a generic OCR failure.
+      expect(undecoded.status === 'ok' && undecoded.diagnostics.map((entry) => entry.code))
+        .toEqual(['page_image_decode_failed']);
+    }
   });
 
   it('no-ops for absent or malformed coverage and fails closed on page digest conflict', async () => {

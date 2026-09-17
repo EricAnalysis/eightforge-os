@@ -367,6 +367,8 @@ function extractionCoverageDiagnostics(params: Readonly<{
     const codes: DiagnosticCode[] = [];
     if (reasons.includes('page_skipped_due_evidence_limit')) {
       codes.push('page_skipped_due_evidence_limit');
+    } else if (reasons.includes('image_decode_failed') || reasons.includes('image_decode_unverifiable')) {
+      codes.push('page_image_decode_failed');
     } else if (ocrState === 'failed') {
       codes.push('page_ocr_failed');
     } else if (ocrState === 'abstained' && finalState === 'coverage_failed') {

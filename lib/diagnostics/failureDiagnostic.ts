@@ -9,6 +9,7 @@ export const DIAGNOSTIC_CODES = [
   'page_ocr_required',
   'page_ocr_abstained',
   'page_ocr_failed',
+  'page_image_decode_failed',
   'page_extraction_coverage_incomplete',
   'expected_pricing_page_no_usable_evidence',
   'page_skipped_due_evidence_limit',

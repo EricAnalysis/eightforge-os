@@ -4,10 +4,15 @@ import {
   coverageAllowsRecovery,
   evaluatePageExtractionCoverage,
   finalizePageExtractionCoverage,
+  finalizePageExtractionCoverageForDecode,
   omittedPageCoverage,
   selectPagesForOcr,
 } from '@/lib/extraction/pdf/pageExtractionCoverage';
 import type { PdfLayoutPage } from '@/lib/extraction/pdf/extractText';
+import {
+  RENDER_DECODE_INSPECTION_VERSION,
+  type RenderDecodeInspection,
+} from '@/lib/extraction/pdf/renderDecodeInspection';
 
 function page(params: {
   tokens?: string[];
@@ -139,5 +144,48 @@ describe('page extraction coverage', () => {
     expect(coverageAllowsRecovery(required)).toBe(false);
     expect(coverageAllowsRecovery(finalizePageExtractionCoverage(required, 'failed'))).toBe(false);
     expect(coverageAllowsRecovery(finalizePageExtractionCoverage(required, 'produced'))).toBe(true);
+  });
+
+  it('never lets a page whose painted images did not provably decode become covered', () => {
+    const stampOverScan = evaluatePageExtractionCoverage({
+      page: page({ tokens: ['DocuSign', 'Envelope', 'ID:', '1234'], imageCoverage: 1 }),
+      ocrEligible: true, expectedPricing: false,
+    });
+    expect(stampOverScan.final_state).toBe('mixed_ocr_required');
+    const inspection = (state: RenderDecodeInspection['state'],
+      decoder: 'jpx' | 'unknown' = 'jpx'): RenderDecodeInspection => ({
+      version: RENDER_DECODE_INSPECTION_VERSION,
+      state,
+      painted_image_count: 1,
+      decode_failures: state === 'failed' ? [{
+        object_id: 'img_p100_1', decoder, message_class: 'pdfjs_image_dependency_resolved_null',
+      }] : [],
+      ...(state === 'unverifiable' ? { unverifiable_reason: 'inspection_threw' as const } : {}),
+    });
+
+    const jpx = finalizePageExtractionCoverageForDecode(stampOverScan, inspection('failed', 'jpx'));
+    const unknown = finalizePageExtractionCoverageForDecode(stampOverScan, inspection('failed', 'unknown'));
+    const unverifiable = finalizePageExtractionCoverageForDecode(stampOverScan, inspection('unverifiable'));
+    for (const failed of [jpx, unknown]) {
+      expect(failed).toMatchObject({ final_state: 'coverage_failed', ocr: { state: 'failed' } });
+      expect(failed.reasons.at(-1)).toBe('image_decode_failed');
+      expect(coverageAllowsRecovery(failed)).toBe(false);
+    }
+    // The decoder is recorded, but it never changes the outcome.
+    expect({ ...jpx, render_decode: undefined }).toEqual({ ...unknown, render_decode: undefined });
+    expect(unverifiable).toMatchObject({
+      final_state: 'coverage_failed', ocr: { state: 'failed' },
+      render_decode: { state: 'unverifiable', decode_failures: [], unverifiable_reason: 'inspection_threw' },
+    });
+    expect(unverifiable.reasons.at(-1)).toBe('image_decode_unverifiable');
+    expect(coverageAllowsRecovery(unverifiable)).toBe(false);
+
+    // A clean decode, or a page that never needed OCR, is untouched.
+    expect(finalizePageExtractionCoverageForDecode(stampOverScan, inspection('clean'))).toBe(stampOverScan);
+    const native = evaluatePageExtractionCoverage({
+      page: page({ tokens: Array.from({ length: 60 }, (_, index) => `word${index}`), imageCoverage: 1 }),
+      ocrEligible: true, expectedPricing: false,
+    });
+    expect(finalizePageExtractionCoverageForDecode(native, inspection('failed'))).toBe(native);
   });
 });

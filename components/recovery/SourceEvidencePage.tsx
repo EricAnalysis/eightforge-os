@@ -9,7 +9,11 @@ import { visualSourceEvidenceIdentity,
 
 const PDF_WORKER_SRC = new URL('pdfjs-dist/legacy/build/pdf.worker.mjs', import.meta.url).toString();
 const PDF_WASM_BASE_URL = '/vendor/pdfjs/wasm/';
-type PdfViewport = { width: number; height: number; rotation?: number };
+type PdfViewport = {
+  width: number; height: number; rotation?: number;
+  /** The viewer-visible page box and user unit, used to build the canonical frame. */
+  viewBox?: number[]; userUnit?: number;
+};
 type PdfPage = {
   getViewport: (params: { scale: number }) => PdfViewport;
   render: (params: { canvasContext: CanvasRenderingContext2D; viewport: PdfViewport;
@@ -85,6 +89,7 @@ export function SourceEvidencePage({ sourceUrl, evidence, unbound = false,
       viewportHeight: pageGeometry.viewport.height, scale: pageGeometry.scale,
       rotation: pageGeometry.viewport.rotation, pageWidthPoints: pageGeometry.pageWidthPoints,
       pageHeightPoints: pageGeometry.pageHeightPoints,
+      viewBox: pageGeometry.viewport.viewBox, userUnit: pageGeometry.viewport.userUnit,
       ocrPixelWidth: evidence.ocrPixelWidth,
       ocrPixelHeight: evidence.ocrPixelHeight }) })) : [],
   [evidence.boxes, evidence.ocrPixelHeight, evidence.ocrPixelWidth, pageGeometry, unbound]);

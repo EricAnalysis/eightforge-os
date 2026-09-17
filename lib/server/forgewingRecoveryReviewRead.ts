@@ -3,6 +3,8 @@ import {
   RECOVERY_REVIEW_TABLE,
   type RecoveryReadClient,
 } from '@/lib/server/effectiveRecoveryConfirmations';
+import type { CanonicalBox } from '@/lib/extraction/geometry/canonicalPageFrame';
+import { resolveCanonicalObservationBoxes } from '@/lib/extraction/pdf/layoutObservationEvidence';
 import { RecoveryCandidateV2Schema } from '@/lib/extraction/recovery/recoveryCandidateV2';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 
@@ -33,6 +35,10 @@ export type RecoveryReviewCandidateObservation = Readonly<{
   rawText: string;
   sourceLayer: 'pdf_native_text' | 'ocr';
   boundingBox: Readonly<{ xMin: number; xMax: number; yMin: number; yMax: number }>;
+  /** Explicit space of the historical `boundingBox` above. */
+  sourceCoordinateSpace: 'pdf_user_unrotated' | 'ocr_render_px';
+  /** Derived canonical geometry, present only when the source box still matches. */
+  canonicalBoundingBox?: CanonicalBox;
   /** True for the observation Forgewing selected. */
   proposed: boolean;
 }>;
@@ -125,6 +131,39 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value != null && typeof value === 'object' && !Array.isArray(value);
 }
 
+/** The extraction's canonical geometry sidecar, only when it binds to this artifact. */
+function canonicalGeometrySidecar(
+  extractionData: unknown,
+  sourceArtifactId: string,
+): unknown {
+  const root = isRecord(extractionData) ? extractionData : null;
+  const extraction = isRecord(root?.extraction) ? root.extraction : null;
+  const layers = isRecord(extraction?.content_layers_v1) ? extraction.content_layers_v1 : null;
+  const pdf = isRecord(layers?.pdf) ? layers.pdf : null;
+  const observations = isRecord(pdf?.layout_observations_v1) ? pdf.layout_observations_v1 : null;
+  return observations?.source_artifact_id === sourceArtifactId
+    ? observations.canonical_geometry_v1 : null;
+}
+
+/**
+ * Adds derived canonical geometry to observations whose historical box is
+ * unchanged. The historical box itself is never rewritten, so a reviewed
+ * candidate keeps the exact evidence its identity was digested over.
+ */
+function withCanonicalGeometry(
+  observations: readonly RecoveryReviewCandidateObservation[],
+  physicalPageNumber: number,
+  sidecar: unknown,
+): RecoveryReviewCandidateObservation[] {
+  const canonical = resolveCanonicalObservationBoxes(sidecar, observations.map((entry) => ({
+    observationId: entry.observationId, physicalPageNumber, boundingBox: entry.boundingBox,
+  })));
+  return observations.map((entry) => {
+    const canonicalBoundingBox = canonical.get(entry.observationId);
+    return canonicalBoundingBox ? { ...entry, canonicalBoundingBox } : entry;
+  });
+}
+
 function exactOcrPageGeometry(
   extractionData: unknown,
   scope: Readonly<{ sourceArtifactId: string; physicalPageNumber: number;
@@ -166,6 +205,8 @@ function observations(
         observationId,
         rawText,
         sourceLayer: entry.sourceLayer === 'ocr' ? 'ocr' as const : 'pdf_native_text' as const,
+        sourceCoordinateSpace: entry.sourceLayer === 'ocr'
+          ? 'ocr_render_px' as const : 'pdf_user_unrotated' as const,
         boundingBox: {
           xMin: Number(box.xMin), xMax: Number(box.xMax),
           yMin: Number(box.yMin), yMax: Number(box.yMax),
@@ -346,7 +387,10 @@ export async function readRecoveryReviewQueue(
       ? exactOcrPageGeometry(extractionById.get(extractionSnapshotId), {
           sourceArtifactId, physicalPageNumber, pageRepresentationDigest,
         }) : null;
-    const selectableCandidates = proposalVersion === 2
+    const canonicalSidecar = sourceArtifactId && extractionSnapshotId
+      ? canonicalGeometrySidecar(extractionById.get(extractionSnapshotId), sourceArtifactId)
+      : null;
+    const selectableCandidates = (proposalVersion === 2
       && sourceArtifactId && Number.isInteger(physicalPageNumber) && physicalPageNumber > 0
       && pageRepresentationDigest
       ? candidateSelections(row.recovery_candidates, selectedCandidateId as string, {
@@ -355,7 +399,11 @@ export async function readRecoveryReviewQueue(
           physicalPageNumber,
           pageRepresentationDigest,
         })
-      : [];
+      : []).map((candidate) => ({
+        ...candidate,
+        observations: withCanonicalGeometry(candidate.observations, physicalPageNumber, canonicalSidecar),
+        targetContext: withCanonicalGeometry(candidate.targetContext, physicalPageNumber, canonicalSidecar),
+      }));
     const candidateEvidence = [...new Map(selectableCandidates
       .flatMap((candidate) => candidate.observations)
       .map((entry) => [entry.observationId, entry])).values()];

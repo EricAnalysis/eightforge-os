@@ -6,6 +6,12 @@ import {
 } from '@/lib/extraction/provenance/physicalPageCoordinate';
 import type { PdfLayout, PdfToken } from '@/lib/extraction/pdf/extractText';
 import {
+  CANONICAL_FRAME_VERSION,
+  type CanonicalBox,
+  type CanonicalPageFrame,
+  type GeometryCoordinateSpace,
+} from '@/lib/extraction/geometry/canonicalPageFrame';
+import {
   PDF_LAYOUT_OBSERVATION_VERSION,
   createPdfLayoutObservationIdentity,
   type PdfLayoutObservationIdentityContext,
@@ -61,7 +67,34 @@ export type PdfLayoutObservationsLayer = Readonly<{
     pixel_width: number;
     pixel_height: number;
   }>[];
+  /**
+   * E2 canonical geometry sidecar.
+   *
+   * Derived, non-identity-bearing, and deliberately kept out of the
+   * observations themselves: observation bounding boxes are compared exactly
+   * against reconstruction refs, and candidate/proposal identity is a digest
+   * over source geometry. Each entry restates the source box it was derived
+   * from, so a consumer can only adopt canonical geometry for an observation
+   * whose source box still matches.
+   */
+  canonical_geometry_v1?: PdfLayoutCanonicalGeometrySidecar;
   closure: PdfLayoutObservationClosure;
+}>;
+
+export type PdfLayoutCanonicalGeometrySidecar = Readonly<{
+  frame_version: typeof CANONICAL_FRAME_VERSION;
+  pages: readonly Readonly<{
+    physical_page_number: number;
+    page_representation_digest: string | null;
+    frame: CanonicalPageFrame;
+  }>[];
+  observations: readonly Readonly<{
+    observation_id: string;
+    physical_page_number: number;
+    source_coordinate_space: Exclude<GeometryCoordinateSpace, 'canonical_v1'>;
+    source_bounding_box: Readonly<{ x_min: number; x_max: number; y_min: number; y_max: number }>;
+    canonical_bounding_box: CanonicalBox;
+  }>[];
 }>;
 
 export type PdfLayoutObservationBindingContext = Readonly<{
@@ -533,6 +566,125 @@ export function resolvePdfLayoutDiagnosticEvidence(params: {
   return Object.freeze(resolved);
 }
 
+function sourceGeometryOf(token: PdfToken): Readonly<{
+  space: Exclude<GeometryCoordinateSpace, 'canonical_v1'>;
+  box: Readonly<{ x_min: number; x_max: number; y_min: number; y_max: number }>;
+}> {
+  const ocrBox = token.source === 'ocr_fallback' ? token.ocr_source_geometry?.bbox : undefined;
+  return ocrBox
+    ? { space: 'ocr_render_px', box: { x_min: ocrBox.x0, x_max: ocrBox.x1, y_min: ocrBox.y0, y_max: ocrBox.y1 } }
+    : {
+        space: 'pdf_user_unrotated',
+        box: {
+          x_min: token.x, x_max: token.x + token.width,
+          y_min: token.y, y_max: token.y + token.height,
+        },
+      };
+}
+
+/** Canonical geometry for exactly the observations this layer materializes. */
+function buildCanonicalGeometrySidecar(
+  layout: PdfLayout,
+  durableObservationIds: ReadonlySet<string>,
+): PdfLayoutCanonicalGeometrySidecar | null {
+  // One observation id must describe one token. A repeated id is exactly the
+  // condition the closure reports as `duplicate_observation_ids`, so its
+  // geometry is ambiguous and is dropped rather than resolved by first-wins.
+  const candidates = new Map<string, Readonly<{
+    observation_id: string;
+    physical_page_number: number;
+    source_coordinate_space: Exclude<GeometryCoordinateSpace, 'canonical_v1'>;
+    source_bounding_box: Readonly<{ x_min: number; x_max: number; y_min: number; y_max: number }>;
+    canonical_bounding_box: CanonicalBox;
+  }> | null>();
+  for (const page of layout.pages) {
+    for (const line of page.lines) {
+      for (const token of line.tokens) {
+        const id = token.observation_id;
+        if (!id || !durableObservationIds.has(id)) continue;
+        if (candidates.has(id)) {
+          candidates.set(id, null);
+          continue;
+        }
+        if (!token.canonical_bbox) continue;
+        const source = sourceGeometryOf(token);
+        candidates.set(id, Object.freeze({
+          observation_id: String(id),
+          physical_page_number: page.page_number,
+          source_coordinate_space: source.space,
+          source_bounding_box: Object.freeze(source.box),
+          canonical_bounding_box: token.canonical_bbox,
+        }));
+      }
+    }
+  }
+  const observations = [...candidates.values()].flatMap((entry) => entry ? [entry] : []);
+  // Frames are carried only for pages this sidecar actually describes; a frame
+  // for a page with no canonical observation would be persisted weight that
+  // nothing reads (the viewer derives its frame from the rendered page).
+  const describedPages = new Set(observations.map((entry) => entry.physical_page_number));
+  const pages = layout.pages.flatMap((page) => page.canonical_frame && describedPages.has(page.page_number)
+    ? [Object.freeze({
+        physical_page_number: page.page_number,
+        page_representation_digest: page.effective_representation_digest ?? null,
+        frame: page.canonical_frame,
+      })]
+    : []);
+  if (pages.length === 0 && observations.length === 0) return null;
+  return Object.freeze({
+    frame_version: CANONICAL_FRAME_VERSION,
+    pages: Object.freeze(pages.sort((left, right) => left.physical_page_number - right.physical_page_number)),
+    observations: Object.freeze(observations.sort((left, right) =>
+      left.observation_id.localeCompare(right.observation_id, 'en-US'))),
+  });
+}
+
+/**
+ * Canonical boxes for observations whose *source* box still matches, keyed by
+ * observation id.
+ *
+ * Adoption is conditional on purpose: the sidecar is derived, so a consumer may
+ * only draw canonical geometry for evidence whose historical box is unchanged.
+ * Anything else falls back to converting the historical box itself.
+ */
+export function resolveCanonicalObservationBoxes(
+  sidecar: unknown,
+  expected: readonly Readonly<{
+    observationId: string;
+    physicalPageNumber: number;
+    boundingBox: Readonly<{ xMin: number; xMax: number; yMin: number; yMax: number }>;
+  }>[],
+): ReadonlyMap<string, CanonicalBox> {
+  const resolved = new Map<string, CanonicalBox>();
+  if (!isRecord(sidecar) || sidecar.frame_version !== CANONICAL_FRAME_VERSION
+    || !Array.isArray(sidecar.observations)) return resolved;
+  // The persisted sidecar is untrusted. An id defined more than once is
+  // ambiguous and stays unusable however many times it repeats, so it is
+  // poisoned rather than deleted (a third copy must not resurrect it).
+  const byId = new Map<string, Record<string, unknown> | null>();
+  for (const entry of sidecar.observations) {
+    if (!isRecord(entry) || typeof entry.observation_id !== 'string') continue;
+    byId.set(entry.observation_id, byId.has(entry.observation_id) ? null : entry);
+  }
+  for (const target of expected) {
+    const entry = byId.get(target.observationId);
+    const source = isRecord(entry?.source_bounding_box) ? entry.source_bounding_box : null;
+    const canonical = entry?.canonical_bounding_box;
+    if (!entry || !source || entry.physical_page_number !== target.physicalPageNumber
+      || source.x_min !== target.boundingBox.xMin || source.x_max !== target.boundingBox.xMax
+      || source.y_min !== target.boundingBox.yMin || source.y_max !== target.boundingBox.yMax
+      || !isCanonicalGeometryBox(canonical)) continue;
+    resolved.set(target.observationId, canonical);
+  }
+  return resolved;
+}
+
+function isCanonicalGeometryBox(value: unknown): value is CanonicalBox {
+  return isRecord(value) && value.coordinate_space === 'canonical_v1'
+    && ['x_min', 'x_max', 'y_min', 'y_max'].every((key) =>
+      typeof value[key] === 'number' && Number.isFinite(value[key]));
+}
+
 export function buildPdfLayoutObservationsLayer(params: {
   layout: PdfLayout;
   reconstruction: PagePricedScheduleReconstruction;
@@ -582,6 +734,7 @@ export function buildPdfLayoutObservationsLayer(params: {
       pixel_height: geometry.pixel_height,
     })];
   }).sort((left, right) => left.physical_page_number - right.physical_page_number);
+  const canonicalGeometry = buildCanonicalGeometrySidecar(params.layout, new Set(observations.map((entry) => entry.id)));
   const closure = validatePdfLayoutObservationClosure({
     reconstruction: params.reconstruction,
     observations,
@@ -600,6 +753,7 @@ export function buildPdfLayoutObservationsLayer(params: {
     ...(sourcePageGeometries.length > 0
       ? { source_page_geometries: Object.freeze(sourcePageGeometries) }
       : {}),
+    ...(canonicalGeometry ? { canonical_geometry_v1: canonicalGeometry } : {}),
     closure,
   });
 }

@@ -4,6 +4,7 @@ import { DiagnosticCodeSchema, DiagnosticRecoveryTypeSchema, FailureDiagnosticSc
   from '@/lib/diagnostics/failureDiagnostic';
 import { diagnosticId } from '@/lib/diagnostics/diagnosticIdentity';
 import { getFailureRegistryEntry } from '@/lib/diagnostics/failureRegistry';
+import { resolveCanonicalObservationBoxes } from '@/lib/extraction/pdf/layoutObservationEvidence';
 import type { DiagnosticVisualSourceEvidence, VisualSourceBox }
   from '@/lib/recovery/visualSourceEvidence';
 import { readRecoveryReviewQueue, type RecoveryReviewCandidate }
@@ -94,15 +95,30 @@ function evidenceRefs(refs: readonly DiagnosticSourceRef[]): DiagnosticEvidenceR
     ? [{ kind: 'observation' as const, observationId: ref.observation_id }] : []);
 }
 
-function boxes(refs: readonly DiagnosticSourceRef[]): VisualSourceBox[] {
-  return refs.flatMap((ref, memberIndex) => ref.observation_id ? [{
+function boxes(
+  refs: readonly DiagnosticSourceRef[],
+  page: number,
+  canonicalSidecar?: unknown,
+): VisualSourceBox[] {
+  const drawn = refs.flatMap((ref, memberIndex) => ref.observation_id ? [{
     observationId: ref.observation_id,
     rawText: ref.text,
     role: 'candidate_member' as const,
     boundingBox: { xMin: ref.x_min, xMax: ref.x_max, yMin: ref.y_min, yMax: ref.y_max },
     sourceLayer: ref.source === 'ocr_fallback' ? 'ocr' as const : 'pdf_native_text' as const,
+    sourceCoordinateSpace: ref.source === 'ocr_fallback'
+      ? 'ocr_render_px' as const : 'pdf_user_unrotated' as const,
     memberIndex,
   }] : []);
+  // Canonical geometry is adopted only for a ref whose source box still
+  // matches the one the sidecar was derived from.
+  const canonical = resolveCanonicalObservationBoxes(canonicalSidecar, drawn.map((box) => ({
+    observationId: box.observationId, physicalPageNumber: page, boundingBox: box.boundingBox,
+  })));
+  return drawn.map((box) => {
+    const canonicalBoundingBox = canonical.get(box.observationId);
+    return canonicalBoundingBox ? { ...box, canonicalBoundingBox } : box;
+  });
 }
 
 function buildDiagnostic(input: Readonly<{
@@ -279,7 +295,8 @@ function reconstructionDiagnostics(params: Readonly<{
         organizationId: params.organizationId, sourceDocumentId: params.sourceDocumentId,
         sourceArtifactId, physicalPageNumber: page, pageRepresentationDigest: digest,
         summary: typeof raw.raw_text === 'string' ? raw.raw_text : undefined,
-        evidenceRefs: refs, visualBoxes: boxes(sourceRefs),
+        evidenceRefs: refs,
+        visualBoxes: boxes(sourceRefs, page, observationsLayer?.canonical_geometry_v1),
         ocrPixelWidth: ocrGeometry?.width, ocrPixelHeight: ocrGeometry?.height,
         extractionSnapshotId: params.extractionSnapshotId, occurredAt: params.occurredAt,
         proposal: matchingProposal(parsedCode.data, page, refs, params.proposals) });

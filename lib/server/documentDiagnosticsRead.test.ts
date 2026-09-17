@@ -61,6 +61,7 @@ const proposal = {
   selectableObservations: [], selectableCandidates: [], sourceEvidenceBinding: 'bound' as const,
   evidence: [{ observationId: 'obs-continuation', rawText: 'Continuation text',
     sourceLayer: 'pdf_native_text' as const,
+    sourceCoordinateSpace: 'pdf_user_unrotated' as const,
     boundingBox: { xMin: 10, xMax: 40, yMin: 100, yMax: 112 }, proposed: true }],
   reviewState: 'pending_review' as const, latestReview: null,
   createdAt: '2026-09-12T12:00:00.000Z',

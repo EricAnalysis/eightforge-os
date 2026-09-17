@@ -70,7 +70,6 @@ import {
   type InspectablePdfPage,
   type RenderDecodeInspection,
 } from '@/lib/extraction/pdf/renderDecodeInspection';
-import { extractRateTableViaVision } from '@/lib/extraction/pdf/visionRateTableSupplement';
 import { buildPdfFormExtraction } from '@/lib/extraction/pdf/extractForms';
 import { buildEvidenceMap as buildPdfEvidenceMap } from '@/lib/extraction/pdf/buildEvidenceMap';
 import { buildElementEvidence } from '@/lib/extraction/pdf/buildElementEvidence';
@@ -2252,36 +2251,6 @@ export async function extractDocument(
       reconstruction: pricedScheduleReconstructionLayer,
       context: pdfLayoutObservationIdentityContext,
     });
-    const ocrPageNumbers: number[] = ocrPageImages.map((p) => p.page_number);
-
-    for (const ocrPage of ocrPageNumbers) {
-      const tablesForPage = pdfTableLayer.tables.filter(
-        (t) => t.page_number === ocrPage,
-      );
-
-      const suspectTable = tablesForPage.find(
-        (t) =>
-          (t.headers?.length ?? 0) < 3 &&
-          t.rows.some((r) => r.cells.some((c) => /\$\d/.test(c.text))),
-      ) ?? null;
-
-      if (suspectTable) {
-        const pageImage = ocrPageImages.find(
-          (p) => p.page_number === ocrPage,
-        );
-        if (pageImage) {
-          const tableKey = `vision:p${ocrPage}:t1`;
-          const visionTable = await extractRateTableViaVision({
-            pngBuffer: pageImage.png_buffer,
-            pageNumber: ocrPage,
-            tableKey,
-          });
-          if (visionTable) {
-            pdfTableLayer.tables.push(visionTable);
-          }
-        }
-      }
-    }
     logPdf('pdf text layer built', {
       extracted_text_length: extractedText?.length ?? 0,
       text_preview_length: textPreview?.length ?? 0,

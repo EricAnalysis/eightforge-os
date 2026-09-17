@@ -13,6 +13,7 @@ const MOCKED_MODULES = [
   '@/lib/extraction/pdf/partitionWithUnstructured',
   '@napi-rs/canvas',
   'pdfjs-dist/legacy/build/pdf.mjs',
+  'openai',
   'tesseract.js',
 ] as const;
 
@@ -57,7 +58,11 @@ const MOCK_PDFJS_OPS = { paintImageXObject: 85, paintInlineImageXObject: 86 } as
  * Default pages model a scanned page: no native text layer and one full-page
  * image, which is what the page-level coverage preflight sees on a real scan.
  */
-function mockCommonPdfPipeline(pageCount: number, layoutPages: readonly MockLayoutPage[] = []) {
+function mockCommonPdfPipeline(
+  pageCount: number,
+  layoutPages: readonly MockLayoutPage[] = [],
+  options: Readonly<{ realLineClassification?: boolean }> = {},
+) {
   const buildPdfTextExtraction = vi.fn((
     { layout, fallbackText, fallbackPages }: BuildPdfTextArgs,
   ) => ({
@@ -85,7 +90,7 @@ function mockCommonPdfPipeline(pageCount: number, layoutPages: readonly MockLayo
     })),
   }));
 
-  vi.doMock('@/lib/extraction/pdf/extractText', () => ({
+  vi.doMock('@/lib/extraction/pdf/extractText', async () => ({
     loadPdfLayout: vi.fn(async () => ({
       page_count: pageCount,
       pages: Array.from({ length: pageCount }, (_, index) => {
@@ -118,7 +123,11 @@ function mockCommonPdfPipeline(pageCount: number, layoutPages: readonly MockLayo
     })),
     buildPdfTextExtraction,
     computeLayoutPlainCombinedText: vi.fn(() => ''),
-    classifyLine: vi.fn(() => 'text'),
+    classifyLine: options.realLineClassification
+      ? (await vi.importActual<typeof import('@/lib/extraction/pdf/extractText')>(
+        '@/lib/extraction/pdf/extractText',
+      )).classifyLine
+      : vi.fn(() => 'text'),
   }));
   vi.doMock('@/lib/extraction/pdf/extractTables', () => ({
     buildPdfTableExtraction: vi.fn(() => ({ tables: [] })),
@@ -473,6 +482,91 @@ describe('documentExtraction pdf fallback gate', () => {
       canonical_persisted: false,
     });
     expect(metadata.ocr_confidence_avg).toBe(88);
+  });
+
+  it('keeps suspect OCR tables deterministic and never constructs an external vision client', async () => {
+    vi.resetModules();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockCommonPdfPipeline(1, [], { realLineClassification: true });
+    // The real table extractor builds the suspect table from real OCR geometry:
+    // two priced rows with fewer than three headers, the exact shape the removed
+    // vision supplement used to send to OpenAI.
+    vi.doMock('@/lib/extraction/pdf/extractTables', async () =>
+      vi.importActual<typeof import('@/lib/extraction/pdf/extractTables')>(
+        '@/lib/extraction/pdf/extractTables',
+      ));
+
+    const openAiCreate = vi.fn();
+    const openAiConstructor = vi.fn(() => ({
+      chat: { completions: { create: openAiCreate } },
+    }));
+    vi.doMock('openai', () => ({ default: openAiConstructor }));
+
+    const pdfDoc = {
+      numPages: 1,
+      getPage: vi.fn(async () => ({
+        getTextContent: vi.fn(async () => ({ items: [] })),
+        getViewport: vi.fn(() => ({ width: 1224, height: 1584 })),
+        render: vi.fn(() => ({ promise: Promise.resolve() })),
+        getOperatorList: vi.fn(async () => ({ fnArray: [], argsArray: [] })),
+      })),
+    };
+    vi.doMock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
+      OPS: MOCK_PDFJS_OPS,
+      getDocument: vi.fn(() => ({ promise: Promise.resolve(pdfDoc) })),
+    }));
+    vi.doMock('@napi-rs/canvas', () => ({
+      createCanvas: vi.fn(() => ({
+        getContext: vi.fn(() => ({})),
+        toBuffer: vi.fn(() => Buffer.from('synthetic-page-png')),
+      })),
+    }));
+    const word = (text: string, x0: number, y0: number) =>
+      ({ text, confidence: 90, bbox: { x0, y0, x1: x0 + text.length * 14, y1: y0 + 24 } });
+    vi.doMock('tesseract.js', () => ({
+      createWorker: vi.fn(async () => ({
+        setParameters: vi.fn(async () => undefined),
+        recognize: vi.fn(async () => ({
+          data: {
+            text: 'Debris hauling CY $27.00\nDebris reduction CY $9.24',
+            confidence: 88,
+            blocks: [{ paragraphs: [{ lines: [
+              { words: [word('Debris', 40, 400), word('hauling', 140, 400), word('CY', 600, 400), word('$27.00', 900, 400)] },
+              { words: [word('Debris', 40, 460), word('reduction', 140, 460), word('CY', 600, 460), word('$9.24', 900, 460)] },
+            ] }] }],
+          },
+        })),
+        terminate: vi.fn(async () => undefined),
+      })),
+    }));
+
+    const extractDocument = await loadExtractDocument();
+    const payload = await extractDocument(
+      {
+        id: 'suspect-ocr-table',
+        title: 'Suspect OCR Table',
+        name: 'suspect-ocr-table.pdf',
+        document_type: 'contract',
+        storage_path: 'test/suspect-ocr-table.pdf',
+      },
+      new TextEncoder().encode('synthetic-pdf').buffer,
+      'application/pdf',
+      'suspect-ocr-table.pdf',
+    );
+
+    const tables = (payload.extraction.content_layers_v1 as {
+      pdf?: { tables?: { tables?: Array<{ page_number?: number; rows?: Array<{ cells?: Array<{ source?: string }> }> }> } };
+    } | undefined)?.pdf?.tables?.tables ?? [];
+    const sources = tables.flatMap((table) =>
+      (table.rows ?? []).flatMap((row) => (row.cells ?? []).map((cell) => cell.source)),
+    );
+
+    expect(openAiConstructor).not.toHaveBeenCalled();
+    expect(openAiCreate).not.toHaveBeenCalled();
+    expect(tables).toHaveLength(1);
+    expect(tables[0]).toMatchObject({ page_number: 1 });
+    expect(sources).toContain('ocr_fallback');
+    expect(sources).not.toContain('vision');
   });
 
   it('still OCRs scanned pages whose only native text is a stamp or page number', async () => {

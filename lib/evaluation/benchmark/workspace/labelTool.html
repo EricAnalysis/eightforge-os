@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Benchmark Labeling</title>
+<style>
+  :root { color-scheme: dark; --bg:#12141a; --panel:#1b1f28; --line:#2c3240; --text:#e8ecf4;
+          --muted:#98a2b6; --accent:#8b7cff; --ok:#4ec994; --warn:#e3b341; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:13px/1.5 ui-sans-serif,system-ui,sans-serif; }
+  header { padding:10px 14px; border-bottom:1px solid var(--line); display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  h1 { font-size:14px; margin:0 12px 0 0; font-weight:600; }
+  main { display:flex; gap:0; height:calc(100vh - 53px); }
+  #stage { flex:1; overflow:auto; background:#0c0e12; position:relative; }
+  #wrap { position:relative; display:inline-block; }
+  canvas { display:block; }
+  aside { width:380px; border-left:1px solid var(--line); background:var(--panel); overflow:auto; padding:12px; }
+  fieldset { border:1px solid var(--line); border-radius:6px; margin:0 0 12px; padding:10px; }
+  legend { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.06em; padding:0 4px; }
+  label { display:block; font-size:11px; color:var(--muted); margin:6px 0 2px; }
+  input, select, textarea, button { font:inherit; color:var(--text); background:#141821;
+    border:1px solid var(--line); border-radius:5px; padding:5px 7px; width:100%; }
+  button { cursor:pointer; background:#232838; }
+  button.primary { background:var(--accent); color:#0f1017; border-color:transparent; font-weight:600; }
+  button.small { width:auto; padding:3px 8px; font-size:11px; }
+  .row { display:flex; gap:6px; align-items:center; }
+  .row > * { flex:1; }
+  ul { list-style:none; margin:6px 0 0; padding:0; max-height:200px; overflow:auto; }
+  li { border:1px solid var(--line); border-radius:5px; padding:4px 6px; margin-bottom:4px;
+       display:flex; gap:6px; align-items:center; font-size:12px; }
+  li.sel { border-color:var(--accent); }
+  li span.t { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .pill { font-size:10px; padding:1px 6px; border-radius:99px; border:1px solid var(--line); color:var(--muted); }
+  .pill.on { color:var(--ok); border-color:var(--ok); }
+  .muted { color:var(--muted); }
+  .warn { color:var(--warn); }
+  #hint { position:absolute; left:8px; bottom:8px; background:#0009; padding:4px 8px; border-radius:5px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Benchmark labeling</h1>
+  <label style="margin:0">page.png <input type="file" id="png" accept="image/png" style="width:auto"></label>
+  <label style="margin:0">labels.json <input type="file" id="json" accept="application/json" style="width:auto"></label>
+  <span id="status" class="muted">load a page render and its labels file</span>
+  <button id="export" class="primary small" disabled>Export labels.json</button>
+</header>
+<main>
+  <div id="stage"><div id="wrap"><canvas id="cv"></canvas></div><div id="hint" class="muted">drag to draw a box</div></div>
+  <aside>
+    <fieldset>
+      <legend>Mode</legend>
+      <div class="row">
+        <select id="mode">
+          <option value="word">word boxes</option>
+          <option value="cell">cell boxes</option>
+          <option value="row">row membership</option>
+        </select>
+        <button id="delete" class="small">Delete selected</button>
+      </div>
+      <p class="muted" id="modeHelp" style="margin:6px 0 0"></p>
+    </fieldset>
+
+    <fieldset id="entry">
+      <legend>New box</legend>
+      <label for="text">exact text as printed</label>
+      <input id="text" placeholder="type what you read" />
+      <div id="cellOnly" hidden>
+        <label for="column">column name (optional)</label>
+        <input id="column" placeholder="e.g. Unit Cost" />
+        <label class="row" style="margin-top:8px"><input type="checkbox" id="isHeader" style="width:auto" /> <span style="flex:1">this cell is a header</span></label>
+      </div>
+      <p class="muted" style="margin:8px 0 0">Draw a box on the page to add it with these values.</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Words <span id="wordsPill" class="pill">unlabeled</span></legend>
+      <ul id="wordList"></ul>
+      <button id="wordsDone" class="small" style="margin-top:6px">Mark words labeled</button>
+    </fieldset>
+
+    <fieldset>
+      <legend>Cells <span id="cellsPill" class="pill">unlabeled</span></legend>
+      <ul id="cellList"></ul>
+      <button id="cellsDone" class="small" style="margin-top:6px">Mark cells labeled</button>
+    </fieldset>
+
+    <fieldset>
+      <legend>Rows <span id="rowsPill" class="pill">unlabeled</span></legend>
+      <p class="muted" style="margin:0">In row mode, click cells in reading order, then add the row.</p>
+      <div class="row" style="margin-top:6px">
+        <button id="addRow" class="small">Add row from selection</button>
+        <button id="clearSel" class="small">Clear selection</button>
+      </div>
+      <ul id="rowList"></ul>
+      <button id="rowsDone" class="small" style="margin-top:6px">Mark rows labeled</button>
+    </fieldset>
+
+    <fieldset>
+      <legend>Coverage truth <span id="coveragePill" class="pill">unlabeled</span></legend>
+      <select id="coverage">
+        <option value="">— not labeled —</option>
+        <option value="native_text_complete">native_text_complete</option>
+        <option value="requires_ocr">requires_ocr</option>
+        <option value="mixed_native_and_ocr">mixed_native_and_ocr</option>
+        <option value="empty_page">empty_page</option>
+      </select>
+      <label for="note">note (optional)</label>
+      <textarea id="note" rows="2" placeholder="anything ambiguous a reviewer should know"></textarea>
+    </fieldset>
+
+    <fieldset>
+      <legend>Attribution</legend>
+      <label for="by">labeled by</label>
+      <input id="by" placeholder="your name" />
+    </fieldset>
+  </aside>
+</main>
+<script>
+/* Offline labeling tool. No network, no extractor output: it shows the page
+   render and whatever labels you have already written, and nothing else. */
+const $ = (id) => document.getElementById(id);
+const cv = $('cv'), ctx = cv.getContext('2d');
+let image = null, labels = null, scaleX = 1, scaleY = 1, selection = [];
+
+const MODE_HELP = {
+  word: 'One box per word, with its exact text.',
+  cell: 'One box per table cell. Mark header cells with the checkbox.',
+  row: 'Click cell boxes in reading order, then "Add row from selection".',
+};
+
+function setStatus(message, warn) {
+  $('status').textContent = message;
+  $('status').className = warn ? 'warn' : 'muted';
+}
+
+$('png').addEventListener('change', async (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
+  image = await createImageBitmap(file);
+  fit();
+});
+
+$('json').addEventListener('change', async (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
+  try {
+    labels = JSON.parse(await file.text());
+  } catch { setStatus('labels.json is not valid JSON', true); return; }
+  if (!labels.frame || labels.labelSetVersion !== 'extraction-benchmark-labels-v1') {
+    setStatus('that file is not an extraction-benchmark-labels-v1 label set', true);
+    labels = null; return;
+  }
+  $('coverage').value = labels.coverage?.truth || '';
+  $('note').value = labels.coverage?.note || '';
+  $('by').value = labels.labeledBy || '';
+  fit(); render();
+});
+
+function fit() {
+  if (!image || !labels) { setStatus(image || labels ? 'load the other file too' : 'load a page render and its labels file'); return; }
+  cv.width = image.width; cv.height = image.height;
+  // The render is the canonical page scaled up. Each axis is scaled on its own:
+  // pixel width and height are floored independently when the page is rendered.
+  scaleX = image.width / labels.frame.width;
+  scaleY = image.height / labels.frame.height;
+  $('export').disabled = false;
+  setStatus(`${labels.pageKey} — page ${labels.source.physicalPageNumber}, ${scaleX.toFixed(3)}x render`);
+  render();
+}
+
+function toCanonical(rect) {
+  const r = (v, s) => Math.round((v / s) * 1000) / 1000;
+  return { coordinate_space: 'canonical_v1', x_min: r(rect.x, scaleX), y_min: r(rect.y, scaleY),
+           x_max: r(rect.x + rect.w, scaleX), y_max: r(rect.y + rect.h, scaleY) };
+}
+function toPixels(box) {
+  return { x: box.x_min * scaleX, y: box.y_min * scaleY,
+           w: (box.x_max - box.x_min) * scaleX, h: (box.y_max - box.y_min) * scaleY };
+}
+
+let drag = null;
+cv.addEventListener('mousedown', (event) => {
+  if (!labels) return;
+  const rect = cv.getBoundingClientRect();
+  const x = event.clientX - rect.left, y = event.clientY - rect.top;
+  if ($('mode').value === 'row') { pickCell(x, y); return; }
+  drag = { x, y, w: 0, h: 0 };
+});
+cv.addEventListener('mousemove', (event) => {
+  if (!drag) return;
+  const rect = cv.getBoundingClientRect();
+  drag.w = event.clientX - rect.left - drag.x;
+  drag.h = event.clientY - rect.top - drag.y;
+  render();
+});
+window.addEventListener('mouseup', () => {
+  if (!drag) return;
+  const rect = { x: Math.min(drag.x, drag.x + drag.w), y: Math.min(drag.y, drag.y + drag.h),
+                 w: Math.abs(drag.w), h: Math.abs(drag.h) };
+  drag = null;
+  if (rect.w < 3 || rect.h < 3) { render(); return; }
+  const box = toCanonical(rect);
+  const text = $('text').value.trim();
+  const mode = $('mode').value;
+  if (mode === 'word') {
+    if (!text) { setStatus('type the word text before drawing its box', true); render(); return; }
+    labels.words.items.push({ labelId: nextId('w', labels.words.items, 'labelId'), text, box });
+  } else if (mode === 'cell') {
+    labels.cells.items.push({
+      labelId: nextId('c', labels.cells.items, 'labelId'), text, box,
+      isHeader: $('isHeader').checked, columnName: $('column').value.trim() || null,
+    });
+  }
+  $('text').value = '';
+  render();
+});
+
+function nextId(prefix, items, key) {
+  let index = items.length + 1;
+  const used = new Set(items.map((item) => item[key]));
+  while (used.has(prefix + index)) index += 1;
+  return prefix + index;
+}
+
+function pickCell(x, y) {
+  const hit = [...labels.cells.items].reverse().find((cell) => {
+    const p = toPixels(cell.box);
+    return x >= p.x && x <= p.x + p.w && y >= p.y && y <= p.y + p.h;
+  });
+  if (!hit) return;
+  if (selection.includes(hit.labelId)) selection = selection.filter((id) => id !== hit.labelId);
+  else selection.push(hit.labelId);
+  render();
+}
+
+$('addRow').addEventListener('click', () => {
+  if (!labels || selection.length === 0) { setStatus('select cells first', true); return; }
+  const claimed = new Set(labels.rows.items.flatMap((row) => row.orderedCellLabelIds));
+  if (selection.some((id) => claimed.has(id))) { setStatus('a cell may belong to only one row', true); return; }
+  labels.rows.items.push({ rowKey: nextId('r', labels.rows.items, 'rowKey'), orderedCellLabelIds: [...selection] });
+  selection = []; render();
+});
+$('clearSel').addEventListener('click', () => { selection = []; render(); });
+$('delete').addEventListener('click', () => {
+  if (!labels) return;
+  const mode = $('mode').value;
+  if (mode === 'word') labels.words.items.pop();
+  else if (mode === 'cell') labels.cells.items.pop();
+  else labels.rows.items.pop();
+  render();
+});
+$('mode').addEventListener('change', () => {
+  $('cellOnly').hidden = $('mode').value !== 'cell';
+  $('modeHelp').textContent = MODE_HELP[$('mode').value];
+  selection = []; render();
+});
+
+for (const [button, section] of [['wordsDone', 'words'], ['cellsDone', 'cells'], ['rowsDone', 'rows']]) {
+  $(button).addEventListener('click', () => {
+    if (!labels) return;
+    const target = labels[section];
+    if (target.status === 'labeled') { target.status = 'unlabeled'; render(); return; }
+    if (target.items.length === 0) { setStatus(`${section} has no entries; an empty section cannot be marked labeled`, true); return; }
+    target.status = 'labeled'; render();
+  });
+}
+
+function render() {
+  $('modeHelp').textContent = MODE_HELP[$('mode').value];
+  if (!image) return;
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  ctx.drawImage(image, 0, 0);
+  if (labels) {
+    draw(labels.words.items, '#4ec994', false);
+    draw(labels.cells.items, '#8b7cff', true);
+  }
+  if (drag) {
+    ctx.strokeStyle = '#e3b341'; ctx.lineWidth = 1.5;
+    ctx.strokeRect(drag.x, drag.y, drag.w, drag.h);
+  }
+  paintLists();
+}
+
+function draw(items, color, selectable) {
+  ctx.lineWidth = 1.5;
+  for (const item of items) {
+    const p = toPixels(item.box);
+    const chosen = selectable && selection.includes(item.labelId);
+    ctx.strokeStyle = chosen ? '#e3b341' : color;
+    ctx.fillStyle = (chosen ? '#e3b34122' : color + '1f');
+    ctx.fillRect(p.x, p.y, p.w, p.h);
+    ctx.strokeRect(p.x, p.y, p.w, p.h);
+    if (chosen) {
+      ctx.fillStyle = '#e3b341';
+      ctx.fillText(String(selection.indexOf(item.labelId) + 1), p.x + 2, p.y + 10);
+    }
+  }
+}
+
+function paintLists() {
+  if (!labels) return;
+  const pill = (id, state) => {
+    $(id).textContent = state; $(id).className = 'pill' + (state === 'labeled' ? ' on' : '');
+  };
+  pill('wordsPill', labels.words.status);
+  pill('cellsPill', labels.cells.status);
+  pill('rowsPill', labels.rows.status);
+  pill('coveragePill', $('coverage').value ? 'labeled' : 'unlabeled');
+  $('wordList').innerHTML = labels.words.items.map((item) =>
+    `<li><span class="t">${escapeHtml(item.text)}</span><span class="pill">${item.labelId}</span></li>`).join('');
+  $('cellList').innerHTML = labels.cells.items.map((item) =>
+    `<li class="${selection.includes(item.labelId) ? 'sel' : ''}"><span class="t">${escapeHtml(item.text) || '<em class="muted">(empty)</em>'}</span>`
+    + `${item.isHeader ? '<span class="pill on">header</span>' : ''}<span class="pill">${item.labelId}</span></li>`).join('');
+  $('rowList').innerHTML = labels.rows.items.map((row) =>
+    `<li><span class="t">${row.orderedCellLabelIds.join(' → ')}</span><span class="pill">${row.rowKey}</span></li>`).join('');
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+}
+
+$('export').addEventListener('click', () => {
+  if (!labels) return;
+  const truth = $('coverage').value || null;
+  labels.coverage = { status: truth ? 'labeled' : 'unlabeled', truth,
+                      note: $('note').value.trim() || null };
+  labels.labeledBy = $('by').value.trim() || null;
+  labels.labeledAt = new Date().toISOString();
+  const blob = new Blob([JSON.stringify(labels, null, 2)], { type: 'application/json' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = 'labels.json';
+  link.click();
+  URL.revokeObjectURL(link.href);
+  setStatus('exported labels.json — save it over the page’s labels.json');
+});
+
+$('coverage').addEventListener('change', paintLists);
+$('cellOnly').hidden = true;
+$('modeHelp').textContent = MODE_HELP.word;
+</script>
+</body>
+</html>

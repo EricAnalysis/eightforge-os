@@ -64,3 +64,8 @@ response*.json
 # Python caches
 __pycache__/
 *.py[cod]
+
+# E3 benchmark labeling workspace: contains rendered corpus pages, which are
+# client documents and never belong in the repository. Completed human labels
+# are copied into lib/evaluation/benchmark/labels/ instead.
+.benchmark-workspace/

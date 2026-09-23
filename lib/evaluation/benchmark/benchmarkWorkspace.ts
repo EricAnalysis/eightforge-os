@@ -9,17 +9,19 @@ import {
  *
  * Pure: this module decides what a workspace contains and what it is bound to.
  * File IO belongs to the preparation script. The workspace holds a rendered
- * page, the page's canonical frame, and an empty label file. It never holds a
- * machine's reading of the page, because a labeler who is shown the extractor's
- * answer is no longer independent ground truth.
+ * page, the page's canonical frame, and an empty label file. Optional machine
+ * suggestions are a separate, provisional artifact and never become labels
+ * without an explicit human action.
  */
 
 export const BENCHMARK_WORKSPACE_FILES = {
   render: 'page.png',
   labels: 'labels.json',
+  suggestions: 'suggestions.json',
   frame: 'frame.json',
   readme: 'README.md',
   tool: 'label-tool.html',
+  toolState: 'labelToolState.mjs',
 } as const;
 
 export type BenchmarkWorkspacePage = Readonly<{
@@ -70,7 +72,8 @@ export function buildBenchmarkWorkspaceManifest(input: Readonly<{
       'Every box is canonical_v1: top-left origin, PDF points, page rotation applied.',
       'The render is the same viewer-visible page the canonical frame describes;'
         + ' the tool converts your pixels to canonical points using its scale.',
-      'No extractor output appears in this workspace. Label what you read on the page.',
+      'Labels are human truth only. Optional machine suggestions stay in a separate,'
+        + ' provisional layer until a person explicitly accepts or edits them.',
       'A section stays unlabeled until you mark it labeled; leaving it empty is not a claim.',
     ]),
   });
@@ -124,9 +127,9 @@ export function benchmarkWorkspaceReadme(manifest: BenchmarkWorkspaceManifest): 
     '',
     `Workspace version \`${manifest.workspaceVersion}\`, generated ${manifest.generatedAt}.`,
     '',
-    'This workspace is **empty on purpose**. Nothing here was produced by an extractor,',
-    'and no label was generated. A person reads each rendered page and records what is',
-    'actually there; the harness then measures extraction against those labels.',
+    'Human truth starts **empty on purpose**. No label is generated. A person reads each',
+    'rendered page and records what is actually there; the harness then measures extraction',
+    'against those labels. Optional machine suggestions stay provisional and separate.',
     '',
     '## What to label',
     '',
@@ -136,9 +139,10 @@ export function benchmarkWorkspaceReadme(manifest: BenchmarkWorkspaceManifest): 
     '',
     `1. Open \`${BENCHMARK_WORKSPACE_FILES.tool}\` in a browser (no server, no network needed).`,
     `2. Load the page's \`${BENCHMARK_WORKSPACE_FILES.render}\` and \`${BENCHMARK_WORKSPACE_FILES.labels}\`.`,
-    '3. Draw boxes and type the text exactly as printed, including punctuation and case.',
-    '4. Mark each section labeled only when it is complete for that page.',
-    `5. Export and overwrite that page's \`${BENCHMARK_WORKSPACE_FILES.labels}\`.`,
+    `3. Optionally load \`${BENCHMARK_WORKSPACE_FILES.suggestions}\`; it is not ground truth.`,
+    '4. Draw labels or explicitly accept, edit, or reject suggestions.',
+    '5. Mark each section labeled only when it is complete for that page.',
+    `6. Export and overwrite that page's \`${BENCHMARK_WORKSPACE_FILES.labels}\`.`,
     '',
     '## Rules',
     '',

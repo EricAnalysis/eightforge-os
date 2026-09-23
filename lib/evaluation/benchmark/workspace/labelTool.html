@@ -5,7 +5,7 @@
 <title>Benchmark Labeling</title>
 <style>
   :root { color-scheme: dark; --bg:#12141a; --panel:#1b1f28; --line:#2c3240; --text:#e8ecf4;
-          --muted:#98a2b6; --accent:#8b7cff; --ok:#4ec994; --warn:#e3b341; }
+          --muted:#98a2b6; --accent:#8b7cff; --ok:#4ec994; --warn:#e3b341; --suggest:#41c7d9; }
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg); color:var(--text); font:13px/1.5 ui-sans-serif,system-ui,sans-serif; }
   header { padding:10px 14px; border-bottom:1px solid var(--line); display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
@@ -29,6 +29,9 @@
   li { border:1px solid var(--line); border-radius:5px; padding:4px 6px; margin-bottom:4px;
        display:flex; gap:6px; align-items:center; font-size:12px; }
   li.sel { border-color:var(--accent); }
+  li.suggestion { border-style:dashed; border-color:var(--suggest); background:#41c7d90d; }
+  li.suggestion .actions { display:flex; gap:3px; flex:0 0 auto; }
+  li.suggestion button { width:auto; padding:2px 5px; font-size:10px; }
   li span.t { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .pill { font-size:10px; padding:1px 6px; border-radius:99px; border:1px solid var(--line); color:var(--muted); }
   .pill.on { color:var(--ok); border-color:var(--ok); }
@@ -42,6 +45,7 @@
   <h1>Benchmark labeling</h1>
   <label style="margin:0">page.png <input type="file" id="png" accept="image/png" style="width:auto"></label>
   <label style="margin:0">labels.json <input type="file" id="json" accept="application/json" style="width:auto"></label>
+  <label style="margin:0">suggestions.json <input type="file" id="suggestions" accept="application/json" style="width:auto"></label>
   <span id="status" class="muted">load a page render and its labels file</span>
   <button id="export" class="primary small" disabled>Export labels.json</button>
 </header>
@@ -59,6 +63,16 @@
         <button id="delete" class="small">Delete selected</button>
       </div>
       <p class="muted" id="modeHelp" style="margin:6px 0 0"></p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Machine suggestions <span class="pill warn">provisional</span></legend>
+      <p class="muted" style="margin:0 0 6px">Dashed cyan boxes are not benchmark truth. Accept, edit, or reject explicitly.</p>
+      <div class="row">
+        <button id="acceptSelected" class="small">Accept selected</button>
+        <button id="acceptAllWords" class="small">Accept all visible words</button>
+      </div>
+      <ul id="suggestionList"></ul>
     </fieldset>
 
     <fieldset id="entry">
@@ -116,12 +130,27 @@
     </fieldset>
   </aside>
 </main>
-<script>
-/* Offline labeling tool. No network, no extractor output: it shows the page
-   render and whatever labels you have already written, and nothing else. */
+<script type="module">
+import {
+  acceptSelectedSuggestions,
+  acceptSuggestion,
+  addManualLabel,
+  createLabelToolState,
+  deleteLastDraft,
+  editSuggestion,
+  exportConfirmedLabels,
+  finalizeSection,
+  rejectSuggestion,
+  visibleSuggestions,
+} from './labelToolState.mjs';
+
+/* Local-only labeling tool. Suggestions are a separate provisional layer;
+   labels.json remains the only exportable benchmark truth. */
 const $ = (id) => document.getElementById(id);
 const cv = $('cv'), ctx = cv.getContext('2d');
-let image = null, labels = null, scaleX = 1, scaleY = 1, selection = [];
+let image = null, loadedLabels = null, suggestionArtifact = null, toolState = null;
+let scaleX = 1, scaleY = 1, selection = [], selectedSuggestions = new Set();
+let editingSuggestion = null;
 
 const MODE_HELP = {
   word: 'One box per word, with its exact text.',
@@ -145,20 +174,59 @@ $('json').addEventListener('change', async (event) => {
   const file = event.target.files[0];
   if (!file) return;
   try {
-    labels = JSON.parse(await file.text());
+    loadedLabels = JSON.parse(await file.text());
   } catch { setStatus('labels.json is not valid JSON', true); return; }
-  if (!labels.frame || labels.labelSetVersion !== 'extraction-benchmark-labels-v1') {
+  if (!loadedLabels.frame || loadedLabels.labelSetVersion !== 'extraction-benchmark-labels-v1') {
     setStatus('that file is not an extraction-benchmark-labels-v1 label set', true);
-    labels = null; return;
+    loadedLabels = null; return;
   }
-  $('coverage').value = labels.coverage?.truth || '';
-  $('note').value = labels.coverage?.note || '';
-  $('by').value = labels.labeledBy || '';
+  $('coverage').value = loadedLabels.coverage?.truth || '';
+  $('note').value = loadedLabels.coverage?.note || '';
+  $('by').value = loadedLabels.labeledBy || '';
+  rebuildState();
   fit(); render();
 });
 
+$('suggestions').addEventListener('change', async (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
+  if (toolState && Object.values(toolState.drafts).some((items) => items.length > 0)) {
+    setStatus('load suggestions before creating confirmed drafts', true); event.target.value = ''; return;
+  }
+  try { suggestionArtifact = JSON.parse(await file.text()); }
+  catch { setStatus('suggestions.json is not valid JSON', true); return; }
+  if (suggestionArtifact.suggestionSetVersion !== 'extraction-benchmark-suggestions-v1'
+      || suggestionArtifact.authority !== 'provisional_non_authoritative') {
+    setStatus('that file is not a provisional E3 suggestion set', true); suggestionArtifact = null; return;
+  }
+  if (loadedLabels && !suggestionsMatchLabels(suggestionArtifact, loadedLabels)) {
+    setStatus('suggestions do not match the loaded label source, page, or frame', true);
+    suggestionArtifact = null; return;
+  }
+  rebuildState(); fit(); render();
+});
+
+function suggestionsMatchLabels(suggestions, labels) {
+  return suggestions.pageKey === labels.pageKey
+    && suggestions.source?.documentKey === labels.source?.documentKey
+    && suggestions.source?.sha256 === labels.source?.sha256
+    && suggestions.source?.byteLength === labels.source?.byteLength
+    && suggestions.source?.physicalPageNumber === labels.source?.physicalPageNumber
+    && JSON.stringify(suggestions.frame) === JSON.stringify(labels.frame);
+}
+
+function rebuildState() {
+  if (!loadedLabels) return;
+  if (suggestionArtifact && !suggestionsMatchLabels(suggestionArtifact, loadedLabels)) {
+    setStatus('suggestions do not match the loaded labels', true); return;
+  }
+  toolState = createLabelToolState(loadedLabels, suggestionArtifact || {});
+  selectedSuggestions = new Set(); editingSuggestion = null;
+}
+
 function fit() {
-  if (!image || !labels) { setStatus(image || labels ? 'load the other file too' : 'load a page render and its labels file'); return; }
+  if (!image || !toolState) { setStatus(image || toolState ? 'load the other file too' : 'load a page render and its labels file'); return; }
+  const labels = toolState.labels;
   cv.width = image.width; cv.height = image.height;
   // The render is the canonical page scaled up. Each axis is scaled on its own:
   // pixel width and height are floored independently when the page is rendered.
@@ -181,7 +249,7 @@ function toPixels(box) {
 
 let drag = null;
 cv.addEventListener('mousedown', (event) => {
-  if (!labels) return;
+  if (!toolState) return;
   const rect = cv.getBoundingClientRect();
   const x = event.clientX - rect.left, y = event.clientY - rect.top;
   if ($('mode').value === 'row') { pickCell(x, y); return; }
@@ -205,26 +273,28 @@ window.addEventListener('mouseup', () => {
   const mode = $('mode').value;
   if (mode === 'word') {
     if (!text) { setStatus('type the word text before drawing its box', true); render(); return; }
-    labels.words.items.push({ labelId: nextId('w', labels.words.items, 'labelId'), text, box });
+    const value = { text, box };
+    toolState = editingSuggestion?.name === 'words'
+      ? editSuggestion(toolState, 'words', editingSuggestion.id, value)
+      : addManualLabel(toolState, 'words', value);
   } else if (mode === 'cell') {
-    labels.cells.items.push({
-      labelId: nextId('c', labels.cells.items, 'labelId'), text, box,
+    const value = {
+      text, box,
       isHeader: $('isHeader').checked, columnName: $('column').value.trim() || null,
-    });
+    };
+    toolState = editingSuggestion?.name === 'cells'
+      ? editSuggestion(toolState, 'cells', editingSuggestion.id, value)
+      : addManualLabel(toolState, 'cells', value);
   }
+  editingSuggestion = null;
   $('text').value = '';
+  $('column').value = ''; $('isHeader').checked = false;
   render();
 });
 
-function nextId(prefix, items, key) {
-  let index = items.length + 1;
-  const used = new Set(items.map((item) => item[key]));
-  while (used.has(prefix + index)) index += 1;
-  return prefix + index;
-}
-
 function pickCell(x, y) {
-  const hit = [...labels.cells.items].reverse().find((cell) => {
+  const cells = [...toolState.labels.cells.items, ...toolState.drafts.cells];
+  const hit = [...cells].reverse().find((cell) => {
     const p = toPixels(cell.box);
     return x >= p.x && x <= p.x + p.w && y >= p.y && y <= p.y + p.h;
   });
@@ -235,19 +305,22 @@ function pickCell(x, y) {
 }
 
 $('addRow').addEventListener('click', () => {
-  if (!labels || selection.length === 0) { setStatus('select cells first', true); return; }
-  const claimed = new Set(labels.rows.items.flatMap((row) => row.orderedCellLabelIds));
-  if (selection.some((id) => claimed.has(id))) { setStatus('a cell may belong to only one row', true); return; }
-  labels.rows.items.push({ rowKey: nextId('r', labels.rows.items, 'rowKey'), orderedCellLabelIds: [...selection] });
+  if (!toolState || selection.length === 0) { setStatus('select cells first', true); return; }
+  try {
+    toolState = editingSuggestion?.name === 'rows'
+      ? editSuggestion(toolState, 'rows', editingSuggestion.id, { orderedCellLabelIds: [...selection] })
+      : addManualLabel(toolState, 'rows', { orderedCellLabelIds: [...selection] });
+  } catch (error) { setStatus(error.message, true); return; }
+  editingSuggestion = null;
   selection = []; render();
 });
 $('clearSel').addEventListener('click', () => { selection = []; render(); });
 $('delete').addEventListener('click', () => {
-  if (!labels) return;
+  if (!toolState) return;
   const mode = $('mode').value;
-  if (mode === 'word') labels.words.items.pop();
-  else if (mode === 'cell') labels.cells.items.pop();
-  else labels.rows.items.pop();
+  const name = mode === 'word' ? 'words' : mode === 'cell' ? 'cells' : 'rows';
+  try { toolState = deleteLastDraft(toolState, name); }
+  catch (error) { setStatus(error.message, true); return; }
   render();
 });
 $('mode').addEventListener('change', () => {
@@ -258,11 +331,10 @@ $('mode').addEventListener('change', () => {
 
 for (const [button, section] of [['wordsDone', 'words'], ['cellsDone', 'cells'], ['rowsDone', 'rows']]) {
   $(button).addEventListener('click', () => {
-    if (!labels) return;
-    const target = labels[section];
-    if (target.status === 'labeled') { target.status = 'unlabeled'; render(); return; }
-    if (target.items.length === 0) { setStatus(`${section} has no entries; an empty section cannot be marked labeled`, true); return; }
-    target.status = 'labeled'; render();
+    if (!toolState) return;
+    try { toolState = finalizeSection(toolState, section); }
+    catch (error) { setStatus(error.message, true); return; }
+    render();
   });
 }
 
@@ -271,15 +343,30 @@ function render() {
   if (!image) return;
   ctx.clearRect(0, 0, cv.width, cv.height);
   ctx.drawImage(image, 0, 0);
-  if (labels) {
-    draw(labels.words.items, '#4ec994', false);
-    draw(labels.cells.items, '#8b7cff', true);
+  if (toolState) {
+    draw([...toolState.labels.words.items, ...toolState.drafts.words], '#4ec994', false);
+    draw([...toolState.labels.cells.items, ...toolState.drafts.cells], '#8b7cff', true);
+    const suggestionSection = $('mode').value === 'word' ? 'words'
+      : $('mode').value === 'cell' ? 'cells' : null;
+    if (suggestionSection) drawSuggestions(visibleSuggestions(toolState, suggestionSection));
   }
   if (drag) {
     ctx.strokeStyle = '#e3b341'; ctx.lineWidth = 1.5;
     ctx.strokeRect(drag.x, drag.y, drag.w, drag.h);
   }
   paintLists();
+}
+
+function drawSuggestions(items) {
+  ctx.save();
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([7, 5]);
+  for (const item of items) {
+    const p = toPixels(item.box);
+    ctx.strokeStyle = '#41c7d9'; ctx.fillStyle = '#41c7d914';
+    ctx.fillRect(p.x, p.y, p.w, p.h); ctx.strokeRect(p.x, p.y, p.w, p.h);
+  }
+  ctx.restore();
 }
 
 function draw(items, color, selectable) {
@@ -299,7 +386,8 @@ function draw(items, color, selectable) {
 }
 
 function paintLists() {
-  if (!labels) return;
+  if (!toolState) return;
+  const labels = toolState.labels;
   const pill = (id, state) => {
     $(id).textContent = state; $(id).className = 'pill' + (state === 'labeled' ? ' on' : '');
   };
@@ -307,21 +395,115 @@ function paintLists() {
   pill('cellsPill', labels.cells.status);
   pill('rowsPill', labels.rows.status);
   pill('coveragePill', $('coverage').value ? 'labeled' : 'unlabeled');
-  $('wordList').innerHTML = labels.words.items.map((item) =>
-    `<li><span class="t">${escapeHtml(item.text)}</span><span class="pill">${item.labelId}</span></li>`).join('');
-  $('cellList').innerHTML = labels.cells.items.map((item) =>
+  const words = [...labels.words.items, ...toolState.drafts.words];
+  const cells = [...labels.cells.items, ...toolState.drafts.cells];
+  const rows = [...labels.rows.items, ...toolState.drafts.rows];
+  $('wordList').innerHTML = words.map((item) =>
+    `<li><span class="t">${escapeHtml(item.text)}</span>${provenancePill(item)}`
+    + `<span class="pill">${item.labelId}</span></li>`).join('');
+  $('cellList').innerHTML = cells.map((item) =>
     `<li class="${selection.includes(item.labelId) ? 'sel' : ''}"><span class="t">${escapeHtml(item.text) || '<em class="muted">(empty)</em>'}</span>`
-    + `${item.isHeader ? '<span class="pill on">header</span>' : ''}<span class="pill">${item.labelId}</span></li>`).join('');
-  $('rowList').innerHTML = labels.rows.items.map((row) =>
-    `<li><span class="t">${row.orderedCellLabelIds.join(' → ')}</span><span class="pill">${row.rowKey}</span></li>`).join('');
+    + `${item.isHeader ? '<span class="pill on">header</span>' : ''}${provenancePill(item)}`
+    + `<span class="pill">${item.labelId}</span></li>`).join('');
+  $('rowList').innerHTML = rows.map((row) =>
+    `<li><span class="t">${row.orderedCellLabelIds.join(' → ')}</span>${provenancePill(row)}`
+    + `<span class="pill">${row.rowKey}</span></li>`).join('');
+  paintSuggestionList();
 }
+
+function provenancePill(item) {
+  return item.provenance ? `<span class="pill">${escapeHtml(item.provenance.method)}</span>` : '';
+}
+
+function currentSuggestionSection() {
+  return $('mode').value === 'word' ? 'words' : $('mode').value === 'cell' ? 'cells' : 'rows';
+}
+
+function paintSuggestionList() {
+  const name = currentSuggestionSection();
+  const items = visibleSuggestions(toolState, name);
+  $('suggestionList').innerHTML = items.map((item) => {
+    const text = name === 'rows' ? item.orderedCellSuggestionIds.join(' → ') : item.text;
+    const checked = selectedSuggestions.has(`${name}:${item.suggestionId}`) ? ' checked' : '';
+    return `<li class="suggestion" data-section="${name}" data-id="${escapeHtml(item.suggestionId)}">`
+      + `<input class="suggestion-check" type="checkbox" style="width:auto"${checked}>`
+      + `<span class="t">${escapeHtml(text)}</span><span class="pill">suggested</span>`
+      + `<span class="actions"><button data-action="accept">Accept</button>`
+      + `<button data-action="edit">Edit</button><button data-action="reject">Reject</button></span></li>`;
+  }).join('');
+}
+
+$('suggestionList').addEventListener('change', (event) => {
+  if (!event.target.classList.contains('suggestion-check')) return;
+  const row = event.target.closest('[data-id]');
+  const key = `${row.dataset.section}:${row.dataset.id}`;
+  if (event.target.checked) selectedSuggestions.add(key); else selectedSuggestions.delete(key);
+});
+
+$('suggestionList').addEventListener('click', (event) => {
+  const action = event.target.dataset.action;
+  if (!action || !toolState) return;
+  const row = event.target.closest('[data-id]');
+  const name = row.dataset.section, id = row.dataset.id;
+  try {
+    if (action === 'accept') toolState = acceptSuggestion(toolState, name, id);
+    else if (action === 'reject') toolState = rejectSuggestion(toolState, name, id);
+    else beginSuggestionEdit(name, id);
+  } catch (error) { setStatus(error.message, true); return; }
+  selectedSuggestions.delete(`${name}:${id}`); render();
+});
+
+function beginSuggestionEdit(name, id) {
+  const item = visibleSuggestions(toolState, name).find((candidate) => candidate.suggestionId === id);
+  if (!item) throw new Error('suggestion is no longer available');
+  editingSuggestion = { name, id };
+  if (name === 'rows') {
+    selection = item.orderedCellSuggestionIds.map((suggestionId) =>
+      toolState.cellSuggestionToLabelId[suggestionId]).filter(Boolean);
+    setStatus(selection.length > 0
+      ? 'adjust the confirmed cell selection, then choose Add row from selection'
+      : 'accept or edit the row cells first, then edit this row', selection.length === 0);
+    return;
+  }
+  $('mode').value = name === 'words' ? 'word' : 'cell';
+  $('cellOnly').hidden = name !== 'cells';
+  $('text').value = item.text;
+  if (name === 'cells') {
+    $('column').value = item.columnName || ''; $('isHeader').checked = item.isHeader;
+  }
+  setStatus('edit the values, then draw the replacement box to confirm', false);
+}
+
+$('acceptSelected').addEventListener('click', () => {
+  if (!toolState) return;
+  try {
+    for (const name of ['words', 'cells', 'rows']) {
+      const ids = [...selectedSuggestions]
+        .filter((key) => key.startsWith(`${name}:`)).map((key) => key.slice(name.length + 1));
+      toolState = acceptSelectedSuggestions(toolState, name, ids);
+      for (const id of ids) selectedSuggestions.delete(`${name}:${id}`);
+    }
+  } catch (error) { setStatus(error.message, true); return; }
+  render();
+});
+
+$('acceptAllWords').addEventListener('click', () => {
+  if (!toolState) return;
+  const ids = visibleSuggestions(toolState, 'words').map((item) => item.suggestionId);
+  try { toolState = acceptSelectedSuggestions(toolState, 'words', ids); }
+  catch (error) { setStatus(error.message, true); return; }
+  render();
+});
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
 }
 
 $('export').addEventListener('click', () => {
-  if (!labels) return;
+  if (!toolState) return;
+  let labels;
+  try { labels = exportConfirmedLabels(toolState); }
+  catch (error) { setStatus(`${error.message}; mark each in-progress section labeled before export`, true); return; }
   const truth = $('coverage').value || null;
   labels.coverage = { status: truth ? 'labeled' : 'unlabeled', truth,
                       note: $('note').value.trim() || null };

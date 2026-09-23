@@ -85,10 +85,30 @@ export const BenchmarkBoxSchema = z.object({
 }).strict().refine((box) => box.x_min < box.x_max && box.y_min < box.y_max,
   'box must have positive area');
 
+/**
+ * Audit-only lineage for a confirmed human label.
+ *
+ * This is deliberately optional so existing v1 label artifacts remain valid
+ * and byte-for-byte untouched. It records how the human entered the confirmed
+ * value; it is not an authority signal and the scorer never reads it.
+ */
+export const BenchmarkLabelProvenanceSchema = z.discriminatedUnion('method', [
+  z.object({ method: z.literal('entered_manually') }).strict(),
+  z.object({
+    method: z.literal('accepted_suggestion'),
+    sourceSuggestionId: identifier,
+  }).strict(),
+  z.object({
+    method: z.literal('edited_suggestion'),
+    sourceSuggestionId: identifier,
+  }).strict(),
+]);
+
 export const BenchmarkWordLabelSchema = z.object({
   labelId: identifier,
   text: z.string().min(1).max(500),
   box: BenchmarkBoxSchema,
+  provenance: BenchmarkLabelProvenanceSchema.optional(),
 }).strict();
 
 export const BenchmarkCellLabelSchema = z.object({
@@ -100,12 +120,14 @@ export const BenchmarkCellLabelSchema = z.object({
   isHeader: z.boolean(),
   /** Free-form column name as authored on the page, or null when unnamed. */
   columnName: z.string().max(200).nullable(),
+  provenance: BenchmarkLabelProvenanceSchema.optional(),
 }).strict();
 
 export const BenchmarkRowLabelSchema = z.object({
   rowKey: identifier,
   /** Membership: the cells that belong to this row, in reading order. */
   orderedCellLabelIds: z.array(identifier).min(1).max(200),
+  provenance: BenchmarkLabelProvenanceSchema.optional(),
 }).strict();
 
 /**
@@ -216,6 +238,7 @@ export const BenchmarkPageLabelsSchema = z.object({
 
 export type BenchmarkPageLabels = z.infer<typeof BenchmarkPageLabelsSchema>;
 export type BenchmarkBox = z.infer<typeof BenchmarkBoxSchema>;
+export type BenchmarkLabelProvenance = z.infer<typeof BenchmarkLabelProvenanceSchema>;
 export type BenchmarkWordLabel = z.infer<typeof BenchmarkWordLabelSchema>;
 export type BenchmarkCellLabel = z.infer<typeof BenchmarkCellLabelSchema>;
 export type BenchmarkRowLabel = z.infer<typeof BenchmarkRowLabelSchema>;

@@ -16,8 +16,8 @@ import {
   buildBenchmarkWorkspaceManifest,
   type BenchmarkWorkspacePage,
 } from '@/lib/evaluation/benchmark/benchmarkWorkspace';
-import { runBenchmarkMachinePass } from '@/lib/evaluation/benchmark/benchmarkMachineRun';
 import { buildBenchmarkSuggestions } from '@/lib/evaluation/benchmark/benchmarkSuggestions';
+import { runBenchmarkSuggestionPass } from '@/lib/evaluation/benchmark/benchmarkSuggestionRun';
 import { buildCanonicalPageFrame } from '@/lib/extraction/geometry/canonicalPageFrame';
 
 /**
@@ -30,7 +30,7 @@ import { buildCanonicalPageFrame } from '@/lib/extraction/geometry/canonicalPage
  * non-authoritative output from the provider-free benchmark machine pass.
  *
  *   npx vite-node --config vitest.config.ts scripts/evaluation/e3/prepare-benchmark-workspace.ts -- \
- *     --out .benchmark-workspace [--page golden-p8] [--scale 2] [--suggestions]
+ *     --out .benchmark-workspace [--page golden-p8] [--scale 2] [--suggestions [--local-ocr]]
  */
 
 const RENDER_SCALE_DEFAULT = 2;
@@ -109,6 +109,8 @@ async function main() {
   if (!Number.isFinite(scale) || scale <= 0) fail('--scale must be a positive number');
   const only = argument('page') as BenchmarkPageKey | null;
   const withSuggestions = process.argv.includes('--suggestions');
+  const withLocalOcr = process.argv.includes('--local-ocr');
+  if (withLocalOcr && !withSuggestions) fail('--local-ocr requires --suggestions');
   const selected = only ? BENCHMARK_PAGES.filter((page) => page.pageKey === only) : BENCHMARK_PAGES;
   if (selected.length === 0) fail(`unknown --page ${only}`);
 
@@ -161,16 +163,26 @@ async function main() {
         bytes.byteOffset,
         bytes.byteOffset + bytes.byteLength,
       ) as ArrayBuffer;
-      const run = await runBenchmarkMachinePass({
+      const pass = await runBenchmarkSuggestionPass({
         bytes: sourceBytes,
         physicalPageNumber: page.physicalPageNumber,
+        pageFrame: source.frame,
+        localOcr: withLocalOcr,
+        requireOcrTokens: withLocalOcr
+          && (page.characterization === 'mixed_native_and_ocr'
+            || page.characterization === 'ocr_price_sheet'),
       });
-      const suggestions = buildBenchmarkSuggestions({ source, run });
+      const suggestions = buildBenchmarkSuggestions({
+        source,
+        run: pass.run,
+        localOcrGeneration: pass.localOcrGeneration,
+      });
       await writeFile(path.join(pageDirectory, BENCHMARK_WORKSPACE_FILES.suggestions),
         `${JSON.stringify(suggestions, null, 2)}\n`, 'utf8');
       console.log(`[e3-workspace] ${page.pageKey}: wrote provisional suggestions from benchmark machine pass`
         + ` (${suggestions.words.length} words, ${suggestions.cells.length} cells,`
-        + ` ${suggestions.rows.length} rows; native=${run.nativeTokenCount}, ocr=${run.ocrTokenCount})`);
+        + ` ${suggestions.rows.length} rows; native=${pass.run.nativeTokenCount}, ocr=${pass.run.ocrTokenCount}`
+        + `${pass.localOcrRuntimeMs == null ? '' : `, local-ocr-ms=${pass.localOcrRuntimeMs}`})`);
     }
 
     pages.push({

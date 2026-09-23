@@ -56,6 +56,11 @@ copy the result to `lib/evaluation/benchmark/labels/<pageKey>.labels.json`. Rege
 never overwrites an existing `labels.json`. Rendered pages are gitignored: only labels are
 committed.
 
+For an OCR-backed page, add the explicit `--local-ocr` flag together with `--suggestions`.
+This runs the existing provider-free local Tesseract geometry path only for the selected
+physical page. It records local-OCR generation metadata in `suggestions.json`; the output
+remains provisional and does not change or complete any section in `labels.json`.
+
 Create a source-clean independent review pack from an existing workspace with:
 
 ```bash

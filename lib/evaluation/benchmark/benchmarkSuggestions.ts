@@ -5,6 +5,7 @@ import {
   type BenchmarkPageLabels,
 } from '@/lib/evaluation/benchmark/benchmarkContract';
 import type { BenchmarkMachineRun } from '@/lib/evaluation/benchmark/benchmarkMachineRun';
+import type { BenchmarkLocalOcrGeneration } from '@/lib/evaluation/benchmark/benchmarkSuggestionRun';
 import { hashCanonical } from '@/lib/extraction/domain/hash';
 
 /** Suggestions are a provisional aid. They are never benchmark truth. */
@@ -63,6 +64,16 @@ export const BenchmarkPageSuggestionsSchema = z.object({
     nativeTokenCount: z.number().int().nonnegative(),
     ocrTokenCount: z.number().int().nonnegative(),
     tokensWithoutCanonicalGeometry: z.number().int().nonnegative(),
+    localOcr: z.object({
+      mode: z.literal('existing_local_ocr'),
+      implementation: z.literal('documentExtraction.extractPdfPageTextViaOcr'),
+      engine: z.literal('tesseract.js'),
+      language: z.literal('eng'),
+      pageSegmentationMode: z.literal('11'),
+      renderScale: z.literal(2),
+      outcome: z.union([z.literal('tokens_produced'), z.literal('completed_zero_tokens')]),
+      representationKeys: z.array(z.string().min(1).max(500)).max(20),
+    }).strict().optional(),
   }).strict(),
   words: z.array(BenchmarkWordSuggestionSchema).max(5_000),
   cells: z.array(BenchmarkCellSuggestionSchema).max(5_000),
@@ -172,6 +183,7 @@ export function bindBenchmarkSuggestions(
 export function buildBenchmarkSuggestions(input: Readonly<{
   source: BenchmarkSuggestionBindingSource;
   run: BenchmarkMachineRun;
+  localOcrGeneration?: BenchmarkLocalOcrGeneration | null;
 }>): BenchmarkPageSuggestions {
   if (hashCanonical(input.run.prediction) !== input.run.predictionDigest) {
     throw new BenchmarkSuggestionError('suggestion_projection_failed',
@@ -229,6 +241,7 @@ export function buildBenchmarkSuggestions(input: Readonly<{
       nativeTokenCount: input.run.nativeTokenCount,
       ocrTokenCount: input.run.ocrTokenCount,
       tokensWithoutCanonicalGeometry: input.run.tokensWithoutCanonicalGeometry,
+      ...(input.localOcrGeneration ? { localOcr: input.localOcrGeneration } : {}),
     },
     words,
     cells,

@@ -940,12 +940,19 @@ function mergeOcrGeometryPages(
  * Runs whole-page OCR only after the existing weak PDF gate has fired so
  * downstream normalization can keep using the shared text/evidence path.
  */
-type PdfOcrExtractionResult = {
+export type PdfOcrExtractionFailure = Readonly<{
+  kind: 'ocr_execution_failed' | 'ocr_input_or_render_unavailable';
+  detail: string;
+}>;
+
+export type PdfOcrExtractionResult = {
   pages: PageTextEvidence[] | null;
   geometryPages: OcrGeometryPage[];
   pagesAttempted: number;
   confidenceAvg: number | null;
   totalPhysicalPages: number | null;
+  /** Additive diagnostic only; existing production callers retain their fail-closed behavior. */
+  failure: PdfOcrExtractionFailure | null;
   pageImages?: Array<{
     page_number: number;
     png_buffer: Buffer;
@@ -1010,26 +1017,29 @@ function extractOcrGeometryWords(data: unknown): OcrGeometryWord[] {
   return words;
 }
 
-async function extractPdfPageTextViaOcr(
+export async function extractPdfPageTextViaOcr(
   bytes: ArrayBuffer,
   opts?: {
     pageNumbers?: number[] | null;
     recognitionPageNumbers?: number[] | null;
   },
 ): Promise<PdfOcrExtractionResult> {
-  const fallbackResult: PdfOcrExtractionResult = {
+  const fallbackResult = (failure: PdfOcrExtractionFailure): PdfOcrExtractionResult => ({
     pages: null,
     geometryPages: [],
     pagesAttempted: 0,
     confidenceAvg: null,
     totalPhysicalPages: null,
-  };
+    failure,
+  });
+  let failureKind: PdfOcrExtractionFailure['kind'] = 'ocr_execution_failed';
 
   try {
     const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
     const { createCanvas } = await import('@napi-rs/canvas');
     const { createWorker } = await import('tesseract.js');
 
+    failureKind = 'ocr_input_or_render_unavailable';
     const data = new Uint8Array(bytes);
     const pdfDoc = await pdfjs.getDocument({ data }).promise;
 
@@ -1037,13 +1047,19 @@ async function extractPdfPageTextViaOcr(
       opts?.pageNumbers?.filter((pageNum) => Number.isInteger(pageNum) && pageNum > 0)
       ?? Array.from({ length: pdfDoc.numPages }, (_, index) => index + 1);
     const pagesToRender = requestedPages.filter((p) => p >= 1 && p <= pdfDoc.numPages);
-    if (pagesToRender.length === 0) return fallbackResult;
+    if (pagesToRender.length === 0) {
+      return fallbackResult({
+        kind: 'ocr_input_or_render_unavailable',
+        detail: 'no requested physical page was available to render',
+      });
+    }
     const recognitionPages = new Set(
       (opts?.recognitionPageNumbers ?? pagesToRender)
         .filter((pageNum) => pagesToRender.includes(pageNum)),
     );
 
     const langPath = getLocalTesseractLangPath();
+    failureKind = 'ocr_execution_failed';
     const worker = await createWorker('eng', undefined, { langPath });
     try {
       await worker.setParameters({ tessedit_pageseg_mode: '11' as unknown as never });
@@ -1056,6 +1072,7 @@ async function extractPdfPageTextViaOcr(
       let pagesRecognized = 0;
 
       for (const pageNum of pagesToRender) {
+        failureKind = 'ocr_input_or_render_unavailable';
         const page = await pdfDoc.getPage(pageNum);
         const inspection = recognitionPages.has(pageNum)
           ? await classifyDecodeFailures(
@@ -1081,6 +1098,7 @@ async function extractPdfPageTextViaOcr(
         await page.render(renderContext).promise;
         const pngBuffer = canvas.toBuffer('image/png');
         const renderSha256 = sha256Hex(pngBuffer);
+        failureKind = 'ocr_execution_failed';
         const result = recognize
           ? await worker.recognize(
               pngBuffer,
@@ -1132,6 +1150,7 @@ async function extractPdfPageTextViaOcr(
         pageImages,
         decodeInspections,
         totalPhysicalPages: pdfDoc.numPages,
+        failure: null,
       };
     } finally {
       await worker.terminate();
@@ -1140,7 +1159,10 @@ async function extractPdfPageTextViaOcr(
     if (process.env.EIGHTFORGE_OCR_DEBUG === '1') {
       console.error('[extractPdfPageTextViaOcr] failed', error);
     }
-    return fallbackResult;
+    return fallbackResult({
+      kind: failureKind,
+      detail: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 

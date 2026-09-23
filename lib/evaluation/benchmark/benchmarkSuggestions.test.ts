@@ -14,6 +14,7 @@ import {
   buildBenchmarkSuggestions,
   parseBenchmarkSuggestions,
 } from '@/lib/evaluation/benchmark/benchmarkSuggestions';
+import { BENCHMARK_LOCAL_OCR_IMPLEMENTATION } from '@/lib/evaluation/benchmark/benchmarkSuggestionRun';
 import { hashCanonical } from '@/lib/extraction/domain/hash';
 
 const FRAME: BenchmarkPageLabels['frame'] = {
@@ -74,6 +75,29 @@ describe('benchmark suggestion contract', () => {
     expect(() => bindBenchmarkSuggestions(parsed, {
       ...SOURCE, frame: { ...FRAME, width: 611 },
     })).toThrow(/canonical page frame differs/);
+  });
+
+  it('records local OCR generation as non-authoritative suggestion metadata', () => {
+    const artifact = buildBenchmarkSuggestions({
+      source: SOURCE,
+      run: { ...RUN, nativeTokenCount: 0, ocrTokenCount: 2 },
+      localOcrGeneration: {
+        mode: 'existing_local_ocr',
+        implementation: BENCHMARK_LOCAL_OCR_IMPLEMENTATION,
+        engine: 'tesseract.js',
+        language: 'eng',
+        pageSegmentationMode: '11',
+        renderScale: 2,
+        outcome: 'tokens_produced',
+        representationKeys: ['tesseract:eng:psm11:pdfjs-scale2:render-sha'],
+      },
+    });
+    expect(artifact.sourceRun.localOcr).toMatchObject({
+      implementation: BENCHMARK_LOCAL_OCR_IMPLEMENTATION,
+      outcome: 'tokens_produced',
+    });
+    expect(parseBenchmarkSuggestions(JSON.stringify(artifact)).suggestions).toEqual(artifact);
+    expect(artifact).not.toHaveProperty('labels');
   });
 
   it('rejects unknown row members, extra fields, and a mismatched prediction digest', () => {

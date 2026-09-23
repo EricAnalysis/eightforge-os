@@ -24,14 +24,24 @@ row membership in reading order · coverage truth (what the page actually contai
 
 All boxes are `canonical_v1`: the E2 frame, top-left origin, PDF points, rotation applied.
 
-## No generated labels
+## Human labels and provisional suggestions
 
 The workspace is empty by construction. Every section starts `unlabeled` with no items and
 coverage has no truth. The schema refuses a labeled-but-empty section and an unlabeled-but-
-populated one, so "nobody has labeled this" can never be confused with "a human looked and
-found nothing". The scorer returns `labels_unavailable` for any unlabeled section rather
-than producing a number, and the workspace contains no extractor output at all — a labeler
-shown the machine's reading would no longer be independent ground truth.
+populated one. The scorer returns `labels_unavailable` for any unlabeled section rather
+than producing a number.
+
+An optional `suggestions.json` can be generated from the provider-free E3 machine pass.
+It is exact-source/frame-bound, visibly separate in the labeler, and never enters
+`labels.json` merely because it was loaded. Accepting or editing a suggestion creates a
+human-reviewed draft with provenance; the human must still explicitly mark the section
+complete before export. Rejecting a suggestion never changes labels. Suggestions for an
+already labeled section are suppressed, so existing human truth cannot be overwritten.
+
+The current suggestion source is native-only unless OCR geometry is supplied separately,
+and its priced-schedule reconstruction does not emit header cells. Source-run metadata
+records native and OCR token counts; the missing-header limitation is documented here,
+not encoded as a separate suggestion-metadata field.
 
 ## Running it
 
@@ -39,10 +49,27 @@ shown the machine's reading would no longer be independent ground truth.
 npx vite-node --config vitest.config.ts scripts/evaluation/e3/prepare-benchmark-workspace.ts -- --out .benchmark-workspace
 ```
 
-Then open `label-tool.html` in that page's folder (offline, no server), label, export, and
+Add `--suggestions` to write the separate provisional suggestion artifact. Then open
+`label-tool.html` through a local static server, load the page, labels, and optionally
+suggestions, label, export, and
 copy the result to `lib/evaluation/benchmark/labels/<pageKey>.labels.json`. Regenerating
 never overwrites an existing `labels.json`. Rendered pages are gitignored: only labels are
 committed.
+
+For an OCR-backed page, add the explicit `--local-ocr` flag together with `--suggestions`.
+This runs the existing provider-free local Tesseract geometry path only for the selected
+physical page. It records local-OCR generation metadata in `suggestions.json`; the output
+remains provisional and does not change or complete any section in `labels.json`.
+
+Create a source-clean independent review pack from an existing workspace with:
+
+```bash
+npx vite-node --config vitest.config.ts scripts/evaluation/e3/prepare-benchmark-review-pack.ts -- --workspace .benchmark-workspace --out .benchmark-review
+```
+
+The review pack allowlists only the exact workspace `page.png`, a human-readable summary,
+and bound `labels.json` bytes when at least one section is human-labeled. Suggestions and
+machine output are excluded by default. Both local workspace folders are gitignored.
 
 ## What is measured
 

@@ -16,6 +16,8 @@ import {
   buildBenchmarkWorkspaceManifest,
   type BenchmarkWorkspacePage,
 } from '@/lib/evaluation/benchmark/benchmarkWorkspace';
+import { buildBenchmarkSuggestions } from '@/lib/evaluation/benchmark/benchmarkSuggestions';
+import { runBenchmarkSuggestionPass } from '@/lib/evaluation/benchmark/benchmarkSuggestionRun';
 import { buildCanonicalPageFrame } from '@/lib/extraction/geometry/canonicalPageFrame';
 
 /**
@@ -23,11 +25,12 @@ import { buildCanonicalPageFrame } from '@/lib/extraction/geometry/canonicalPage
  *
  * Provider-free and read-only with respect to the corpus: it renders each
  * benchmark page, records the page's canonical frame, and writes an EMPTY
- * label file. It never runs an extractor, never writes a label value, and
- * never overwrites a labels.json that already exists.
+ * label file. It never writes a label value and never overwrites a labels.json
+ * that already exists. With --suggestions it separately writes provisional,
+ * non-authoritative output from the provider-free benchmark machine pass.
  *
  *   npx vite-node --config vitest.config.ts scripts/evaluation/e3/prepare-benchmark-workspace.ts -- \
- *     --out .benchmark-workspace [--page golden-p8] [--scale 2]
+ *     --out .benchmark-workspace [--page golden-p8] [--scale 2] [--suggestions [--local-ocr]]
  */
 
 const RENDER_SCALE_DEFAULT = 2;
@@ -105,11 +108,16 @@ async function main() {
   const scale = Number(argument('scale') ?? RENDER_SCALE_DEFAULT);
   if (!Number.isFinite(scale) || scale <= 0) fail('--scale must be a positive number');
   const only = argument('page') as BenchmarkPageKey | null;
+  const withSuggestions = process.argv.includes('--suggestions');
+  const withLocalOcr = process.argv.includes('--local-ocr');
+  if (withLocalOcr && !withSuggestions) fail('--local-ocr requires --suggestions');
   const selected = only ? BENCHMARK_PAGES.filter((page) => page.pageKey === only) : BENCHMARK_PAGES;
   if (selected.length === 0) fail(`unknown --page ${only}`);
 
   const toolSource = path.resolve('lib/evaluation/benchmark/workspace/labelTool.html');
+  const toolStateSource = path.resolve('lib/evaluation/benchmark/workspace/labelToolState.mjs');
   const tool = await readFile(toolSource, 'utf8');
+  const toolState = await readFile(toolStateSource, 'utf8');
   const pages: BenchmarkWorkspacePage[] = [];
 
   for (const page of selected) {
@@ -125,6 +133,7 @@ async function main() {
 
     const source = {
       pageKey: page.pageKey,
+      documentKey: page.documentKey,
       sha256,
       byteLength: bytes.byteLength,
       physicalPageNumber: page.physicalPageNumber,
@@ -147,6 +156,34 @@ async function main() {
     await writeFile(path.join(pageDirectory, BENCHMARK_WORKSPACE_FILES.frame),
       `${JSON.stringify(source.frame, null, 2)}\n`, 'utf8');
     await writeFile(path.join(pageDirectory, BENCHMARK_WORKSPACE_FILES.tool), tool, 'utf8');
+    await writeFile(path.join(pageDirectory, BENCHMARK_WORKSPACE_FILES.toolState), toolState, 'utf8');
+
+    if (withSuggestions) {
+      const sourceBytes = bytes.buffer.slice(
+        bytes.byteOffset,
+        bytes.byteOffset + bytes.byteLength,
+      ) as ArrayBuffer;
+      const pass = await runBenchmarkSuggestionPass({
+        bytes: sourceBytes,
+        physicalPageNumber: page.physicalPageNumber,
+        pageFrame: source.frame,
+        localOcr: withLocalOcr,
+        requireOcrTokens: withLocalOcr
+          && (page.characterization === 'mixed_native_and_ocr'
+            || page.characterization === 'ocr_price_sheet'),
+      });
+      const suggestions = buildBenchmarkSuggestions({
+        source,
+        run: pass.run,
+        localOcrGeneration: pass.localOcrGeneration,
+      });
+      await writeFile(path.join(pageDirectory, BENCHMARK_WORKSPACE_FILES.suggestions),
+        `${JSON.stringify(suggestions, null, 2)}\n`, 'utf8');
+      console.log(`[e3-workspace] ${page.pageKey}: wrote provisional suggestions from benchmark machine pass`
+        + ` (${suggestions.words.length} words, ${suggestions.cells.length} cells,`
+        + ` ${suggestions.rows.length} rows; native=${pass.run.nativeTokenCount}, ocr=${pass.run.ocrTokenCount}`
+        + `${pass.localOcrRuntimeMs == null ? '' : `, local-ocr-ms=${pass.localOcrRuntimeMs}`})`);
+    }
 
     pages.push({
       pageKey: page.pageKey,
@@ -176,7 +213,7 @@ async function main() {
   await writeFile(path.join(outDirectory, BENCHMARK_WORKSPACE_FILES.readme),
     `${benchmarkWorkspaceReadme(manifest)}\n`, 'utf8');
   console.log(`[e3-workspace] workspace ready at ${outDirectory}`);
-  console.log('[e3-workspace] every human-truth field is empty; no label was generated');
+  console.log('[e3-workspace] no human label was generated; suggestions, when requested, are separate and provisional');
 }
 
 main().catch((error) => fail(error instanceof Error ? error.message : String(error)));

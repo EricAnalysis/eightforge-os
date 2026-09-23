@@ -5,7 +5,7 @@ import {
   type OcrGeometryPage,
 } from '@/lib/extraction/pdf/ocrGeometryLayout';
 import { buildPagePricedScheduleReconstruction } from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
-import type { BenchmarkBox } from '@/lib/evaluation/benchmark/benchmarkContract';
+import type { BenchmarkBox, BenchmarkPageLabels } from '@/lib/evaluation/benchmark/benchmarkContract';
 import type { BenchmarkPrediction } from '@/lib/evaluation/benchmark/benchmarkScoring';
 
 /**
@@ -74,6 +74,8 @@ export async function runBenchmarkMachinePass(input: Readonly<{
   physicalPageNumber: number;
   /** OCR word geometry for this page, when a separate OCR run produced it. */
   ocrPages?: readonly OcrGeometryPage[];
+  /** Exact bound frame used only when the native layout cannot represent an OCR-only page. */
+  pageFrame?: BenchmarkPageLabels['frame'];
 }>): Promise<BenchmarkMachineRun> {
   const startedAt = Date.now();
   const native = await loadPdfLayout(input.bytes, {
@@ -81,9 +83,23 @@ export async function runBenchmarkMachinePass(input: Readonly<{
     maxPages: input.physicalPageNumber,
   });
   const ocrPages = [...(input.ocrPages ?? [])];
+  const nativeForMerge = ocrPages.length > 0 && input.pageFrame
+    && !native.pages.some((page) => page.page_number === input.physicalPageNumber)
+    ? {
+        ...native,
+        pages: [...native.pages, {
+          page_number: input.physicalPageNumber,
+          width: input.pageFrame.width,
+          height: input.pageFrame.height,
+          lines: [],
+          source: 'pdfjs' as const,
+          canonical_frame: input.pageFrame,
+        }].sort((left, right) => left.page_number - right.page_number),
+      }
+    : native;
   const layout = ocrPages.length > 0
     ? mergeOcrFallbackLayout({
-        nativeLayout: native,
+        nativeLayout: nativeForMerge,
         ocrPages,
         ocrTextPageNumbers: ocrPages.map((page) => page.page_number),
         representation: 'reconciled_pdf_points',

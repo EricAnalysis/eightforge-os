@@ -1,6 +1,6 @@
 # Extraction benchmark and labeling workspace (E3)
 
-**Status:** harness implemented, **awaiting human labels**. **Date:** 2026-09-18.
+**Status:** dual-review workflow implemented, **awaiting human adjudication**. **Date:** 2026-09-24.
 
 E3 measures extraction against human ground truth. It decides nothing: every result
 carries `productionEligibilityDecision: 'not_in_scope'` and
@@ -24,6 +24,84 @@ row membership in reading order · coverage truth (what the page actually contai
 
 All boxes are `canonical_v1`: the E2 frame, top-left origin, PDF points, rotation applied.
 
+## Primary dual-review workflow
+
+The preferred path preserves independent semantic readings and explicit human authority:
+
+1. Give ChatGPT only the clean source page and collect `reviewer-a.labels.json`.
+2. Give Claude only the clean source page and collect `reviewer-b.labels.json`.
+3. Compare the two non-authoritative proposals deterministically.
+4. Only after both proposals exist, optionally use bound provisional OCR suggestions for
+   unique exact-text geometry matches.
+5. Resolve every disagreement, unmatched item, and geometry ambiguity in a separate
+   `adjudication.json`.
+6. The user explicitly approves the fully resolved final-label candidate digest.
+7. The approval-gated finalizer writes `labels.json` in the existing benchmark schema.
+
+Reviewer artifacts use authority `non_authoritative_reviewer_proposal` and must attest that
+their input was `clean_source_page_only`, without machine suggestions or the other reviewer's
+labels. Agreement is never authority. The comparator always records that user adjudication
+and approval are required, even when both proposals agree exactly.
+
+The comparator pairs reviewer items only by explicit reading-order positions and compares
+their values exactly. It performs no fuzzy or semantic matching. A provisional OCR box can
+be attached only when both reviewers agree semantically, neither supplied a conflicting box,
+and the exact text resolves to one unique bound suggestion. Repeated or missing geometry is
+an ambiguity for the user, never an inferred match.
+
+Run the comparator with the exact workspace manifest that supplied the clean page:
+
+```bash
+npx vite-node --config vitest.config.ts scripts/evaluation/e3/compare-benchmark-reviewers.ts -- \
+  --workspace .benchmark-workspace \
+  --reviewer-a .benchmark-review/golden-p8/dual-review/reviewer-a.labels.json \
+  --reviewer-b .benchmark-review/golden-p8/dual-review/reviewer-b.labels.json \
+  --suggestions .benchmark-workspace/golden-p8/suggestions.json \
+  --out .benchmark-review/golden-p8/dual-review/comparison.json
+```
+
+Omit `--suggestions` when no provisional geometry is available. `comparison.json` preserves
+both reviewer values and separately lists text, bbox, cell-structure, row-membership, and
+coverage disagreements, ambiguous items, unmatched items, candidate resolutions, and every
+issue ID requiring explicit adjudication. The comparator refuses to write `labels.json`.
+
+`adjudication.json` is separate from comparison output. It binds the exact reviewer,
+comparison, and optional suggestion digests. Every comparison issue must have exactly one
+typed resolution: choose reviewer A, choose reviewer B, provide an explicit manual value of
+the matching kind, or use `exclude_item` for a word, cell, or row issue. Those resolutions
+deterministically assemble the final-label candidate;
+the adjudication artifact cannot carry a parallel hand-edited final payload. File presence is
+not approval: the finalizer requires `approval.decision` to equal
+`approve_as_benchmark_truth`, a non-empty approving identity distinct from either reviewer,
+an ISO-8601 timestamp, and an approved candidate digest equal to the exact assembled
+`BenchmarkPageLabelsSchema` payload.
+
+For word, cell, or row issues only, `exclude_item` records the user's explicit adjudication
+that the proposed item is not benchmark truth and contributes no replacement item; it is
+invalid for coverage metadata, and retained rows may not reference an excluded cell.
+
+After the user has explicitly approved that artifact, finalize with:
+
+```bash
+npx vite-node --config vitest.config.ts scripts/evaluation/e3/finalize-benchmark-adjudication.ts -- \
+  --workspace .benchmark-workspace \
+  --reviewer-a .benchmark-review/golden-p8/dual-review/reviewer-a.labels.json \
+  --reviewer-b .benchmark-review/golden-p8/dual-review/reviewer-b.labels.json \
+  --comparison .benchmark-review/golden-p8/dual-review/comparison.json \
+  --adjudication .benchmark-review/golden-p8/dual-review/adjudication.json \
+  --suggestions .benchmark-workspace/golden-p8/suggestions.json \
+  --out .benchmark-workspace/golden-p8/labels.json
+```
+
+If comparison was not suggestion-bound, omit `--suggestions` from finalization too. The
+finalizer reruns the shared deterministic comparator from the bound source manifest,
+reviewer artifacts, and optional suggestions. It rejects a supplied comparison whose exact
+content or digest differs from that recomputation, then assembles the payload from the typed
+resolutions and verifies the approval digest against those exact bytes. It also rejects stale
+digests, missing resolutions, absent approval, reviewer-as-approver identity matches after
+case-folding and trimming, incomplete final labels, and attempts to overwrite existing partial
+or complete benchmark truth.
+
 ## Human labels and provisional suggestions
 
 The workspace is empty by construction. Every section starts `unlabeled` with no items and
@@ -43,17 +121,20 @@ and its priced-schedule reconstruction does not emit header cells. Source-run me
 records native and OCR token counts; the missing-header limitation is documented here,
 not encoded as a separate suggestion-metadata field.
 
-## Running it
+## Workspace and fallback browser labeler
 
 ```bash
 npx vite-node --config vitest.config.ts scripts/evaluation/e3/prepare-benchmark-workspace.ts -- --out .benchmark-workspace
 ```
 
-Add `--suggestions` to write the separate provisional suggestion artifact. Then open
-`label-tool.html` through a local static server, load the page, labels, and optionally
-suggestions, label, export, and
-copy the result to `lib/evaluation/benchmark/labels/<pageKey>.labels.json`. Regenerating
-never overwrites an existing `labels.json`. Rendered pages are gitignored: only labels are
+Add `--suggestions` to write the separate provisional suggestion artifact. The existing
+`label-tool.html` Accept/Edit/Reject workflow remains available for correcting an individual
+box, resolving disputed labels, manually drawing missing geometry, or completing the work
+without dual review. It is a fallback, not the required primary path. Regenerating never
+overwrites an existing `labels.json`. `.benchmark-workspace/` and `.benchmark-review/` are
+gitignored. Keep reviewer proposals, comparison, and adjudication artifacts below one of those
+folders (the examples use `.benchmark-review/<pageKey>/dual-review/`); arbitrary repository
+paths are not implicitly ignored. Only explicitly approved final labels are eligible to be
 committed.
 
 For an OCR-backed page, add the explicit `--local-ocr` flag together with `--suggestions`.

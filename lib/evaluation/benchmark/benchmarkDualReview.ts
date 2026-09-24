@@ -178,6 +178,10 @@ export const BenchmarkDualReviewComparisonSchema = z.object({
   userAdjudicationRequired: z.literal(true),
   userApprovalRequired: z.literal(true),
 }).strict().superRefine((comparison, ctx) => {
+  const agreementIds = comparison.exactAgreements.map((agreement) => agreement.issueId);
+  if (new Set(agreementIds).size !== agreementIds.length) {
+    ctx.addIssue({ code: 'custom', message: 'duplicate exact agreement id' });
+  }
   const issueArrays = [
     comparison.textDisagreements,
     comparison.bboxDisagreements,
@@ -204,23 +208,39 @@ export const BenchmarkDualReviewComparisonSchema = z.object({
 
 export type BenchmarkDualReviewComparison = z.infer<typeof BenchmarkDualReviewComparisonSchema>;
 
+const ManualWordValueSchema = z.object({
+  kind: z.literal('word'),
+  text: z.string().min(1).max(500),
+  box: BenchmarkBoxSchema,
+}).strict();
+const ManualCellValueSchema = z.object({
+  kind: z.literal('cell'),
+  text: z.string().max(2_000),
+  box: BenchmarkBoxSchema,
+  isHeader: z.boolean(),
+  columnName: z.string().max(200).nullable(),
+}).strict();
+
+const ReviewerRowMembershipCellSchema = z.object({
+  reviewerItemId: identifier,
+  readingOrder,
+  text: z.string().max(2_000),
+  isHeader: z.boolean(),
+  columnName: z.string().max(200).nullable(),
+}).strict();
+const ManualRowValueSchema = z.object({
+  kind: z.literal('row'),
+  orderedCellLabelIds: z.array(identifier).min(1).max(200),
+}).strict();
+const ManualItemValueSchema = z.discriminatedUnion('kind', [
+  ManualWordValueSchema,
+  ManualCellValueSchema,
+  ManualRowValueSchema,
+]);
 const ManualResolutionValueSchema = z.discriminatedUnion('kind', [
-  z.object({
-    kind: z.literal('word'),
-    text: z.string().min(1).max(500),
-    box: BenchmarkBoxSchema,
-  }).strict(),
-  z.object({
-    kind: z.literal('cell'),
-    text: z.string().max(2_000),
-    box: BenchmarkBoxSchema,
-    isHeader: z.boolean(),
-    columnName: z.string().max(200).nullable(),
-  }).strict(),
-  z.object({
-    kind: z.literal('row'),
-    orderedCellLabelIds: z.array(identifier).min(1).max(200),
-  }).strict(),
+  ManualWordValueSchema,
+  ManualCellValueSchema,
+  ManualRowValueSchema,
   z.object({
     kind: z.literal('coverage'),
     truth: z.enum(BENCHMARK_COVERAGE_TRUTHS),
@@ -247,6 +267,25 @@ export const BenchmarkAdjudicationResolutionSchema = z.object({
   }
 });
 
+export const BenchmarkAgreementChallengeSchema = z.object({
+  targetKind: z.enum(['word', 'cell', 'row']),
+  targetAgreementId: identifier,
+  targetAgreementSha256: digest,
+  action: z.enum(['replace', 'exclude']),
+  replacement: ManualItemValueSchema.nullable(),
+  note: z.string().min(1).max(2_000),
+}).strict().superRefine((challenge, ctx) => {
+  if (challenge.action === 'replace' && challenge.replacement === null) {
+    ctx.addIssue({ code: 'custom', message: 'replace challenge requires replacement' });
+  }
+  if (challenge.action === 'replace' && challenge.replacement?.kind !== challenge.targetKind) {
+    ctx.addIssue({ code: 'custom', message: 'challenge replacement kind differs from target kind' });
+  }
+  if (challenge.action === 'exclude' && challenge.replacement !== null) {
+    ctx.addIssue({ code: 'custom', message: 'exclude challenge must not carry replacement' });
+  }
+});
+
 const AdjudicationApprovalSchema = z.object({
   decision: z.literal('approve_as_benchmark_truth'),
   approvedBy: z.string().min(1).max(200).refine((value) => value.trim().length > 0,
@@ -266,16 +305,28 @@ export const BenchmarkAdjudicationSchema = z.object({
   reviewerBLabelSetSha256: digest,
   suggestionsSha256: digest.nullable(),
   resolutions: z.array(BenchmarkAdjudicationResolutionSchema).max(50_000),
+  userChallenges: z.array(BenchmarkAgreementChallengeSchema).max(20_000),
   approval: AdjudicationApprovalSchema.nullable(),
 }).strict().superRefine((adjudication, ctx) => {
   const ids = adjudication.resolutions.map((resolution) => resolution.issueId);
   if (new Set(ids).size !== ids.length) {
     ctx.addIssue({ code: 'custom', message: 'duplicate adjudication issue resolution' });
   }
+  const challenged = adjudication.userChallenges.map((challenge) => challenge.targetAgreementId);
+  if (new Set(challenged).size !== challenged.length) {
+    ctx.addIssue({ code: 'custom', message: 'duplicate agreement challenge' });
+  }
 });
 
 export type BenchmarkAdjudication = z.infer<typeof BenchmarkAdjudicationSchema>;
 export type BenchmarkAdjudicationResolution = z.infer<typeof BenchmarkAdjudicationResolutionSchema>;
+export type BenchmarkAgreementChallenge = z.infer<typeof BenchmarkAgreementChallengeSchema>;
+
+export function benchmarkAgreementDigest(
+  agreement: BenchmarkDualReviewComparison['exactAgreements'][number],
+): string {
+  return hashCanonical(agreement);
+}
 
 export type BenchmarkDualReviewBindingSource = Readonly<{
   pageKey: string;
@@ -792,6 +843,16 @@ function comparisonIssues(
   ];
 }
 
+export function canChallengeAgreement(
+  agreement: BenchmarkDualReviewComparison['exactAgreements'][number],
+  comparison: BenchmarkDualReviewComparison,
+): boolean {
+  const requiredIssueIds = new Set(comparison.requiredAdjudicationIssueIds);
+  return !comparisonIssues(comparison).some((issue) => (
+    requiredIssueIds.has(issue.issueId) && issue.matchKey === agreement.matchKey
+  ));
+}
+
 function finalId(kind: 'word' | 'cell' | 'row', matchKey: string): string {
   const match = new RegExp(`^${kind}:(\\d+)$`).exec(matchKey);
   if (!match) {
@@ -821,10 +882,10 @@ function chosenReviewerValue(
 function chosenRowCellIds(
   issue: z.infer<typeof ComparisonEntrySchema>,
   selected: Record<string, unknown>,
-  availableCellIds: ReadonlySet<string>,
+  availableCells: ReadonlyMap<string, BenchmarkPageLabels['cells']['items'][number]>,
 ): string[] {
   const row = ReviewerRowSchema.safeParse(selected.row ?? selected);
-  const cells = z.array(ReviewerCellSchema).safeParse(selected.cells);
+  const cells = z.array(ReviewerRowMembershipCellSchema).safeParse(selected.cells);
   if (!row.success || !cells.success) {
     throw new BenchmarkDualReviewError('finalization_failed',
       `${issue.issueId}: chosen reviewer row is not structurally valid`);
@@ -837,9 +898,15 @@ function chosenRowCellIds(
         `${issue.issueId}: chosen row cites unavailable reviewer cell ${reviewerItemId}`);
     }
     const labelId = `c-${String(cell.readingOrder + 1).padStart(4, '0')}`;
-    if (!availableCellIds.has(labelId)) {
+    const finalCell = availableCells.get(labelId);
+    if (!finalCell) {
       throw new BenchmarkDualReviewError('finalization_failed',
         `${issue.issueId}: chosen row cites unresolved final cell ${labelId}`);
+    }
+    if (finalCell.text !== cell.text || finalCell.isHeader !== cell.isHeader
+        || finalCell.columnName !== cell.columnName) {
+      throw new BenchmarkDualReviewError('finalization_failed',
+        `${issue.issueId}: chosen row cell ${reviewerItemId} does not exactly match final cell ${labelId}`);
     }
     return labelId;
   });
@@ -848,6 +915,7 @@ function chosenRowCellIds(
 export function assembleResolvedBenchmarkLabels(input: Readonly<{
   comparison: BenchmarkDualReviewComparison;
   resolutions: readonly BenchmarkAdjudicationResolution[];
+  userChallenges: readonly BenchmarkAgreementChallenge[];
   approvedBy: string;
   approvedAt: string;
 }>): BenchmarkPageLabels {
@@ -861,6 +929,38 @@ export function assembleResolvedBenchmarkLabels(input: Readonly<{
       'not every comparison issue has exactly one resolution');
   }
 
+  const agreementById = new Map(input.comparison.exactAgreements
+    .map((agreement) => [agreement.issueId, agreement]));
+  const challengedAgreementIds = new Set<string>();
+  const validatedChallenges = input.userChallenges.map((challenge) => {
+    if (challengedAgreementIds.has(challenge.targetAgreementId)) {
+      throw new BenchmarkDualReviewError('finalization_failed',
+        `${challenge.targetAgreementId}: duplicate agreement challenge`);
+    }
+    challengedAgreementIds.add(challenge.targetAgreementId);
+    const agreement = agreementById.get(challenge.targetAgreementId);
+    if (!agreement) {
+      throw new BenchmarkDualReviewError('finalization_failed',
+        `${challenge.targetAgreementId}: agreement challenge target does not exist`);
+    }
+    if (agreement.kind === 'coverage' || agreement.kind !== challenge.targetKind) {
+      throw new BenchmarkDualReviewError('finalization_failed',
+        `${challenge.targetAgreementId}: agreement challenge target kind differs`);
+    }
+    if (benchmarkAgreementDigest(agreement) !== challenge.targetAgreementSha256) {
+      throw new BenchmarkDualReviewError('finalization_failed',
+        `${challenge.targetAgreementId}: agreement challenge digest is stale`);
+    }
+    if (!canChallengeAgreement(agreement, input.comparison)) {
+      throw new BenchmarkDualReviewError('finalization_failed',
+        `${challenge.targetAgreementId}: item already has a required adjudication issue`);
+    }
+    return { challenge, agreement };
+  }).sort((left, right) => left.challenge.targetAgreementId.localeCompare(
+    right.challenge.targetAgreementId,
+    'en-US',
+  ));
+
   const words = new Map(input.comparison.candidateFinalLabels.words
     .map((item) => [item.labelId, item]));
   const cells = new Map(input.comparison.candidateFinalLabels.cells
@@ -873,12 +973,12 @@ export function assembleResolvedBenchmarkLabels(input: Readonly<{
   const orderedResolutions = [...input.resolutions].sort((left, right) => {
     const leftKind = issueById.get(left.issueId)?.kind;
     const rightKind = issueById.get(right.issueId)?.kind;
-    const order = { word: 0, cell: 1, coverage: 2, row: 3 } as const;
+    const order = { word: 0, cell: 1, row: 2, coverage: 3 } as const;
     return (leftKind ? order[leftKind] : 99) - (rightKind ? order[rightKind] : 99)
       || left.issueId.localeCompare(right.issueId, 'en-US');
   });
 
-  for (const resolution of orderedResolutions) {
+  const applyResolution = (resolution: BenchmarkAdjudicationResolution): void => {
     const issue = issueById.get(resolution.issueId);
     if (!issue) {
       throw new BenchmarkDualReviewError('finalization_failed',
@@ -892,7 +992,7 @@ export function assembleResolvedBenchmarkLabels(input: Readonly<{
       if (issue.kind === 'word') words.delete(finalId('word', issue.matchKey));
       if (issue.kind === 'cell') cells.delete(finalId('cell', issue.matchKey));
       if (issue.kind === 'row') rows.delete(finalId('row', issue.matchKey));
-      continue;
+      return;
     }
     if (resolution.decision === 'manual_resolution') {
       if (!resolution.manualValue || resolution.manualValue.kind !== issue.kind) {
@@ -925,7 +1025,7 @@ export function assembleResolvedBenchmarkLabels(input: Readonly<{
         coverage = resolution.manualValue.truth;
         coverageNote = resolution.manualValue.note;
       }
-      continue;
+      return;
     }
 
     const selected = chosenReviewerValue(issue, resolution.decision);
@@ -966,13 +1066,101 @@ export function assembleResolvedBenchmarkLabels(input: Readonly<{
       const rowKey = finalId('row', issue.matchKey);
       rows.set(rowKey, {
         rowKey,
-        orderedCellLabelIds: chosenRowCellIds(issue, selected, new Set(cells.keys())),
+        orderedCellLabelIds: chosenRowCellIds(issue, selected, cells),
       });
     }
+  };
+
+  const applyChallenge = (
+    challenge: BenchmarkAgreementChallenge,
+    agreement: BenchmarkDualReviewComparison['exactAgreements'][number],
+  ): void => {
+    const itemId = finalId(challenge.targetKind, agreement.matchKey);
+    if (challenge.action === 'exclude') {
+      if (challenge.replacement !== null) {
+        throw new BenchmarkDualReviewError('finalization_failed',
+          `${challenge.targetAgreementId}: exclude challenge must not carry replacement`);
+      }
+      if (challenge.targetKind === 'word') words.delete(itemId);
+      if (challenge.targetKind === 'cell') cells.delete(itemId);
+      if (challenge.targetKind === 'row') rows.delete(itemId);
+      return;
+    }
+    if (!challenge.replacement || challenge.replacement.kind !== challenge.targetKind) {
+      throw new BenchmarkDualReviewError('finalization_failed',
+        `${challenge.targetAgreementId}: challenge replacement kind differs from target kind`);
+    }
+    if (challenge.replacement.kind === 'word') {
+      words.set(itemId, {
+        labelId: itemId,
+        text: challenge.replacement.text,
+        box: challenge.replacement.box,
+      });
+    } else if (challenge.replacement.kind === 'cell') {
+      cells.set(itemId, {
+        labelId: itemId,
+        text: challenge.replacement.text,
+        box: challenge.replacement.box,
+        isHeader: challenge.replacement.isHeader,
+        columnName: challenge.replacement.columnName,
+      });
+    } else {
+      rows.set(itemId, {
+        rowKey: itemId,
+        orderedCellLabelIds: [...challenge.replacement.orderedCellLabelIds],
+      });
+    }
+  };
+
+  const resolutionKind = (resolution: BenchmarkAdjudicationResolution) => (
+    issueById.get(resolution.issueId)!.kind
+  );
+  for (const resolution of orderedResolutions.filter((item) => (
+    resolutionKind(item) === 'word' || resolutionKind(item) === 'cell'
+  ))) {
+    applyResolution(resolution);
+  }
+  for (const { challenge, agreement } of validatedChallenges.filter(({ challenge }) => (
+    challenge.targetKind === 'word' || challenge.targetKind === 'cell'
+  ))) {
+    applyChallenge(challenge, agreement);
+  }
+  for (const resolution of orderedResolutions.filter((item) => resolutionKind(item) === 'row')) {
+    applyResolution(resolution);
+  }
+  for (const { challenge, agreement } of validatedChallenges.filter(({ challenge }) => (
+    challenge.targetKind === 'row'
+  ))) {
+    applyChallenge(challenge, agreement);
+  }
+  for (const resolution of orderedResolutions.filter((item) => (
+    resolutionKind(item) === 'coverage'
+  ))) {
+    applyResolution(resolution);
   }
 
   if (!coverage) {
     throw new BenchmarkDualReviewError('finalization_failed', 'coverage remains unresolved');
+  }
+  const challengedRowAgreements = new Set(validatedChallenges
+    .filter(({ challenge }) => challenge.targetKind === 'row')
+    .map(({ challenge }) => challenge.targetAgreementId));
+  for (const agreement of input.comparison.exactAgreements) {
+    if (agreement.kind !== 'row' || agreement.candidateResolution === null
+        || challengedRowAgreements.has(agreement.issueId)) {
+      continue;
+    }
+    const rowKey = finalId('row', agreement.matchKey);
+    const row = rows.get(rowKey);
+    if (!row || !agreement.reviewerA) {
+      throw new BenchmarkDualReviewError('finalization_failed',
+        `${agreement.issueId}: agreed candidate row is missing from final assembly`);
+    }
+    const expectedCellIds = chosenRowCellIds(agreement, agreement.reviewerA, cells);
+    if (!same(row.orderedCellLabelIds, expectedCellIds)) {
+      throw new BenchmarkDualReviewError('finalization_failed',
+        `${agreement.issueId}: agreed row membership differs from final cell semantics`);
+    }
   }
   for (const row of rows.values()) {
     for (const cellId of row.orderedCellLabelIds) {
@@ -1066,6 +1254,7 @@ export function finalizeBenchmarkAdjudication(input: Readonly<{
   const labels = assembleResolvedBenchmarkLabels({
     comparison: recomputed,
     resolutions: input.adjudication.resolutions,
+    userChallenges: input.adjudication.userChallenges,
     approvedBy: approval.approvedBy,
     approvedAt: approval.approvedAt,
   });

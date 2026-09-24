@@ -6,11 +6,13 @@ import {
   BENCHMARK_REVIEWER_LABEL_AUTHORITY,
   BENCHMARK_REVIEWER_LABELS_VERSION,
   assembleResolvedBenchmarkLabels,
+  benchmarkAgreementDigest,
   compareBenchmarkReviewerLabels,
   finalizeBenchmarkAdjudication,
   parseBenchmarkAdjudication,
   parseBenchmarkDualReviewComparison,
   parseBenchmarkReviewerLabels,
+  type BenchmarkAgreementChallenge,
   type BenchmarkAdjudicationResolution,
   type BenchmarkDualReviewBindingSource,
   type BenchmarkDualReviewComparison,
@@ -29,6 +31,11 @@ const BOX = {
   y_min: 20,
   x_max: 50,
   y_max: 30,
+};
+const OFFSET_BOX = {
+  ...BOX,
+  x_min: 60,
+  x_max: 100,
 };
 const FRAME = {
   frame_version: 'canonical_frame_v1' as const,
@@ -139,6 +146,50 @@ function compare(options: Readonly<{
   });
 }
 
+function rowDisagreementReviewers(options: Readonly<{
+  reviewerABox?: typeof BOX;
+  reviewerBBox?: typeof BOX;
+  reviewerBCellOneText?: string;
+}> = {}) {
+  const reviewerABox = options.reviewerABox ?? BOX;
+  const reviewerBBox = options.reviewerBBox ?? BOX;
+  const semantics = [
+    { text: 'Qty', isHeader: true, columnName: 'Qty' },
+    { text: 'Unit', isHeader: false, columnName: 'Unit' },
+    { text: 'Price', isHeader: false, columnName: 'Price' },
+  ];
+  const reviewerA = reviewer('reviewer_a', {
+    cells: semantics.map((cell, readingOrder) => ({
+      reviewerItemId: `a-c${readingOrder + 1}`,
+      readingOrder,
+      ...cell,
+      box: reviewerABox,
+    })),
+    rows: [{
+      reviewerRowId: 'a-r1',
+      readingOrder: 0,
+      orderedCellReviewerItemIds: ['a-c1', 'a-c2'],
+    }],
+  });
+  const reviewerB = reviewer('reviewer_b', {
+    cells: semantics.map((cell, readingOrder) => ({
+      reviewerItemId: `b-c${readingOrder + 1}`,
+      readingOrder,
+      ...cell,
+      text: readingOrder === 1 && options.reviewerBCellOneText
+        ? options.reviewerBCellOneText
+        : cell.text,
+      box: reviewerBBox,
+    })),
+    rows: [{
+      reviewerRowId: 'b-r1',
+      readingOrder: 0,
+      orderedCellReviewerItemIds: ['b-c1', 'b-c3'],
+    }],
+  });
+  return { reviewerA, reviewerB };
+}
+
 function manualResolution(
   issue: BenchmarkDualReviewComparison['textDisagreements'][number],
 ): BenchmarkAdjudicationResolution {
@@ -198,6 +249,7 @@ function prepare(options: Readonly<{
   compared?: BenchmarkDualReviewComparison;
   suggestionArtifact?: ReturnType<typeof suggestions> | null;
   resolutions?: BenchmarkAdjudicationResolution[];
+  userChallenges?: BenchmarkAgreementChallenge[];
   approvedBy?: string;
   approval?: boolean;
   approvedDigest?: string;
@@ -210,10 +262,12 @@ function prepare(options: Readonly<{
   const compared = options.compared ?? compare({ reviewerA, reviewerB, suggestionArtifact });
   const parsedComparison = parseBenchmarkDualReviewComparison(JSON.stringify(compared));
   const resolutions = options.resolutions ?? resolutionsForAllIssues(compared);
+  const userChallenges = options.userChallenges ?? [];
   const approvedBy = options.approvedBy ?? APPROVED_BY;
   const assembled = assembleResolvedBenchmarkLabels({
     comparison: compared,
     resolutions,
+    userChallenges,
     approvedBy,
     approvedAt: APPROVED_AT,
   });
@@ -233,6 +287,7 @@ function prepare(options: Readonly<{
     reviewerBLabelSetSha256: reviewerB.sha256,
     suggestionsSha256: compared.suggestionsSha256,
     resolutions,
+    userChallenges,
     approval: options.approval === false ? null : {
       decision: 'approve_as_benchmark_truth',
       approvedBy,
@@ -242,6 +297,7 @@ function prepare(options: Readonly<{
   }));
   return {
     reviewerA, reviewerB, suggestionArtifact, compared, parsedComparison, resolutions,
+    userChallenges,
     adjudication, assembled,
   };
 }
@@ -399,6 +455,7 @@ describe('E3 dual-review labeling', () => {
           ? { ...resolution, decision: 'choose_reviewer_b' as const, manualValue: null }
           : resolution
       )),
+      userChallenges: [],
       approvedBy: APPROVED_BY,
       approvedAt: APPROVED_AT,
     })).toThrow(/selected a reviewer with no value/);
@@ -491,6 +548,7 @@ describe('E3 dual-review labeling', () => {
         note: 'Invalid attempt to omit global coverage truth',
         manualValue: null,
       }],
+      userChallenges: [],
       approvedBy: APPROVED_BY,
       approvedAt: APPROVED_AT,
     })).toThrow(/exclude_item is valid only for word, cell, or row issues/);
@@ -547,9 +605,612 @@ describe('E3 dual-review labeling', () => {
           },
         },
       ],
+      userChallenges: [],
       approvedBy: APPROVED_BY,
       approvedAt: APPROVED_AT,
     })).toThrow(/retained row cites excluded or unresolved cell c-0002/);
+  });
+
+  it('selects reviewer A row membership for a valid row disagreement', () => {
+    const { reviewerA, reviewerB } = rowDisagreementReviewers();
+    const compared = compare({ reviewerA, reviewerB });
+    const rowIssue = compared.rowMembershipDisagreements[0]!;
+    const result = finalize(prepare({
+      reviewerA,
+      reviewerB,
+      compared,
+      resolutions: [{
+        issueId: rowIssue.issueId,
+        decision: 'choose_reviewer_a',
+        note: 'User selected reviewer A row membership',
+        manualValue: null,
+      }],
+    }));
+
+    expect(result.rows.items[0]?.orderedCellLabelIds).toEqual(['c-0001', 'c-0002']);
+  });
+
+  it('selects reviewer B row membership for a valid row disagreement', () => {
+    const { reviewerA, reviewerB } = rowDisagreementReviewers();
+    const compared = compare({ reviewerA, reviewerB });
+    const rowIssue = compared.rowMembershipDisagreements[0]!;
+    const result = finalize(prepare({
+      reviewerA,
+      reviewerB,
+      compared,
+      resolutions: [{
+        issueId: rowIssue.issueId,
+        decision: 'choose_reviewer_b',
+        note: 'User selected reviewer B row membership',
+        manualValue: null,
+      }],
+    }));
+
+    expect(result.rows.items[0]?.orderedCellLabelIds).toEqual(['c-0001', 'c-0003']);
+  });
+
+  it('fails when an agreement challenge excludes a cell retained by the selected row', () => {
+    const { reviewerA, reviewerB } = rowDisagreementReviewers();
+    const compared = compare({ reviewerA, reviewerB });
+    const rowIssue = compared.rowMembershipDisagreements[0]!;
+    const cellAgreement = compared.exactAgreements.find((item) => item.matchKey === 'cell:1')!;
+    const challenge: BenchmarkAgreementChallenge = {
+      targetKind: 'cell',
+      targetAgreementId: cellAgreement.issueId,
+      targetAgreementSha256: benchmarkAgreementDigest(cellAgreement),
+      action: 'exclude',
+      replacement: null,
+      note: 'User excluded Unit after reviewing the source page',
+    };
+
+    expect(() => prepare({
+      reviewerA,
+      reviewerB,
+      compared,
+      resolutions: [{
+        issueId: rowIssue.issueId,
+        decision: 'choose_reviewer_a',
+        note: 'User selected reviewer A row membership',
+        manualValue: null,
+      }],
+      userChallenges: [challenge],
+    })).toThrow(/chosen row cites unresolved final cell c-0002/);
+  });
+
+  it('X1 rejects a reviewer row choice after a cell challenge changes text and header meaning', () => {
+    const { reviewerA, reviewerB } = rowDisagreementReviewers();
+    const compared = compare({ reviewerA, reviewerB });
+    const rowIssue = compared.rowMembershipDisagreements[0]!;
+    const cellAgreement = compared.exactAgreements.find((item) => item.matchKey === 'cell:1')!;
+
+    expect(() => prepare({
+      reviewerA,
+      reviewerB,
+      compared,
+      resolutions: [{
+        issueId: rowIssue.issueId,
+        decision: 'choose_reviewer_a',
+        note: 'User selected reviewer A row membership',
+        manualValue: null,
+      }],
+      userChallenges: [{
+        targetKind: 'cell',
+        targetAgreementId: cellAgreement.issueId,
+        targetAgreementSha256: benchmarkAgreementDigest(cellAgreement),
+        action: 'replace',
+        replacement: {
+          kind: 'cell', text: 'TOTAL', box: BOX, isHeader: true, columnName: 'Total',
+        },
+        note: 'Source page changes the final cell meaning',
+      }],
+    })).toThrow(/chosen row cell a-c2 does not exactly match final cell c-0002/);
+  });
+
+  it('rejects a reviewer row choice after a cell challenge changes text only', () => {
+    const { reviewerA, reviewerB } = rowDisagreementReviewers();
+    const compared = compare({ reviewerA, reviewerB });
+    const rowIssue = compared.rowMembershipDisagreements[0]!;
+    const cellAgreement = compared.exactAgreements.find((item) => item.matchKey === 'cell:1')!;
+
+    expect(() => prepare({
+      reviewerA,
+      reviewerB,
+      compared,
+      resolutions: [{
+        issueId: rowIssue.issueId,
+        decision: 'choose_reviewer_a',
+        note: 'User selected reviewer A row membership',
+        manualValue: null,
+      }],
+      userChallenges: [{
+        targetKind: 'cell',
+        targetAgreementId: cellAgreement.issueId,
+        targetAgreementSha256: benchmarkAgreementDigest(cellAgreement),
+        action: 'replace',
+        replacement: {
+          kind: 'cell', text: 'TOTAL', box: BOX, isHeader: false, columnName: 'Unit',
+        },
+        note: 'Source page changes only the final cell text',
+      }],
+    })).toThrow(/chosen row cell a-c2 does not exactly match final cell c-0002/);
+  });
+
+  it('rejects a reviewer row choice after a cell challenge changes header status only', () => {
+    const { reviewerA, reviewerB } = rowDisagreementReviewers();
+    const compared = compare({ reviewerA, reviewerB });
+    const rowIssue = compared.rowMembershipDisagreements[0]!;
+    const cellAgreement = compared.exactAgreements.find((item) => item.matchKey === 'cell:1')!;
+
+    expect(() => prepare({
+      reviewerA,
+      reviewerB,
+      compared,
+      resolutions: [{
+        issueId: rowIssue.issueId,
+        decision: 'choose_reviewer_a',
+        note: 'User selected reviewer A row membership',
+        manualValue: null,
+      }],
+      userChallenges: [{
+        targetKind: 'cell',
+        targetAgreementId: cellAgreement.issueId,
+        targetAgreementSha256: benchmarkAgreementDigest(cellAgreement),
+        action: 'replace',
+        replacement: {
+          kind: 'cell', text: 'Unit', box: BOX, isHeader: true, columnName: 'Unit',
+        },
+        note: 'Source page changes only the final header status',
+      }],
+    })).toThrow(/chosen row cell a-c2 does not exactly match final cell c-0002/);
+  });
+
+  it('rejects a reviewer row choice after a cell challenge changes columnName', () => {
+    const { reviewerA, reviewerB } = rowDisagreementReviewers();
+    const compared = compare({ reviewerA, reviewerB });
+    const rowIssue = compared.rowMembershipDisagreements[0]!;
+    const cellAgreement = compared.exactAgreements.find((item) => item.matchKey === 'cell:1')!;
+
+    expect(() => prepare({
+      reviewerA,
+      reviewerB,
+      compared,
+      resolutions: [{
+        issueId: rowIssue.issueId,
+        decision: 'choose_reviewer_a',
+        note: 'User selected reviewer A row membership',
+        manualValue: null,
+      }],
+      userChallenges: [{
+        targetKind: 'cell',
+        targetAgreementId: cellAgreement.issueId,
+        targetAgreementSha256: benchmarkAgreementDigest(cellAgreement),
+        action: 'replace',
+        replacement: {
+          kind: 'cell', text: 'Unit', box: BOX, isHeader: false, columnName: 'Other',
+        },
+        note: 'Source page changes the final column meaning',
+      }],
+    })).toThrow(/chosen row cell a-c2 does not exactly match final cell c-0002/);
+  });
+
+  it('allows a reviewer row choice after a semantically identical cell challenge', () => {
+    const { reviewerA, reviewerB } = rowDisagreementReviewers();
+    const compared = compare({ reviewerA, reviewerB });
+    const rowIssue = compared.rowMembershipDisagreements[0]!;
+    const cellAgreement = compared.exactAgreements.find((item) => item.matchKey === 'cell:1')!;
+    const result = finalize(prepare({
+      reviewerA,
+      reviewerB,
+      compared,
+      resolutions: [{
+        issueId: rowIssue.issueId,
+        decision: 'choose_reviewer_a',
+        note: 'User selected reviewer A row membership',
+        manualValue: null,
+      }],
+      userChallenges: [{
+        targetKind: 'cell',
+        targetAgreementId: cellAgreement.issueId,
+        targetAgreementSha256: benchmarkAgreementDigest(cellAgreement),
+        action: 'replace',
+        replacement: {
+          kind: 'cell', text: 'Unit', box: OFFSET_BOX, isHeader: false, columnName: 'Unit',
+        },
+        note: 'Only the explicit geometry changes',
+      }],
+    }));
+
+    expect(result.rows.items[0]?.orderedCellLabelIds).toEqual(['c-0001', 'c-0002']);
+    expect(result.cells.items.find((cell) => cell.labelId === 'c-0002')?.box).toEqual(OFFSET_BOX);
+  });
+
+  it('X3 rejects an agreed candidate row after a cited cell challenge changes its meaning', () => {
+    const compared = compare();
+    const cellAgreement = compared.exactAgreements.find((item) => item.matchKey === 'cell:0')!;
+
+    expect(() => prepare({
+      compared,
+      userChallenges: [{
+        targetKind: 'cell',
+        targetAgreementId: cellAgreement.issueId,
+        targetAgreementSha256: benchmarkAgreementDigest(cellAgreement),
+        action: 'replace',
+        replacement: {
+          kind: 'cell', text: 'Other', box: BOX, isHeader: true, columnName: 'Other',
+        },
+        note: 'Source page changes the agreed cell meaning',
+      }],
+    })).toThrow(/chosen row cell reviewer_a-c1 does not exactly match final cell c-0001/);
+  });
+
+  it('allows a changed agreed cell when the agreed row is explicitly replaced too', () => {
+    const compared = compare();
+    const cellAgreement = compared.exactAgreements.find((item) => item.matchKey === 'cell:0')!;
+    const rowAgreement = compared.exactAgreements.find((item) => item.matchKey === 'row:0')!;
+    const result = finalize(prepare({
+      compared,
+      userChallenges: [
+        {
+          targetKind: 'cell',
+          targetAgreementId: cellAgreement.issueId,
+          targetAgreementSha256: benchmarkAgreementDigest(cellAgreement),
+          action: 'replace',
+          replacement: {
+            kind: 'cell', text: 'Other', box: BOX, isHeader: true, columnName: 'Other',
+          },
+          note: 'Source page changes the agreed cell meaning',
+        },
+        {
+          targetKind: 'row',
+          targetAgreementId: rowAgreement.issueId,
+          targetAgreementSha256: benchmarkAgreementDigest(rowAgreement),
+          action: 'replace',
+          replacement: { kind: 'row', orderedCellLabelIds: ['c-0001'] },
+          note: 'User explicitly replaces the row after changing its cell meaning',
+        },
+      ],
+    }));
+
+    expect(result.cells.items[0]).toMatchObject({ text: 'Other', isHeader: true });
+    expect(result.rows.items[0]?.orderedCellLabelIds).toEqual(['c-0001']);
+  });
+
+  it('fails when a selected row cell cannot map exactly to the resolved final cell', () => {
+    const { reviewerA, reviewerB } = rowDisagreementReviewers({
+      reviewerBCellOneText: 'Each',
+    });
+    const compared = compare({ reviewerA, reviewerB });
+    const cellIssue = compared.textDisagreements.find((item) => item.matchKey === 'cell:1')!;
+    const rowIssue = compared.rowMembershipDisagreements[0]!;
+
+    expect(() => prepare({
+      reviewerA,
+      reviewerB,
+      compared,
+      resolutions: [
+        {
+          issueId: cellIssue.issueId,
+          decision: 'choose_reviewer_b',
+          note: 'User selected reviewer B cell value',
+          manualValue: null,
+        },
+        {
+          issueId: rowIssue.issueId,
+          decision: 'choose_reviewer_a',
+          note: 'User selected reviewer A row membership',
+          manualValue: null,
+        },
+      ],
+    })).toThrow(/chosen row cell a-c2 does not exactly match final cell c-0002/);
+  });
+
+  it('fails when a selected row references an unresolved final cell', () => {
+    const { reviewerA, reviewerB } = rowDisagreementReviewers({
+      reviewerBCellOneText: 'Each',
+    });
+    const compared = compare({ reviewerA, reviewerB });
+    const cellIssue = compared.textDisagreements.find((item) => item.matchKey === 'cell:1')!;
+    const rowIssue = compared.rowMembershipDisagreements[0]!;
+
+    expect(() => prepare({
+      reviewerA,
+      reviewerB,
+      compared,
+      resolutions: [
+        {
+          issueId: cellIssue.issueId,
+          decision: 'exclude_item',
+          note: 'User excluded the disputed cell',
+          manualValue: null,
+        },
+        {
+          issueId: rowIssue.issueId,
+          decision: 'choose_reviewer_a',
+          note: 'Selected row still cites the unresolved cell',
+          manualValue: null,
+        },
+      ],
+    })).toThrow(/chosen row cites unresolved final cell c-0002/);
+  });
+
+  it('preserves selected row semantics after mixed reviewer cell resolutions', () => {
+    const { reviewerA, reviewerB } = rowDisagreementReviewers({
+      reviewerABox: BOX,
+      reviewerBBox: OFFSET_BOX,
+    });
+    const compared = compare({ reviewerA, reviewerB });
+    const cellIssues = new Map(compared.bboxDisagreements
+      .filter((item) => item.kind === 'cell')
+      .map((item) => [item.matchKey, item]));
+    const rowIssue = compared.rowMembershipDisagreements[0]!;
+    const resolutions: BenchmarkAdjudicationResolution[] = [
+      ['cell:0', 'choose_reviewer_a'],
+      ['cell:1', 'choose_reviewer_b'],
+      ['cell:2', 'choose_reviewer_a'],
+    ].map(([matchKey, decision]) => ({
+      issueId: cellIssues.get(matchKey!)!.issueId,
+      decision: decision as 'choose_reviewer_a' | 'choose_reviewer_b',
+      note: `User resolved ${matchKey}`,
+      manualValue: null,
+    }));
+    resolutions.push({
+      issueId: rowIssue.issueId,
+      decision: 'choose_reviewer_a',
+      note: 'User selected reviewer A row membership',
+      manualValue: null,
+    });
+    const result = finalize(prepare({ reviewerA, reviewerB, compared, resolutions }));
+
+    expect(result.rows.items[0]?.orderedCellLabelIds).toEqual(['c-0001', 'c-0002']);
+    expect(result.cells.items.find((cell) => cell.labelId === 'c-0001')?.box).toEqual(BOX);
+    expect(result.cells.items.find((cell) => cell.labelId === 'c-0002')?.box).toEqual(OFFSET_BOX);
+  });
+
+  it('D1 rejects conflicting resolution and replacement challenge for the same item', () => {
+    const reviewerA = reviewer('reviewer_a', {
+      cells: [{
+        reviewerItemId: 'reviewer_a-c1', readingOrder: 0, text: 'Debris', box: BOX,
+        isHeader: false, columnName: null,
+      }],
+    });
+    const reviewerB = reviewer('reviewer_b', {
+      cells: [{
+        reviewerItemId: 'reviewer_b-c1', readingOrder: 0, text: 'Debris', box: BOX,
+        isHeader: false, columnName: null,
+      }],
+    });
+    const compared = compare({ reviewerA, reviewerB, suggestionArtifact: null });
+    const agreement = compared.exactAgreements.find((item) => item.matchKey === 'word:0')!;
+    const issue = compared.ambiguousItems.find((item) => item.matchKey === 'word:0')!;
+
+    expect(() => prepare({
+      reviewerA,
+      reviewerB,
+      compared,
+      suggestionArtifact: null,
+      resolutions: [{
+        issueId: issue.issueId,
+        decision: 'manual_resolution',
+        note: 'Resolve the ambiguous word geometry',
+        manualValue: { kind: 'word', text: 'RESOLVED-AS-X', box: BOX },
+      }],
+      userChallenges: [{
+        targetKind: 'word',
+        targetAgreementId: agreement.issueId,
+        targetAgreementSha256: benchmarkAgreementDigest(agreement),
+        action: 'replace',
+        replacement: { kind: 'word', text: 'CHALLENGED-AS-Y', box: BOX },
+        note: 'Conflicting second adjudication path',
+      }],
+    })).toThrow(/item already has a required adjudication issue/);
+  });
+
+  it('D1b rejects resolution plus exclusion challenge for the same item', () => {
+    const reviewerA = reviewer('reviewer_a', {
+      cells: [{
+        reviewerItemId: 'reviewer_a-c1', readingOrder: 0, text: 'Debris', box: BOX,
+        isHeader: false, columnName: null,
+      }],
+    });
+    const reviewerB = reviewer('reviewer_b', {
+      cells: [{
+        reviewerItemId: 'reviewer_b-c1', readingOrder: 0, text: 'Debris', box: BOX,
+        isHeader: false, columnName: null,
+      }],
+    });
+    const compared = compare({ reviewerA, reviewerB, suggestionArtifact: null });
+    const agreement = compared.exactAgreements.find((item) => item.matchKey === 'word:0')!;
+    const issue = compared.ambiguousItems.find((item) => item.matchKey === 'word:0')!;
+
+    expect(() => prepare({
+      reviewerA,
+      reviewerB,
+      compared,
+      suggestionArtifact: null,
+      resolutions: [{
+        issueId: issue.issueId,
+        decision: 'manual_resolution',
+        note: 'Retain Debris with explicit geometry',
+        manualValue: { kind: 'word', text: 'Debris', box: BOX },
+      }],
+      userChallenges: [{
+        targetKind: 'word',
+        targetAgreementId: agreement.issueId,
+        targetAgreementSha256: benchmarkAgreementDigest(agreement),
+        action: 'exclude',
+        replacement: null,
+        note: 'Conflicting exclusion path',
+      }],
+    })).toThrow(/item already has a required adjudication issue/);
+  });
+
+  it('replaces an agreed word only through an explicit digest-bound user challenge', () => {
+    const reviewerA = reviewer('reviewer_a');
+    const reviewerB = reviewer('reviewer_b');
+    const compared = compare({ reviewerA, reviewerB });
+    const agreement = compared.exactAgreements.find((item) => item.matchKey === 'word:0')!;
+    const challenge: BenchmarkAgreementChallenge = {
+      targetKind: 'word',
+      targetAgreementId: agreement.issueId,
+      targetAgreementSha256: benchmarkAgreementDigest(agreement),
+      action: 'replace',
+      replacement: { kind: 'word', text: 'Debris Removal', box: BOX },
+      note: 'Source page proves the agreed text needs replacement',
+    };
+    const prepared = prepare({ reviewerA, reviewerB, compared, userChallenges: [challenge] });
+    const result = finalize(prepared);
+
+    expect(result.words.items[0]?.text).toBe('Debris Removal');
+    expect(compared.exactAgreements).toContainEqual(agreement);
+    expect(prepared.adjudication.userChallenges).toEqual([challenge]);
+    expect(reviewerA.labels.words[0]?.text).toBe('Debris');
+    expect(reviewerB.labels.words[0]?.text).toBe('Debris');
+  });
+
+  it('excludes an agreed GHOST only through an explicit user challenge', () => {
+    const wordsA = [
+      { reviewerItemId: 'a-w1', readingOrder: 0, text: 'Keep', box: BOX },
+      { reviewerItemId: 'a-w2', readingOrder: 1, text: 'GHOST', box: BOX },
+    ];
+    const wordsB = [
+      { reviewerItemId: 'b-w1', readingOrder: 0, text: 'Keep', box: BOX },
+      { reviewerItemId: 'b-w2', readingOrder: 1, text: 'GHOST', box: BOX },
+    ];
+    const reviewerA = reviewer('reviewer_a', { words: wordsA });
+    const reviewerB = reviewer('reviewer_b', { words: wordsB });
+    const compared = compare({ reviewerA, reviewerB });
+    const agreement = compared.exactAgreements.find((item) => item.matchKey === 'word:1')!;
+    const challenge: BenchmarkAgreementChallenge = {
+      targetKind: 'word',
+      targetAgreementId: agreement.issueId,
+      targetAgreementSha256: benchmarkAgreementDigest(agreement),
+      action: 'exclude',
+      replacement: null,
+      note: 'Source page proves GHOST is not benchmark truth',
+    };
+    const result = finalize(prepare({ reviewerA, reviewerB, compared, userChallenges: [challenge] }));
+
+    expect(result.words.items.map((word) => word.text)).toEqual(['Keep']);
+    expect(reviewerA.labels.words).toEqual(wordsA);
+    expect(reviewerB.labels.words).toEqual(wordsB);
+  });
+
+  it('rejects nonexistent and stale agreement challenge bindings', () => {
+    const compared = compare();
+    const agreement = compared.exactAgreements.find((item) => item.matchKey === 'word:0')!;
+    const replacement = { kind: 'word' as const, text: 'Debris Removal', box: BOX };
+    expect(() => prepare({
+      compared,
+      userChallenges: [{
+        targetKind: 'word',
+        targetAgreementId: 'agreement-word:999',
+        targetAgreementSha256: benchmarkAgreementDigest(agreement),
+        action: 'replace',
+        replacement,
+        note: 'Stale agreement ID',
+      }],
+    })).toThrow(/agreement challenge target does not exist/);
+    expect(() => prepare({
+      compared,
+      userChallenges: [{
+        targetKind: 'word',
+        targetAgreementId: agreement.issueId,
+        targetAgreementSha256: 'f'.repeat(64),
+        action: 'replace',
+        replacement,
+        note: 'Stale agreement digest',
+      }],
+    })).toThrow(/agreement challenge digest is stale/);
+  });
+
+  it('rejects duplicate agreement challenges', () => {
+    const compared = compare();
+    const agreement = compared.exactAgreements.find((item) => item.matchKey === 'word:0')!;
+    const challenge: BenchmarkAgreementChallenge = {
+      targetKind: 'word',
+      targetAgreementId: agreement.issueId,
+      targetAgreementSha256: benchmarkAgreementDigest(agreement),
+      action: 'exclude',
+      replacement: null,
+      note: 'First challenge',
+    };
+    expect(() => prepare({
+      compared,
+      userChallenges: [challenge, { ...challenge, note: 'Duplicate challenge' }],
+    })).toThrow(/duplicate agreement challenge/);
+  });
+
+  it('rejects an agreement challenge replacement with the wrong item kind', () => {
+    const prepared = prepare();
+    const agreement = prepared.compared.exactAgreements
+      .find((item) => item.matchKey === 'word:0')!;
+    expect(() => parseBenchmarkAdjudication(JSON.stringify({
+      ...prepared.adjudication,
+      userChallenges: [{
+        targetKind: 'word',
+        targetAgreementId: agreement.issueId,
+        targetAgreementSha256: benchmarkAgreementDigest(agreement),
+        action: 'replace',
+        replacement: {
+          kind: 'cell', text: 'Wrong kind', box: BOX, isHeader: false, columnName: null,
+        },
+        note: 'Invalid cross-kind replacement',
+      }],
+    }))).toThrow(/challenge replacement kind differs from target kind/);
+  });
+
+  it('rejects approval of a payload that ignores an agreement challenge', () => {
+    const compared = compare();
+    const agreement = compared.exactAgreements.find((item) => item.matchKey === 'word:0')!;
+    const challenge: BenchmarkAgreementChallenge = {
+      targetKind: 'word',
+      targetAgreementId: agreement.issueId,
+      targetAgreementSha256: benchmarkAgreementDigest(agreement),
+      action: 'replace',
+      replacement: { kind: 'word', text: 'Debris Removal', box: BOX },
+      note: 'Replace agreed text',
+    };
+    const unchallenged = assembleResolvedBenchmarkLabels({
+      comparison: compared,
+      resolutions: [],
+      userChallenges: [],
+      approvedBy: APPROVED_BY,
+      approvedAt: APPROVED_AT,
+    });
+    const prepared = prepare({
+      compared,
+      userChallenges: [challenge],
+      approvedDigest: benchmarkLabelsDigest(unchallenged),
+    });
+
+    expect(() => finalize(prepared)).toThrow(/approved candidate digest differs/);
+  });
+
+  it('rejects a challenge mutation after the user approved the candidate digest', () => {
+    const compared = compare();
+    const agreement = compared.exactAgreements.find((item) => item.matchKey === 'word:0')!;
+    const challenge: BenchmarkAgreementChallenge = {
+      targetKind: 'word',
+      targetAgreementId: agreement.issueId,
+      targetAgreementSha256: benchmarkAgreementDigest(agreement),
+      action: 'replace',
+      replacement: { kind: 'word', text: 'Debris Removal', box: BOX },
+      note: 'Approved replacement',
+    };
+    const prepared = prepare({ compared, userChallenges: [challenge] });
+    const mutatedChallenge: BenchmarkAgreementChallenge = {
+      ...challenge,
+      replacement: { kind: 'word', text: 'Debris Hauling', box: BOX },
+      note: 'Mutation after approval',
+    };
+
+    expect(() => finalize({
+      ...prepared,
+      adjudication: {
+        ...prepared.adjudication,
+        userChallenges: [mutatedChallenge],
+      },
+    })).toThrow(/approved candidate digest differs/);
   });
 
   it('P2 makes the explicit reviewer choice control the final payload and digest', () => {
@@ -650,6 +1311,7 @@ describe('E3 dual-review labeling', () => {
     expect(() => assembleResolvedBenchmarkLabels({
       comparison: compared,
       resolutions: [],
+      userChallenges: [],
       approvedBy: APPROVED_BY,
       approvedAt: APPROVED_AT,
     })).toThrow(/not every comparison issue has exactly one resolution/);

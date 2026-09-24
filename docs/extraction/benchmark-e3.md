@@ -69,8 +69,10 @@ issue ID requiring explicit adjudication. The comparator refuses to write `label
 comparison, and optional suggestion digests. Every comparison issue must have exactly one
 typed resolution: choose reviewer A, choose reviewer B, provide an explicit manual value of
 the matching kind, or use `exclude_item` for a word, cell, or row issue. Those resolutions
-deterministically assemble the final-label candidate;
-the adjudication artifact cannot carry a parallel hand-edited final payload. File presence is
+deterministically assemble the final-label candidate. Reviewer row choices map the selected
+reviewer's semantic membership onto already-resolved final cells and fail if any member is
+missing or differs; they never rewrite membership by position. The adjudication artifact
+cannot carry a parallel hand-edited final payload. File presence is
 not approval: the finalizer requires `approval.decision` to equal
 `approve_as_benchmark_truth`, a non-empty approving identity distinct from either reviewer,
 an ISO-8601 timestamp, and an approved candidate digest equal to the exact assembled
@@ -79,6 +81,17 @@ an ISO-8601 timestamp, and an approved candidate digest equal to the exact assem
 For word, cell, or row issues only, `exclude_item` records the user's explicit adjudication
 that the proposed item is not benchmark truth and contributes no replacement item; it is
 invalid for coverage metadata, and retained rows may not reference an excluded cell.
+
+An explicit `userChallenges` entry may replace or exclude a word, cell, or row that both
+reviewers agreed on. The challenge binds the preserved agreement ID and digest and is user
+adjudication—not an automatically created disagreement. Challenges apply during deterministic
+assembly before the exact final-payload digest is presented for user approval. Each item has
+one adjudication path: an agreement is challengeable only when no required issue has the same
+exact `matchKey`; linkage is never inferred from text. Word and cell challenges establish the
+final cell semantics before reviewer row choices run, and unchanged agreed rows are validated
+against those same final semantics. A meaning-changing cell challenge therefore requires the
+affected row to be explicitly replaced or excluded rather than silently retaining stale row
+meaning.
 
 After the user has explicitly approved that artifact, finalize with:
 

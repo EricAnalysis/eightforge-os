@@ -1,22 +1,27 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import {
   benchmarkDualReviewSourceFromWorkspaceManifest,
   finalizeBenchmarkAdjudication,
+  finalizeDelegatedBenchmarkAdjudication,
   parseBenchmarkAdjudication,
+  parseBenchmarkDelegatedApproval,
   parseBenchmarkDualReviewComparison,
   parseBenchmarkReviewerLabels,
 } from '@/lib/evaluation/benchmark/benchmarkDualReview';
 import {
   bindBenchmarkLabels,
   parseBenchmarkLabels,
+  type BenchmarkPageLabels,
 } from '@/lib/evaluation/benchmark/benchmarkContract';
 import { parseBenchmarkSuggestions } from '@/lib/evaluation/benchmark/benchmarkSuggestions';
 
 /**
  * The sole E3 dual-review command allowed to write final labels.json. It
- * requires a complete, digest-bound adjudication with explicit user approval.
+ * requires a complete, digest-bound adjudication and exactly one authority
+ * mode: existing human approval or two delegated E3 approval artifacts.
  *
  *   npx vite-node --config vitest.config.ts scripts/evaluation/e3/finalize-benchmark-adjudication.ts -- \
  *     --workspace .benchmark-workspace \
@@ -44,9 +49,37 @@ function requiredArgument(name: string): string {
   return path.resolve(value);
 }
 
-async function assertSafeExistingOutput(
+export type BenchmarkFinalizationMode = 'human' | 'delegated';
+
+export function resolveBenchmarkFinalizationMode(
+  adjudication: ReturnType<typeof parseBenchmarkAdjudication>,
+  approvalAFile: string | null,
+  approvalBFile: string | null,
+): BenchmarkFinalizationMode {
+  const hasHumanApproval = adjudication.approval !== null;
+  const hasAnyDelegatedApproval = approvalAFile !== null || approvalBFile !== null;
+  if (hasHumanApproval && hasAnyDelegatedApproval) {
+    throw new Error('human and delegated approval modes cannot execute together');
+  }
+  if (hasHumanApproval) return 'human';
+  if (!hasAnyDelegatedApproval) {
+    throw new Error('neither human nor delegated approval is present');
+  }
+  if (!approvalAFile || !approvalBFile) {
+    throw new Error('delegated mode requires exactly two approval artifacts');
+  }
+  return 'delegated';
+}
+
+export function assertFinalLabelsOutputPath(output: string): void {
+  if (path.basename(output).toLowerCase() !== 'labels.json') {
+    throw new Error('final adjudication output must be named labels.json');
+  }
+}
+
+export async function assertSafeExistingOutput(
   output: string,
-  labels: ReturnType<typeof finalizeBenchmarkAdjudication>,
+  labels: BenchmarkPageLabels,
 ) {
   let bytes: Buffer;
   try {
@@ -64,10 +97,10 @@ async function assertSafeExistingOutput(
     frame: labels.frame,
   });
   if (existing.labels.source.documentKey !== labels.source.documentKey) {
-    fail('existing labels.json document key differs');
+    throw new Error('existing labels.json document key differs');
   }
   if (binding.state !== 'unlabeled') {
-    fail('refusing to overwrite existing partial or complete benchmark truth');
+    throw new Error('refusing to overwrite existing partial or complete benchmark truth');
   }
 }
 
@@ -84,21 +117,33 @@ async function main() {
     ? parseBenchmarkSuggestions(await readFile(path.resolve(suggestionsFile)))
     : null;
   const output = requiredArgument('out');
-  if (path.basename(output).toLowerCase() !== 'labels.json') {
-    fail('final adjudication output must be named labels.json');
-  }
-  const labels = finalizeBenchmarkAdjudication({
-    reviewerA,
-    reviewerB,
-    comparison,
-    adjudication,
-    source,
-    suggestions,
-  });
+  assertFinalLabelsOutputPath(output);
+  const approvalAFile = argument('approval-a')?.trim() || null;
+  const approvalBFile = argument('approval-b')?.trim() || null;
+  const mode = resolveBenchmarkFinalizationMode(adjudication, approvalAFile, approvalBFile);
+  const common = { reviewerA, reviewerB, comparison, adjudication, source, suggestions };
+  const labels = mode === 'human'
+    ? finalizeBenchmarkAdjudication(common)
+    : finalizeDelegatedBenchmarkAdjudication({
+      ...common,
+      approvals: [
+        parseBenchmarkDelegatedApproval(await readFile(path.resolve(approvalAFile!))),
+        parseBenchmarkDelegatedApproval(await readFile(path.resolve(approvalBFile!))),
+      ],
+    });
   await assertSafeExistingOutput(output, labels);
   await writeFile(output, `${JSON.stringify(labels, null, 2)}\n`, 'utf8');
   console.log(`[e3-adjudication] approved benchmark labels written to ${output}`);
-  console.log(`[e3-adjudication] approved by ${labels.labeledBy} at ${labels.labeledAt}`);
+  console.log(`[e3-adjudication] authority mode: ${mode}`);
+  console.log(`[e3-adjudication] labeled by ${labels.labeledBy} at ${labels.labeledAt ?? 'null'}`);
 }
 
-main().catch((error) => fail(error instanceof Error ? error.message : String(error)));
+const directEntry = process.argv[1]
+  ? import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
+  : false;
+const viteNodeEntry = process.argv[1]
+  ? /^vite-node(?:\.mjs)?$/i.test(path.basename(process.argv[1]))
+  : false;
+if (directEntry || viteNodeEntry) {
+  main().catch((error) => fail(error instanceof Error ? error.message : String(error)));
+}

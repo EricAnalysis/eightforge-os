@@ -3,24 +3,39 @@ import { describe, expect, it } from 'vitest';
 import {
   BENCHMARK_ADJUDICATION_AUTHORITY,
   BENCHMARK_ADJUDICATION_VERSION,
+  BENCHMARK_DELEGATED_APPROVAL_AUTHORITY,
+  BENCHMARK_DELEGATED_APPROVAL_VERSION,
+  BENCHMARK_DELEGATION_SCOPE,
   BENCHMARK_REVIEWER_LABEL_AUTHORITY,
   BENCHMARK_REVIEWER_LABELS_VERSION,
+  E3_BENCHMARK_DELEGATED_APPROVAL,
   assembleResolvedBenchmarkLabels,
+  benchmarkAdjudicationDigest,
   benchmarkAgreementDigest,
+  buildBenchmarkCandidatePreview,
+  buildDelegatedBenchmarkCandidate,
   compareBenchmarkReviewerLabels,
+  delegatedCandidateSummary,
   finalizeBenchmarkAdjudication,
+  finalizeDelegatedBenchmarkAdjudication,
   parseBenchmarkAdjudication,
+  parseBenchmarkDelegatedApproval,
   parseBenchmarkDualReviewComparison,
   parseBenchmarkReviewerLabels,
+  validateE3BenchmarkDelegation,
   type BenchmarkAgreementChallenge,
   type BenchmarkAdjudicationResolution,
+  type BenchmarkDelegatedApproval,
   type BenchmarkDualReviewBindingSource,
   type BenchmarkDualReviewComparison,
   type BenchmarkReviewerLabelSet,
 } from '@/lib/evaluation/benchmark/benchmarkDualReview';
 import {
+  BENCHMARK_DELEGATED_LABELED_BY,
+  BENCHMARK_DELEGATED_LABEL_AUTHORITY,
   BenchmarkPageLabelsSchema,
   benchmarkLabelsDigest,
+  parseBenchmarkLabels,
 } from '@/lib/evaluation/benchmark/benchmarkContract';
 import { parseBenchmarkSuggestions } from '@/lib/evaluation/benchmark/benchmarkSuggestions';
 import { assertComparisonOutputPath } from '@/scripts/evaluation/e3/compare-benchmark-reviewers';
@@ -311,6 +326,58 @@ function finalize(prepared: ReturnType<typeof prepare>) {
     source: SOURCE,
     suggestions: prepared.suggestionArtifact,
   });
+}
+
+function delegatedInput(
+  prepared: ReturnType<typeof prepare>,
+  adjudication = prepared.adjudication,
+) {
+  return {
+    reviewerA: prepared.reviewerA,
+    reviewerB: prepared.reviewerB,
+    comparison: prepared.parsedComparison,
+    adjudication,
+    source: SOURCE,
+    suggestions: prepared.suggestionArtifact,
+  };
+}
+
+function delegatedApproval(
+  prepared: ReturnType<typeof prepare>,
+  candidate: ReturnType<typeof buildDelegatedBenchmarkCandidate>,
+  approverIdentity: 'chatgpt' | 'claude',
+  overrides: Partial<BenchmarkDelegatedApproval> = {},
+) {
+  return parseBenchmarkDelegatedApproval(JSON.stringify({
+    approvalVersion: BENCHMARK_DELEGATED_APPROVAL_VERSION,
+    authority: BENCHMARK_DELEGATED_APPROVAL_AUTHORITY,
+    delegationScope: BENCHMARK_DELEGATION_SCOPE,
+    pageKey: candidate.pageKey,
+    source: candidate.source,
+    frame: candidate.frame,
+    adjudicationSha256: benchmarkAdjudicationDigest(prepared.adjudication),
+    comparisonSha256: prepared.parsedComparison.sha256,
+    reviewerALabelSetSha256: prepared.reviewerA.sha256,
+    reviewerBLabelSetSha256: prepared.reviewerB.sha256,
+    suggestionsSha256: prepared.suggestionArtifact?.suggestionsSha256 ?? null,
+    candidateSha256: benchmarkLabelsDigest(candidate),
+    candidateSummary: delegatedCandidateSummary(candidate),
+    approverIdentity,
+    decision: 'approve',
+    approvedAt: approverIdentity === 'chatgpt'
+      ? '2026-09-26T12:00:00.000Z'
+      : '2026-09-26T12:05:00.000Z',
+    rationale: `Independent ${approverIdentity} approval of the exact delegated candidate digest.`,
+    ...overrides,
+  }));
+}
+
+function prepareDelegated() {
+  const prepared = prepare({ approval: false });
+  const candidate = buildDelegatedBenchmarkCandidate(delegatedInput(prepared));
+  const approvalA = delegatedApproval(prepared, candidate, 'chatgpt');
+  const approvalB = delegatedApproval(prepared, candidate, 'claude');
+  return { prepared, candidate, approvalA, approvalB };
 }
 
 describe('E3 dual-review labeling', () => {
@@ -1366,5 +1433,210 @@ describe('E3 dual-review labeling', () => {
     expect(BenchmarkPageLabelsSchema.parse(result)).toEqual(prepared.assembled);
     expect(result.authority).toBe('human_evaluation_ground_truth_only');
     expect(result.labeledBy).toBe(APPROVED_BY);
+  });
+});
+
+describe('E3 delegated dual-AI benchmark approval', () => {
+  it('builds a deterministic pre-approval candidate with fixed delegated metadata', () => {
+    const prepared = prepare({ approval: false });
+    const first = buildDelegatedBenchmarkCandidate(delegatedInput(prepared));
+    const second = buildDelegatedBenchmarkCandidate(delegatedInput(prepared));
+
+    expect(first).toEqual(second);
+    expect(benchmarkLabelsDigest(first)).toBe(benchmarkLabelsDigest(second));
+    expect(BenchmarkPageLabelsSchema.parse(first)).toEqual(first);
+    expect(first.authority).toBe(BENCHMARK_DELEGATED_LABEL_AUTHORITY);
+    expect(first.labeledBy).toBe(BENCHMARK_DELEGATED_LABELED_BY);
+    expect(first.labeledAt).toBeNull();
+    expect(prepared.adjudication.approval).toBeNull();
+  });
+
+  it('keeps approval timestamps outside candidate content and digest', () => {
+    const prepared = prepare({ approval: false });
+    const candidate = buildDelegatedBenchmarkCandidate(delegatedInput(prepared));
+    const firstApprovals = [
+      delegatedApproval(prepared, candidate, 'chatgpt'),
+      delegatedApproval(prepared, candidate, 'claude'),
+    ];
+    const laterApprovals = [
+      delegatedApproval(prepared, candidate, 'chatgpt', { approvedAt: '2026-09-27T12:00:00.000Z' }),
+      delegatedApproval(prepared, candidate, 'claude', { approvedAt: '2026-09-27T12:05:00.000Z' }),
+    ];
+    const first = finalizeDelegatedBenchmarkAdjudication({
+      ...delegatedInput(prepared), approvals: firstApprovals,
+    });
+    const later = finalizeDelegatedBenchmarkAdjudication({
+      ...delegatedInput(prepared), approvals: laterApprovals,
+    });
+    expect(later).toEqual(first);
+    expect(benchmarkLabelsDigest(later)).toBe(benchmarkLabelsDigest(first));
+  });
+
+  it('finalizes only exact ChatGPT plus Claude approval of the recomputed candidate', () => {
+    const { prepared, candidate, approvalA, approvalB } = prepareDelegated();
+    const finalized = finalizeDelegatedBenchmarkAdjudication({
+      ...delegatedInput(prepared), approvals: [approvalA, approvalB],
+    });
+    expect(finalized).toEqual(candidate);
+    expect(benchmarkLabelsDigest(finalized)).toBe(approvalA.candidateSha256);
+    expect(approvalB.candidateSha256).toBe(approvalA.candidateSha256);
+  });
+
+  it('fails closed on missing, duplicate, unauthorized, rejecting, or unresolved approvals', () => {
+    const { prepared, candidate, approvalA, approvalB } = prepareDelegated();
+    const finalizeWith = (approvals: readonly BenchmarkDelegatedApproval[]) => (
+      finalizeDelegatedBenchmarkAdjudication({ ...delegatedInput(prepared), approvals })
+    );
+    expect(() => finalizeWith([])).toThrow(/exactly two approval artifacts/);
+    expect(() => finalizeWith([approvalA])).toThrow(/exactly two approval artifacts/);
+    expect(() => finalizeWith([approvalA, approvalB, approvalA])).toThrow(/exactly two approval artifacts/);
+    expect(() => finalizeWith([approvalA, { ...approvalB, approverIdentity: 'chatgpt' }]))
+      .toThrow(/identities must be distinct|identity set/);
+    expect(() => finalizeWith([
+      approvalA,
+      { ...approvalB, approverIdentity: 'copilot' } as unknown as BenchmarkDelegatedApproval,
+    ])).toThrow(/schema invalid|identity set/);
+    expect(() => finalizeWith([approvalA, { ...approvalB, decision: 'reject' }]))
+      .toThrow(/decision is not approve/);
+    expect(() => finalizeWith([approvalA, { ...approvalB, decision: 'unresolved' }]))
+      .toThrow(/decision is not approve/);
+
+    expect(benchmarkLabelsDigest(candidate)).toBe(approvalA.candidateSha256);
+  });
+
+  it('fails closed on every delegated approval binding mismatch', () => {
+    const { prepared, approvalA, approvalB } = prepareDelegated();
+    const expectMismatch = (
+      changed: BenchmarkDelegatedApproval,
+      pattern: RegExp,
+    ) => expect(() => finalizeDelegatedBenchmarkAdjudication({
+      ...delegatedInput(prepared), approvals: [approvalA, changed],
+    })).toThrow(pattern);
+
+    expectMismatch({ ...approvalB, candidateSha256: 'f'.repeat(64) }, /candidate digest differs/);
+    expectMismatch({ ...approvalB, adjudicationSha256: 'f'.repeat(64) }, /adjudication digest differs/);
+    expectMismatch({ ...approvalB, pageKey: 'hillsdale-p3' }, /page key differs/);
+    expectMismatch({
+      ...approvalB,
+      delegationScope: 'other-scope',
+    } as unknown as BenchmarkDelegatedApproval, /schema invalid|delegation scope differs/);
+    expectMismatch({ ...approvalB, source: { ...approvalB.source, byteLength: 999 } }, /source differs/);
+    expectMismatch({ ...approvalB, frame: { ...approvalB.frame, rotation: 90 } }, /frame differs/);
+    expectMismatch({ ...approvalB, comparisonSha256: 'f'.repeat(64) }, /comparison digest differs/);
+    expectMismatch({ ...approvalB, reviewerALabelSetSha256: 'f'.repeat(64) }, /reviewer A digest differs/);
+    expectMismatch({ ...approvalB, reviewerBLabelSetSha256: 'f'.repeat(64) }, /reviewer B digest differs/);
+    expectMismatch({ ...approvalB, suggestionsSha256: 'f'.repeat(64) }, /suggestions digest differs/);
+    expectMismatch({
+      ...approvalB,
+      candidateSummary: { ...approvalB.candidateSummary, words: approvalB.candidateSummary.words + 1 },
+    }, /candidate summary differs/);
+  });
+
+  it('binds approvals to the exact parsed adjudication, even when only a note changes', () => {
+    const prepared = prepare({ approval: false, suggestionArtifact: null });
+    const candidate = buildDelegatedBenchmarkCandidate(delegatedInput(prepared));
+    const approvalA = delegatedApproval(prepared, candidate, 'chatgpt');
+    const approvalB = delegatedApproval(prepared, candidate, 'claude');
+    const changed = parseBenchmarkAdjudication(JSON.stringify({
+      ...prepared.adjudication,
+      resolutions: prepared.adjudication.resolutions.map((resolution, index) => (
+        index === 0 ? { ...resolution, note: `${resolution.note} changed` } : resolution
+      )),
+    }));
+    expect(() => finalizeDelegatedBenchmarkAdjudication({
+      ...delegatedInput(prepared, changed), approvals: [approvalA, approvalB],
+    })).toThrow(/adjudication digest differs/);
+  });
+
+  it('rejects human approval in delegated mode and preserves the human-only reviewer restriction', () => {
+    const humanApproved = prepare();
+    const delegated = prepareDelegated();
+    expect(() => buildDelegatedBenchmarkCandidate(delegatedInput(humanApproved)))
+      .toThrow(/requires adjudication approval null/);
+    expect(() => finalizeDelegatedBenchmarkAdjudication({
+      ...delegatedInput(humanApproved),
+      approvals: [delegated.approvalA, delegated.approvalB],
+    })).toThrow(/requires adjudication approval null/);
+    expect(() => finalize(prepare({ approvedBy: 'chatgpt' })))
+      .toThrow(/approving user must not be either reviewer/);
+  });
+
+  it('fails closed when delegation is revoked or a page is outside scope', () => {
+    expect(() => validateE3BenchmarkDelegation(SOURCE.pageKey, {
+      ...E3_BENCHMARK_DELEGATED_APPROVAL,
+      active: false,
+    })).toThrow(/revoked/);
+    expect(() => validateE3BenchmarkDelegation('outside-e3-scope', E3_BENCHMARK_DELEGATED_APPROVAL))
+      .toThrow(/outside delegated E3 benchmark scope/);
+
+    const outsideSource = { ...SOURCE, pageKey: 'outside-e3-scope' };
+    const reviewerA = reviewer('reviewer_a', { pageKey: outsideSource.pageKey });
+    const reviewerB = reviewer('reviewer_b', { pageKey: outsideSource.pageKey });
+    const compared = compareBenchmarkReviewerLabels({
+      reviewerA, reviewerB, source: outsideSource, suggestions: null,
+    });
+    const parsedComparison = parseBenchmarkDualReviewComparison(JSON.stringify(compared));
+    const adjudication = parseBenchmarkAdjudication(JSON.stringify({
+      adjudicationVersion: BENCHMARK_ADJUDICATION_VERSION,
+      authority: BENCHMARK_ADJUDICATION_AUTHORITY,
+      pageKey: outsideSource.pageKey,
+      source: compared.source,
+      frame: compared.frame,
+      comparisonSha256: parsedComparison.sha256,
+      reviewerALabelSetSha256: reviewerA.sha256,
+      reviewerBLabelSetSha256: reviewerB.sha256,
+      suggestionsSha256: null,
+      resolutions: resolutionsForAllIssues(compared),
+      userChallenges: [],
+      approval: null,
+    }));
+    expect(() => buildDelegatedBenchmarkCandidate({
+      reviewerA,
+      reviewerB,
+      comparison: parsedComparison,
+      adjudication,
+      source: outsideSource,
+      suggestions: null,
+    })).toThrow(/outside delegated E3 benchmark scope/);
+  });
+
+  it('inherits incomplete-adjudication and stale-challenge failures from shared assembly', () => {
+    const prepared = prepare({ approval: false, suggestionArtifact: null });
+    const incomplete = parseBenchmarkAdjudication(JSON.stringify({
+      ...prepared.adjudication,
+      resolutions: prepared.adjudication.resolutions.slice(1),
+    }));
+    expect(() => buildDelegatedBenchmarkCandidate(delegatedInput(prepared, incomplete)))
+      .toThrow(/not every comparison issue has exactly one resolution/);
+
+    const challengePrepared = prepare({ approval: false });
+    const target = challengePrepared.compared.exactAgreements.find((agreement) => (
+      agreement.kind === 'word' && agreement.candidateResolution !== null
+    ));
+    expect(target).toBeDefined();
+    const staleChallenge = parseBenchmarkAdjudication(JSON.stringify({
+      ...challengePrepared.adjudication,
+      userChallenges: [{
+        targetKind: 'word',
+        targetAgreementId: target!.issueId,
+        targetAgreementSha256: 'f'.repeat(64),
+        action: 'replace',
+        replacement: { kind: 'word', text: 'Changed', box: BOX },
+        note: 'Explicit challenge with intentionally stale binding.',
+      }],
+    }));
+    expect(() => buildDelegatedBenchmarkCandidate(delegatedInput(challengePrepared, staleChallenge)))
+      .toThrow(/agreement challenge digest is stale/);
+  });
+
+  it('wraps previews in a non-authoritative envelope that is not labels.json', () => {
+    const { candidate } = prepareDelegated();
+    const preview = buildBenchmarkCandidatePreview(candidate);
+    expect(preview.authority).toBe('non_authoritative_candidate_preview');
+    expect(preview.candidateSha256).toBe(benchmarkLabelsDigest(candidate));
+    expect(BenchmarkPageLabelsSchema.safeParse(preview).success).toBe(false);
+    expect(() => parseBenchmarkLabels(JSON.stringify(preview))).toThrow(/LABEL_SCHEMA_INVALID/);
+    expect(() => buildBenchmarkCandidatePreview(prepare().assembled))
+      .toThrow(/candidate preview requires delegated benchmark authority/);
   });
 });

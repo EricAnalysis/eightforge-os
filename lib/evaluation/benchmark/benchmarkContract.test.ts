@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  BENCHMARK_DELEGATED_LABELED_BY,
+  BENCHMARK_DELEGATED_LABEL_AUTHORITY,
   BENCHMARK_PAGES,
   bindBenchmarkLabels,
   buildBenchmarkLabelTemplate,
@@ -100,6 +102,31 @@ describe('benchmark label schema', () => {
     expect(() => parseBenchmarkLabels(JSON.stringify({
       ...template(), coverage: { status: 'labeled', truth: null, note: null },
     }))).toThrow(/labeled coverage must state a truth/);
+  });
+
+  it('enforces delegated E3 authority metadata without changing the human path', () => {
+    const delegated = {
+      ...template(),
+      authority: BENCHMARK_DELEGATED_LABEL_AUTHORITY,
+      labeledBy: BENCHMARK_DELEGATED_LABELED_BY,
+      labeledAt: null,
+    };
+    expect(parseBenchmarkLabels(JSON.stringify(delegated)).labels).toEqual(delegated);
+    expect(() => parseBenchmarkLabels(JSON.stringify({
+      ...delegated,
+      labeledBy: 'chatgpt',
+    }))).toThrow(/delegated labels require labeledBy/);
+    expect(() => parseBenchmarkLabels(JSON.stringify({
+      ...delegated,
+      labeledAt: '2026-09-26T12:00:00.000Z',
+    }))).toThrow(/delegated labels require labeledAt null/);
+    expect(() => parseBenchmarkLabels(JSON.stringify({
+      ...delegated,
+      pageKey: 'outside-e3-scope',
+    }))).toThrow(/delegated labels require a frozen E3 benchmark page/);
+
+    const human = { ...template(), labeledBy: 'human-owner', labeledAt: '2026-09-26T12:00:00.000Z' };
+    expect(parseBenchmarkLabels(JSON.stringify(human)).labels).toEqual(human);
   });
 
   it('refuses row membership that cites an unknown cell or claims one twice', () => {

@@ -9,19 +9,23 @@ import { hashCanonical } from '@/lib/extraction/domain/hash';
  * here decides production eligibility, and nothing here may be read by
  * production extraction or recovery.
  *
- * The central rule is that **no label is ever generated**. This module builds
- * an empty workspace bound to exact source bytes and validates what a human
- * later writes into it. Every human-truth field starts null or empty, a
- * section stays `unlabeled` until a person marks it otherwise, and scoring
- * refuses to run against unlabeled sections rather than scoring against a
- * machine's own output.
+ * The central rule is that machine extraction and OCR never become labels by
+ * themselves. This module builds an empty workspace bound to exact source
+ * bytes and validates either human-authored labels or the narrow E3 delegated
+ * payload produced from complete adjudication plus two digest-bound approvals.
+ * Every workspace truth field starts null or empty, and scoring refuses to run
+ * against unlabeled sections rather than scoring against a machine's own output.
  */
 
 export const BENCHMARK_LABELS_VERSION = 'extraction-benchmark-labels-v1' as const;
 export const BENCHMARK_WORKSPACE_VERSION = 'extraction-benchmark-workspace-v1' as const;
 export const BENCHMARK_SCORING_VERSION = 'extraction-benchmark-scoring-v1' as const;
-/** Labels are human ground truth for evaluation only. */
+/** Labels approved through the original human evaluation path. */
 export const BENCHMARK_LABEL_AUTHORITY = 'human_evaluation_ground_truth_only' as const;
+/** Labels approved through the narrow E3 dual-AI finalization delegation. */
+export const BENCHMARK_DELEGATED_LABEL_AUTHORITY =
+  'delegated_dual_ai_evaluation_ground_truth_only' as const;
+export const BENCHMARK_DELEGATED_LABELED_BY = 'delegated_dual_ai:chatgpt+claude' as const;
 /** Every benchmark result is measurement; it never authorizes a production change. */
 export const BENCHMARK_RESULT_AUTHORITY = 'non_authoritative_measurement' as const;
 
@@ -131,7 +135,7 @@ export const BenchmarkRowLabelSchema = z.object({
 }).strict();
 
 /**
- * What the page actually contains, as a human reads it. This is the truth the
+ * What the page actually contains, as an evaluator reads it. This is the truth the
  * coverage layer's `final_state` is measured against; it is never copied from
  * that layer.
  */
@@ -163,7 +167,7 @@ function section<T extends z.ZodTypeAny>(item: T, itemsName: string) {
 
 export const BenchmarkPageLabelsSchema = z.object({
   labelSetVersion: z.literal(BENCHMARK_LABELS_VERSION),
-  authority: z.literal(BENCHMARK_LABEL_AUTHORITY),
+  authority: z.enum([BENCHMARK_LABEL_AUTHORITY, BENCHMARK_DELEGATED_LABEL_AUTHORITY]),
   pageKey: identifier,
   source: z.object({
     documentKey: identifier,
@@ -200,10 +204,33 @@ export const BenchmarkPageLabelsSchema = z.object({
       ctx.addIssue({ code: 'custom', message: 'labeled coverage must state a truth' });
     }
   }),
-  /** Who labeled it and when; free-form, filled in by the human. */
+  /** Human attribution/timestamp, or fixed delegated attribution with a null timestamp. */
   labeledBy: z.string().max(200).nullable(),
   labeledAt: z.string().max(40).nullable(),
 }).strict().superRefine((labels, ctx) => {
+  if (labels.authority === BENCHMARK_DELEGATED_LABEL_AUTHORITY) {
+    if (!BENCHMARK_PAGES.some((page) => page.pageKey === labels.pageKey)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['pageKey'],
+        message: 'delegated labels require a frozen E3 benchmark page',
+      });
+    }
+    if (labels.labeledBy !== BENCHMARK_DELEGATED_LABELED_BY) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['labeledBy'],
+        message: `delegated labels require labeledBy ${BENCHMARK_DELEGATED_LABELED_BY}`,
+      });
+    }
+    if (labels.labeledAt !== null) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['labeledAt'],
+        message: 'delegated labels require labeledAt null',
+      });
+    }
+  }
   const wordIds = labels.words.items.map((item) => item.labelId);
   if (new Set(wordIds).size !== wordIds.length) {
     ctx.addIssue({ code: 'custom', message: 'duplicate word label id' });
@@ -245,7 +272,7 @@ export type BenchmarkRowLabel = z.infer<typeof BenchmarkRowLabelSchema>;
 
 export type BenchmarkLabelSection = 'words' | 'cells' | 'rows' | 'coverage';
 
-/** Content digest of the human labels; end-of-line translation must not change it. */
+/** Content digest of the complete labels payload; end-of-line translation must not change it. */
 export function benchmarkLabelsDigest(labels: BenchmarkPageLabels): string {
   return hashCanonical(labels);
 }
@@ -253,7 +280,7 @@ export function benchmarkLabelsDigest(labels: BenchmarkPageLabels): string {
 /**
  * An empty workspace template for one page.
  *
- * Every human-truth field is empty by construction: no word, no cell, no row,
+ * Every truth field is empty by construction: no word, no cell, no row,
  * no coverage truth. The only machine-supplied values are source identity and
  * the page's canonical frame, which are measurements of the bytes, not claims
  * about their content.

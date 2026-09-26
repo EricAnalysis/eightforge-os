@@ -1,0 +1,1000 @@
+{
+  "pageKey": "dn-p107",
+  "source": {
+    "documentKey": "dn",
+    "sha256": "69247bff02744276b75f2cb0d4c00610e8614bd5822d2d10ae2ad35564c3b272",
+    "byteLength": 3895497,
+    "physicalPageNumber": 107
+  },
+  "frame": {
+    "frame_version": "canonical_frame_v1",
+    "coordinate_space": "canonical_v1",
+    "view": [
+      0,
+      0,
+      612,
+      792
+    ],
+    "rotation": 0,
+    "user_unit": 1,
+    "width": 612,
+    "height": 792
+  },
+  "reviewerLabelSetVersion": "extraction-benchmark-reviewer-labels-v1",
+  "authority": "non_authoritative_reviewer_proposal",
+  "reviewerSlot": "reviewer_a",
+  "reviewerIdentity": "chatgpt",
+  "independence": {
+    "inputMode": "clean_source_page_only",
+    "sawMachineSuggestions": false,
+    "sawOtherReviewerLabels": false
+  },
+  "words": [
+    {
+      "reviewerItemId": "w0001",
+      "text": "DN12189513",
+      "box": null,
+      "readingOrder": 1
+    },
+    {
+      "reviewerItemId": "w0002",
+      "text": "T-1",
+      "box": null,
+      "readingOrder": 2
+    },
+    {
+      "reviewerItemId": "w0003",
+      "text": "Henderson,",
+      "box": null,
+      "readingOrder": 3
+    },
+    {
+      "reviewerItemId": "w0004",
+      "text": "Polk",
+      "box": null,
+      "readingOrder": 4
+    },
+    {
+      "reviewerItemId": "w0005",
+      "text": "ITEMIZED",
+      "box": null,
+      "readingOrder": 5
+    },
+    {
+      "reviewerItemId": "w0006",
+      "text": "PROPOSAL",
+      "box": null,
+      "readingOrder": 6
+    },
+    {
+      "reviewerItemId": "w0007",
+      "text": "FOR",
+      "box": null,
+      "readingOrder": 7
+    },
+    {
+      "reviewerItemId": "w0008",
+      "text": "CONTRACT",
+      "box": null,
+      "readingOrder": 8
+    },
+    {
+      "reviewerItemId": "w0009",
+      "text": "NO.",
+      "box": null,
+      "readingOrder": 9
+    },
+    {
+      "reviewerItemId": "w0010",
+      "text": "DN12189513",
+      "box": null,
+      "readingOrder": 10
+    },
+    {
+      "reviewerItemId": "w0011",
+      "text": "Line",
+      "box": null,
+      "readingOrder": 11
+    },
+    {
+      "reviewerItemId": "w0012",
+      "text": "#",
+      "box": null,
+      "readingOrder": 12
+    },
+    {
+      "reviewerItemId": "w0013",
+      "text": "Item",
+      "box": null,
+      "readingOrder": 13
+    },
+    {
+      "reviewerItemId": "w0014",
+      "text": "Number",
+      "box": null,
+      "readingOrder": 14
+    },
+    {
+      "reviewerItemId": "w0015",
+      "text": "Sec",
+      "box": null,
+      "readingOrder": 15
+    },
+    {
+      "reviewerItemId": "w0016",
+      "text": "#",
+      "box": null,
+      "readingOrder": 16
+    },
+    {
+      "reviewerItemId": "w0017",
+      "text": "Description",
+      "box": null,
+      "readingOrder": 17
+    },
+    {
+      "reviewerItemId": "w0018",
+      "text": "Qty",
+      "box": null,
+      "readingOrder": 18
+    },
+    {
+      "reviewerItemId": "w0019",
+      "text": "Units",
+      "box": null,
+      "readingOrder": 19
+    },
+    {
+      "reviewerItemId": "w0020",
+      "text": "Unit",
+      "box": null,
+      "readingOrder": 20
+    },
+    {
+      "reviewerItemId": "w0021",
+      "text": "Cost",
+      "box": null,
+      "readingOrder": 21
+    },
+    {
+      "reviewerItemId": "w0022",
+      "text": "Extended",
+      "box": null,
+      "readingOrder": 22
+    },
+    {
+      "reviewerItemId": "w0023",
+      "text": "Amount",
+      "box": null,
+      "readingOrder": 23
+    },
+    {
+      "reviewerItemId": "w0024",
+      "text": "ROADWAY",
+      "box": null,
+      "readingOrder": 24
+    },
+    {
+      "reviewerItemId": "w0025",
+      "text": "ITEMS",
+      "box": null,
+      "readingOrder": 25
+    },
+    {
+      "reviewerItemId": "w0026",
+      "text": "0001",
+      "box": null,
+      "readingOrder": 26
+    },
+    {
+      "reviewerItemId": "w0027",
+      "text": "6138000000-E",
+      "box": null,
+      "readingOrder": 27
+    },
+    {
+      "reviewerItemId": "w0028",
+      "text": "SP",
+      "box": null,
+      "readingOrder": 28
+    },
+    {
+      "reviewerItemId": "w0029",
+      "text": "Vegetative",
+      "box": null,
+      "readingOrder": 29
+    },
+    {
+      "reviewerItemId": "w0030",
+      "text": "Debris",
+      "box": null,
+      "readingOrder": 30
+    },
+    {
+      "reviewerItemId": "w0031",
+      "text": "Removal",
+      "box": null,
+      "readingOrder": 31
+    },
+    {
+      "reviewerItemId": "w0032",
+      "text": "7,500",
+      "box": null,
+      "readingOrder": 32
+    },
+    {
+      "reviewerItemId": "w0033",
+      "text": "CY",
+      "box": null,
+      "readingOrder": 33
+    },
+    {
+      "reviewerItemId": "w0034",
+      "text": "$",
+      "box": null,
+      "readingOrder": 34
+    },
+    {
+      "reviewerItemId": "w0035",
+      "text": "38.00",
+      "box": null,
+      "readingOrder": 35
+    },
+    {
+      "reviewerItemId": "w0036",
+      "text": "$",
+      "box": null,
+      "readingOrder": 36
+    },
+    {
+      "reviewerItemId": "w0037",
+      "text": "285,000.00",
+      "box": null,
+      "readingOrder": 37
+    },
+    {
+      "reviewerItemId": "w0038",
+      "text": "0002",
+      "box": null,
+      "readingOrder": 38
+    },
+    {
+      "reviewerItemId": "w0039",
+      "text": "6138000000-E",
+      "box": null,
+      "readingOrder": 39
+    },
+    {
+      "reviewerItemId": "w0040",
+      "text": "SP",
+      "box": null,
+      "readingOrder": 40
+    },
+    {
+      "reviewerItemId": "w0041",
+      "text": "Vegetative",
+      "box": null,
+      "readingOrder": 41
+    },
+    {
+      "reviewerItemId": "w0042",
+      "text": "Debris",
+      "box": null,
+      "readingOrder": 42
+    },
+    {
+      "reviewerItemId": "w0043",
+      "text": "Grinding",
+      "box": null,
+      "readingOrder": 43
+    },
+    {
+      "reviewerItemId": "w0044",
+      "text": "7,500",
+      "box": null,
+      "readingOrder": 44
+    },
+    {
+      "reviewerItemId": "w0045",
+      "text": "CY",
+      "box": null,
+      "readingOrder": 45
+    },
+    {
+      "reviewerItemId": "w0046",
+      "text": "$",
+      "box": null,
+      "readingOrder": 46
+    },
+    {
+      "reviewerItemId": "w0047",
+      "text": "24.00",
+      "box": null,
+      "readingOrder": 47
+    },
+    {
+      "reviewerItemId": "w0048",
+      "text": "$",
+      "box": null,
+      "readingOrder": 48
+    },
+    {
+      "reviewerItemId": "w0049",
+      "text": "180,000.00",
+      "box": null,
+      "readingOrder": 49
+    },
+    {
+      "reviewerItemId": "w0050",
+      "text": "0003",
+      "box": null,
+      "readingOrder": 50
+    },
+    {
+      "reviewerItemId": "w0051",
+      "text": "6138000000-E",
+      "box": null,
+      "readingOrder": 51
+    },
+    {
+      "reviewerItemId": "w0052",
+      "text": "SP",
+      "box": null,
+      "readingOrder": 52
+    },
+    {
+      "reviewerItemId": "w0053",
+      "text": "Vegetative",
+      "box": null,
+      "readingOrder": 53
+    },
+    {
+      "reviewerItemId": "w0054",
+      "text": "Debris",
+      "box": null,
+      "readingOrder": 54
+    },
+    {
+      "reviewerItemId": "w0055",
+      "text": "Disposal",
+      "box": null,
+      "readingOrder": 55
+    },
+    {
+      "reviewerItemId": "w0056",
+      "text": "2,500",
+      "box": null,
+      "readingOrder": 56
+    },
+    {
+      "reviewerItemId": "w0057",
+      "text": "CY",
+      "box": null,
+      "readingOrder": 57
+    },
+    {
+      "reviewerItemId": "w0058",
+      "text": "$",
+      "box": null,
+      "readingOrder": 58
+    },
+    {
+      "reviewerItemId": "w0059",
+      "text": "12.00",
+      "box": null,
+      "readingOrder": 59
+    },
+    {
+      "reviewerItemId": "w0060",
+      "text": "$",
+      "box": null,
+      "readingOrder": 60
+    },
+    {
+      "reviewerItemId": "w0061",
+      "text": "30,000.00",
+      "box": null,
+      "readingOrder": 61
+    },
+    {
+      "reviewerItemId": "w0062",
+      "text": "0004",
+      "box": null,
+      "readingOrder": 62
+    },
+    {
+      "reviewerItemId": "w0063",
+      "text": "6150000000-E",
+      "box": null,
+      "readingOrder": 63
+    },
+    {
+      "reviewerItemId": "w0064",
+      "text": "SP",
+      "box": null,
+      "readingOrder": 64
+    },
+    {
+      "reviewerItemId": "w0065",
+      "text": "White",
+      "box": null,
+      "readingOrder": 65
+    },
+    {
+      "reviewerItemId": "w0066",
+      "text": "Goods",
+      "box": null,
+      "readingOrder": 66
+    },
+    {
+      "reviewerItemId": "w0067",
+      "text": "Recycle",
+      "box": null,
+      "readingOrder": 67
+    },
+    {
+      "reviewerItemId": "w0068",
+      "text": "5",
+      "box": null,
+      "readingOrder": 68
+    },
+    {
+      "reviewerItemId": "w0069",
+      "text": "TON",
+      "box": null,
+      "readingOrder": 69
+    },
+    {
+      "reviewerItemId": "w0070",
+      "text": "$",
+      "box": null,
+      "readingOrder": 70
+    },
+    {
+      "reviewerItemId": "w0071",
+      "text": "200.00",
+      "box": null,
+      "readingOrder": 71
+    },
+    {
+      "reviewerItemId": "w0072",
+      "text": "$",
+      "box": null,
+      "readingOrder": 72
+    },
+    {
+      "reviewerItemId": "w0073",
+      "text": "1000.00",
+      "box": null,
+      "readingOrder": 73
+    },
+    {
+      "reviewerItemId": "w0074",
+      "text": "0005",
+      "box": null,
+      "readingOrder": 74
+    },
+    {
+      "reviewerItemId": "w0075",
+      "text": "6150000000-E",
+      "box": null,
+      "readingOrder": 75
+    },
+    {
+      "reviewerItemId": "w0076",
+      "text": "SP",
+      "box": null,
+      "readingOrder": 76
+    },
+    {
+      "reviewerItemId": "w0077",
+      "text": "Inert",
+      "box": null,
+      "readingOrder": 77
+    },
+    {
+      "reviewerItemId": "w0078",
+      "text": "Debris",
+      "box": null,
+      "readingOrder": 78
+    },
+    {
+      "reviewerItemId": "w0079",
+      "text": "Removal",
+      "box": null,
+      "readingOrder": 79
+    },
+    {
+      "reviewerItemId": "w0080",
+      "text": "and",
+      "box": null,
+      "readingOrder": 80
+    },
+    {
+      "reviewerItemId": "w0081",
+      "text": "Disposal",
+      "box": null,
+      "readingOrder": 81
+    },
+    {
+      "reviewerItemId": "w0082",
+      "text": "1,100",
+      "box": null,
+      "readingOrder": 82
+    },
+    {
+      "reviewerItemId": "w0083",
+      "text": "TON",
+      "box": null,
+      "readingOrder": 83
+    },
+    {
+      "reviewerItemId": "w0084",
+      "text": "$",
+      "box": null,
+      "readingOrder": 84
+    },
+    {
+      "reviewerItemId": "w0085",
+      "text": "90.00",
+      "box": null,
+      "readingOrder": 85
+    },
+    {
+      "reviewerItemId": "w0086",
+      "text": "$",
+      "box": null,
+      "readingOrder": 86
+    },
+    {
+      "reviewerItemId": "w0087",
+      "text": "99,000.00",
+      "box": null,
+      "readingOrder": 87
+    },
+    {
+      "reviewerItemId": "w0088",
+      "text": "0006",
+      "box": null,
+      "readingOrder": 88
+    },
+    {
+      "reviewerItemId": "w0089",
+      "text": "6150000000-E",
+      "box": null,
+      "readingOrder": 89
+    },
+    {
+      "reviewerItemId": "w0090",
+      "text": "SP",
+      "box": null,
+      "readingOrder": 90
+    },
+    {
+      "reviewerItemId": "w0091",
+      "text": "Construction",
+      "box": null,
+      "readingOrder": 91
+    },
+    {
+      "reviewerItemId": "w0092",
+      "text": "and",
+      "box": null,
+      "readingOrder": 92
+    },
+    {
+      "reviewerItemId": "w0093",
+      "text": "Demolition",
+      "box": null,
+      "readingOrder": 93
+    },
+    {
+      "reviewerItemId": "w0094",
+      "text": "Debris",
+      "box": null,
+      "readingOrder": 94
+    },
+    {
+      "reviewerItemId": "w0095",
+      "text": "Removal",
+      "box": null,
+      "readingOrder": 95
+    },
+    {
+      "reviewerItemId": "w0096",
+      "text": "and",
+      "box": null,
+      "readingOrder": 96
+    },
+    {
+      "reviewerItemId": "w0097",
+      "text": "Disposal",
+      "box": null,
+      "readingOrder": 97
+    },
+    {
+      "reviewerItemId": "w0098",
+      "text": "140",
+      "box": null,
+      "readingOrder": 98
+    },
+    {
+      "reviewerItemId": "w0099",
+      "text": "TON",
+      "box": null,
+      "readingOrder": 99
+    },
+    {
+      "reviewerItemId": "w0100",
+      "text": "$120.00",
+      "box": null,
+      "readingOrder": 100
+    },
+    {
+      "reviewerItemId": "w0101",
+      "text": "$",
+      "box": null,
+      "readingOrder": 101
+    },
+    {
+      "reviewerItemId": "w0102",
+      "text": "16,800.00",
+      "box": null,
+      "readingOrder": 102
+    },
+    {
+      "reviewerItemId": "w0103",
+      "text": "0007",
+      "box": null,
+      "readingOrder": 103
+    },
+    {
+      "reviewerItemId": "w0104",
+      "text": "6150000000-E",
+      "box": null,
+      "readingOrder": 104
+    },
+    {
+      "reviewerItemId": "w0105",
+      "text": "SP",
+      "box": null,
+      "readingOrder": 105
+    },
+    {
+      "reviewerItemId": "w0106",
+      "text": "Household",
+      "box": null,
+      "readingOrder": 106
+    },
+    {
+      "reviewerItemId": "w0107",
+      "text": "Hazardous",
+      "box": null,
+      "readingOrder": 107
+    },
+    {
+      "reviewerItemId": "w0108",
+      "text": "Waste",
+      "box": null,
+      "readingOrder": 108
+    },
+    {
+      "reviewerItemId": "w0109",
+      "text": "Debris",
+      "box": null,
+      "readingOrder": 109
+    },
+    {
+      "reviewerItemId": "w0110",
+      "text": "Removal",
+      "box": null,
+      "readingOrder": 110
+    },
+    {
+      "reviewerItemId": "w0111",
+      "text": "and",
+      "box": null,
+      "readingOrder": 111
+    },
+    {
+      "reviewerItemId": "w0112",
+      "text": "Disposal",
+      "box": null,
+      "readingOrder": 112
+    },
+    {
+      "reviewerItemId": "w0113",
+      "text": "120",
+      "box": null,
+      "readingOrder": 113
+    },
+    {
+      "reviewerItemId": "w0114",
+      "text": "TON",
+      "box": null,
+      "readingOrder": 114
+    },
+    {
+      "reviewerItemId": "w0115",
+      "text": "$",
+      "box": null,
+      "readingOrder": 115
+    },
+    {
+      "reviewerItemId": "w0116",
+      "text": "120.00",
+      "box": null,
+      "readingOrder": 116
+    },
+    {
+      "reviewerItemId": "w0117",
+      "text": "$",
+      "box": null,
+      "readingOrder": 117
+    },
+    {
+      "reviewerItemId": "w0118",
+      "text": "14,400.00",
+      "box": null,
+      "readingOrder": 118
+    },
+    {
+      "reviewerItemId": "w0119",
+      "text": "0008",
+      "box": null,
+      "readingOrder": 119
+    },
+    {
+      "reviewerItemId": "w0120",
+      "text": "6150000000-E",
+      "box": null,
+      "readingOrder": 120
+    },
+    {
+      "reviewerItemId": "w0121",
+      "text": "SP",
+      "box": null,
+      "readingOrder": 121
+    },
+    {
+      "reviewerItemId": "w0122",
+      "text": "Electronic",
+      "box": null,
+      "readingOrder": 122
+    },
+    {
+      "reviewerItemId": "w0123",
+      "text": "Debris",
+      "box": null,
+      "readingOrder": 123
+    },
+    {
+      "reviewerItemId": "w0124",
+      "text": "Removal",
+      "box": null,
+      "readingOrder": 124
+    },
+    {
+      "reviewerItemId": "w0125",
+      "text": "and",
+      "box": null,
+      "readingOrder": 125
+    },
+    {
+      "reviewerItemId": "w0126",
+      "text": "Disposal",
+      "box": null,
+      "readingOrder": 126
+    },
+    {
+      "reviewerItemId": "w0127",
+      "text": "15",
+      "box": null,
+      "readingOrder": 127
+    },
+    {
+      "reviewerItemId": "w0128",
+      "text": "TON",
+      "box": null,
+      "readingOrder": 128
+    },
+    {
+      "reviewerItemId": "w0129",
+      "text": "$",
+      "box": null,
+      "readingOrder": 129
+    },
+    {
+      "reviewerItemId": "w0130",
+      "text": "100.00",
+      "box": null,
+      "readingOrder": 130
+    },
+    {
+      "reviewerItemId": "w0131",
+      "text": "$",
+      "box": null,
+      "readingOrder": 131
+    },
+    {
+      "reviewerItemId": "w0132",
+      "text": "1500.00",
+      "box": null,
+      "readingOrder": 132
+    },
+    {
+      "reviewerItemId": "w0133",
+      "text": "0009",
+      "box": null,
+      "readingOrder": 133
+    },
+    {
+      "reviewerItemId": "w0134",
+      "text": "0000860000-N",
+      "box": null,
+      "readingOrder": 134
+    },
+    {
+      "reviewerItemId": "w0135",
+      "text": "SP",
+      "box": null,
+      "readingOrder": 135
+    },
+    {
+      "reviewerItemId": "w0136",
+      "text": "Landfill",
+      "box": null,
+      "readingOrder": 136
+    },
+    {
+      "reviewerItemId": "w0137",
+      "text": "Tipping",
+      "box": null,
+      "readingOrder": 137
+    },
+    {
+      "reviewerItemId": "w0138",
+      "text": "Fee",
+      "box": null,
+      "readingOrder": 138
+    },
+    {
+      "reviewerItemId": "w0139",
+      "text": "5000",
+      "box": null,
+      "readingOrder": 139
+    },
+    {
+      "reviewerItemId": "w0140",
+      "text": "DOL",
+      "box": null,
+      "readingOrder": 140
+    },
+    {
+      "reviewerItemId": "w0141",
+      "text": "$",
+      "box": null,
+      "readingOrder": 141
+    },
+    {
+      "reviewerItemId": "w0142",
+      "text": "1.00",
+      "box": null,
+      "readingOrder": 142
+    },
+    {
+      "reviewerItemId": "w0143",
+      "text": "$",
+      "box": null,
+      "readingOrder": 143
+    },
+    {
+      "reviewerItemId": "w0144",
+      "text": "5000.00",
+      "box": null,
+      "readingOrder": 144
+    },
+    {
+      "reviewerItemId": "w0145",
+      "text": "0010",
+      "box": null,
+      "readingOrder": 145
+    },
+    {
+      "reviewerItemId": "w0146",
+      "text": "6132000000-N",
+      "box": null,
+      "readingOrder": 146
+    },
+    {
+      "reviewerItemId": "w0147",
+      "text": "SP",
+      "box": null,
+      "readingOrder": 147
+    },
+    {
+      "reviewerItemId": "w0148",
+      "text": "Hazardous",
+      "box": null,
+      "readingOrder": 148
+    },
+    {
+      "reviewerItemId": "w0149",
+      "text": "Tree",
+      "box": null,
+      "readingOrder": 149
+    },
+    {
+      "reviewerItemId": "w0150",
+      "text": "Stump",
+      "box": null,
+      "readingOrder": 150
+    },
+    {
+      "reviewerItemId": "w0151",
+      "text": "Excavation",
+      "box": null,
+      "readingOrder": 151
+    },
+    {
+      "reviewerItemId": "w0152",
+      "text": "and",
+      "box": null,
+      "readingOrder": 152
+    },
+    {
+      "reviewerItemId": "w0153",
+      "text": "Removal",
+      "box": null,
+      "readingOrder": 153
+    },
+    {
+      "reviewerItemId": "w0154",
+      "text": "<24”",
+      "box": null,
+      "readingOrder": 154
+    },
+    {
+      "reviewerItemId": "w0155",
+      "text": "400",
+      "box": null,
+      "readingOrder": 155
+    },
+    {
+      "reviewerItemId": "w0156",
+      "text": "EA",
+      "box": null,
+      "readingOrder": 156
+    },
+    {
+      "reviewerItemId": "w0157",
+      "text": "$",
+      "box": null,
+      "readingOrder": 157
+    },
+    {
+      "reviewerItemId": "w0158",
+      "text": "600.00",
+      "box": null,
+      "readingOrder": 158
+    },
+    {
+      "reviewerItemId": "w0159",
+      "text": "$",
+      "box": null,
+      "readingOrder": 159
+    },
+    {
+      "reviewerItemId": "w0160",
+      "text": "240,000.00",
+      "box": null,
+      "readingOrder": 160
+    },
+    {
+      "reviewerItemId": "w0161",
+      "text": "0011",
+      "box": null,
+      "readingOrder": 161
+    },
+    {
+      "reviewerItemId": "w0162",

@@ -1,6 +1,7 @@
 # Extraction benchmark and labeling workspace (E3)
 
-**Status:** dual-review workflow implemented, **awaiting human adjudication**. **Date:** 2026-09-24.
+**Status:** dual-review workflow and E3-only delegated finalization implemented; approval
+artifacts remain external and explicit. **Date:** 2026-09-26.
 
 E3 measures extraction against human ground truth. It decides nothing: every result
 carries `productionEligibilityDecision: 'not_in_scope'` and
@@ -114,6 +115,61 @@ resolutions and verifies the approval digest against those exact bytes. It also 
 digests, missing resolutions, absent approval, reviewer-as-approver identity matches after
 case-folding and trimming, incomplete final labels, and attempts to overwrite existing partial
 or complete benchmark truth.
+
+## E3-only delegated dual-AI approval
+
+The original human approval path above remains unchanged. A second, narrowly scoped finalization
+mode is enabled only for `golden-p8`, `hillsdale-p3`, and `dn-p107`. Its version-controlled
+delegation is limited to E3 benchmark-label finalization and to the exact approver identity set
+`chatgpt` plus `claude`; it grants no extraction, production, workflow, deployment, E4, or E5
+authority. Setting the delegation inactive fails closed.
+
+Delegated mode requires a complete `adjudication.json` whose embedded human approval remains
+`null`. The shared resolution engine deterministically constructs one candidate with:
+
+- `authority: delegated_dual_ai_evaluation_ground_truth_only`
+- `labeledBy: delegated_dual_ai:chatgpt+claude`
+- `labeledAt: null`
+
+Approval timestamps live only in the two strict approval artifacts, so they cannot change the
+candidate digest. Each approval binds the exact parsed adjudication, comparison, reviewers,
+optional suggestions, source, frame, candidate digest, and candidate summary. The delegated
+finalizer requires exactly two approvals, distinct identities equal to `chatgpt` and `claude`, and
+`decision: approve` from both. Any missing, rejected, unresolved, stale, or mismatched binding
+fails before a write.
+
+Compute the candidate without creating truth or approval artifacts:
+
+```bash
+npx vite-node --config vitest.config.ts scripts/evaluation/e3/compute-benchmark-candidate.ts -- \
+  --workspace .benchmark-workspace \
+  --reviewer-a .benchmark-review/golden-p8/dual-review/reviewer-a.labels.json \
+  --reviewer-b .benchmark-review/golden-p8/dual-review/reviewer-b.labels.json \
+  --comparison .benchmark-review/golden-p8/dual-review/comparison.json \
+  --adjudication .benchmark-review/golden-p8/dual-review/adjudication.json \
+  --suggestions .benchmark-workspace/golden-p8/suggestions.json
+```
+
+An optional `--out` writes only a `non_authoritative_candidate_preview` envelope. The preview
+command rejects `labels.json` and every frozen input path as output. The envelope cannot parse as
+`BenchmarkPageLabelsSchema`.
+
+After two independent approval artifacts exist, delegated finalization uses the same sole-writer
+CLI with `--approval-a` and `--approval-b`. Human approval and delegated approvals are mutually
+exclusive, and the existing safe-overwrite protection remains in force:
+
+```bash
+npx vite-node --config vitest.config.ts scripts/evaluation/e3/finalize-benchmark-adjudication.ts -- \
+  --workspace .benchmark-workspace \
+  --reviewer-a .benchmark-review/golden-p8/dual-review/reviewer-a.labels.json \
+  --reviewer-b .benchmark-review/golden-p8/dual-review/reviewer-b.labels.json \
+  --comparison .benchmark-review/golden-p8/dual-review/comparison.json \
+  --adjudication .benchmark-review/golden-p8/dual-review/adjudication.json \
+  --suggestions .benchmark-workspace/golden-p8/suggestions.json \
+  --approval-a chatgpt-approval.json \
+  --approval-b claude-approval.json \
+  --out .benchmark-workspace/golden-p8/labels.json
+```
 
 ## Human labels and provisional suggestions
 

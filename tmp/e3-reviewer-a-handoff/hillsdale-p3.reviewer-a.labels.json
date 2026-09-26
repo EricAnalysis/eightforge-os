@@ -1,0 +1,1000 @@
+{
+  "pageKey": "hillsdale-p3",
+  "source": {
+    "documentKey": "hillsdale",
+    "sha256": "596adaccf865625723dc832f5206a8f690eb17d96921ef185df35b113c767537",
+    "byteLength": 3227431,
+    "physicalPageNumber": 3
+  },
+  "frame": {
+    "frame_version": "canonical_frame_v1",
+    "coordinate_space": "canonical_v1",
+    "view": [
+      0,
+      0,
+      611,
+      792
+    ],
+    "rotation": 0,
+    "user_unit": 1,
+    "width": 611,
+    "height": 792
+  },
+  "reviewerLabelSetVersion": "extraction-benchmark-reviewer-labels-v1",
+  "authority": "non_authoritative_reviewer_proposal",
+  "reviewerSlot": "reviewer_a",
+  "reviewerIdentity": "chatgpt",
+  "independence": {
+    "inputMode": "clean_source_page_only",
+    "sawMachineSuggestions": false,
+    "sawOtherReviewerLabels": false
+  },
+  "words": [
+    {
+      "reviewerItemId": "w0001",
+      "text": "This",
+      "box": null,
+      "readingOrder": 1
+    },
+    {
+      "reviewerItemId": "w0002",
+      "text": "table",
+      "box": null,
+      "readingOrder": 2
+    },
+    {
+      "reviewerItemId": "w0003",
+      "text": "applies",
+      "box": null,
+      "readingOrder": 3
+    },
+    {
+      "reviewerItemId": "w0004",
+      "text": "only",
+      "box": null,
+      "readingOrder": 4
+    },
+    {
+      "reviewerItemId": "w0005",
+      "text": "in",
+      "box": null,
+      "readingOrder": 5
+    },
+    {
+      "reviewerItemId": "w0006",
+      "text": "situations",
+      "box": null,
+      "readingOrder": 6
+    },
+    {
+      "reviewerItemId": "w0007",
+      "text": "when",
+      "box": null,
+      "readingOrder": 7
+    },
+    {
+      "reviewerItemId": "w0008",
+      "text": "the",
+      "box": null,
+      "readingOrder": 8
+    },
+    {
+      "reviewerItemId": "w0009",
+      "text": "City",
+      "box": null,
+      "readingOrder": 9
+    },
+    {
+      "reviewerItemId": "w0010",
+      "text": "grants",
+      "box": null,
+      "readingOrder": 10
+    },
+    {
+      "reviewerItemId": "w0011",
+      "text": "a",
+      "box": null,
+      "readingOrder": 11
+    },
+    {
+      "reviewerItemId": "w0012",
+      "text": "Time",
+      "box": null,
+      "readingOrder": 12
+    },
+    {
+      "reviewerItemId": "w0013",
+      "text": "and",
+      "box": null,
+      "readingOrder": 13
+    },
+    {
+      "reviewerItemId": "w0014",
+      "text": "Material",
+      "box": null,
+      "readingOrder": 14
+    },
+    {
+      "reviewerItemId": "w0015",
+      "text": "work",
+      "box": null,
+      "readingOrder": 15
+    },
+    {
+      "reviewerItemId": "w0016",
+      "text": "order.",
+      "box": null,
+      "readingOrder": 16
+    },
+    {
+      "reviewerItemId": "w0017",
+      "text": "The",
+      "box": null,
+      "readingOrder": 17
+    },
+    {
+      "reviewerItemId": "w0018",
+      "text": "work",
+      "box": null,
+      "readingOrder": 18
+    },
+    {
+      "reviewerItemId": "w0019",
+      "text": "under",
+      "box": null,
+      "readingOrder": 19
+    },
+    {
+      "reviewerItemId": "w0020",
+      "text": "this",
+      "box": null,
+      "readingOrder": 20
+    },
+    {
+      "reviewerItemId": "w0021",
+      "text": "solicitation",
+      "box": null,
+      "readingOrder": 21
+    },
+    {
+      "reviewerItemId": "w0022",
+      "text": "does",
+      "box": null,
+      "readingOrder": 22
+    },
+    {
+      "reviewerItemId": "w0023",
+      "text": "not",
+      "box": null,
+      "readingOrder": 23
+    },
+    {
+      "reviewerItemId": "w0024",
+      "text": "anticipate",
+      "box": null,
+      "readingOrder": 24
+    },
+    {
+      "reviewerItemId": "w0025",
+      "text": "the",
+      "box": null,
+      "readingOrder": 25
+    },
+    {
+      "reviewerItemId": "w0026",
+      "text": "use",
+      "box": null,
+      "readingOrder": 26
+    },
+    {
+      "reviewerItemId": "w0027",
+      "text": "of",
+      "box": null,
+      "readingOrder": 27
+    },
+    {
+      "reviewerItemId": "w0028",
+      "text": "these",
+      "box": null,
+      "readingOrder": 28
+    },
+    {
+      "reviewerItemId": "w0029",
+      "text": "rates.",
+      "box": null,
+      "readingOrder": 29
+    },
+    {
+      "reviewerItemId": "w0030",
+      "text": "Equipment",
+      "box": null,
+      "readingOrder": 30
+    },
+    {
+      "reviewerItemId": "w0031",
+      "text": "Description",
+      "box": null,
+      "readingOrder": 31
+    },
+    {
+      "reviewerItemId": "w0032",
+      "text": "Unit",
+      "box": null,
+      "readingOrder": 32
+    },
+    {
+      "reviewerItemId": "w0033",
+      "text": "Unit",
+      "box": null,
+      "readingOrder": 33
+    },
+    {
+      "reviewerItemId": "w0034",
+      "text": "Price",
+      "box": null,
+      "readingOrder": 34
+    },
+    {
+      "reviewerItemId": "w0035",
+      "text": "JD",
+      "box": null,
+      "readingOrder": 35
+    },
+    {
+      "reviewerItemId": "w0036",
+      "text": "544",
+      "box": null,
+      "readingOrder": 36
+    },
+    {
+      "reviewerItemId": "w0037",
+      "text": "Wheel",
+      "box": null,
+      "readingOrder": 37
+    },
+    {
+      "reviewerItemId": "w0038",
+      "text": "Loader",
+      "box": null,
+      "readingOrder": 38
+    },
+    {
+      "reviewerItemId": "w0039",
+      "text": "with",
+      "box": null,
+      "readingOrder": 39
+    },
+    {
+      "reviewerItemId": "w0040",
+      "text": "debris",
+      "box": null,
+      "readingOrder": 40
+    },
+    {
+      "reviewerItemId": "w0041",
+      "text": "grapple",
+      "box": null,
+      "readingOrder": 41
+    },
+    {
+      "reviewerItemId": "w0042",
+      "text": "Hour",
+      "box": null,
+      "readingOrder": 42
+    },
+    {
+      "reviewerItemId": "w0043",
+      "text": "$250.00",
+      "box": null,
+      "readingOrder": 43
+    },
+    {
+      "reviewerItemId": "w0044",
+      "text": "JD",
+      "box": null,
+      "readingOrder": 44
+    },
+    {
+      "reviewerItemId": "w0045",
+      "text": "644",
+      "box": null,
+      "readingOrder": 45
+    },
+    {
+      "reviewerItemId": "w0046",
+      "text": "Wheel",
+      "box": null,
+      "readingOrder": 46
+    },
+    {
+      "reviewerItemId": "w0047",
+      "text": "Loader",
+      "box": null,
+      "readingOrder": 47
+    },
+    {
+      "reviewerItemId": "w0048",
+      "text": "with",
+      "box": null,
+      "readingOrder": 48
+    },
+    {
+      "reviewerItemId": "w0049",
+      "text": "debris",
+      "box": null,
+      "readingOrder": 49
+    },
+    {
+      "reviewerItemId": "w0050",
+      "text": "grapple",
+      "box": null,
+      "readingOrder": 50
+    },
+    {
+      "reviewerItemId": "w0051",
+      "text": "Hour",
+      "box": null,
+      "readingOrder": 51
+    },
+    {
+      "reviewerItemId": "w0052",
+      "text": "$250.00",
+      "box": null,
+      "readingOrder": 52
+    },
+    {
+      "reviewerItemId": "w0053",
+      "text": "Extendaboom",
+      "box": null,
+      "readingOrder": 53
+    },
+    {
+      "reviewerItemId": "w0054",
+      "text": "Forklift",
+      "box": null,
+      "readingOrder": 54
+    },
+    {
+      "reviewerItemId": "w0055",
+      "text": "with",
+      "box": null,
+      "readingOrder": 55
+    },
+    {
+      "reviewerItemId": "w0056",
+      "text": "debris",
+      "box": null,
+      "readingOrder": 56
+    },
+    {
+      "reviewerItemId": "w0057",
+      "text": "grapple",
+      "box": null,
+      "readingOrder": 57
+    },
+    {
+      "reviewerItemId": "w0058",
+      "text": "Hour",
+      "box": null,
+      "readingOrder": 58
+    },
+    {
+      "reviewerItemId": "w0059",
+      "text": "$190.00",
+      "box": null,
+      "readingOrder": 59
+    },
+    {
+      "reviewerItemId": "w0060",
+      "text": "753",
+      "box": null,
+      "readingOrder": 60
+    },
+    {
+      "reviewerItemId": "w0061",
+      "text": "Bobcat",
+      "box": null,
+      "readingOrder": 61
+    },
+    {
+      "reviewerItemId": "w0062",
+      "text": "Skid",
+      "box": null,
+      "readingOrder": 62
+    },
+    {
+      "reviewerItemId": "w0063",
+      "text": "Steer",
+      "box": null,
+      "readingOrder": 63
+    },
+    {
+      "reviewerItemId": "w0064",
+      "text": "Loader",
+      "box": null,
+      "readingOrder": 64
+    },
+    {
+      "reviewerItemId": "w0065",
+      "text": "with",
+      "box": null,
+      "readingOrder": 65
+    },
+    {
+      "reviewerItemId": "w0066",
+      "text": "debris",
+      "box": null,
+      "readingOrder": 66
+    },
+    {
+      "reviewerItemId": "w0067",
+      "text": "grapple",
+      "box": null,
+      "readingOrder": 67
+    },
+    {
+      "reviewerItemId": "w0068",
+      "text": "Hour",
+      "box": null,
+      "readingOrder": 68
+    },
+    {
+      "reviewerItemId": "w0069",
+      "text": "$180.00",
+      "box": null,
+      "readingOrder": 69
+    },
+    {
+      "reviewerItemId": "w0070",
+      "text": "753",
+      "box": null,
+      "readingOrder": 70
+    },
+    {
+      "reviewerItemId": "w0071",
+      "text": "Bobcat",
+      "box": null,
+      "readingOrder": 71
+    },
+    {
+      "reviewerItemId": "w0072",
+      "text": "Skid",
+      "box": null,
+      "readingOrder": 72
+    },
+    {
+      "reviewerItemId": "w0073",
+      "text": "Steer",
+      "box": null,
+      "readingOrder": 73
+    },
+    {
+      "reviewerItemId": "w0074",
+      "text": "Loader",
+      "box": null,
+      "readingOrder": 74
+    },
+    {
+      "reviewerItemId": "w0075",
+      "text": "with",
+      "box": null,
+      "readingOrder": 75
+    },
+    {
+      "reviewerItemId": "w0076",
+      "text": "bucket",
+      "box": null,
+      "readingOrder": 76
+    },
+    {
+      "reviewerItemId": "w0077",
+      "text": "Hour",
+      "box": null,
+      "readingOrder": 77
+    },
+    {
+      "reviewerItemId": "w0078",
+      "text": "$180.00",
+      "box": null,
+      "readingOrder": 78
+    },
+    {
+      "reviewerItemId": "w0079",
+      "text": "753",
+      "box": null,
+      "readingOrder": 79
+    },
+    {
+      "reviewerItemId": "w0080",
+      "text": "Bobcat",
+      "box": null,
+      "readingOrder": 80
+    },
+    {
+      "reviewerItemId": "w0081",
+      "text": "Skid",
+      "box": null,
+      "readingOrder": 81
+    },
+    {
+      "reviewerItemId": "w0082",
+      "text": "Steer",
+      "box": null,
+      "readingOrder": 82
+    },
+    {
+      "reviewerItemId": "w0083",
+      "text": "Loader",
+      "box": null,
+      "readingOrder": 83
+    },
+    {
+      "reviewerItemId": "w0084",
+      "text": "with",
+      "box": null,
+      "readingOrder": 84
+    },
+    {
+      "reviewerItemId": "w0085",
+      "text": "street",
+      "box": null,
+      "readingOrder": 85
+    },
+    {
+      "reviewerItemId": "w0086",
+      "text": "Sweeper",
+      "box": null,
+      "readingOrder": 86
+    },
+    {
+      "reviewerItemId": "w0087",
+      "text": "Hour",
+      "box": null,
+      "readingOrder": 87
+    },
+    {
+      "reviewerItemId": "w0088",
+      "text": "$210.00",
+      "box": null,
+      "readingOrder": 88
+    },
+    {
+      "reviewerItemId": "w0089",
+      "text": "30-50",
+      "box": null,
+      "readingOrder": 89
+    },
+    {
+      "reviewerItemId": "w0090",
+      "text": "HP",
+      "box": null,
+      "readingOrder": 90
+    },
+    {
+      "reviewerItemId": "w0091",
+      "text": "Farm",
+      "box": null,
+      "readingOrder": 91
+    },
+    {
+      "reviewerItemId": "w0092",
+      "text": "Tractor",
+      "box": null,
+      "readingOrder": 92
+    },
+    {
+      "reviewerItemId": "w0093",
+      "text": "with",
+      "box": null,
+      "readingOrder": 93
+    },
+    {
+      "reviewerItemId": "w0094",
+      "text": "box",
+      "box": null,
+      "readingOrder": 94
+    },
+    {
+      "reviewerItemId": "w0095",
+      "text": "blade",
+      "box": null,
+      "readingOrder": 95
+    },
+    {
+      "reviewerItemId": "w0096",
+      "text": "or",
+      "box": null,
+      "readingOrder": 96
+    },
+    {
+      "reviewerItemId": "w0097",
+      "text": "rake",
+      "box": null,
+      "readingOrder": 97
+    },
+    {
+      "reviewerItemId": "w0098",
+      "text": "Hour",
+      "box": null,
+      "readingOrder": 98
+    },
+    {
+      "reviewerItemId": "w0099",
+      "text": "$160.00",
+      "box": null,
+      "readingOrder": 99
+    },
+    {
+      "reviewerItemId": "w0100",
+      "text": "2-2",
+      "box": null,
+      "readingOrder": 100
+    },
+    {
+      "reviewerItemId": "w0101",
+      "text": "½",
+      "box": null,
+      "readingOrder": 101
+    },
+    {
+      "reviewerItemId": "w0102",
+      "text": "Cu.Yd.",
+      "box": null,
+      "readingOrder": 102
+    },
+    {
+      "reviewerItemId": "w0103",
+      "text": "Articulated",
+      "box": null,
+      "readingOrder": 103
+    },
+    {
+      "reviewerItemId": "w0104",
+      "text": "Loader",
+      "box": null,
+      "readingOrder": 104
+    },
+    {
+      "reviewerItemId": "w0105",
+      "text": "with",
+      "box": null,
+      "readingOrder": 105
+    },
+    {
+      "reviewerItemId": "w0106",
+      "text": "bucket",
+      "box": null,
+      "readingOrder": 106
+    },
+    {
+      "reviewerItemId": "w0107",
+      "text": "Hour",
+      "box": null,
+      "readingOrder": 107
+    },
+    {
+      "reviewerItemId": "w0108",
+      "text": "$260.00",
+      "box": null,
+      "readingOrder": 108
+    },
+    {
+      "reviewerItemId": "w0109",
+      "text": "3-4",
+      "box": null,
+      "readingOrder": 109
+    },
+    {
+      "reviewerItemId": "w0110",
+      "text": "Cu.Yd.",
+      "box": null,
+      "readingOrder": 110
+    },
+    {
+      "reviewerItemId": "w0111",
+      "text": "Articulated",
+      "box": null,
+      "readingOrder": 111
+    },
+    {
+      "reviewerItemId": "w0112",
+      "text": "Loader",
+      "box": null,
+      "readingOrder": 112
+    },
+    {
+      "reviewerItemId": "w0113",
+      "text": "with",
+      "box": null,
+      "readingOrder": 113
+    },
+    {
+      "reviewerItemId": "w0114",
+      "text": "bucket",
+      "box": null,
+      "readingOrder": 114
+    },
+    {
+      "reviewerItemId": "w0115",
+      "text": "Hour",
+      "box": null,
+      "readingOrder": 115
+    },
+    {
+      "reviewerItemId": "w0116",
+      "text": "$260.00",
+      "box": null,
+      "readingOrder": 116
+    },
+    {
+      "reviewerItemId": "w0117",
+      "text": "JD",
+      "box": null,
+      "readingOrder": 117
+    },
+    {
+      "reviewerItemId": "w0118",
+      "text": "648E",
+      "box": null,
+      "readingOrder": 118
+    },
+    {
+      "reviewerItemId": "w0119",
+      "text": "Log",
+      "box": null,
+      "readingOrder": 119
+    },
+    {
+      "reviewerItemId": "w0120",
+      "text": "Skidder",
+      "box": null,
+      "readingOrder": 120
+    },
+    {
+      "reviewerItemId": "w0121",
+      "text": "or",
+      "box": null,
+      "readingOrder": 121
+    },
+    {
+      "reviewerItemId": "w0122",
+      "text": "equivalent",
+      "box": null,
+      "readingOrder": 122
+    },
+    {
+      "reviewerItemId": "w0123",
+      "text": "Hour",
+      "box": null,
+      "readingOrder": 123
+    },
+    {
+      "reviewerItemId": "w0124",
+      "text": "$260.00",
+      "box": null,
+      "readingOrder": 124
+    },
+    {
+      "reviewerItemId": "w0125",
+      "text": "CAT",
+      "box": null,
+      "readingOrder": 125
+    },
+    {
+      "reviewerItemId": "w0126",
+      "text": "D4",
+      "box": null,
+      "readingOrder": 126
+    },
+    {
+      "reviewerItemId": "w0127",
+      "text": "Dozer",
+      "box": null,
+      "readingOrder": 127
+    },
+    {
+      "reviewerItemId": "w0128",
+      "text": "Hour",
+      "box": null,
+      "readingOrder": 128
+    },
+    {
+      "reviewerItemId": "w0129",
+      "text": "$285.00",
+      "box": null,
+      "readingOrder": 129
+    },
+    {
+      "reviewerItemId": "w0130",
+      "text": "CAT",
+      "box": null,
+      "readingOrder": 130
+    },
+    {
+      "reviewerItemId": "w0131",
+      "text": "D6",
+      "box": null,
+      "readingOrder": 131
+    },
+    {
+      "reviewerItemId": "w0132",
+      "text": "Dozer",
+      "box": null,
+      "readingOrder": 132
+    },
+    {
+      "reviewerItemId": "w0133",
+      "text": "Hour",
+      "box": null,
+      "readingOrder": 133
+    },
+    {
+      "reviewerItemId": "w0134",
+      "text": "$320.00",
+      "box": null,
+      "readingOrder": 134
+    },
+    {
+      "reviewerItemId": "w0135",
+      "text": "CAT",
+      "box": null,
+      "readingOrder": 135
+    },
+    {
+      "reviewerItemId": "w0136",
+      "text": "D8",
+      "box": null,
+      "readingOrder": 136
+    },
+    {
+      "reviewerItemId": "w0137",
+      "text": "Dozer",
+      "box": null,
+      "readingOrder": 137
+    },
+    {
+      "reviewerItemId": "w0138",
+      "text": "Hour",
+      "box": null,
+      "readingOrder": 138
+    },
+    {
+      "reviewerItemId": "w0139",
+      "text": "$390.00",
+      "box": null,
+      "readingOrder": 139
+    },
+    {
+      "reviewerItemId": "w0140",
+      "text": "CAT",
+      "box": null,
+      "readingOrder": 140
+    },
+    {
+      "reviewerItemId": "w0141",
+      "text": "125",
+      "box": null,
+      "readingOrder": 141
+    },
+    {
+      "reviewerItemId": "w0142",
+      "text": "–",
+      "box": null,
+      "readingOrder": 142
+    },
+    {
+      "reviewerItemId": "w0143",
+      "text": "140",
+      "box": null,
+      "readingOrder": 143
+    },
+    {
+      "reviewerItemId": "w0144",
+      "text": "HP",
+      "box": null,
+      "readingOrder": 144
+    },
+    {
+      "reviewerItemId": "w0145",
+      "text": "Motor",
+      "box": null,
+      "readingOrder": 145
+    },
+    {
+      "reviewerItemId": "w0146",
+      "text": "Grader",
+      "box": null,
+      "readingOrder": 146
+    },
+    {
+      "reviewerItemId": "w0147",
+      "text": "Hour",
+      "box": null,
+      "readingOrder": 147
+    },
+    {
+      "reviewerItemId": "w0148",
+      "text": "$230.00",
+      "box": null,
+      "readingOrder": 148
+    },
+    {
+      "reviewerItemId": "w0149",
+      "text": "JD",
+      "box": null,
+      "readingOrder": 149
+    },
+    {
+      "reviewerItemId": "w0150",
+      "text": "690",
+      "box": null,
+      "readingOrder": 150
+    },
+    {
+      "reviewerItemId": "w0151",
+      "text": "Trackhoe",
+      "box": null,
+      "readingOrder": 151
+    },
+    {
+      "reviewerItemId": "w0152",
+      "text": "with",
+      "box": null,
+      "readingOrder": 152
+    },
+    {
+      "reviewerItemId": "w0153",
+      "text": "debris",
+      "box": null,
+      "readingOrder": 153
+    },
+    {
+      "reviewerItemId": "w0154",
+      "text": "grapple",
+      "box": null,
+      "readingOrder": 154
+    },
+    {
+      "reviewerItemId": "w0155",
+      "text": "Hour",
+      "box": null,
+      "readingOrder": 155
+    },
+    {
+      "reviewerItemId": "w0156",
+      "text": "$280.00",
+      "box": null,
+      "readingOrder": 156
+    },
+    {
+      "reviewerItemId": "w0157",
+      "text": "JD",
+      "box": null,
+      "readingOrder": 157
+    },
+    {
+      "reviewerItemId": "w0158",
+      "text": "690",
+      "box": null,
+      "readingOrder": 158
+    },
+    {
+      "reviewerItemId": "w0159",
+      "text": "Trackhoe",
+      "box": null,
+      "readingOrder": 159
+    },
+    {
+      "reviewerItemId": "w0160",
+      "text": "with",
+      "box": null,
+      "readingOrder": 160
+    },
+    {
+      "reviewerItemId": "w0161",
+      "text": "bucket",
+      "box": null,
+      "readingOrder": 161
+    },
+    {
+      "reviewerItemId": "w0162",

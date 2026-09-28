@@ -1,6 +1,9 @@
+import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -17,7 +20,7 @@ import {
   assertFinalLabelsOutputPath,
   assertSafeExistingOutput,
   resolveBenchmarkFinalizationMode,
-} from '@/scripts/evaluation/e3/finalize-benchmark-adjudication';
+} from '@/scripts/evaluation/e3/finalize-benchmark-adjudication-guards';
 import { assertCandidatePreviewOutputPath } from '@/scripts/evaluation/e3/compute-benchmark-candidate';
 
 const FRAME: BenchmarkPageLabels['frame'] = {
@@ -156,4 +159,72 @@ describe('E3 labels.json single-writer guard', () => {
     }
     expect(users).toEqual(['finalize-benchmark-adjudication.ts']);
   });
+});
+
+const FINALIZER = path.resolve('scripts/evaluation/e3/finalize-benchmark-adjudication.ts');
+const GUARDS = path.resolve('scripts/evaluation/e3/finalize-benchmark-adjudication-guards.ts');
+const VITE_NODE = path.resolve('node_modules/vite-node/vite-node.mjs');
+const CONFIG = path.resolve('vitest.config.ts');
+
+function runViteNode(args: readonly string[]) {
+  return spawnSync(process.execPath, [VITE_NODE, '--config', CONFIG, ...args], {
+    cwd: path.resolve('.'), encoding: 'utf8', timeout: 120_000,
+  });
+}
+
+async function sourceFiles(directory: string): Promise<string[]> {
+  const found: string[] = [];
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
+    const full = path.join(directory, entry.name);
+    if (entry.isDirectory()) found.push(...await sourceFiles(full));
+    else if (/\.(?:ts|tsx|mts|cts|js|mjs|cjs)$/.test(entry.name)) found.push(full);
+  }
+  return found;
+}
+
+describe('E3 finalizer CLI entry isolation', () => {
+  it('keeps the finalizer a pure CLI entry point that exports nothing', async () => {
+    const source = await readFile(FINALIZER, 'utf8');
+    expect(source).not.toMatch(/^\s*export\s/m);
+    expect(source).toMatch(/^main\(\)\.catch\(/m);
+  });
+
+  it('is never imported by any repository module', async () => {
+    const roots = ['app', 'components', 'lib', 'scripts', 'src'].map((dir) => path.resolve(dir))
+      .filter((dir) => existsSync(dir));
+    const importers: string[] = [];
+    for (const root of roots) {
+      for (const file of await sourceFiles(root)) {
+        if (path.resolve(file) === FINALIZER) continue;
+        const source = await readFile(file, 'utf8');
+        if (/(?:from|import\(|require\()\s*['"][^'"]*finalize-benchmark-adjudication(?:\.ts)?['"]/.test(source)) {
+          importers.push(path.relative(process.cwd(), file));
+        }
+      }
+    }
+    expect(importers).toEqual([]);
+  });
+
+  it('still runs main when the CLI is invoked directly', () => {
+    const result = runViteNode([FINALIZER]);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('[e3-adjudication] --workspace is required');
+  }, 180_000);
+
+  it('imports the finalizer guards without finalizing or writing output', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'e3-finalizer-import-'));
+    tempDirectories.push(directory);
+    const importer = path.join(directory, 'importer.ts');
+    const output = path.join(directory, 'labels.json');
+    await writeFile(importer, [
+      `import { resolveBenchmarkFinalizationMode } from ${JSON.stringify(pathToFileURL(GUARDS).href)};`,
+      "console.log(`IMPORTED ${typeof resolveBenchmarkFinalizationMode}`);",
+    ].join('\n'), 'utf8');
+    const result = runViteNode([importer, '--', '--workspace', directory, '--out', output]);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('IMPORTED function');
+    expect(`${result.stdout}${result.stderr}`).not.toContain('[e3-adjudication]');
+    expect(existsSync(output)).toBe(false);
+  }, 180_000);
 });

@@ -1,6 +1,5 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 
 import {
   benchmarkDualReviewSourceFromWorkspaceManifest,
@@ -11,17 +10,22 @@ import {
   parseBenchmarkDualReviewComparison,
   parseBenchmarkReviewerLabels,
 } from '@/lib/evaluation/benchmark/benchmarkDualReview';
-import {
-  bindBenchmarkLabels,
-  parseBenchmarkLabels,
-  type BenchmarkPageLabels,
-} from '@/lib/evaluation/benchmark/benchmarkContract';
 import { parseBenchmarkSuggestions } from '@/lib/evaluation/benchmark/benchmarkSuggestions';
+import {
+  assertFinalLabelsOutputPath,
+  assertSafeExistingOutput,
+  resolveBenchmarkFinalizationMode,
+} from '@/scripts/evaluation/e3/finalize-benchmark-adjudication-guards';
 
 /**
  * The sole E3 dual-review command allowed to write final labels.json. It
  * requires a complete, digest-bound adjudication and exactly one authority
  * mode: existing human approval or two delegated E3 approval artifacts.
+ *
+ * This file is a CLI entry point only. It exports nothing and must never be
+ * imported: vite-node's default mode cannot distinguish an entry module from
+ * an imported one, so `main()` runs whenever the module loads. Reusable guards
+ * live in `finalize-benchmark-adjudication-guards.ts`.
  *
  *   npx vite-node --config vitest.config.ts scripts/evaluation/e3/finalize-benchmark-adjudication.ts -- \
  *     --workspace .benchmark-workspace \
@@ -47,61 +51,6 @@ function requiredArgument(name: string): string {
   const value = argument(name)?.trim();
   if (!value) fail(`--${name} is required`);
   return path.resolve(value);
-}
-
-export type BenchmarkFinalizationMode = 'human' | 'delegated';
-
-export function resolveBenchmarkFinalizationMode(
-  adjudication: ReturnType<typeof parseBenchmarkAdjudication>,
-  approvalAFile: string | null,
-  approvalBFile: string | null,
-): BenchmarkFinalizationMode {
-  const hasHumanApproval = adjudication.approval !== null;
-  const hasAnyDelegatedApproval = approvalAFile !== null || approvalBFile !== null;
-  if (hasHumanApproval && hasAnyDelegatedApproval) {
-    throw new Error('human and delegated approval modes cannot execute together');
-  }
-  if (hasHumanApproval) return 'human';
-  if (!hasAnyDelegatedApproval) {
-    throw new Error('neither human nor delegated approval is present');
-  }
-  if (!approvalAFile || !approvalBFile) {
-    throw new Error('delegated mode requires exactly two approval artifacts');
-  }
-  return 'delegated';
-}
-
-export function assertFinalLabelsOutputPath(output: string): void {
-  if (path.basename(output).toLowerCase() !== 'labels.json') {
-    throw new Error('final adjudication output must be named labels.json');
-  }
-}
-
-export async function assertSafeExistingOutput(
-  output: string,
-  labels: BenchmarkPageLabels,
-) {
-  let bytes: Buffer;
-  try {
-    bytes = await readFile(output);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
-    throw error;
-  }
-  const existing = parseBenchmarkLabels(bytes);
-  const binding = bindBenchmarkLabels(existing, {
-    pageKey: labels.pageKey,
-    sha256: labels.source.sha256,
-    byteLength: labels.source.byteLength,
-    physicalPageNumber: labels.source.physicalPageNumber,
-    frame: labels.frame,
-  });
-  if (existing.labels.source.documentKey !== labels.source.documentKey) {
-    throw new Error('existing labels.json document key differs');
-  }
-  if (binding.state !== 'unlabeled') {
-    throw new Error('refusing to overwrite existing partial or complete benchmark truth');
-  }
 }
 
 async function main() {
@@ -138,12 +87,4 @@ async function main() {
   console.log(`[e3-adjudication] labeled by ${labels.labeledBy} at ${labels.labeledAt ?? 'null'}`);
 }
 
-const directEntry = process.argv[1]
-  ? import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
-  : false;
-const viteNodeEntry = process.argv[1]
-  ? /^vite-node(?:\.mjs)?$/i.test(path.basename(process.argv[1]))
-  : false;
-if (directEntry || viteNodeEntry) {
-  main().catch((error) => fail(error instanceof Error ? error.message : String(error)));
-}
+main().catch((error) => fail(error instanceof Error ? error.message : String(error)));

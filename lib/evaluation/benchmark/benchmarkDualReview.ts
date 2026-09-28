@@ -44,7 +44,7 @@ export const BENCHMARK_CANDIDATE_PREVIEW_AUTHORITY =
 export const E3_BENCHMARK_DELEGATED_APPROVAL = Object.freeze({
   active: true as const,
   scope: BENCHMARK_DELEGATION_SCOPE,
-  pageKeys: Object.freeze(['golden-p8', 'hillsdale-p3', 'dn-p107'] as const),
+  pageKeys: Object.freeze(['golden-p8', 'hillsdale-p3', 'dn-p106', 'dn-p107'] as const),
   approverIdentities: Object.freeze(['chatgpt', 'claude'] as const),
 });
 

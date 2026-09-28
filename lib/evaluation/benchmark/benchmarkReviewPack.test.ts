@@ -39,7 +39,7 @@ const FRAME: BenchmarkPageLabels['frame'] = {
 const PAGE: BenchmarkWorkspacePage = {
   pageKey: 'golden-p8',
   documentKey: 'golden',
-  characterization: 'mixed_native_and_ocr',
+  characterization: 'ocr_price_sheet',
   sha256: '922161a533bb6b8c1afb52cb9536044c8a6836bed62401634f4f505025631e8f',
   byteLength: 2_481_310,
   physicalPageNumber: 8,

@@ -1600,6 +1600,54 @@ describe('E3 delegated dual-AI benchmark approval', () => {
     })).toThrow(/outside delegated E3 benchmark scope/);
   });
 
+  it('admits dn-p106 to the explicit delegated E3 page scope', () => {
+    const source = { ...SOURCE, pageKey: 'dn-p106', physicalPageNumber: 106 };
+    const sourceArtifact = {
+      documentKey: source.documentKey,
+      sha256: source.sha256,
+      byteLength: source.byteLength,
+      physicalPageNumber: source.physicalPageNumber,
+    };
+    const reviewerA = reviewer('reviewer_a', {
+      pageKey: source.pageKey,
+      source: sourceArtifact,
+      coverageProposal: 'native_text_complete',
+    });
+    const reviewerB = reviewer('reviewer_b', {
+      pageKey: source.pageKey,
+      source: sourceArtifact,
+      coverageProposal: 'native_text_complete',
+    });
+    const compared = compareBenchmarkReviewerLabels({
+      reviewerA, reviewerB, source, suggestions: null,
+    });
+    const comparison = parseBenchmarkDualReviewComparison(JSON.stringify(compared));
+    const adjudication = parseBenchmarkAdjudication(JSON.stringify({
+      adjudicationVersion: BENCHMARK_ADJUDICATION_VERSION,
+      authority: BENCHMARK_ADJUDICATION_AUTHORITY,
+      pageKey: source.pageKey,
+      source: compared.source,
+      frame: compared.frame,
+      comparisonSha256: comparison.sha256,
+      reviewerALabelSetSha256: reviewerA.sha256,
+      reviewerBLabelSetSha256: reviewerB.sha256,
+      suggestionsSha256: null,
+      resolutions: resolutionsForAllIssues(compared),
+      userChallenges: [],
+      approval: null,
+    }));
+    const candidate = buildDelegatedBenchmarkCandidate({
+      reviewerA,
+      reviewerB,
+      comparison,
+      adjudication,
+      source,
+      suggestions: null,
+    });
+    expect(candidate.pageKey).toBe('dn-p106');
+    expect(candidate.authority).toBe(BENCHMARK_DELEGATED_LABEL_AUTHORITY);
+  });
+
   it('inherits incomplete-adjudication and stale-challenge failures from shared assembly', () => {
     const prepared = prepare({ approval: false, suggestionArtifact: null });
     const incomplete = parseBenchmarkAdjudication(JSON.stringify({

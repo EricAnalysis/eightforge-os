@@ -30,7 +30,7 @@ export const BENCHMARK_DELEGATED_LABELED_BY = 'delegated_dual_ai:chatgpt+claude'
 export const BENCHMARK_RESULT_AUTHORITY = 'non_authoritative_measurement' as const;
 
 /**
- * The three benchmark pages frozen for Evidence V2.
+ * The four benchmark pages frozen for Evidence V2.
  *
  * Source identity (sha256 + byte length) is pinned here and re-verified on
  * every read, so labels can never drift onto different bytes. Paths are never
@@ -41,8 +41,8 @@ export const BENCHMARK_PAGES = [
   {
     pageKey: 'golden-p8',
     documentKey: 'golden',
-    /** Mixed native/OCR page: the case E2's corrected canonical overlap can move. */
-    characterization: 'mixed_native_and_ocr',
+    /** Image-only OCR rate table: direct source measurement finds no native text items. */
+    characterization: 'ocr_price_sheet',
     sha256: '922161a533bb6b8c1afb52cb9536044c8a6836bed62401634f4f505025631e8f',
     physicalPageNumber: 8,
     sourceEnvVar: 'GOLDEN_CORPUS_ROOT',
@@ -59,9 +59,20 @@ export const BENCHMARK_PAGES = [
     sourceRelativePath: null,
   },
   {
+    pageKey: 'dn-p106',
+    documentKey: 'dn',
+    /** Native-text control for the adjacent scanned/OCR DN priced schedule. */
+    characterization: 'dense_native_priced_schedule',
+    sha256: '69247bff02744276b75f2cb0d4c00610e8614bd5822d2d10ae2ad35564c3b272',
+    physicalPageNumber: 106,
+    sourceEnvVar: 'DN_PRICED_SCHEDULE_SOURCE_PDF',
+    sourceRelativePath: null,
+  },
+  {
     pageKey: 'dn-p107',
     documentKey: 'dn',
-    characterization: 'dense_native_priced_schedule',
+    /** Scanned/OCR control paired with the adjacent native-text DN priced schedule. */
+    characterization: 'dense_scanned_ocr_priced_schedule',
     sha256: '69247bff02744276b75f2cb0d4c00610e8614bd5822d2d10ae2ad35564c3b272',
     physicalPageNumber: 107,
     sourceEnvVar: 'DN_PRICED_SCHEDULE_SOURCE_PDF',

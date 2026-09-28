@@ -13,7 +13,9 @@ import {
 import {
   BENCHMARK_WORKSPACE_FILES,
   benchmarkWorkspaceReadme,
-  buildBenchmarkWorkspaceManifest,
+  mergeBenchmarkWorkspaceManifest,
+  parseBenchmarkWorkspaceManifest,
+  type BenchmarkWorkspaceManifest,
   type BenchmarkWorkspacePage,
 } from '@/lib/evaluation/benchmark/benchmarkWorkspace';
 import { buildBenchmarkSuggestions } from '@/lib/evaluation/benchmark/benchmarkSuggestions';
@@ -103,6 +105,26 @@ async function existingLabels(file: string, source: Readonly<{
   return bindBenchmarkLabels(parsed, source);
 }
 
+async function existingManifest(file: string): Promise<BenchmarkWorkspaceManifest | null> {
+  try {
+    return parseBenchmarkWorkspaceManifest(await readFile(file));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+type PreparedWorkspacePage = Readonly<{
+  page: BenchmarkWorkspacePage;
+  directory: string;
+  png: Buffer;
+  frameJson: string;
+  labelsTemplate: string | null;
+  suggestionsJson: string | null;
+  suggestionSummary: string | null;
+  existingLabelState: BenchmarkWorkspacePage['labelState'] | null;
+}>;
+
 async function main() {
   const outDirectory = path.resolve(argument('out') ?? '.benchmark-workspace');
   const scale = Number(argument('scale') ?? RENDER_SCALE_DEFAULT);
@@ -113,12 +135,17 @@ async function main() {
   if (withLocalOcr && !withSuggestions) fail('--local-ocr requires --suggestions');
   const selected = only ? BENCHMARK_PAGES.filter((page) => page.pageKey === only) : BENCHMARK_PAGES;
   if (selected.length === 0) fail(`unknown --page ${only}`);
+  const manifestFile = path.join(outDirectory, 'manifest.json');
+  const previousManifest = await existingManifest(manifestFile);
+  if (only && !previousManifest) {
+    fail('page-specific preparation requires an existing complete manifest; run without --page first');
+  }
 
   const toolSource = path.resolve('lib/evaluation/benchmark/workspace/labelTool.html');
   const toolStateSource = path.resolve('lib/evaluation/benchmark/workspace/labelToolState.mjs');
   const tool = await readFile(toolSource, 'utf8');
   const toolState = await readFile(toolStateSource, 'utf8');
-  const pages: BenchmarkWorkspacePage[] = [];
+  const prepared: PreparedWorkspacePage[] = [];
 
   for (const page of selected) {
     const sourcePath = resolveSourcePath(page);
@@ -129,7 +156,6 @@ async function main() {
     }
     const rendered = await renderPage(bytes, page.physicalPageNumber, scale);
     const pageDirectory = path.join(outDirectory, page.pageKey);
-    await mkdir(pageDirectory, { recursive: true });
 
     const source = {
       pageKey: page.pageKey,
@@ -141,23 +167,17 @@ async function main() {
     };
     const labelsFile = path.join(pageDirectory, BENCHMARK_WORKSPACE_FILES.labels);
     const existing = await existingLabels(labelsFile, source);
-    if (!existing) {
-      await writeFile(labelsFile, `${JSON.stringify(buildBenchmarkLabelTemplate({
+    const labelsTemplate = existing ? null : `${JSON.stringify(buildBenchmarkLabelTemplate({
         pageKey: page.pageKey,
         documentKey: page.documentKey,
         sha256,
         byteLength: bytes.byteLength,
         physicalPageNumber: page.physicalPageNumber,
         frame: source.frame,
-      }), null, 2)}\n`, 'utf8');
-    }
+      }), null, 2)}\n`;
 
-    await writeFile(path.join(pageDirectory, BENCHMARK_WORKSPACE_FILES.render), rendered.png);
-    await writeFile(path.join(pageDirectory, BENCHMARK_WORKSPACE_FILES.frame),
-      `${JSON.stringify(source.frame, null, 2)}\n`, 'utf8');
-    await writeFile(path.join(pageDirectory, BENCHMARK_WORKSPACE_FILES.tool), tool, 'utf8');
-    await writeFile(path.join(pageDirectory, BENCHMARK_WORKSPACE_FILES.toolState), toolState, 'utf8');
-
+    let suggestionsJson: string | null = null;
+    let suggestionSummary: string | null = null;
     if (withSuggestions) {
       const sourceBytes = bytes.buffer.slice(
         bytes.byteOffset,
@@ -169,47 +189,81 @@ async function main() {
         pageFrame: source.frame,
         localOcr: withLocalOcr,
         requireOcrTokens: withLocalOcr
-          && (page.characterization === 'mixed_native_and_ocr'
-            || page.characterization === 'ocr_price_sheet'),
+          && (page.characterization === 'ocr_price_sheet'
+            || page.characterization === 'dense_scanned_ocr_priced_schedule'),
       });
       const suggestions = buildBenchmarkSuggestions({
         source,
         run: pass.run,
         localOcrGeneration: pass.localOcrGeneration,
       });
-      await writeFile(path.join(pageDirectory, BENCHMARK_WORKSPACE_FILES.suggestions),
-        `${JSON.stringify(suggestions, null, 2)}\n`, 'utf8');
-      console.log(`[e3-workspace] ${page.pageKey}: wrote provisional suggestions from benchmark machine pass`
+      suggestionsJson = `${JSON.stringify(suggestions, null, 2)}\n`;
+      suggestionSummary = `[e3-workspace] ${page.pageKey}: wrote provisional suggestions from benchmark machine pass`
         + ` (${suggestions.words.length} words, ${suggestions.cells.length} cells,`
         + ` ${suggestions.rows.length} rows; native=${pass.run.nativeTokenCount}, ocr=${pass.run.ocrTokenCount}`
-        + `${pass.localOcrRuntimeMs == null ? '' : `, local-ocr-ms=${pass.localOcrRuntimeMs}`})`);
+        + `${pass.localOcrRuntimeMs == null ? '' : `, local-ocr-ms=${pass.localOcrRuntimeMs}`})`;
     }
 
-    pages.push({
-      pageKey: page.pageKey,
-      documentKey: page.documentKey,
-      characterization: page.characterization,
-      sha256,
-      byteLength: bytes.byteLength,
-      physicalPageNumber: page.physicalPageNumber,
-      frame: source.frame,
-      render: {
-        file: BENCHMARK_WORKSPACE_FILES.render,
-        scale,
-        pixelWidth: rendered.pixelWidth,
-        pixelHeight: rendered.pixelHeight,
+    prepared.push({
+      page: {
+        pageKey: page.pageKey,
+        documentKey: page.documentKey,
+        characterization: page.characterization,
+        sha256,
+        byteLength: bytes.byteLength,
+        physicalPageNumber: page.physicalPageNumber,
+        frame: source.frame,
+        render: {
+          file: BENCHMARK_WORKSPACE_FILES.render,
+          scale,
+          pixelWidth: rendered.pixelWidth,
+          pixelHeight: rendered.pixelHeight,
+        },
+        labelsFile: BENCHMARK_WORKSPACE_FILES.labels,
+        labelState: existing?.state ?? 'unlabeled',
       },
-      labelsFile: BENCHMARK_WORKSPACE_FILES.labels,
-      labelState: existing?.state ?? 'unlabeled',
+      directory: pageDirectory,
+      png: rendered.png,
+      frameJson: `${JSON.stringify(source.frame, null, 2)}\n`,
+      labelsTemplate,
+      suggestionsJson,
+      suggestionSummary,
+      existingLabelState: existing?.state ?? null,
     });
-    console.log(`[e3-workspace] ${page.pageKey}: ${existing ? `kept existing labels (${existing.state})` : 'wrote empty label template'}`
-      + `, render ${rendered.pixelWidth}x${rendered.pixelHeight}px, frame ${source.frame.width}x${source.frame.height}pt`
-      + ` rotation ${source.frame.rotation}`);
   }
 
-  const manifest = buildBenchmarkWorkspaceManifest({ pages, generatedAt: new Date().toISOString() });
+  const manifest = mergeBenchmarkWorkspaceManifest({
+    existingManifest: previousManifest,
+    preparedPages: prepared.map((entry) => entry.page),
+    generatedAt: new Date().toISOString(),
+  });
+
+  for (const output of prepared) {
+    await mkdir(output.directory, { recursive: true });
+    if (output.labelsTemplate !== null) {
+      await writeFile(path.join(output.directory, BENCHMARK_WORKSPACE_FILES.labels),
+        output.labelsTemplate, 'utf8');
+    }
+    await writeFile(path.join(output.directory, BENCHMARK_WORKSPACE_FILES.render), output.png);
+    await writeFile(path.join(output.directory, BENCHMARK_WORKSPACE_FILES.frame),
+      output.frameJson, 'utf8');
+    await writeFile(path.join(output.directory, BENCHMARK_WORKSPACE_FILES.tool), tool, 'utf8');
+    await writeFile(path.join(output.directory, BENCHMARK_WORKSPACE_FILES.toolState), toolState, 'utf8');
+    if (output.suggestionsJson !== null) {
+      await writeFile(path.join(output.directory, BENCHMARK_WORKSPACE_FILES.suggestions),
+        output.suggestionsJson, 'utf8');
+    }
+    if (output.suggestionSummary) console.log(output.suggestionSummary);
+    console.log(`[e3-workspace] ${output.page.pageKey}: ${output.existingLabelState
+      ? `kept existing labels (${output.existingLabelState})`
+      : 'wrote empty label template'}`
+      + `, render ${output.page.render.pixelWidth}x${output.page.render.pixelHeight}px,`
+      + ` frame ${output.page.frame.width}x${output.page.frame.height}pt`
+      + ` rotation ${output.page.frame.rotation}`);
+  }
+
   await mkdir(outDirectory, { recursive: true });
-  await writeFile(path.join(outDirectory, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+  await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
   await writeFile(path.join(outDirectory, BENCHMARK_WORKSPACE_FILES.readme),
     `${benchmarkWorkspaceReadme(manifest)}\n`, 'utf8');
   console.log(`[e3-workspace] workspace ready at ${outDirectory}`);

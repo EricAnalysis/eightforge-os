@@ -1253,6 +1253,110 @@ describe('E3 dual-review labeling', () => {
     expect(() => finalize(prepared)).toThrow(/approved candidate digest differs/);
   });
 
+  it('accepts geometry-free manual word and cell semantics but keeps final assembly fail-closed', () => {
+    const reviewerB = reviewer('reviewer_b', {
+      words: [{ reviewerItemId: 'b-w1', readingOrder: 0, text: 'Debr1s', box: null }],
+      cells: [{
+        reviewerItemId: 'reviewer_b-c1', readingOrder: 0, text: 'Debr1s', box: null,
+        isHeader: false, columnName: null,
+      }],
+    });
+    const compared = compare({ reviewerB, suggestionArtifact: null });
+    const parsed = parseBenchmarkDualReviewComparison(JSON.stringify(compared));
+    const resolutions = compared.requiredAdjudicationIssueIds.map((issueId) => {
+      const issue = [
+        ...compared.textDisagreements,
+        ...compared.bboxDisagreements,
+        ...compared.cellStructureDisagreements,
+        ...compared.rowMembershipDisagreements,
+        ...compared.coverageDisagreements,
+        ...compared.ambiguousItems,
+        ...compared.unmatchedReviewerA,
+        ...compared.unmatchedReviewerB,
+      ].find((item) => item.issueId === issueId)!;
+      if (issue.kind === 'word') {
+        return {
+          issueId,
+          decision: 'manual_resolution' as const,
+          note: 'Freeze word semantics before geometry review',
+          manualValue: { kind: 'word' as const, text: 'Debris', box: null },
+        };
+      }
+      if (issue.kind === 'row') {
+        return {
+          issueId,
+          decision: 'manual_resolution' as const,
+          note: 'Preserve row membership while geometry remains pending',
+          manualValue: { kind: 'row' as const, orderedCellLabelIds: ['c-0001'] },
+        };
+      }
+      if (issue.kind === 'coverage') {
+        return {
+          issueId,
+          decision: 'manual_resolution' as const,
+          note: 'Resolve coverage independently of geometry',
+          manualValue: {
+            kind: 'coverage' as const,
+            truth: 'requires_ocr' as const,
+            note: null,
+          },
+        };
+      }
+      return {
+        issueId,
+        decision: 'manual_resolution' as const,
+        note: 'Freeze cell semantics before geometry review',
+        manualValue: {
+          kind: 'cell' as const,
+          text: 'Debris',
+          box: null,
+          isHeader: false,
+          columnName: null,
+        },
+      };
+    });
+    const adjudication = parseBenchmarkAdjudication(JSON.stringify({
+      adjudicationVersion: BENCHMARK_ADJUDICATION_VERSION,
+      authority: BENCHMARK_ADJUDICATION_AUTHORITY,
+      pageKey: SOURCE.pageKey,
+      source: {
+        documentKey: SOURCE.documentKey,
+        sha256: SOURCE.sha256,
+        byteLength: SOURCE.byteLength,
+        physicalPageNumber: SOURCE.physicalPageNumber,
+      },
+      frame: FRAME,
+      comparisonSha256: parsed.sha256,
+      reviewerALabelSetSha256: reviewer('reviewer_a').sha256,
+      reviewerBLabelSetSha256: reviewerB.sha256,
+      suggestionsSha256: null,
+      resolutions,
+      userChallenges: [],
+      approval: null,
+    }));
+
+    expect(adjudication.resolutions).toHaveLength(compared.requiredAdjudicationIssueIds.length);
+    expect(() => assembleResolvedBenchmarkLabels({
+      comparison: compared,
+      resolutions: adjudication.resolutions,
+      userChallenges: [],
+      approvedBy: APPROVED_BY,
+      approvedAt: APPROVED_AT,
+    })).toThrow(/manual word resolution has no valid final geometry/);
+    const wordGeometryAttached = adjudication.resolutions.map((resolution) => (
+      resolution.manualValue?.kind === 'word'
+        ? { ...resolution, manualValue: { ...resolution.manualValue, box: BOX } }
+        : resolution
+    ));
+    expect(() => assembleResolvedBenchmarkLabels({
+      comparison: compared,
+      resolutions: wordGeometryAttached,
+      userChallenges: [],
+      approvedBy: APPROVED_BY,
+      approvedAt: APPROVED_AT,
+    })).toThrow(/manual cell resolution has no valid final geometry/);
+  });
+
   it('rejects a challenge mutation after the user approved the candidate digest', () => {
     const compared = compare();
     const agreement = compared.exactAgreements.find((item) => item.matchKey === 'word:0')!;

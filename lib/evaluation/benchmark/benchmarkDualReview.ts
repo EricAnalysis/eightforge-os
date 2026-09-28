@@ -257,9 +257,15 @@ const ManualItemValueSchema = z.discriminatedUnion('kind', [
   ManualCellValueSchema,
   ManualRowValueSchema,
 ]);
+const SemanticAdjudicationWordValueSchema = ManualWordValueSchema.extend({
+  box: BenchmarkBoxSchema.nullable(),
+}).strict();
+const SemanticAdjudicationCellValueSchema = ManualCellValueSchema.extend({
+  box: BenchmarkBoxSchema.nullable(),
+}).strict();
 const ManualResolutionValueSchema = z.discriminatedUnion('kind', [
-  ManualWordValueSchema,
-  ManualCellValueSchema,
+  SemanticAdjudicationWordValueSchema,
+  SemanticAdjudicationCellValueSchema,
   ManualRowValueSchema,
   z.object({
     kind: z.literal('coverage'),
@@ -1076,6 +1082,10 @@ function assembleResolvedBenchmarkContent(input: Readonly<{
           `${issue.issueId}: manual resolution kind differs from issue kind`);
       }
       if (resolution.manualValue.kind === 'word') {
+        if (!resolution.manualValue.box) {
+          throw new BenchmarkDualReviewError('finalization_failed',
+            `${issue.issueId}: manual word resolution has no valid final geometry`);
+        }
         const labelId = finalId('word', issue.matchKey);
         words.set(labelId, {
           labelId,
@@ -1083,6 +1093,10 @@ function assembleResolvedBenchmarkContent(input: Readonly<{
           box: resolution.manualValue.box,
         });
       } else if (resolution.manualValue.kind === 'cell') {
+        if (!resolution.manualValue.box) {
+          throw new BenchmarkDualReviewError('finalization_failed',
+            `${issue.issueId}: manual cell resolution has no valid final geometry`);
+        }
         const labelId = finalId('cell', issue.matchKey);
         cells.set(labelId, {
           labelId,

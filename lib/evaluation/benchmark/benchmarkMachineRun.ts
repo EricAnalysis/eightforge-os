@@ -145,7 +145,14 @@ export async function runBenchmarkMachinePass(input: Readonly<{
   const rows: Array<{ orderedCellBoxes: BenchmarkBox[] }> = [];
   for (const row of reconstructedPage?.rows ?? []) {
     const rowBoxes: BenchmarkBox[] = [];
-    for (const cell of row.cells) {
+    // Structure in column order: resolved-role cells and role-unresolved cells
+    // alike. A role-unresolved cell carries no semantic column name.
+    const columns = reconstructedPage?.columns ?? [];
+    const ordered = [
+      ...row.cells.map((cell) => ({ cell, column: columns.findIndex((entry) => entry.role === cell.role) })),
+      ...(row.unresolved_role_cells ?? []).map((cell) => ({ cell, column: cell.column_index })),
+    ].sort((left, right) => left.column - right.column).map((entry) => entry.cell);
+    for (const cell of ordered) {
       const boxes = cell.source_refs.flatMap((ref) => {
         const box = boxForRef(ref);
         return box ? [box] : [];

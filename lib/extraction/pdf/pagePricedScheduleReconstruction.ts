@@ -125,6 +125,8 @@ export type PricedScheduleColumnBand = {
   readonly x_max: number | null;
   /** Raw authored header text that established this column. */
   readonly header_text: string;
+  /** The header-line tokens that established this column, left to right. */
+  readonly header_source_refs?: readonly PricedScheduleCellSourceRef[];
 };
 
 export type PricedScheduleCellSourceRef = {
@@ -155,10 +157,36 @@ export type PricedScheduleCell = {
   readonly y_max: number;
 };
 
+/**
+ * A source-backed cell in a column the header defines but whose semantic role is
+ * unresolved. Structure only: it carries the column's authored header text and
+ * its own source tokens, never a role. It is kept apart from `cells`, so nothing
+ * that reads resolved-role cells (pricing, evidence anchoring) can consume it.
+ */
+export type PricedScheduleUnresolvedRoleCell = {
+  readonly role: null;
+  /** Index into the page's `columns`. */
+  readonly column_index: number;
+  /** The column's raw authored header text. Never a canonical role name. */
+  readonly header_text: string;
+  readonly raw_text: string;
+  readonly source_refs: readonly PricedScheduleCellSourceRef[];
+  readonly x_min: number;
+  readonly x_max: number;
+  readonly y_min: number;
+  readonly y_max: number;
+};
+
 export type PricedScheduleRow = {
   readonly row_index: number;
   readonly physical_page_number: number;
+  /** Cells whose column has a resolved semantic role. */
   readonly cells: readonly PricedScheduleCell[];
+  /**
+   * Source-backed cells in columns whose role is unresolved, in column order.
+   * Present only when the row has any. Never pricing evidence.
+   */
+  readonly unresolved_role_cells?: readonly PricedScheduleUnresolvedRoleCell[];
   /** Authored text of the whole reconstructed row, in column order. */
   readonly raw_text: string;
   readonly x_min: number;
@@ -251,6 +279,19 @@ export type PricedSchedulePage = {
    * token-by-token are byte-identical to before header interpretation existed.
    */
   readonly header_interpretation?: PricedScheduleHeaderInterpretation;
+  /**
+   * 'unresolved' when the table structure was reconstructed from deterministic
+   * geometry but a required semantic role is not recognized (the header's
+   * interpretation is unresolved). Rows are structure only: no pricing fact may
+   * be built from such a page. Absent means semantics are resolved.
+   */
+  readonly semantic_status?: 'unresolved';
+  /**
+   * Tokens in role-unresolved columns that could not be attached to exactly one
+   * published row. Reported rather than dropped or guessed. Present only when
+   * there are any.
+   */
+  readonly unattached_role_less_tokens?: readonly (PricedScheduleCellSourceRef & { readonly column_index: number })[];
 };
 
 /**
@@ -383,6 +424,7 @@ type HeaderColumn = {
   x: number;
   xEnd: number;
   text: string;
+  tokens: readonly PdfToken[];
 };
 
 type DetectedHeader = {
@@ -450,6 +492,13 @@ function headerCellOf(tokens: readonly PdfToken[]): HeaderCell {
  * recognized; non-compact cells are prose and are ignored entirely.
  */
 function headerColumnsFromCells(cells: readonly HeaderCell[]): PricedScheduleColumnBand[] | null {
+  const headerColumns = compactHeaderColumns(cells);
+  if (!headerRolesQualify(headerColumns.map((column) => column.role))) return null;
+  return columnBands(headerColumns);
+}
+
+/** Every compact cell on the line is a column, recognized or not; prose cells are ignored. */
+function compactHeaderColumns(cells: readonly HeaderCell[]): HeaderColumn[] {
   const headerColumns: HeaderColumn[] = [];
   for (const cell of cells) {
     const label = normalizeHeaderLabel(cell.text);
@@ -459,16 +508,21 @@ function headerColumnsFromCells(cells: readonly HeaderCell[]): PricedScheduleCol
       x: cell.x,
       xEnd: cell.xEnd,
       text: cell.text.trim(),
+      tokens: cell.tokens,
     });
   }
-  if (!headerRolesQualify(headerColumns.map((column) => column.role))) return null;
+  return headerColumns;
+}
 
+/** Column bands from the midpoints between adjacent header cells. */
+function columnBands(headerColumns: readonly HeaderColumn[]): PricedScheduleColumnBand[] {
   const sorted = [...headerColumns].sort((left, right) => left.x - right.x);
   return sorted.map((column, index) => ({
     role: column.role,
     x_min: index === 0 ? null : (sorted[index - 1]!.xEnd + column.x) / 2,
     x_max: index === sorted.length - 1 ? null : (column.xEnd + sorted[index + 1]!.x) / 2,
     header_text: column.text,
+    header_source_refs: [...column.tokens].sort(compareTokens).map((token) => sourceRefForToken(token)),
   }));
 }
 
@@ -720,6 +774,14 @@ function unresolvedHeaderCandidate(page: PdfLayoutPage): {
   y: number;
   rawText: string;
   interpretation: PricedScheduleHeaderInterpretation;
+  /**
+   * Column bands when the table's structure is deterministic even though its
+   * semantics are not: the line's grouping is clear, exactly one column is the
+   * rate column (the row spine), no recognized role repeats, and the only gap is
+   * a required role that an existing unrecognized column could hold. Null
+   * otherwise: then structure itself is unresolved.
+   */
+  structuralColumns: PricedScheduleColumnBand[] | null;
 } | null {
   const spineYs = page.lines
     .filter((line) => line.tokens.some((token) => isRowSpineToken(token)))
@@ -753,9 +815,20 @@ function unresolvedHeaderCandidate(page: PdfLayoutPage): {
   if (candidates.length !== 1) return null;
   const candidate = candidates[0]!;
   const { options, limitExceeded } = headerOptions(candidate.reason, candidate.reading, candidate.labels);
+  const structuralRoles = compactHeaderColumns(candidate.cells).flatMap((column) => (column.role ? [column.role] : []));
+  // The header must account for the table: every missing required role has to
+  // be mappable onto a column the header itself defines. A header that lacks
+  // such a column (for example one line of a header split across two) does not
+  // bound the table's columns, so its structure is unresolved too.
+  const structureDeterministic = candidate.reading.basis.clear
+    && candidate.reason === 'required_role_missing'
+    && structuralRoles.filter((role) => role === 'rate').length === 1
+    && new Set(structuralRoles).size === structuralRoles.length
+    && options.some((option) => option.kind === 'role_assignment' && option.qualifies);
   return {
     y: candidate.y,
     rawText: candidate.rawText,
+    structuralColumns: structureDeterministic ? columnBands(compactHeaderColumns(candidate.cells)) : null,
     interpretation: {
       ...headerInterpretation('unresolved', candidate.tokens, candidate.reading, candidate.cells),
       reason: candidate.reason,
@@ -766,22 +839,64 @@ function unresolvedHeaderCandidate(page: PdfLayoutPage): {
 }
 
 /**
- * Assigns a token to the column whose horizontal band contains it. A token
- * landing in an unrecognized column resolves to null and is dropped: its value
- * belongs to a column this module cannot name, and must never be folded into a
- * neighbouring column's authored text.
+ * Index of the column whose horizontal band contains the token's center, or -1.
+ * A token in an unrecognized column stays in that column: its value belongs to a
+ * column this module cannot name, and is never folded into a neighbouring
+ * column's authored text.
  */
-function bandForToken(
-  token: PdfToken,
-  columns: readonly PricedScheduleColumnBand[],
-): PricedScheduleColumnRole | null {
+function columnIndexForToken(token: PdfToken, columns: readonly PricedScheduleColumnBand[]): number {
   const center = tokenCenterX(token);
-  for (const column of columns) {
-    const aboveMin = column.x_min == null || center >= column.x_min;
-    const belowMax = column.x_max == null || center < column.x_max;
-    if (aboveMin && belowMax) return column.role;
+  return columns.findIndex((column) => (column.x_min == null || center >= column.x_min)
+    && (column.x_max == null || center < column.x_max));
+}
+
+/**
+ * Attaches tokens of role-unresolved columns to published rows by geometry only.
+ * A token joins a row when its vertical center lies within exactly one row's
+ * vertical extent (its admitted source lines), widened by the same fraction of
+ * glyph height that already defines "one visual line". A token within no row or
+ * within more than one is reported, never guessed. Row admission is untouched:
+ * these tokens are considered only after rows are final.
+ */
+function attachRoleLessTokens<T extends { lines: readonly SourceLine[] }>(
+  rows: readonly T[],
+  roleLess: ReadonlyArray<{ token: PdfToken; columnIndex: number }>,
+  columns: readonly PricedScheduleColumnBand[],
+  banded: readonly BandedToken[],
+  unattached: (PricedScheduleCellSourceRef & { column_index: number })[],
+): Map<T, PricedScheduleUnresolvedRoleCell[]> {
+  const result = new Map<T, PricedScheduleUnresolvedRoleCell[]>();
+  if (roleLess.length === 0) return result;
+  const typicalHeight = medianOf(banded.map((entry) => entry.token.height).filter((height) => height > 0)) ?? 0;
+  const tolerance = typicalHeight * LINE_MERGE_FRACTION;
+  const extents = rows.map((row) => {
+    const tokens = row.lines.flatMap((line) => line.tokens);
+    return {
+      row,
+      low: Math.min(...tokens.map((token) => token.y)) - tolerance,
+      high: Math.max(...tokens.map((token) => token.y + token.height)) + tolerance,
+    };
+  });
+  const byRow = new Map<T, Map<number, PdfToken[]>>();
+  for (const { token, columnIndex } of roleLess) {
+    const center = token.y + token.height / 2;
+    const hits = extents.filter((extent) => center >= extent.low && center <= extent.high);
+    if (hits.length !== 1) {
+      unattached.push({ ...sourceRefForToken(token), column_index: columnIndex });
+      continue;
+    }
+    const columnsOfRow = byRow.get(hits[0]!.row) ?? new Map<number, PdfToken[]>();
+    columnsOfRow.set(columnIndex, [...(columnsOfRow.get(columnIndex) ?? []), token]);
+    byRow.set(hits[0]!.row, columnsOfRow);
   }
-  return null;
+  for (const [row, columnsOfRow] of byRow) {
+    const cells = [...columnsOfRow.entries()].sort(([left], [right]) => left - right).flatMap(([columnIndex, tokens]) => {
+      const cell = buildCellFromTokens(tokens);
+      return cell ? [{ role: null, column_index: columnIndex, header_text: columns[columnIndex]!.header_text, ...cell }] : [];
+    });
+    if (cells.length > 0) result.set(row, cells);
+  }
+  return result;
 }
 
 type BandedToken = {
@@ -822,18 +937,23 @@ function buildCell(
   role: PricedScheduleColumnRole,
   banded: readonly BandedToken[],
 ): PricedScheduleCell | null {
-  if (banded.length === 0) return null;
+  const cell = buildCellFromTokens(banded.map((entry) => entry.token));
+  return cell ? { role, ...cell } : null;
+}
+
+/** Authored text and source refs of one cell, in visual reading order. */
+function buildCellFromTokens(tokens: readonly PdfToken[]): Omit<PricedScheduleCell, 'role'> | null {
+  if (tokens.length === 0) return null;
   // Visual reading order within a wrapped cell is top-to-bottom, then left-to-right.
-  const ordered = [...banded].sort((left, right) => {
+  const ordered = [...tokens].sort((left, right) => {
     if (right.y !== left.y) return right.y - left.y;
-    return compareTokens(left.token, right.token);
+    return compareTokens(left, right);
   });
-  const sourceRefs = ordered.map((entry) => sourceRefForToken(entry.token));
-  const rawText = ordered.map((entry) => entry.token.text.trim()).filter((text) => text.length > 0).join(' ');
+  const sourceRefs = ordered.map((token) => sourceRefForToken(token));
+  const rawText = ordered.map((token) => token.text.trim()).filter((text) => text.length > 0).join(' ');
   if (rawText.length === 0) return null;
 
   return {
-    role,
     raw_text: rawText,
     source_refs: sourceRefs,
     x_min: Math.min(...sourceRefs.map((ref) => ref.x_min)),
@@ -1105,38 +1225,65 @@ function reconstructPage(
   generatedCandidates: RecoveryCandidateV2[] = [],
 ): PricedSchedulePage | null {
   const headers = detectHeaders(page);
+  let header: DetectedHeader;
+  // Semantics resolved: every role admission needs is recognized. When false the
+  // structure is reconstructed from geometry alone and published as structure only.
+  let semanticsResolved = true;
   if (headers.length === 0) {
     // A plausible table whose header cannot be resolved is reported with its
-    // header evidence rather than disappearing. No columns, roles or rows are
-    // claimed for it.
+    // header evidence rather than disappearing.
     const unresolved = unresolvedHeaderCandidate(page);
     if (!unresolved) return null;
-    return {
-      status: 'failed_closed',
-      physical_page_number: page.page_number,
-      header_raw_text: unresolved.rawText,
-      header_y: unresolved.y,
-      columns: [],
-      rows: [],
-      rejected_spines: [],
-      unassigned_lines: [],
-      header_interpretation: unresolved.interpretation,
+    if (!unresolved.structuralColumns) {
+      // Structure itself is unresolved: no columns, roles or rows are claimed.
+      return {
+        status: 'failed_closed',
+        physical_page_number: page.page_number,
+        header_raw_text: unresolved.rawText,
+        header_y: unresolved.y,
+        columns: [],
+        rows: [],
+        rejected_spines: [],
+        unassigned_lines: [],
+        header_interpretation: unresolved.interpretation,
+      };
+    }
+    // Structure is deterministic; only a semantic role is unresolved. Rebuild the
+    // table from geometry, never from a guessed role, and never through recovery.
+    header = {
+      y: unresolved.y,
+      rawText: unresolved.rawText,
+      columns: unresolved.structuralColumns,
+      interpretation: unresolved.interpretation,
     };
+    semanticsResolved = false;
+    confirmed = new Map();
+    confirmedCandidates = [];
+    candidateBuildContext = undefined;
+  } else {
+    // A page presenting more than one priced-table header holds more than one
+    // table. Reconstructing it as a single table would let the second header and
+    // its rows be read through the first table's columns, so fail closed instead.
+    if (headers.length !== 1) return null;
+    header = headers[0]!;
   }
-  // A page presenting more than one priced-table header holds more than one
-  // table. Reconstructing it as a single table would let the second header and
-  // its rows be read through the first table's columns, so fail closed instead.
-  if (headers.length !== 1) return null;
-  const header = headers[0]!;
 
   const banded: BandedToken[] = [];
+  // Tokens in columns whose role is unresolved. They take no part in any row
+  // admission decision; they are attached to published rows afterwards.
+  const roleLess: Array<{ token: PdfToken; columnIndex: number }> = [];
   for (const line of page.lines) {
     for (const token of line.tokens) {
       // Only content below the header belongs to the schedule body.
       if (token.y >= header.y) continue;
       if (token.text.trim().length === 0) continue;
-      const role = bandForToken(token, header.columns);
-      if (!role) continue;
+      const columnIndex = columnIndexForToken(token, header.columns);
+      if (columnIndex < 0) continue;
+      const role = header.columns[columnIndex]!.role;
+      if (!role) {
+        roleLess.push({ token, columnIndex });
+        continue;
+      }
       banded.push({ token, role, y: token.y });
     }
   }
@@ -1160,6 +1307,7 @@ function reconstructPage(
   };
 
   const rejectedSpines: PricedScheduleRejectedSpine[] = [];
+  const unattachedRoleLess: (PricedScheduleCellSourceRef & { column_index: number })[] = [];
   const rejectLines = (
     spine: SourceLine,
     lines: readonly SourceLine[],
@@ -1187,6 +1335,8 @@ function reconstructPage(
     rejected_spines: rejectedSpines,
     unassigned_lines: unassignedLines,
     ...(header.interpretation ? { header_interpretation: header.interpretation } : {}),
+    ...(semanticsResolved ? {} : { semantic_status: 'unresolved' as const }),
+    ...(unattachedRoleLess.length > 0 ? { unattached_role_less_tokens: unattachedRoleLess } : {}),
   });
 
   // A qualifying header with no usable row sequence is distinct from a page
@@ -1394,6 +1544,12 @@ function reconstructPage(
   const recognizedRoles = header.columns
     .map((column) => column.role)
     .filter((role): role is PricedScheduleColumnRole => role != null);
+  // A row must carry the evidence a priced row is made of. With unresolved
+  // semantics only the recognized structural roles (the rate spine) can be
+  // required; the unrecognized column's cells stay role-less.
+  const admissionRoles = semanticsResolved
+    ? REQUIRED_ROLES
+    : REQUIRED_ROLES.filter((role) => recognizedRoles.includes(role));
 
   // Pitch-rejected candidates are diagnosed with every source line attributed
   // to them before body candidates or body bounds are constructed.
@@ -1504,7 +1660,7 @@ function reconstructPage(
     // A row must carry the evidence a priced row is made of: something it is
     // for, and what it costs. Unit and route stay optional, because real
     // schedules leave them blank on individual rows.
-    if (!REQUIRED_ROLES.every((role) => entry.populatedRoles.has(role))) {
+    if (!admissionRoles.every((role) => entry.populatedRoles.has(role))) {
       rejectLines(entry.spine, entry.lines, 'insufficient_row_structure');
       continue;
     }
@@ -1533,16 +1689,21 @@ function reconstructPage(
     for (const candidateId of entry.continuationCandidateIds) appliedCandidates.add(candidateId);
   }
 
-  const rows: PricedScheduleRow[] = accepted.map((entry) => ({
+  const roleLessByRow = attachRoleLessTokens(accepted, roleLess, header.columns, banded, unattachedRoleLess);
+  const rows: PricedScheduleRow[] = accepted.map((entry) => {
+    const unresolvedRoleCells = roleLessByRow.get(entry) ?? [];
+    return {
       row_index: entry.index,
       physical_page_number: page.page_number,
       cells: entry.cells,
+      ...(unresolvedRoleCells.length > 0 ? { unresolved_role_cells: unresolvedRoleCells } : {}),
       raw_text: entry.cells.map((cell) => cell.raw_text).join(' | '),
       x_min: Math.min(...entry.cells.map((cell) => cell.x_min)),
       x_max: Math.max(...entry.cells.map((cell) => cell.x_max)),
       y_min: Math.min(...entry.cells.map((cell) => cell.y_min)),
       y_max: Math.max(...entry.cells.map((cell) => cell.y_max)),
-    }));
+    };
+  });
 
   return pageResult('reconstructed', rows);
 }
@@ -1564,8 +1725,10 @@ function reconstructPage(
  *   - Description-like and rate-like roles are both among them.
  *   - Column bands come from the geometry of every compact header cell, including
  *     cells whose label is not recognized. Unrecognized cells claim their own
- *     band and their body tokens are dropped, so an unnamed column's values can
- *     never be presented as a neighbouring column's authored text.
+ *     band, so an unnamed column's values can never be presented as a
+ *     neighbouring column's authored text. Their body tokens take no part in row
+ *     admission; after rows are final they are attached, by vertical extent
+ *     only, as role-less `unresolved_role_cells` -- structure, never pricing.
  *   - At least one row populates every recognized column and anchors the table
  *     body. At least two priced rows must survive before the page is published;
  *     a page without that evidence fails closed.

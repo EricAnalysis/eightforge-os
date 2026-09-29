@@ -154,6 +154,36 @@ describe('OCR-normalized priced schedule reconstruction', () => {
     expect(rowsOf(ocrOnly(splitHeader))).toEqual(native);
   });
 
+  it('preserves an unknown column identically from OCR words as from native text', () => {
+    // A column the vocabulary cannot name ("Code") keeps its cells as role-less
+    // structure, and the OCR page yields exactly the native structure.
+    const withCode = [
+      nativeLine(700, [
+        { x: 10, text: 'Code', width: 25 },
+        { x: 50, text: 'Description', width: 70 },
+        { x: 200, text: 'Unit', width: 30 },
+        { x: 300, text: 'Route', width: 40 },
+        { x: 450, text: 'Cost', width: 30 },
+      ]),
+      LINES[1]!,
+      nativeLine(670, [{ x: 10, text: 'A1', width: 12 }, ...LINES[2]!.tokens.map((token) => ({ x: token.x, text: token.text, width: token.width }))]),
+      LINES[3]!,
+      nativeLine(570, [{ x: 10, text: 'B2', width: 12 }, ...LINES[4]!.tokens.map((token) => ({ x: token.x, text: token.text, width: token.width }))]),
+    ];
+    const structure = (layout: PdfLayout) => buildPagePricedScheduleReconstruction({ layout }).pages[0]!.rows
+      .map((row) => (row.unresolved_role_cells ?? []).map((cell) => [cell.header_text, cell.raw_text, cell.role]));
+    const native = structure({
+      page_count: 1, gaps: [],
+      pages: [{ page_number: 1, width: PAGE_WIDTH, height: PAGE_HEIGHT, lines: withCode }],
+    });
+    expect(native).toEqual([[['Code', 'A1', null]], [['Code', 'B2', null]]]);
+    expect(structure(ocrOnly(withCode))).toEqual(native);
+    expect(rowsOf(ocrOnly(withCode))).toEqual(rowsOf({
+      page_count: 1, gaps: [],
+      pages: [{ page_number: 1, width: PAGE_WIDTH, height: PAGE_HEIGHT, lines: withCode }],
+    }));
+  });
+
   it('still fails closed, never guessing, when one role names two separate columns', () => {
     // Column gaps are never bridged: two unit columns remain an ambiguous header.
     const ambiguousHeader = [

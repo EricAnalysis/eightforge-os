@@ -115,6 +115,21 @@ describe('benchmark machine pass', () => {
     });
   }, 60_000);
 
+  it('projects role-less columns as structure, in column order, with no semantic column name', async () => {
+    const withCode = buildSyntheticPdf([{ mediaBox: [0, 0, 612, 792], runs: [
+      { text: 'Code', x: 10, y: 700 }, ...RUNS.slice(0, 4),
+      { text: 'A1', x: 10, y: 660 }, ...RUNS.slice(4, 9),
+      { text: 'B2', x: 10, y: 630 }, ...RUNS.slice(9),
+    ] }]);
+    const run = await runBenchmarkMachinePass({ bytes: withCode, physicalPageNumber: 1 });
+    const code = run.prediction.cells.filter((cell) => cell.text === 'A1' || cell.text === 'B2');
+    expect(code.map((cell) => cell.columnName)).toEqual([null, null]);
+    // Each row leads with its role-less "Code" cell: structure keeps column order.
+    const a1 = code.find((cell) => cell.text === 'A1')!.box;
+    expect(run.prediction.rows.some((row) => row.orderedCellBoxes[0]!.x_min === a1.x_min
+      && row.orderedCellBoxes[0]!.y_min === a1.y_min)).toBe(true);
+  }, 60_000);
+
   it('scores as labels_unavailable until a human labels the page', async () => {
     const run = await runBenchmarkMachinePass({ bytes: bytes(), physicalPageNumber: 1 });
     const binding = bindBenchmarkLabels(

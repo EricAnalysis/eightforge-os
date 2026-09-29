@@ -1555,7 +1555,7 @@ describe('generic single-page priced schedule reconstruction', () => {
     expect(new Set(options.map((option) => option.option_id)).size).toBe(options.length);
   });
 
-  it('OCR3: an unrecognized label leaves its role unresolved, with a source-backed option', () => {
+  it('OCR3: an unrecognized label leaves its role unresolved while the table structure survives', () => {
     const result = reconstructSinglePage([
       line(7, 700, [
         { x: DESCRIPTION_X, text: 'Equipment', width: 45 }, { x: 99, text: 'Description', width: 55 },
@@ -1564,8 +1564,19 @@ describe('generic single-page priced schedule reconstruction', () => {
       ]),
       ...wordLevelBody,
     ]);
-    // "Equipment Description" is preserved as evidence; no role is guessed for it.
-    expect(result).toMatchObject({ status: 'failed_closed', columns: [], rows: [] });
+    // Structure resolved, semantics not: the table is rebuilt from geometry and
+    // "Equipment Description" stays authored text in a role-less column.
+    expect(result).toMatchObject({ status: 'reconstructed', semantic_status: 'unresolved' });
+    expect(result!.columns.map((column) => [column.header_text, column.role])).toEqual([
+      ['Equipment Description', null], ['Unit', 'unit'], ['Unit Price', 'rate'],
+    ]);
+    expect(result!.rows).toHaveLength(2);
+    expect(result!.rows[0]!.cells.map((cell) => [cell.role, cell.raw_text])).toEqual([['unit', 'Widget'], ['rate', '$12.00']]);
+    expect(result!.rows[0]!.unresolved_role_cells).toEqual([expect.objectContaining({
+      role: null, column_index: 0, header_text: 'Equipment Description', raw_text: 'Alpha service',
+    })]);
+    expect(result!.rows.flatMap((row) => row.cells).some((cell) => cell.role === 'description')).toBe(false);
+    // Promoting the column to a role needs a reviewed choice of this option.
     const interpretation = result!.header_interpretation!;
     expect(interpretation).toMatchObject({ status: 'unresolved', reason: 'required_role_missing' });
     expect(interpretation.labels.map((label) => [label.text, label.role])).toEqual([
@@ -1665,8 +1676,116 @@ describe('generic single-page priced schedule reconstruction', () => {
     }
     for (const label of ['Equipment Description', 'Heavy Equipment Description']) {
       const result = reconstructSinglePage([headerWith('Cost', label), ...twoBodyRows]);
-      expect(result, `${label} must not be given a role`).toMatchObject({ status: 'failed_closed', rows: [] });
+      expect(result, `${label} must not be given a role`).toMatchObject({ status: 'reconstructed', semantic_status: 'unresolved' });
+      expect(result!.columns[0]).toMatchObject({ role: null, header_text: label });
+      expect(result!.rows.flatMap((row) => row.cells).some((cell) => cell.role === 'description')).toBe(false);
     }
+  });
+
+  // ---------------------------------------------------------------------------
+  // R2: source structure survives independently of semantic roles. A column the
+  // header defines keeps its body cells even when its role is unknown; those
+  // cells are role-less structure, never pricing evidence.
+  // ---------------------------------------------------------------------------
+
+  const LINE_X = 10;
+  const withLineNumbers = (lineNumbers: boolean) => [
+    line(7, 700, [
+      { x: LINE_X, text: 'Line #', width: 30 },
+      { x: DESCRIPTION_X, text: 'Description', width: 70 },
+      { x: UNIT_X, text: 'Unit of Measure', width: 80 },
+      { x: ORIGIN_X, text: 'Origin/ Destination', width: 90 },
+      { x: CURRENCY_X, text: 'Cost', width: 30 },
+    ]),
+    line(7, 680, [
+      ...(lineNumbers ? [{ x: LINE_X, text: '0001', width: 25 }] : []),
+      { x: DESCRIPTION_X, text: 'Alpha service', width: 100 }, { x: UNIT_X, text: 'Widget', width: 60 },
+      { x: ORIGIN_X, text: 'A to B', width: 100 }, { x: CURRENCY_X, text: '$', width: 8 }, { x: AMOUNT_X, text: '12.00', width: 40 },
+    ]),
+    line(7, 660, [
+      ...(lineNumbers ? [{ x: LINE_X, text: '0002', width: 25 }] : []),
+      { x: DESCRIPTION_X, text: 'Beta service', width: 100 }, { x: UNIT_X, text: 'Widget', width: 60 },
+      { x: ORIGIN_X, text: 'B to C', width: 100 }, { x: CURRENCY_X, text: '$', width: 8 }, { x: AMOUNT_X, text: '3.50', width: 40 },
+    ]),
+  ];
+
+  it('R2-1: a table of recognized columns is unchanged and carries no role-less fields', () => {
+    const result = reconstructSinglePage([headerWith('Cost'), ...twoBodyRows])!;
+    expect(result.status).toBe('reconstructed');
+    expect(result).not.toHaveProperty('semantic_status');
+    expect(result).not.toHaveProperty('unattached_role_less_tokens');
+    for (const row of result.rows) expect(row).not.toHaveProperty('unresolved_role_cells');
+  });
+
+  it('R2-2: an unknown column keeps its authored header, its source tokens, and its cells', () => {
+    const result = reconstructSinglePage(withLineNumbers(true))!;
+    expect(result.status).toBe('reconstructed');
+    expect(result).not.toHaveProperty('semantic_status');
+    expect(result.columns[0]).toMatchObject({ role: null, header_text: 'Line #' });
+    expect(result.columns[0]!.header_source_refs!.map((ref) => ref.text)).toEqual(['Line #']);
+    expect(result.rows.map((row) => row.unresolved_role_cells)).toEqual([
+      [expect.objectContaining({ role: null, column_index: 0, header_text: 'Line #', raw_text: '0001' })],
+      [expect.objectContaining({ role: null, column_index: 0, header_text: 'Line #', raw_text: '0002' })],
+    ]);
+    const cell = result.rows[0]!.unresolved_role_cells![0]!;
+    expect(cell.source_refs.map((ref) => [ref.text, ref.x_min])).toEqual([['0001', LINE_X]]);
+    // No canonical role name is written anywhere for the unknown column.
+    expect(JSON.stringify(result.rows[0]!.unresolved_role_cells)).not.toMatch(/description|unit|rate|origin/);
+  });
+
+  it('R2-3: role-less cells never change row admission or the resolved-role cells', () => {
+    const withTokens = reconstructSinglePage(withLineNumbers(true))!;
+    const withoutTokens = reconstructSinglePage(withLineNumbers(false))!;
+    expect(withTokens.rows.map((row) => row.cells)).toEqual(withoutTokens.rows.map((row) => row.cells));
+    expect(withTokens.rows.map((row) => row.raw_text)).toEqual(withoutTokens.rows.map((row) => row.raw_text));
+  });
+
+  it('R2-4: role-less cells never become pricing facts', () => {
+    const priced = (lines: readonly PdfLayoutLine[]) => buildContractRateScheduleRows({
+      rateTable: null,
+      pricedScheduleReconstruction: buildPagePricedScheduleReconstruction({ layout: layoutOf([page(7, lines)]) }),
+    });
+    const withTokens = priced(withLineNumbers(true));
+    expect(withTokens).toHaveLength(2);
+    expect(withTokens).toEqual(priced(withLineNumbers(false)));
+    expect(JSON.stringify(withTokens)).not.toMatch(/0001|0002/);
+  });
+
+  it('R2-5: a page whose required role is unresolved yields structure but no pricing facts', () => {
+    const recon = buildPagePricedScheduleReconstruction({
+      layout: layoutOf([page(7, [headerWith('Cost', 'Equipment Description'), ...twoBodyRows])]),
+    });
+    expect(recon.pages[0]).toMatchObject({ status: 'reconstructed', semantic_status: 'unresolved' });
+    expect(recon.pages[0]!.rows).toHaveLength(2);
+    expect(buildContractRateScheduleRows({ rateTable: null, pricedScheduleReconstruction: recon })).toEqual([]);
+  });
+
+  it('R2-6: pricing abstains on any page marked semantically unresolved, whatever its cells', () => {
+    const recon = buildPagePricedScheduleReconstruction({
+      layout: layoutOf([page(7, [headerWith('Cost'), ...twoBodyRows])]),
+    });
+    expect(buildContractRateScheduleRows({ rateTable: null, pricedScheduleReconstruction: recon })).toHaveLength(2);
+    const marked = { ...recon, pages: recon.pages.map((entry) => ({ ...entry, semantic_status: 'unresolved' as const })) };
+    expect(buildContractRateScheduleRows({ rateTable: null, pricedScheduleReconstruction: marked })).toEqual([]);
+  });
+
+  it('R2-7: a role-less token not inside exactly one row is reported, never guessed', () => {
+    const lines = withLineNumbers(false);
+    // Between the two rows' vertical extents: it belongs to neither.
+    lines.push(line(7, 670, [{ x: LINE_X, text: '0099', width: 25 }]));
+    const result = reconstructSinglePage(lines)!;
+    expect(result.rows.every((row) => !row.unresolved_role_cells)).toBe(true);
+    expect(result.unattached_role_less_tokens!.map((token) => [token.text, token.column_index])).toEqual([['0099', 0]]);
+  });
+
+  it('R2-8: a header that does not account for a missing required role stays failed closed', () => {
+    // Only the rate side of the header is present: no column could hold the
+    // description, so the table's columns are not bounded by the header.
+    const result = reconstructSinglePage([
+      line(7, 700, [{ x: ORIGIN_X, text: 'Origin/ Destination', width: 90 }, { x: CURRENCY_X, text: 'Cost', width: 30 }]),
+      ...twoBodyRows,
+    ]);
+    expect(result).toMatchObject({ status: 'failed_closed', columns: [], rows: [] });
   });
 
 });

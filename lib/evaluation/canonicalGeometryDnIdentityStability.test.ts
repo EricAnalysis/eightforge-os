@@ -7,7 +7,10 @@ import { describe, expect, it } from 'vitest';
 import { hashCanonical } from '@/lib/extraction/domain/hash';
 import { loadPdfLayout } from '@/lib/extraction/pdf/extractText';
 import { buildPdfLayoutObservationsLayer } from '@/lib/extraction/pdf/layoutObservationEvidence';
-import { buildPagePricedScheduleReconstruction } from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
+import {
+  buildPagePricedScheduleReconstruction,
+  type PagePricedScheduleReconstruction,
+} from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
 import { recoveryCandidateDigest } from '@/lib/extraction/recovery/recoveryCandidateV2';
 import { buildDurableRecoveryProposalV2 } from '@/lib/server/forgewingRecoveryProposalPersistence';
 
@@ -21,6 +24,23 @@ import { buildDurableRecoveryProposalV2 } from '@/lib/server/forgewingRecoveryPr
 
 const sourcePdfPath = process.env.DN_PRICED_SCHEDULE_SOURCE_PDF?.trim();
 const EXPECTED_SHA256 = '69247bff02744276b75f2cb0d4c00610e8614bd5822d2d10ae2ad35564c3b272';
+/**
+ * The reconstruction as it existed before role-less structure (E3 remediation 2),
+ * which only adds fields: column header source refs, role-less row cells, the
+ * semantic status and unattached role-less tokens. Stripping exactly those and
+ * matching the recorded hash proves every pre-existing byte is unchanged.
+ */
+function preRoleLessReconstruction(reconstruction: PagePricedScheduleReconstruction): PagePricedScheduleReconstruction {
+  return {
+    ...reconstruction,
+    pages: reconstruction.pages.map(({ semantic_status: _status, unattached_role_less_tokens: _unattached, ...page }) => ({
+      ...page,
+      columns: page.columns.map(({ header_source_refs: _refs, ...column }) => column),
+      rows: page.rows.map(({ unresolved_role_cells: _cells, ...row }) => row),
+    })),
+  };
+}
+
 const PRICED_PAGE = 106;
 const OBSERVATION_CONTEXT = {
   sourceDocumentId: 'dn-corpus-document',
@@ -117,7 +137,7 @@ describe.skipIf(!sourcePdfPath)('E2 identity stability on DN p106', () => {
       sourceTokenGeometryHash: hashCanonical(tokens.map((token) => ({
         text: token.text, x: token.x, y: token.y, width: token.width, height: token.height,
       }))),
-      reconstructionHash: hashCanonical({ ...reconstruction, recovery_candidates: undefined }),
+      reconstructionHash: hashCanonical(preRoleLessReconstruction({ ...reconstruction, recovery_candidates: undefined })),
       observationLayerHashWithoutE2Sidecar: hashCanonical(layerWithoutSidecar),
       closureStatus: observationsLayer.closure.status,
     };

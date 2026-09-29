@@ -1424,6 +1424,9 @@ function buildPagePricedScheduleRows(
   );
 
   for (const page of pages) {
+    // Structure-only page: a required semantic role is unresolved. Its rows are
+    // source evidence awaiting review, never pricing facts.
+    if (page.semantic_status === 'unresolved') continue;
     const pageRows = [...page.rows].sort((left, right) => left.row_index - right.row_index);
     for (const row of pageRows) {
       const descriptionCell = cellByRole(row, 'description');

@@ -9,7 +9,10 @@ import {
   resolvePdfLayoutObservationEvidence,
 } from '@/lib/extraction/pdf/layoutObservationEvidence';
 import { mergeOcrFallbackLayout, type OcrGeometryPage } from '@/lib/extraction/pdf/ocrGeometryLayout';
-import { buildPagePricedScheduleReconstruction } from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
+import {
+  buildPagePricedScheduleReconstruction,
+  type PagePricedScheduleReconstruction,
+} from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
 import { recoveryCandidateDigest } from '@/lib/extraction/recovery/recoveryCandidateV2';
 import type { ForgewingPricingRateClusterRecoveryBundle } from '@/lib/forgewing/tasks/pricingRateClusterRecovery';
 import {
@@ -30,6 +33,23 @@ import {
  * The rotated and cropped scenarios matter most: they are exactly where E2
  * changes geometry semantics, and exactly where identity must not move.
  */
+
+/**
+ * The reconstruction as it existed before role-less structure (E3 remediation 2),
+ * which only adds fields: column header source refs, role-less row cells, the
+ * semantic status and unattached role-less tokens. Stripping exactly those and
+ * matching the recorded hash proves every pre-existing byte is unchanged.
+ */
+function preRoleLessReconstruction(reconstruction: PagePricedScheduleReconstruction): PagePricedScheduleReconstruction {
+  return {
+    ...reconstruction,
+    pages: reconstruction.pages.map(({ semantic_status: _status, unattached_role_less_tokens: _unattached, ...page }) => ({
+      ...page,
+      columns: page.columns.map(({ header_source_refs: _refs, ...column }) => column),
+      rows: page.rows.map(({ unresolved_role_cells: _cells, ...row }) => row),
+    })),
+  };
+}
 
 const CONTEXT = {
   sourceDocumentId: '11111111-1111-4111-8111-111111111111',
@@ -159,7 +179,7 @@ async function run(scenario: Scenario) {
       text: token.text, x: token.x, y: token.y, width: token.width, height: token.height,
       source: token.source ?? null, ocr_source_geometry: token.ocr_source_geometry ?? null,
     }))),
-    reconstructionHash: hashCanonical({ ...reconstruction, recovery_candidates: undefined }),
+    reconstructionHash: hashCanonical(preRoleLessReconstruction({ ...reconstruction, recovery_candidates: undefined })),
     candidateIds: candidates.map((candidate) => candidate.candidateId),
     candidateDigests: candidates.map((candidate) => recoveryCandidateDigest(candidate)),
     proposalsV2,

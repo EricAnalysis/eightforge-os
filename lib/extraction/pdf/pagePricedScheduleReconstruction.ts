@@ -1,3 +1,4 @@
+import { hashCanonical } from '@/lib/extraction/domain/hash';
 import type { PdfLayout, PdfLayoutPage, PdfToken } from '@/lib/extraction/pdf/extractText';
 import {
   buildRecoveryCandidateV2,
@@ -39,9 +40,7 @@ export type PricedScheduleColumnRole =
  * does not name a column, and must never establish one.
  */
 const COLUMN_ROLE_PATTERNS: ReadonlyArray<readonly [PricedScheduleColumnRole, RegExp]> = [
-  // "<qualifier> Description" (e.g. "Equipment Description") names the same column
-  // as "Item Description": one leading word may qualify the label.
-  ['description', /^(?:(?:[a-z]+\s+)?description(?:\s+of\s+(?:work|works|service|services))?|item|service|classification|scope\s+of\s+work|work\s+item)$/i],
+  ['description', /^(?:description(?:\s+of\s+(?:work|works|service|services))?|item(?:\s+description)?|service|classification|scope\s+of\s+work|work\s+item)$/i],
   ['unit', /^(?:unit(?:\s+of\s+measure(?:ment)?)?|units|uom|u\s*\/\s*m|measure|measurement)$/i],
   ['origin_destination', /^(?:origin\s*\/?\s*destination|origin|destination|from\s*\/?\s*to|route|haul\s+route)$/i],
   ['rate', /^(?:cost(?:\s+per\s+unit)?|total\s+cost|rate(?:\s*\/\s*unit)?|unit\s+price|unit\s+cost|price|amount|charge)$/i],
@@ -244,6 +243,14 @@ export type PricedSchedulePage = {
    * row's authored text.
    */
   readonly unassigned_lines: readonly PricedScheduleUnassignedLine[];
+  /**
+   * How the header was read, when it was not read token-by-token: a header
+   * resolved by grouping words (with the tokens each label came from), or an
+   * unresolved header (status failed_closed, no columns, no rows) with its
+   * evidence and deterministic options. Absent otherwise, so pages resolved
+   * token-by-token are byte-identical to before header interpretation existed.
+   */
+  readonly header_interpretation?: PricedScheduleHeaderInterpretation;
 };
 
 /**
@@ -382,6 +389,8 @@ type DetectedHeader = {
   y: number;
   rawText: string;
   columns: PricedScheduleColumnBand[];
+  /** Present only when the header was not read token-by-token. */
+  interpretation?: PricedScheduleHeaderInterpretation;
 };
 
 /**
@@ -400,55 +409,39 @@ function detectHeaders(page: PdfLayoutPage): DetectedHeader[] {
   const headers: DetectedHeader[] = [];
 
   for (const line of orderedLines) {
-    // A line whose own tokens already read as a header is used as-is. Only a line
-    // that does not is re-read with its words grouped into labels, which is how a
-    // word-level token source (OCR) presents a multi-word label such as "Unit Price".
-    let columns = headerColumnsFromCells(line.tokens.map((token) => ({
-      text: token.text, x: token.x, xEnd: token.x + token.width,
-    })));
-    if (!columns) {
-      const grouped = wordGroupedHeaderCells(line.tokens);
-      if (grouped.length < line.tokens.length) columns = headerColumnsFromCells(grouped);
+    // A line whose own tokens already read as a header is used as-is.
+    const columns = headerColumnsFromCells(line.tokens.map((token) => headerCellOf([token])));
+    if (columns) {
+      headers.push({ y: line.y, rawText: line.text, columns });
+      continue;
     }
-    if (!columns) continue;
-
+    // Only a line that does not is re-read with its words grouped into labels --
+    // how a word-level token source (OCR) presents a label such as "Unit Price" --
+    // and only when the line's own geometry separates word spaces from column gaps.
+    const reading = groupedHeaderReading(line.tokens);
+    if (!reading.basis.clear || reading.cells.length === line.tokens.length) continue;
+    const grouped = headerColumnsFromCells(reading.cells);
+    if (!grouped) continue;
     headers.push({
       y: line.y,
       rawText: line.text,
-      columns,
+      columns: grouped,
+      interpretation: headerInterpretation('resolved_deterministically', line.tokens, reading),
     });
   }
 
   return headers;
 }
 
-type HeaderCell = { text: string; x: number; xEnd: number };
+type HeaderCell = { text: string; x: number; xEnd: number; tokens: readonly PdfToken[] };
 
-/**
- * A gap narrower than this fraction of the taller neighbour's glyph height is
- * the space between words of one label; column gaps are materially wider. This
- * is a typographic shape limit, not a value taken from any source document.
- */
-const HEADER_WORD_GAP_FRACTION = 0.75;
-
-/** Joins horizontally adjacent tokens on one line into label cells. */
-function wordGroupedHeaderCells(tokens: readonly PdfToken[]): HeaderCell[] {
-  const sorted = [...tokens].sort(compareTokens);
-  const cells: HeaderCell[] = [];
-  let previous: PdfToken | null = null;
-  for (const token of sorted) {
-    const current = cells.at(-1);
-    const gap = previous ? token.x - (previous.x + previous.width) : Number.POSITIVE_INFINITY;
-    if (current && previous
-        && gap <= HEADER_WORD_GAP_FRACTION * Math.max(previous.height, token.height)) {
-      current.text = `${current.text} ${token.text.trim()}`;
-      current.xEnd = Math.max(current.xEnd, token.x + token.width);
-    } else {
-      cells.push({ text: token.text.trim(), x: token.x, xEnd: token.x + token.width });
-    }
-    previous = token;
-  }
-  return cells;
+function headerCellOf(tokens: readonly PdfToken[]): HeaderCell {
+  return {
+    text: tokens.map((token) => token.text.trim()).join(' '),
+    x: Math.min(...tokens.map((token) => token.x)),
+    xEnd: Math.max(...tokens.map((token) => token.x + token.width)),
+    tokens,
+  };
 }
 
 /**
@@ -468,15 +461,7 @@ function headerColumnsFromCells(cells: readonly HeaderCell[]): PricedScheduleCol
       text: cell.text.trim(),
     });
   }
-
-  const roles = headerColumns
-    .map((column) => column.role)
-    .filter((role): role is PricedScheduleColumnRole => role != null);
-  const distinctRoles = new Set(roles);
-  if (distinctRoles.size < MINIMUM_DISTINCT_ROLES) return null;
-  if (!REQUIRED_ROLES.every((role) => distinctRoles.has(role))) return null;
-  // A repeated role means the header is ambiguous; fail closed rather than guess.
-  if (roles.length !== distinctRoles.size) return null;
+  if (!headerRolesQualify(headerColumns.map((column) => column.role))) return null;
 
   const sorted = [...headerColumns].sort((left, right) => left.x - right.x);
   return sorted.map((column, index) => ({
@@ -485,6 +470,299 @@ function headerColumnsFromCells(cells: readonly HeaderCell[]): PricedScheduleCol
     x_max: index === sorted.length - 1 ? null : (column.xEnd + sorted[index + 1]!.x) / 2,
     header_text: column.text,
   }));
+}
+
+function headerRolesQualify(labelRoles: readonly (PricedScheduleColumnRole | null)[]): boolean {
+  const roles = labelRoles.filter((role): role is PricedScheduleColumnRole => role != null);
+  const distinctRoles = new Set(roles);
+  if (distinctRoles.size < MINIMUM_DISTINCT_ROLES) return false;
+  if (!REQUIRED_ROLES.every((role) => distinctRoles.has(role))) return false;
+  // A repeated role means the header is ambiguous; fail closed rather than guess.
+  return roles.length === distinctRoles.size;
+}
+
+// -----------------------------------------------------------------------------
+// Header interpretation: word grouping, provenance, and auditable abstention.
+// -----------------------------------------------------------------------------
+
+export const PRICED_SCHEDULE_HEADER_INTERPRETATION_VERSION =
+  'priced_schedule_header_interpretation_v1' as const;
+
+/**
+ * A gap wider than this fraction of the taller neighbour's glyph height is never
+ * a space inside one label. A typographic shape limit, not a document value.
+ */
+const HEADER_WORD_GAP_CEILING = 0.75;
+/**
+ * Words are grouped only when the line separates its two kinds of gap clearly:
+ * every column gap must be at least this many times the widest word gap.
+ * Anything less is ambiguous and is abstained on, never guessed.
+ */
+const HEADER_LABEL_SEPARATION_FACTOR = 2;
+/** Upper bound on enumerated recovery options; beyond it none are offered. */
+const MAXIMUM_HEADER_OPTIONS = 16;
+
+export type PricedScheduleHeaderLabel = {
+  /** Derived label text: its source tokens' texts joined by one space. */
+  readonly text: string;
+  /** Role from the generic vocabulary; null when the label is not recognized. */
+  readonly role: PricedScheduleColumnRole | null;
+  /** The source tokens the label was derived from, left to right. */
+  readonly source_refs: readonly PricedScheduleCellSourceRef[];
+};
+
+export type PricedScheduleHeaderGroupingBasis = {
+  readonly word_gap_ceiling: number;
+  readonly separation_factor: number;
+  /** Widest gap read as a word space, as a fraction of glyph height; null if none. */
+  readonly max_intra_label_gap_ratio: number | null;
+  /** Narrowest gap read as a column gap, as a fraction of glyph height; null if none. */
+  readonly min_column_gap_ratio: number | null;
+  readonly clear: boolean;
+};
+
+export type PricedScheduleHeaderUnresolvedReason =
+  /** Word spaces and column gaps are not clearly separated on the line. */
+  | 'ambiguous_label_grouping'
+  /** One role names more than one column. */
+  | 'duplicate_role'
+  /** A role every priced schedule needs (description, rate) is not recognized. */
+  | 'required_role_missing'
+  /** Too few distinct recognized roles to establish a priced schedule. */
+  | 'insufficient_distinct_roles';
+
+/**
+ * One deterministic reading of an unresolved header, built only from the line's
+ * own tokens and the generic role vocabulary. No free text; no winner chosen.
+ */
+export type PricedScheduleHeaderOption = {
+  readonly option_id: string;
+  /** label_grouping: another way to group the words; role_assignment: another role map. */
+  readonly kind: 'label_grouping' | 'role_assignment';
+  readonly labels: readonly PricedScheduleHeaderLabel[];
+  /** Whether this reading would satisfy the header rules if a reviewer chose it. */
+  readonly qualifies: boolean;
+};
+
+/**
+ * How a header was read. Absent on a page whose header qualified token-by-token.
+ * Derived structure only: the source tokens stay the evidence.
+ */
+export type PricedScheduleHeaderInterpretation = {
+  readonly version: typeof PRICED_SCHEDULE_HEADER_INTERPRETATION_VERSION;
+  readonly status: 'resolved_deterministically' | 'unresolved';
+  readonly method: 'word_grouped_labels' | 'token_labels';
+  /** Every token on the header line, left to right. */
+  readonly source_refs: readonly PricedScheduleCellSourceRef[];
+  /** The reading that was evaluated. */
+  readonly labels: readonly PricedScheduleHeaderLabel[];
+  readonly grouping_basis: PricedScheduleHeaderGroupingBasis;
+  readonly reason?: PricedScheduleHeaderUnresolvedReason;
+  readonly options?: readonly PricedScheduleHeaderOption[];
+  /** True when more readings exist than MAXIMUM_HEADER_OPTIONS; none are offered then. */
+  readonly options_limit_exceeded?: boolean;
+};
+
+type GroupedHeaderReading = {
+  cells: HeaderCell[];
+  /** Gap ratio between each pair of adjacent sorted tokens. */
+  ratios: number[];
+  sorted: PdfToken[];
+  basis: PricedScheduleHeaderGroupingBasis;
+};
+
+const roundRatio = (value: number) => Math.round(value * 10_000) / 10_000;
+
+function groupedHeaderReading(tokens: readonly PdfToken[]): GroupedHeaderReading {
+  const sorted = [...tokens].sort(compareTokens);
+  const ratios = sorted.slice(1).map((token, index) => {
+    const previous = sorted[index]!;
+    const height = Math.max(previous.height, token.height, Number.EPSILON);
+    return (token.x - (previous.x + previous.width)) / height;
+  });
+  const intra = ratios.filter((ratio) => ratio <= HEADER_WORD_GAP_CEILING);
+  const inter = ratios.filter((ratio) => ratio > HEADER_WORD_GAP_CEILING);
+  const maxIntra = intra.length > 0 ? Math.max(...intra) : null;
+  const minInter = inter.length > 0 ? Math.min(...inter) : null;
+  const clear = maxIntra == null || minInter == null
+    || minInter >= HEADER_LABEL_SEPARATION_FACTOR * Math.max(maxIntra, 0);
+  return {
+    cells: groupTokens(sorted, ratios.map((ratio) => ratio <= HEADER_WORD_GAP_CEILING)),
+    ratios,
+    sorted,
+    basis: {
+      word_gap_ceiling: HEADER_WORD_GAP_CEILING,
+      separation_factor: HEADER_LABEL_SEPARATION_FACTOR,
+      max_intra_label_gap_ratio: maxIntra == null ? null : roundRatio(maxIntra),
+      min_column_gap_ratio: minInter == null ? null : roundRatio(minInter),
+      clear,
+    },
+  };
+}
+
+/** Groups sorted tokens; joins[i] says whether token i+1 continues token i's label. */
+function groupTokens(sorted: readonly PdfToken[], joins: readonly boolean[]): HeaderCell[] {
+  const groups: PdfToken[][] = [];
+  sorted.forEach((token, index) => {
+    if (index > 0 && joins[index - 1]) groups.at(-1)!.push(token);
+    else groups.push([token]);
+  });
+  return groups.map((group) => headerCellOf(group));
+}
+
+function headerLabelOf(cell: HeaderCell, role?: PricedScheduleColumnRole | null): PricedScheduleHeaderLabel {
+  const label = normalizeHeaderLabel(cell.text);
+  return {
+    text: cell.text,
+    role: role !== undefined ? role
+      : isCompactHeaderLabel(label) ? roleForHeaderLabel(label) : null,
+    source_refs: cell.tokens.map((token) => sourceRefForToken(token)),
+  };
+}
+
+function headerInterpretation(
+  status: PricedScheduleHeaderInterpretation['status'],
+  lineTokens: readonly PdfToken[],
+  reading: GroupedHeaderReading,
+  cells: readonly HeaderCell[] = reading.cells,
+): PricedScheduleHeaderInterpretation {
+  return {
+    version: PRICED_SCHEDULE_HEADER_INTERPRETATION_VERSION,
+    status,
+    method: cells.length < lineTokens.length ? 'word_grouped_labels' : 'token_labels',
+    source_refs: reading.sorted.map((token) => sourceRefForToken(token)),
+    labels: cells.map((cell) => headerLabelOf(cell)),
+    grouping_basis: reading.basis,
+  };
+}
+
+function headerOption(
+  kind: PricedScheduleHeaderOption['kind'],
+  labels: readonly PricedScheduleHeaderLabel[],
+): PricedScheduleHeaderOption {
+  const compactRoles = labels
+    .filter((label) => isCompactHeaderLabel(normalizeHeaderLabel(label.text)))
+    .map((label) => label.role);
+  return {
+    option_id: `header-option-${hashCanonical({ kind, labels })}`,
+    kind,
+    labels,
+    qualifies: headerRolesQualify(compactRoles),
+  };
+}
+
+/**
+ * Deterministic alternative readings of an unresolved header. Grouping options
+ * vary only the gaps the line leaves uncertain; role options move only roles
+ * the vocabulary already recognized on this line onto labels that carry none, or
+ * keep one of a duplicated role. Every option cites the line's exact tokens.
+ */
+function headerOptions(
+  reason: PricedScheduleHeaderUnresolvedReason,
+  reading: GroupedHeaderReading,
+  labels: readonly PricedScheduleHeaderLabel[],
+): { options: PricedScheduleHeaderOption[]; limitExceeded: boolean } {
+  const options: PricedScheduleHeaderOption[] = [];
+  if (reason === 'ambiguous_label_grouping') {
+    const low = HEADER_WORD_GAP_CEILING / HEADER_LABEL_SEPARATION_FACTOR;
+    const high = HEADER_WORD_GAP_CEILING * HEADER_LABEL_SEPARATION_FACTOR;
+    const uncertain = reading.ratios.flatMap((ratio, index) => (ratio > low && ratio <= high ? [index] : []));
+    if (2 ** uncertain.length > MAXIMUM_HEADER_OPTIONS) return { options: [], limitExceeded: true };
+    for (let mask = 0; mask < 2 ** uncertain.length; mask += 1) {
+      const joins = reading.ratios.map((ratio, index) => {
+        const position = uncertain.indexOf(index);
+        return position >= 0 ? Boolean(mask & (1 << position)) : ratio <= low;
+      });
+      options.push(headerOption('label_grouping',
+        groupTokens(reading.sorted, joins).map((cell) => headerLabelOf(cell))));
+    }
+    return { options, limitExceeded: false };
+  }
+
+  const compact = labels.map((label) => isCompactHeaderLabel(normalizeHeaderLabel(label.text)));
+  const withRoles = (assign: (label: PricedScheduleHeaderLabel, index: number) => PricedScheduleColumnRole | null) =>
+    labels.map((label, index) => ({ ...label, role: assign(label, index) }));
+  if (reason === 'duplicate_role') {
+    const counts = new Map<PricedScheduleColumnRole, number[]>();
+    labels.forEach((label, index) => {
+      if (label.role && compact[index]) counts.set(label.role, [...(counts.get(label.role) ?? []), index]);
+    });
+    for (const [role, indexes] of counts) {
+      if (indexes.length < 2) continue;
+      for (const keep of indexes) {
+        options.push(headerOption('role_assignment', withRoles((label, index) =>
+          (label.role === role && index !== keep ? null : label.role))));
+      }
+    }
+  } else if (reason === 'required_role_missing') {
+    const present = new Set(labels.flatMap((label, index) => (label.role && compact[index] ? [label.role] : [])));
+    for (const role of REQUIRED_ROLES.filter((entry) => !present.has(entry))) {
+      labels.forEach((label, target) => {
+        if (label.role != null || !compact[target]) return;
+        options.push(headerOption('role_assignment', withRoles((entry, index) =>
+          (index === target ? role : entry.role))));
+      });
+    }
+  }
+  if (options.length > MAXIMUM_HEADER_OPTIONS) return { options: [], limitExceeded: true };
+  return { options, limitExceeded: false };
+}
+
+/**
+ * A page with no qualifying header but one line that plainly reads as a table
+ * header -- every non-punctuation cell a compact label, a recognized rate label,
+ * at least one other recognized role -- above at least MINIMUM_PRICED_ROWS priced
+ * lines. Such a page is reported as failed closed with its header evidence and
+ * deterministic options, instead of disappearing. More than one such line is
+ * not guessed between.
+ */
+function unresolvedHeaderCandidate(page: PdfLayoutPage): {
+  y: number;
+  rawText: string;
+  interpretation: PricedScheduleHeaderInterpretation;
+} | null {
+  const spineYs = page.lines
+    .filter((line) => line.tokens.some((token) => isRowSpineToken(token)))
+    .map((line) => line.y);
+  const candidates: Array<{
+    y: number; rawText: string; tokens: readonly PdfToken[]; reading: GroupedHeaderReading;
+    cells: HeaderCell[]; labels: PricedScheduleHeaderLabel[];
+    reason: PricedScheduleHeaderUnresolvedReason;
+  }> = [];
+  for (const line of page.lines) {
+    if (line.tokens.length === 0) continue;
+    if (spineYs.filter((y) => y < line.y).length < MINIMUM_PRICED_ROWS) continue;
+    const reading = groupedHeaderReading(line.tokens);
+    const cells = reading.basis.clear
+      ? reading.cells
+      : reading.sorted.map((token) => headerCellOf([token]));
+    const meaningful = cells.filter((cell) => normalizeHeaderLabel(cell.text).length > 0);
+    if (meaningful.length === 0
+        || meaningful.some((cell) => !isCompactHeaderLabel(normalizeHeaderLabel(cell.text)))) continue;
+    const labels = cells.map((cell) => headerLabelOf(cell));
+    const roles = labels.flatMap((label) => (label.role ? [label.role] : []));
+    const distinct = new Set(roles);
+    if (!distinct.has('rate') || distinct.size < 2) continue;
+    const reason: PricedScheduleHeaderUnresolvedReason = !reading.basis.clear
+      ? 'ambiguous_label_grouping'
+      : roles.length !== distinct.size ? 'duplicate_role'
+        : !REQUIRED_ROLES.every((role) => distinct.has(role)) ? 'required_role_missing'
+          : 'insufficient_distinct_roles';
+    candidates.push({ y: line.y, rawText: line.text, tokens: line.tokens, reading, cells, labels, reason });
+  }
+  if (candidates.length !== 1) return null;
+  const candidate = candidates[0]!;
+  const { options, limitExceeded } = headerOptions(candidate.reason, candidate.reading, candidate.labels);
+  return {
+    y: candidate.y,
+    rawText: candidate.rawText,
+    interpretation: {
+      ...headerInterpretation('unresolved', candidate.tokens, candidate.reading, candidate.cells),
+      reason: candidate.reason,
+      options,
+      ...(limitExceeded ? { options_limit_exceeded: true } : {}),
+    },
+  };
 }
 
 /**
@@ -827,6 +1105,24 @@ function reconstructPage(
   generatedCandidates: RecoveryCandidateV2[] = [],
 ): PricedSchedulePage | null {
   const headers = detectHeaders(page);
+  if (headers.length === 0) {
+    // A plausible table whose header cannot be resolved is reported with its
+    // header evidence rather than disappearing. No columns, roles or rows are
+    // claimed for it.
+    const unresolved = unresolvedHeaderCandidate(page);
+    if (!unresolved) return null;
+    return {
+      status: 'failed_closed',
+      physical_page_number: page.page_number,
+      header_raw_text: unresolved.rawText,
+      header_y: unresolved.y,
+      columns: [],
+      rows: [],
+      rejected_spines: [],
+      unassigned_lines: [],
+      header_interpretation: unresolved.interpretation,
+    };
+  }
   // A page presenting more than one priced-table header holds more than one
   // table. Reconstructing it as a single table would let the second header and
   // its rows be read through the first table's columns, so fail closed instead.
@@ -890,6 +1186,7 @@ function reconstructPage(
     rows,
     rejected_spines: rejectedSpines,
     unassigned_lines: unassignedLines,
+    ...(header.interpretation ? { header_interpretation: header.interpretation } : {}),
   });
 
   // A qualifying header with no usable row sequence is distinct from a page

@@ -371,7 +371,13 @@ describe('generic single-page priced schedule reconstruction', () => {
       ]),
     });
 
-    expect(ambiguous.pages).toHaveLength(0);
+    // Reported, not reconstructed: the page fails closed with its header
+    // evidence and claims no columns or rows.
+    expect(ambiguous.pages).toHaveLength(1);
+    expect(ambiguous.pages[0]).toMatchObject({ status: 'failed_closed', columns: [], rows: [] });
+    expect(ambiguous.pages[0]!.header_interpretation).toMatchObject({
+      status: 'unresolved', reason: 'duplicate_role',
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -577,7 +583,8 @@ describe('generic single-page priced schedule reconstruction', () => {
 
   it('N3: does not reconstruct a header split across two lines', () => {
     // Documented limit: a header must present its labels on one line. A split
-    // header is not stitched together; the page simply fails closed.
+    // header is not stitched together; the page fails closed, and the one line
+    // that reads as a header is reported with no columns or rows claimed.
     const result = reconstructSinglePage([
       line(7, 706, [
         { x: DESCRIPTION_X, text: 'Description', width: 70 },
@@ -590,7 +597,10 @@ describe('generic single-page priced schedule reconstruction', () => {
       pricedLine(7, 680, { description: 'Alpha service', unit: 'Widget', origin: 'A to B', currency: '$', amount: '12.00' }),
       pricedLine(7, 660, { description: 'Beta service', unit: 'Widget', origin: 'B to C', currency: '$', amount: '3.50' }),
     ]);
-    expect(result).toBeNull();
+    expect(result).toMatchObject({ status: 'failed_closed', columns: [], rows: [], header_y: 700 });
+    expect(result!.header_interpretation).toMatchObject({ status: 'unresolved', reason: 'required_role_missing' });
+    // No label on the reported line lacks a role, so there is nothing to offer.
+    expect(result!.header_interpretation!.options).toEqual([]);
   });
 
   // ---------------------------------------------------------------------------
@@ -1473,9 +1483,10 @@ describe('generic single-page priced schedule reconstruction', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // OCR: word-level token sources (OCR) present multi-word labels as separate
-  // tokens. Words set a word-space apart are read as one label; column gaps are
-  // never bridged; a line that already qualifies token-by-token is untouched.
+  // OCR: word-level token sources present multi-word labels as separate tokens.
+  // A header is either resolved deterministically (token-by-token, or by
+  // grouping words the line's own geometry clearly separates from column gaps)
+  // or reported unresolved with its evidence and source-backed options.
   // ---------------------------------------------------------------------------
 
   const wordLevelBody = [
@@ -1488,8 +1499,63 @@ describe('generic single-page priced schedule reconstruction', () => {
       { x: UNIT_X, text: 'Widget', width: 30 }, { x: 445, text: '$3.50', width: 30 },
     ]),
   ];
+  const refTexts = (label: { source_refs: readonly { text: string }[] }) => label.source_refs.map((ref) => ref.text);
 
-  it('OCR1: reads a word-level header whose multi-word labels arrive as separate tokens', () => {
+  it('OCR1: groups a clearly separated split header and records each label\'s source tokens', () => {
+    const result = reconstructSinglePage([
+      line(7, 700, [
+        { x: DESCRIPTION_X, text: 'Item', width: 20 }, { x: 73, text: 'Description', width: 55 },
+        { x: UNIT_X, text: 'Unit', width: 20 },
+        { x: 440, text: 'Unit', width: 20 }, { x: 463, text: 'Price', width: 25 },
+      ]),
+      ...wordLevelBody,
+    ]);
+    expect(result).toMatchObject({ status: 'reconstructed' });
+    expect(result!.columns.map((column) => [column.header_text, column.role])).toEqual([
+      ['Item Description', 'description'], ['Unit', 'unit'], ['Unit Price', 'rate'],
+    ]);
+    expect(result!.rows).toHaveLength(2);
+    expect(cellText(result!.rows[0]!, 'rate')).toBe('$12.00');
+    const interpretation = result!.header_interpretation!;
+    expect(interpretation).toMatchObject({
+      version: 'priced_schedule_header_interpretation_v1',
+      status: 'resolved_deterministically', method: 'word_grouped_labels',
+    });
+    expect(interpretation.grouping_basis).toMatchObject({ clear: true, max_intra_label_gap_ratio: 0.3, min_column_gap_ratio: 7.2 });
+    expect(interpretation.labels.map((label) => [label.text, refTexts(label)])).toEqual([
+      ['Item Description', ['Item', 'Description']], ['Unit', ['Unit']], ['Unit Price', ['Unit', 'Price']],
+    ]);
+    // The source tokens are cited with their own geometry, never replaced.
+    expect(interpretation.labels[2]!.source_refs.map((ref) => ref.x_min)).toEqual([440, 463]);
+    expect(interpretation.source_refs.map((ref) => ref.text)).toEqual(['Item', 'Description', 'Unit', 'Unit', 'Price']);
+  });
+
+  it('OCR2: does not group when word spaces and column gaps are not clearly separated', () => {
+    // Widest word gap 0.6 x height, narrowest column gap 1.0 x: less than 2x apart.
+    const result = reconstructSinglePage([
+      line(7, 700, [
+        { x: DESCRIPTION_X, text: 'Description', width: 55 },
+        { x: UNIT_X, text: 'Unit', width: 20 },
+        { x: 430, text: 'Unit', width: 20 }, { x: 456, text: 'Price', width: 25 }, { x: 491, text: 'Rate', width: 20 },
+      ]),
+      ...wordLevelBody,
+    ]);
+    expect(result).toMatchObject({ status: 'failed_closed', columns: [], rows: [] });
+    const interpretation = result!.header_interpretation!;
+    expect(interpretation).toMatchObject({ status: 'unresolved', reason: 'ambiguous_label_grouping' });
+    expect(interpretation.grouping_basis).toMatchObject({ clear: false });
+    // Alternatives vary only the uncertain gaps and cite only the line's tokens.
+    const options = interpretation.options!;
+    expect(options.length).toBeGreaterThan(1);
+    for (const option of options) {
+      expect(option.kind).toBe('label_grouping');
+      expect(option.labels.flatMap((label) => refTexts(label))).toEqual(['Description', 'Unit', 'Unit', 'Price', 'Rate']);
+      for (const label of option.labels) expect(label.text).toBe(refTexts(label).join(' '));
+    }
+    expect(new Set(options.map((option) => option.option_id)).size).toBe(options.length);
+  });
+
+  it('OCR3: an unrecognized label leaves its role unresolved, with a source-backed option', () => {
     const result = reconstructSinglePage([
       line(7, 700, [
         { x: DESCRIPTION_X, text: 'Equipment', width: 45 }, { x: 99, text: 'Description', width: 55 },
@@ -1498,18 +1564,23 @@ describe('generic single-page priced schedule reconstruction', () => {
       ]),
       ...wordLevelBody,
     ]);
-    expect(result).not.toBeNull();
-    expect(result!.columns.map((column) => [column.header_text, column.role])).toEqual([
-      ['Equipment Description', 'description'], ['Unit', 'unit'], ['Unit Price', 'rate'],
+    // "Equipment Description" is preserved as evidence; no role is guessed for it.
+    expect(result).toMatchObject({ status: 'failed_closed', columns: [], rows: [] });
+    const interpretation = result!.header_interpretation!;
+    expect(interpretation).toMatchObject({ status: 'unresolved', reason: 'required_role_missing' });
+    expect(interpretation.labels.map((label) => [label.text, label.role])).toEqual([
+      ['Equipment Description', null], ['Unit', 'unit'], ['Unit Price', 'rate'],
     ]);
-    expect(result!.rows).toHaveLength(2);
-    expect(cellText(result!.rows[0]!, 'description')).toBe('Alpha service');
-    expect(cellText(result!.rows[0]!, 'unit')).toBe('Widget');
-    expect(cellText(result!.rows[0]!, 'rate')).toBe('$12.00');
-    expect(cellText(result!.rows[1]!, 'rate')).toBe('$3.50');
+    expect(interpretation.options).toHaveLength(1);
+    const option = interpretation.options![0]!;
+    expect(option).toMatchObject({ kind: 'role_assignment', qualifies: true });
+    expect(option.labels.map((label) => [label.text, label.role, refTexts(label)])).toEqual([
+      ['Equipment Description', 'description', ['Equipment', 'Description']],
+      ['Unit', 'unit', ['Unit']], ['Unit Price', 'rate', ['Unit', 'Price']],
+    ]);
   });
 
-  it('OCR2: never bridges a column gap, so a genuinely repeated role still fails closed', () => {
+  it('OCR4: a role naming two separate columns still fails closed, offering which to keep', () => {
     const result = reconstructSinglePage([
       line(7, 700, [
         { x: DESCRIPTION_X, text: 'Description', width: 55 },
@@ -1518,10 +1589,16 @@ describe('generic single-page priced schedule reconstruction', () => {
       ]),
       ...wordLevelBody,
     ]);
-    expect(result).toBeNull();
+    expect(result).toMatchObject({ status: 'failed_closed', columns: [], rows: [] });
+    const interpretation = result!.header_interpretation!;
+    expect(interpretation).toMatchObject({ status: 'unresolved', reason: 'duplicate_role' });
+    expect(interpretation.options!.map((option) => option.labels.map((label) => label.role))).toEqual([
+      ['description', 'unit', null, 'rate'],
+      ['description', null, 'unit', 'rate'],
+    ]);
   });
 
-  it('OCR3: word-level prose still never becomes a header', () => {
+  it('OCR5: word-level prose never becomes a header or a recovery candidate', () => {
     // Repeated role words make the token-by-token read fail; grouped, the words form
     // one long run that is not a compact label, so no header can come of it.
     const words = 'Unit pricing per Unit Price shall follow the Description of Cost'.split(' ');
@@ -1537,7 +1614,19 @@ describe('generic single-page priced schedule reconstruction', () => {
     expect(result).toBeNull();
   });
 
-  it('OCR4: a header that qualifies token-by-token is read exactly as before, even with tight gaps', () => {
+  it('OCR6: header-like labels with no priced lines below are not a recovery candidate', () => {
+    const result = reconstructSinglePage([
+      line(7, 700, [
+        { x: DESCRIPTION_X, text: 'Equipment', width: 45 }, { x: 99, text: 'Description', width: 55 },
+        { x: UNIT_X, text: 'Unit', width: 20 },
+        { x: 440, text: 'Unit', width: 20 }, { x: 463, text: 'Price', width: 25 },
+      ]),
+      line(7, 680, [{ x: DESCRIPTION_X, text: 'Nearby', width: 30 }, { x: 90, text: 'words', width: 25 }]),
+    ]);
+    expect(result).toBeNull();
+  });
+
+  it('OCR7: a header that qualifies token-by-token is read exactly as before, even with tight gaps', () => {
     const result = reconstructSinglePage([
       line(7, 700, [
         { x: DESCRIPTION_X, text: 'Description', width: 70 },
@@ -1551,15 +1640,33 @@ describe('generic single-page priced schedule reconstruction', () => {
     expect(result!.columns.map((column) => column.header_text)).toEqual([
       'Description', 'Unit', 'Origin/ Destination', 'Cost',
     ]);
+    expect(result!).not.toHaveProperty('header_interpretation');
   });
 
-  it('OCR5: accepts one qualifying word before Description, and no more', () => {
-    for (const label of ['Equipment Description', 'Item Description', 'Item', 'Work Description']) {
+  it('OCR8: interpretation never alters the source layout tokens', () => {
+    const lines = [
+      line(7, 700, [
+        { x: DESCRIPTION_X, text: 'Equipment', width: 45 }, { x: 99, text: 'Description', width: 55 },
+        { x: UNIT_X, text: 'Unit', width: 20 },
+        { x: 440, text: 'Unit', width: 20 }, { x: 463, text: 'Price', width: 25 },
+      ]),
+      ...wordLevelBody,
+    ];
+    const layout = layoutOf([page(7, lines)]);
+    const before = JSON.stringify(layout);
+    buildPagePricedScheduleReconstruction({ layout });
+    expect(JSON.stringify(layout)).toBe(before);
+  });
+
+  it('OCR9: the description vocabulary is unchanged: only its generic labels resolve', () => {
+    for (const label of ['Description', 'Item Description', 'Item', 'Description of Work']) {
       const result = reconstructSinglePage([headerWith('Cost', label), ...twoBodyRows]);
-      expect(result, `description label ${label} must be recognised`).not.toBeNull();
+      expect(result, `description label ${label} must be recognised`).toMatchObject({ status: 'reconstructed' });
     }
-    const twoQualifiers = reconstructSinglePage([headerWith('Cost', 'Heavy Equipment Description'), ...twoBodyRows]);
-    expect(twoQualifiers).toBeNull();
+    for (const label of ['Equipment Description', 'Heavy Equipment Description']) {
+      const result = reconstructSinglePage([headerWith('Cost', label), ...twoBodyRows]);
+      expect(result, `${label} must not be given a role`).toMatchObject({ status: 'failed_closed', rows: [] });
+    }
   });
 
 });

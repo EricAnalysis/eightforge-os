@@ -165,6 +165,12 @@ describe('OCR-normalized priced schedule reconstruction', () => {
       ]),
       ...LINES.slice(1),
     ];
-    expect(buildPagePricedScheduleReconstruction({ layout: ocrOnly(ambiguousHeader) }).pages).toEqual([]);
+    // Reported, never reconstructed: no columns, no rows, the reason, and the
+    // OCR words it would have to choose between.
+    const pages = buildPagePricedScheduleReconstruction({ layout: ocrOnly(ambiguousHeader) }).pages;
+    expect(pages).toHaveLength(1);
+    expect(pages[0]).toMatchObject({ status: 'failed_closed', columns: [], rows: [] });
+    expect(pages[0]!.header_interpretation).toMatchObject({ status: 'unresolved', reason: 'duplicate_role' });
+    expect(pages[0]!.header_interpretation!.source_refs.every((ref) => ref.source === 'ocr_fallback')).toBe(true);
   });
 });

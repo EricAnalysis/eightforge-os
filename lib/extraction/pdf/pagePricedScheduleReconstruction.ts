@@ -39,7 +39,9 @@ export type PricedScheduleColumnRole =
  * does not name a column, and must never establish one.
  */
 const COLUMN_ROLE_PATTERNS: ReadonlyArray<readonly [PricedScheduleColumnRole, RegExp]> = [
-  ['description', /^(?:description(?:\s+of\s+(?:work|works|service|services))?|item(?:\s+description)?|service|classification|scope\s+of\s+work|work\s+item)$/i],
+  // "<qualifier> Description" (e.g. "Equipment Description") names the same column
+  // as "Item Description": one leading word may qualify the label.
+  ['description', /^(?:(?:[a-z]+\s+)?description(?:\s+of\s+(?:work|works|service|services))?|item|service|classification|scope\s+of\s+work|work\s+item)$/i],
   ['unit', /^(?:unit(?:\s+of\s+measure(?:ment)?)?|units|uom|u\s*\/\s*m|measure|measurement)$/i],
   ['origin_destination', /^(?:origin\s*\/?\s*destination|origin|destination|from\s*\/?\s*to|route|haul\s+route)$/i],
   ['rate', /^(?:cost(?:\s+per\s+unit)?|total\s+cost|rate(?:\s*\/\s*unit)?|unit\s+price|unit\s+cost|price|amount|charge)$/i],
@@ -398,36 +400,17 @@ function detectHeaders(page: PdfLayoutPage): DetectedHeader[] {
   const headers: DetectedHeader[] = [];
 
   for (const line of orderedLines) {
-    // Every compact cell on the line is a column, whether or not its label is
-    // recognized. Non-compact cells are prose and are ignored entirely.
-    const headerColumns: HeaderColumn[] = [];
-    for (const token of line.tokens) {
-      const label = normalizeHeaderLabel(token.text);
-      if (!isCompactHeaderLabel(label)) continue;
-      headerColumns.push({
-        role: roleForHeaderLabel(label),
-        x: token.x,
-        xEnd: token.x + token.width,
-        text: token.text.trim(),
-      });
+    // A line whose own tokens already read as a header is used as-is. Only a line
+    // that does not is re-read with its words grouped into labels, which is how a
+    // word-level token source (OCR) presents a multi-word label such as "Unit Price".
+    let columns = headerColumnsFromCells(line.tokens.map((token) => ({
+      text: token.text, x: token.x, xEnd: token.x + token.width,
+    })));
+    if (!columns) {
+      const grouped = wordGroupedHeaderCells(line.tokens);
+      if (grouped.length < line.tokens.length) columns = headerColumnsFromCells(grouped);
     }
-
-    const roles = headerColumns
-      .map((column) => column.role)
-      .filter((role): role is PricedScheduleColumnRole => role != null);
-    const distinctRoles = new Set(roles);
-    if (distinctRoles.size < MINIMUM_DISTINCT_ROLES) continue;
-    if (!REQUIRED_ROLES.every((role) => distinctRoles.has(role))) continue;
-    // A repeated role means the header is ambiguous; fail closed rather than guess.
-    if (roles.length !== distinctRoles.size) continue;
-
-    const sorted = [...headerColumns].sort((left, right) => left.x - right.x);
-    const columns: PricedScheduleColumnBand[] = sorted.map((column, index) => ({
-      role: column.role,
-      x_min: index === 0 ? null : (sorted[index - 1]!.xEnd + column.x) / 2,
-      x_max: index === sorted.length - 1 ? null : (column.xEnd + sorted[index + 1]!.x) / 2,
-      header_text: column.text,
-    }));
+    if (!columns) continue;
 
     headers.push({
       y: line.y,
@@ -437,6 +420,71 @@ function detectHeaders(page: PdfLayoutPage): DetectedHeader[] {
   }
 
   return headers;
+}
+
+type HeaderCell = { text: string; x: number; xEnd: number };
+
+/**
+ * A gap narrower than this fraction of the taller neighbour's glyph height is
+ * the space between words of one label; column gaps are materially wider. This
+ * is a typographic shape limit, not a value taken from any source document.
+ */
+const HEADER_WORD_GAP_FRACTION = 0.75;
+
+/** Joins horizontally adjacent tokens on one line into label cells. */
+function wordGroupedHeaderCells(tokens: readonly PdfToken[]): HeaderCell[] {
+  const sorted = [...tokens].sort(compareTokens);
+  const cells: HeaderCell[] = [];
+  let previous: PdfToken | null = null;
+  for (const token of sorted) {
+    const current = cells.at(-1);
+    const gap = previous ? token.x - (previous.x + previous.width) : Number.POSITIVE_INFINITY;
+    if (current && previous
+        && gap <= HEADER_WORD_GAP_FRACTION * Math.max(previous.height, token.height)) {
+      current.text = `${current.text} ${token.text.trim()}`;
+      current.xEnd = Math.max(current.xEnd, token.x + token.width);
+    } else {
+      cells.push({ text: token.text.trim(), x: token.x, xEnd: token.x + token.width });
+    }
+    previous = token;
+  }
+  return cells;
+}
+
+/**
+ * Reads one line's cells as a priced-schedule header, or null when they do not
+ * qualify. Every compact cell is a column, whether or not its label is
+ * recognized; non-compact cells are prose and are ignored entirely.
+ */
+function headerColumnsFromCells(cells: readonly HeaderCell[]): PricedScheduleColumnBand[] | null {
+  const headerColumns: HeaderColumn[] = [];
+  for (const cell of cells) {
+    const label = normalizeHeaderLabel(cell.text);
+    if (!isCompactHeaderLabel(label)) continue;
+    headerColumns.push({
+      role: roleForHeaderLabel(label),
+      x: cell.x,
+      xEnd: cell.xEnd,
+      text: cell.text.trim(),
+    });
+  }
+
+  const roles = headerColumns
+    .map((column) => column.role)
+    .filter((role): role is PricedScheduleColumnRole => role != null);
+  const distinctRoles = new Set(roles);
+  if (distinctRoles.size < MINIMUM_DISTINCT_ROLES) return null;
+  if (!REQUIRED_ROLES.every((role) => distinctRoles.has(role))) return null;
+  // A repeated role means the header is ambiguous; fail closed rather than guess.
+  if (roles.length !== distinctRoles.size) return null;
+
+  const sorted = [...headerColumns].sort((left, right) => left.x - right.x);
+  return sorted.map((column, index) => ({
+    role: column.role,
+    x_min: index === 0 ? null : (sorted[index - 1]!.xEnd + column.x) / 2,
+    x_max: index === sorted.length - 1 ? null : (column.xEnd + sorted[index + 1]!.x) / 2,
+    header_text: column.text,
+  }));
 }
 
 /**

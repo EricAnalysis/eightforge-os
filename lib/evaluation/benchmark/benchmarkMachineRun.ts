@@ -122,7 +122,10 @@ export async function runBenchmarkMachinePass(input: Readonly<{
   for (const token of tokens) {
     const box = token.canonical_bbox ? toBenchmarkBox(token.canonical_bbox) : null;
     if (!box) continue;
-    const key = `${token.observation_id ?? ''}|${token.text}|${token.x}|${token.y}`;
+    // A cell source ref cites an OCR token by its raw OCR render box (the
+    // evidence anchor), not by its layout position, so key OCR tokens the same way.
+    const ocrBox = token.source === 'ocr_fallback' ? token.ocr_source_geometry?.bbox : undefined;
+    const key = `${token.observation_id ?? ''}|${token.text}|${ocrBox?.x0 ?? token.x}|${ocrBox?.y0 ?? token.y}`;
     canonicalByText.set(key, [...(canonicalByText.get(key) ?? []), box]);
   }
   const boxForRef = (ref: Readonly<{

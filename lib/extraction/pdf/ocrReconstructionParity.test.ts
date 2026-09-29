@@ -27,7 +27,7 @@ function nativeLine(y: number, specs: ReadonlyArray<{ x: number; text: string; w
 /** Realistic, non-overlapping line pitch: 8pt glyphs on a 15pt baseline grid. */
 const LINES: readonly PdfLayoutLine[] = [
   // Single-word header labels: OCR delivers words, and each header token is a
-  // header cell. Multi-word labels are covered by the fail-closed test below.
+  // header cell. Multi-word labels split into OCR words are covered below.
   nativeLine(700, [
     { x: 50, text: 'Description', width: 70 },
     { x: 200, text: 'Unit', width: 30 },
@@ -121,7 +121,22 @@ describe('OCR-normalized priced schedule reconstruction', () => {
     expect(amount.y_max).toBeCloseTo((PAGE_HEIGHT - 670) * RENDER_SCALE, 0);
   });
 
-  it('fails closed, never guessing, when OCR splits a multi-word header label into words', () => {
+  const ocrOnly = (lines: readonly PdfLayoutLine[]) => mergeOcrFallbackLayout({
+    nativeLayout: {
+      page_count: 1, gaps: [],
+      pages: [{ page_number: 1, width: PAGE_WIDTH, height: PAGE_HEIGHT, lines: [] }],
+    },
+    ocrPages: [{
+      page_number: 1, width: PAGE_WIDTH * RENDER_SCALE, height: PAGE_HEIGHT * RENDER_SCALE,
+      words: ocrWords(lines),
+    }],
+    representation: 'reconciled_pdf_points',
+  }).layout;
+
+  it('reads a multi-word header label that OCR split into words exactly as the native label', () => {
+    // E3 remediation 1 (approved): words a word-space apart on a line that does
+    // not qualify token-by-token are read as one label, so "Unit of Measure"
+    // arriving as three OCR words names one unit column, as it does natively.
     const splitHeader = [
       nativeLine(700, [
         { x: 50, text: 'Description', width: 70 },
@@ -131,20 +146,25 @@ describe('OCR-normalized priced schedule reconstruction', () => {
       ]),
       ...LINES.slice(1),
     ];
-    const merged = mergeOcrFallbackLayout({
-      nativeLayout: {
-        page_count: 1, gaps: [],
-        pages: [{ page_number: 1, width: PAGE_WIDTH, height: PAGE_HEIGHT, lines: [] }],
-      },
-      ocrPages: [{
-        page_number: 1, width: PAGE_WIDTH * RENDER_SCALE, height: PAGE_HEIGHT * RENDER_SCALE,
-        words: ocrWords(splitHeader),
-      }],
-      representation: 'reconciled_pdf_points',
+    const native = rowsOf({
+      page_count: 1, gaps: [],
+      pages: [{ page_number: 1, width: PAGE_WIDTH, height: PAGE_HEIGHT, lines: [...splitHeader] }],
     });
-    // "Unit" and "Measure" both name the unit column: an ambiguous header is
-    // refused. Grouping OCR words into header cells is a separate, unapproved
-    // reconstruction change, not coordinate normalization.
-    expect(buildPagePricedScheduleReconstruction({ layout: merged.layout }).pages).toEqual([]);
+    expect(native).toHaveLength(2);
+    expect(rowsOf(ocrOnly(splitHeader))).toEqual(native);
+  });
+
+  it('still fails closed, never guessing, when one role names two separate columns', () => {
+    // Column gaps are never bridged: two unit columns remain an ambiguous header.
+    const ambiguousHeader = [
+      nativeLine(700, [
+        { x: 50, text: 'Description', width: 70 },
+        { x: 200, text: 'Unit', width: 30 },
+        { x: 300, text: 'Unit', width: 30 },
+        { x: 450, text: 'Cost', width: 30 },
+      ]),
+      ...LINES.slice(1),
+    ];
+    expect(buildPagePricedScheduleReconstruction({ layout: ocrOnly(ambiguousHeader) }).pages).toEqual([]);
   });
 });

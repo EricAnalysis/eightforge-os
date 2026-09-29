@@ -1472,4 +1472,94 @@ describe('generic single-page priced schedule reconstruction', () => {
     expect(result!.rejected_spines[0]!.raw_text).toContain('Only service');
   });
 
+  // ---------------------------------------------------------------------------
+  // OCR: word-level token sources (OCR) present multi-word labels as separate
+  // tokens. Words set a word-space apart are read as one label; column gaps are
+  // never bridged; a line that already qualifies token-by-token is untouched.
+  // ---------------------------------------------------------------------------
+
+  const wordLevelBody = [
+    line(7, 680, [
+      { x: DESCRIPTION_X, text: 'Alpha', width: 25 }, { x: 78, text: 'service', width: 35 },
+      { x: UNIT_X, text: 'Widget', width: 30 }, { x: 445, text: '$12.00', width: 35 },
+    ]),
+    line(7, 660, [
+      { x: DESCRIPTION_X, text: 'Beta', width: 22 }, { x: 75, text: 'service', width: 35 },
+      { x: UNIT_X, text: 'Widget', width: 30 }, { x: 445, text: '$3.50', width: 30 },
+    ]),
+  ];
+
+  it('OCR1: reads a word-level header whose multi-word labels arrive as separate tokens', () => {
+    const result = reconstructSinglePage([
+      line(7, 700, [
+        { x: DESCRIPTION_X, text: 'Equipment', width: 45 }, { x: 99, text: 'Description', width: 55 },
+        { x: UNIT_X, text: 'Unit', width: 20 },
+        { x: 440, text: 'Unit', width: 20 }, { x: 463, text: 'Price', width: 25 },
+      ]),
+      ...wordLevelBody,
+    ]);
+    expect(result).not.toBeNull();
+    expect(result!.columns.map((column) => [column.header_text, column.role])).toEqual([
+      ['Equipment Description', 'description'], ['Unit', 'unit'], ['Unit Price', 'rate'],
+    ]);
+    expect(result!.rows).toHaveLength(2);
+    expect(cellText(result!.rows[0]!, 'description')).toBe('Alpha service');
+    expect(cellText(result!.rows[0]!, 'unit')).toBe('Widget');
+    expect(cellText(result!.rows[0]!, 'rate')).toBe('$12.00');
+    expect(cellText(result!.rows[1]!, 'rate')).toBe('$3.50');
+  });
+
+  it('OCR2: never bridges a column gap, so a genuinely repeated role still fails closed', () => {
+    const result = reconstructSinglePage([
+      line(7, 700, [
+        { x: DESCRIPTION_X, text: 'Description', width: 55 },
+        { x: UNIT_X, text: 'Unit', width: 20 }, { x: ORIGIN_X, text: 'Unit', width: 20 },
+        { x: 440, text: 'Price', width: 25 },
+      ]),
+      ...wordLevelBody,
+    ]);
+    expect(result).toBeNull();
+  });
+
+  it('OCR3: word-level prose still never becomes a header', () => {
+    // Repeated role words make the token-by-token read fail; grouped, the words form
+    // one long run that is not a compact label, so no header can come of it.
+    const words = 'Unit pricing per Unit Price shall follow the Description of Cost'.split(' ');
+    let x = DESCRIPTION_X;
+    const result = reconstructSinglePage([
+      line(7, 700, words.map((text) => {
+        const spec = { x, text, width: text.length * 5 };
+        x += spec.width + 3;
+        return spec;
+      })),
+      ...wordLevelBody,
+    ]);
+    expect(result).toBeNull();
+  });
+
+  it('OCR4: a header that qualifies token-by-token is read exactly as before, even with tight gaps', () => {
+    const result = reconstructSinglePage([
+      line(7, 700, [
+        { x: DESCRIPTION_X, text: 'Description', width: 70 },
+        { x: 124, text: 'Unit', width: 20 },
+        { x: ORIGIN_X, text: 'Origin/ Destination', width: 90 },
+        { x: CURRENCY_X, text: 'Cost', width: 30 },
+      ]),
+      ...twoBodyRows,
+    ]);
+    expect(result).not.toBeNull();
+    expect(result!.columns.map((column) => column.header_text)).toEqual([
+      'Description', 'Unit', 'Origin/ Destination', 'Cost',
+    ]);
+  });
+
+  it('OCR5: accepts one qualifying word before Description, and no more', () => {
+    for (const label of ['Equipment Description', 'Item Description', 'Item', 'Work Description']) {
+      const result = reconstructSinglePage([headerWith('Cost', label), ...twoBodyRows]);
+      expect(result, `description label ${label} must be recognised`).not.toBeNull();
+    }
+    const twoQualifiers = reconstructSinglePage([headerWith('Cost', 'Heavy Equipment Description'), ...twoBodyRows]);
+    expect(twoQualifiers).toBeNull();
+  });
+
 });

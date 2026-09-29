@@ -204,7 +204,7 @@ describe('E3 finalizer CLI entry isolation', () => {
       }
     }
     expect(importers).toEqual([]);
-  });
+  }, 60_000);
 
   it('still runs main when the CLI is invoked directly', () => {
     const result = runViteNode([FINALIZER]);

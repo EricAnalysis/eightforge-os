@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { z } from 'zod';
 
 import {
   BENCHMARK_PAGES,
@@ -14,6 +15,14 @@ import { BENCHMARK_WORKSPACE_FILES } from '@/lib/evaluation/benchmark/benchmarkW
 import { hashCanonical } from '@/lib/extraction/domain/hash';
 
 export const BENCHMARK_REVIEW_PACK_VERSION = 'extraction-benchmark-review-pack-v1' as const;
+export const BENCHMARK_SOURCE_BOUND_REVIEW_PACK_VERSION =
+  'extraction-benchmark-source-bound-review-pack-v1' as const;
+export const BENCHMARK_NATIVE_TEXT_EVIDENCE_VERSION =
+  'e3-native-text-review-evidence-v1' as const;
+export const BENCHMARK_SOURCE_BOUND_REVIEW_PACK_AUTHORITY =
+  'non_authoritative_source_bound_reviewer_input' as const;
+export const BENCHMARK_NATIVE_TEXT_EVIDENCE_AUTHORITY =
+  'non_authoritative_source_evidence' as const;
 
 export const BENCHMARK_REVIEW_PACK_FILES = Object.freeze({
   render: 'page.png',
@@ -80,6 +89,189 @@ export type BenchmarkReviewPackPage = Readonly<{
   summaryFile: string;
   summary: BenchmarkReviewSummary;
 }>;
+
+const digestSchema = z.string().regex(/^[a-f0-9]{64}$/);
+const identifierSchema = z.string().min(1).max(200).refine((value) => value.trim() === value,
+  'identifier whitespace');
+const sourceSchema = z.object({
+  documentKey: identifierSchema,
+  sha256: digestSchema,
+  byteLength: z.number().int().positive(),
+  physicalPageNumber: z.number().int().positive(),
+}).strict();
+const frameSchema = z.object({
+  frame_version: z.literal('canonical_frame_v1'),
+  coordinate_space: z.literal('canonical_v1'),
+  view: z.tuple([z.number(), z.number(), z.number(), z.number()]),
+  rotation: z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]),
+  user_unit: z.number().positive(),
+  width: z.number().positive(),
+  height: z.number().positive(),
+}).strict();
+
+export const BenchmarkNativeTextEvidenceSchema = z.object({
+  nativeTextEvidenceVersion: z.literal(BENCHMARK_NATIVE_TEXT_EVIDENCE_VERSION),
+  authority: z.literal(BENCHMARK_NATIVE_TEXT_EVIDENCE_AUTHORITY),
+  pageKey: identifierSchema,
+  source: sourceSchema,
+  frame: frameSchema,
+  extractor: z.object({
+    name: z.literal('pdfjs-dist getTextContent/getOperatorList'),
+    version: z.string().min(1).max(100),
+    disableWorker: z.literal(true),
+    disableNormalization: z.literal(true),
+  }).strict(),
+  measurement: z.object({
+    passes: z.number().int().min(2),
+    repeatedMeasurementsExactMatch: z.literal(true),
+    contentItemCount: z.number().int().nonnegative(),
+    nonEmptyTextItemCount: z.number().int().positive(),
+    pageImageXObjectCount: z.number().int().nonnegative(),
+    imageMaskPaintCount: z.number().int().nonnegative(),
+    nativeTextLayerPresent: z.literal(true),
+  }).strict(),
+  transcription: z.object({
+    encoding: z.literal('pdfjs_text_content_items_with_eol_v1'),
+    sha256: digestSchema,
+    utf8ByteLength: z.number().int().nonnegative(),
+    nonEmptyItemSequenceJoinDelimiter: z.literal('U+001F'),
+    nonEmptyItemSequenceSha256: digestSchema,
+    items: z.array(z.object({
+      sourceContentItemIndex: z.number().int().nonnegative(),
+      text: z.string(),
+      hasEOL: z.boolean(),
+      nonEmpty: z.boolean(),
+      nonEmptyReadingOrder: z.number().int().nonnegative().nullable(),
+    }).strict()).min(1).max(10_000),
+  }).strict(),
+  sourceDerivedTextBoxesIncluded: z.literal(false),
+  sourceDerivedTextBoxesReason: z.string().min(1).max(1_000),
+}).strict().superRefine((evidence, ctx) => {
+  if (evidence.transcription.items.length !== evidence.measurement.contentItemCount) {
+    ctx.addIssue({ code: 'custom', message: 'native transcription content item count differs' });
+  }
+  let nonEmptyReadingOrder = 0;
+  for (const [sourceContentItemIndex, item] of evidence.transcription.items.entries()) {
+    if (item.sourceContentItemIndex !== sourceContentItemIndex) {
+      ctx.addIssue({ code: 'custom', message: 'native source item indexes are not contiguous' });
+      break;
+    }
+    const nonEmpty = item.text.trim().length > 0;
+    if (item.nonEmpty !== nonEmpty
+        || item.nonEmptyReadingOrder !== (nonEmpty ? nonEmptyReadingOrder : null)) {
+      ctx.addIssue({ code: 'custom', message: 'native non-empty reading order differs' });
+      break;
+    }
+    if (nonEmpty) nonEmptyReadingOrder += 1;
+  }
+  if (nonEmptyReadingOrder !== evidence.measurement.nonEmptyTextItemCount) {
+    ctx.addIssue({ code: 'custom', message: 'native non-empty transcription count differs' });
+  }
+  const transcription = evidence.transcription.items
+    .map((item) => `${item.text}${item.hasEOL ? '\n' : ''}`).join('');
+  if (Buffer.byteLength(transcription, 'utf8') !== evidence.transcription.utf8ByteLength
+      || createHash('sha256').update(transcription).digest('hex')
+        !== evidence.transcription.sha256) {
+    ctx.addIssue({ code: 'custom', message: 'native transcription digest differs' });
+  }
+  const nonEmptySequence = evidence.transcription.items
+    .filter((item) => item.nonEmpty).map((item) => item.text).join('\u001f');
+  if (createHash('sha256').update(nonEmptySequence).digest('hex')
+      !== evidence.transcription.nonEmptyItemSequenceSha256) {
+    ctx.addIssue({ code: 'custom', message: 'native non-empty sequence digest differs' });
+  }
+});
+
+const boundJsonFileSchema = z.object({
+  path: z.string().min(1).max(500),
+  fileSha256: digestSchema,
+  canonicalSha256: digestSchema,
+}).strict();
+const sourceBoundReviewPackPayloadSchema = z.object({
+  sourceBoundReviewPackVersion: z.literal(BENCHMARK_SOURCE_BOUND_REVIEW_PACK_VERSION),
+  reviewPackVersion: z.literal(BENCHMARK_REVIEW_PACK_VERSION),
+  authority: z.literal(BENCHMARK_SOURCE_BOUND_REVIEW_PACK_AUTHORITY),
+  pageKey: identifierSchema,
+  source: sourceSchema,
+  frame: frameSchema,
+  characterization: z.string().min(1).max(200),
+  reviewerSchema: z.object({
+    name: z.literal('BenchmarkReviewerLabelSetSchema'),
+    version: z.string().min(1).max(200),
+    authority: z.literal('non_authoritative_reviewer_proposal'),
+    requiredIndependence: z.object({
+      inputMode: z.literal('clean_source_page_only'),
+      sawMachineSuggestions: z.literal(false),
+      sawOtherReviewerLabels: z.literal(false),
+    }).strict(),
+  }).strict(),
+  files: z.object({
+    cleanRender: z.object({
+      path: z.string().min(1).max(500),
+      sha256: digestSchema,
+      pixelWidth: z.number().int().positive(),
+      pixelHeight: z.number().int().positive(),
+    }).strict(),
+    reviewSummary: boundJsonFileSchema,
+    sourceLayerMeasurement: boundJsonFileSchema,
+    nativeTextEvidence: boundJsonFileSchema,
+    reviewerContext: boundJsonFileSchema,
+  }).strict(),
+  sharedReviewerInstruction: z.string().min(1).max(10_000),
+  semanticScope: z.object({
+    words: z.literal(true),
+    cells: z.literal(true),
+    rows: z.literal(true),
+    coverage: z.literal(true),
+    geometry: z.literal(false),
+  }).strict(),
+  sameFrozenInputForBothReviewers: z.literal(true),
+  expectedOutputs: z.object({
+    reviewerA: z.string().min(1).max(500),
+    reviewerB: z.string().min(1).max(500),
+  }).strict(),
+  contaminationBoundary: z.object({
+    p107SemanticPayloadIncluded: z.literal(false),
+    productionExtractionIncluded: z.literal(false),
+    historicalP106ExtractionIncluded: z.literal(false),
+    ambiguousRowDiagnosticsIncluded: z.literal(false),
+    baselineMachinePredictionsIncluded: z.literal(false),
+    benchmarkTruthIncluded: z.literal(false),
+    machineSuggestionsIncluded: z.literal(false),
+    ocrOutputIncluded: z.literal(false),
+    geometryAuthorityIncluded: z.literal(false),
+  }).strict(),
+}).strict();
+
+export const BenchmarkSourceBoundReviewPackSchema = sourceBoundReviewPackPayloadSchema.extend({
+  packCanonicalSha256: digestSchema,
+}).strict().superRefine((pack, ctx) => {
+  const { packCanonicalSha256, ...payload } = pack;
+  if (hashCanonical(payload) !== packCanonicalSha256) {
+    ctx.addIssue({ code: 'custom', message: 'source-bound review pack digest differs' });
+  }
+});
+
+export type BenchmarkNativeTextEvidence = z.infer<typeof BenchmarkNativeTextEvidenceSchema>;
+export type BenchmarkSourceBoundReviewPack = z.infer<typeof BenchmarkSourceBoundReviewPackSchema>;
+
+export function buildBenchmarkSourceBoundReviewPack(
+  input: z.input<typeof sourceBoundReviewPackPayloadSchema>,
+): BenchmarkSourceBoundReviewPack {
+  const payload = sourceBoundReviewPackPayloadSchema.parse(input);
+  return BenchmarkSourceBoundReviewPackSchema.parse({
+    ...payload,
+    packCanonicalSha256: hashCanonical(payload),
+  });
+}
+
+export function parseBenchmarkNativeTextEvidence(value: unknown): BenchmarkNativeTextEvidence {
+  return BenchmarkNativeTextEvidenceSchema.parse(value);
+}
+
+export function parseBenchmarkSourceBoundReviewPack(value: unknown): BenchmarkSourceBoundReviewPack {
+  return BenchmarkSourceBoundReviewPackSchema.parse(value);
+}
 
 export class BenchmarkReviewPackError extends Error {
   constructor(detail: string) {

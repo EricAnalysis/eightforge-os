@@ -1,0 +1,42 @@
+{
+  "approvalVersion": "e3-benchmark-delegated-approval-v1",
+  "authority": "delegated_dual_ai_benchmark_approval",
+  "delegationScope": "e3_benchmark_labels_finalization",
+  "pageKey": "hillsdale-p3",
+  "source": {
+    "documentKey": "hillsdale",
+    "sha256": "596adaccf865625723dc832f5206a8f690eb17d96921ef185df35b113c767537",
+    "byteLength": 3227431,
+    "physicalPageNumber": 3
+  },
+  "frame": {
+    "frame_version": "canonical_frame_v1",
+    "coordinate_space": "canonical_v1",
+    "view": [
+      0,
+      0,
+      611,
+      792
+    ],
+    "rotation": 0,
+    "user_unit": 1,
+    "width": 611,
+    "height": 792
+  },
+  "adjudicationSha256": "96e37da2e4767f6fefba4792b43c3f8b21d4706fae2381455fc5fc5ccde76485",
+  "comparisonSha256": "1bc8335972b4f9192d3a65f0a33c10190da5d53bc14fa5247c781b34e08bbda1",
+  "reviewerALabelSetSha256": "8e0e222ae440fd8e47dcfd41cd38c11896993ec48f91de87a66f40e8a76fadb4",
+  "reviewerBLabelSetSha256": "20d00f033e1307bc475c53d36b558dca4c164cf9ea4786eb5042566ee43b5de6",
+  "suggestionsSha256": null,
+  "candidateSha256": "f090b62d0b005caac5a879287eb68a6516447ab33f67b1b709caa12d0faaba35",
+  "candidateSummary": {
+    "words": 330,
+    "cells": 123,
+    "rows": 41,
+    "coverage": "requires_ocr"
+  },
+  "approverIdentity": "claude",
+  "decision": "approve",
+  "approvedAt": "2026-09-29T15:56:14.723Z",
+  "rationale": "Approve E3 evaluation ground truth only for hillsdale-p3 (no production, Project Truth, validator, extraction or E4/E5 authority). Candidate f090b62d0b005caac5a879287eb68a6516447ab33f67b1b709caa12d0faaba35 (330 words, 123 cells, 41 rows, requires_ocr) recomputed twice with the official compute-benchmark-candidate CLI from adjudication.geometry.json (canonical 96e37da2e4767f6f): byte-identical and equal to the published preview. Fresh verifier 36/36: content rebuilt from the frozen semantic adjudication + reviewed geometry-evidence and deep-compared exactly; every packet binding equals the finalizer inputs; cell boxes are unions of their words; rows cite each cell once. Semantics equal Reviewer B on all items and Reviewer A except the frozen wrapped-cell decision (c-0103 joined with one space). 100% of substantial text ink covered. Fresh-render ink check: source sha and frame bound; 0 empty, 0 loose, 0 overlapping boxes. Boxes are source-ink derived (OCR/native used only as cross-check evidence). Disclosure: this Claude session was Reviewer B and also derived the geometry and prepared the packet; verification was re-run with newly written checkers, but this approval is not independent of that preparation."
+}

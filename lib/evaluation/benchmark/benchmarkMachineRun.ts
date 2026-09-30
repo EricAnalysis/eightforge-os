@@ -143,6 +143,21 @@ export async function runBenchmarkMachinePass(input: Readonly<{
     .find((entry) => entry.physical_page_number === input.physicalPageNumber);
   const cells: Array<{ text: string; box: BenchmarkBox; isHeader: boolean; columnName: string | null }> = [];
   const rows: Array<{ orderedCellBoxes: BenchmarkBox[] }> = [];
+  // The authored header row: every column the reconstruction established,
+  // recognized or role-less, with the header tokens that established it. Its
+  // box is the union of those tokens' boxes. A page whose header is unresolved
+  // establishes no columns and so claims no header cells.
+  const headerBoxes: BenchmarkBox[] = [];
+  for (const column of reconstructedPage?.columns ?? []) {
+    const box = unionBox((column.header_source_refs ?? []).flatMap((ref) => {
+      const refBox = boxForRef(ref);
+      return refBox ? [refBox] : [];
+    }));
+    if (!box) continue;
+    cells.push({ text: column.header_text, box, isHeader: true, columnName: column.role ?? null });
+    headerBoxes.push(box);
+  }
+  if (headerBoxes.length > 0) rows.push({ orderedCellBoxes: headerBoxes });
   for (const row of reconstructedPage?.rows ?? []) {
     const rowBoxes: BenchmarkBox[] = [];
     // Structure in column order: resolved-role cells and role-unresolved cells
@@ -162,9 +177,6 @@ export async function runBenchmarkMachinePass(input: Readonly<{
       cells.push({
         text: cell.raw_text,
         box,
-        // The reconstruction emits body cells; its header row is consumed as
-        // column geometry rather than published as cells, so this run makes no
-        // header claim and header accuracy will show that.
         isHeader: false,
         columnName: cell.role ?? null,
       });

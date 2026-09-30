@@ -2312,6 +2312,34 @@ describe('generic single-page priced schedule reconstruction', () => {
     expect(JSON.stringify(priced)).not.toContain('"9"');
   });
 
+  it('R7-8: every reconstructed column keeps the exact header words that established it', () => {
+    // OCR-style words: "Unit of Measure" arrives as three words, "Code" names no role.
+    const lines = [line(7, 700, [
+      { x: 10, text: 'Code', width: 25, observation_id: 'h:code' as PdfToken['observation_id'] },
+      { x: DESCRIPTION_X, text: 'Description', width: 60, observation_id: 'h:desc' as PdfToken['observation_id'] },
+      { x: UNIT_X, text: 'Unit', width: 20, observation_id: 'h:unit' as PdfToken['observation_id'] },
+      { x: UNIT_X + 24, text: 'of', width: 10, observation_id: 'h:of' as PdfToken['observation_id'] },
+      { x: UNIT_X + 38, text: 'Measure', width: 40, observation_id: 'h:measure' as PdfToken['observation_id'] },
+      { x: CURRENCY_X, text: 'Cost', width: 30, observation_id: 'h:cost' as PdfToken['observation_id'] },
+    ]),
+    line(7, 680, [{ x: 10, text: 'A1', width: 12 }, { x: DESCRIPTION_X, text: 'Alpha', width: 60 }, { x: UNIT_X, text: 'Ton', width: 20 },
+      { x: CURRENCY_X, text: '$', width: 8 }, { x: AMOUNT_X, text: '12.00', width: 40 }]),
+    line(7, 660, [{ x: 10, text: 'B2', width: 12 }, { x: DESCRIPTION_X, text: 'Beta', width: 60 }, { x: UNIT_X, text: 'Ton', width: 20 },
+      { x: CURRENCY_X, text: '$', width: 8 }, { x: AMOUNT_X, text: '3.50', width: 40 }])];
+    const result = reconstructSinglePage(lines)!;
+    expect(result.columns.map((column) => [column.header_text, column.role,
+      (column.header_source_refs ?? []).map((ref) => [ref.observation_id, ref.text])])).toEqual([
+      ['Code', null, [['h:code', 'Code']]],
+      ['Description', 'description', [['h:desc', 'Description']]],
+      ['Unit of Measure', 'unit', [['h:unit', 'Unit'], ['h:of', 'of'], ['h:measure', 'Measure']]],
+      ['Cost', 'rate', [['h:cost', 'Cost']]],
+    ]);
+    // Header words are never row content.
+    const bodyRefs = result.rows.flatMap((row) => [...row.cells, ...(row.unresolved_role_cells ?? [])]
+      .flatMap((cell) => cell.source_refs.map((ref) => ref.observation_id)));
+    expect(bodyRefs.filter((id) => id?.startsWith('h:'))).toEqual([]);
+  });
+
   it('R4-12: production logic names no benchmark document or value', () => {
     const source = readFileSync(new URL('./pagePricedScheduleReconstruction.ts', import.meta.url), 'utf8');
     expect(source).not.toMatch(/DN12189513|Hillsdale|Williamson|Goodlettsville|\bp10[67]\b|90\.00|1,000\.00/i);

@@ -184,6 +184,31 @@ describe('OCR-normalized priced schedule reconstruction', () => {
     }));
   });
 
+  it('attributes a wrapped line by row-start anchors identically from OCR words as from native text', () => {
+    const priced = (y: number, code: string, description: string) => nativeLine(y, [
+      { x: 10, text: code, width: 12 }, { x: 50, text: description, width: 100 },
+      { x: 200, text: 'Widget', width: 60 }, { x: 300, text: 'Yard to Depot', width: 100 },
+      { x: 450, text: '$', width: 8 }, { x: 470, text: '12.00', width: 40 },
+    ]);
+    const anchored = [
+      nativeLine(700, [
+        { x: 10, text: 'Code', width: 25 }, { x: 50, text: 'Description', width: 70 },
+        { x: 200, text: 'Unit', width: 30 }, { x: 300, text: 'Route', width: 40 }, { x: 450, text: 'Cost', width: 30 },
+      ]),
+      priced(680, 'A1', 'Alpha service'),
+      // Midway between two priced lines: only the row-start anchors can place it.
+      nativeLine(670, [{ x: 50, text: 'first wrap', width: 60 }]),
+      priced(660, 'B2', 'Beta service'),
+      priced(648, 'C3', 'Gamma service'),
+    ];
+    const native = rowsOf({
+      page_count: 1, gaps: [],
+      pages: [{ page_number: 1, width: PAGE_WIDTH, height: PAGE_HEIGHT, lines: anchored }],
+    });
+    expect(native!.map((row) => row.description)).toEqual(['Alpha service first wrap', 'Beta service', 'Gamma service']);
+    expect(rowsOf(ocrOnly(anchored))).toEqual(native);
+  });
+
   it('still fails closed, never guessing, when one role names two separate columns', () => {
     // Column gaps are never bridged: two unit columns remain an ambiguous header.
     const ambiguousHeader = [

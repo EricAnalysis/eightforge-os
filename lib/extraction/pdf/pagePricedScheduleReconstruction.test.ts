@@ -1788,4 +1788,132 @@ describe('generic single-page priced schedule reconstruction', () => {
     expect(result).toMatchObject({ status: 'failed_closed', columns: [], rows: [] });
   });
 
+  // ---------------------------------------------------------------------------
+  // R3: row-start anchors. An identifier-like role-less column (one token per
+  // row, at each row's first line) proves where authored rows begin. Wrapped
+  // lines spacing cannot place are then attributed by the anchors; unproven or
+  // contradicted anchors are never used.
+  // ---------------------------------------------------------------------------
+
+  type AnchorRow = { anchor?: string; anchorOnSecondLine?: boolean; description: string; wrap?: string; amount?: string; marker?: string };
+  const anchoredTable = (rows: readonly AnchorRow[], anchorTokens?: (row: AnchorRow) => TokenSpec[]) => {
+    const lines: PdfLayoutLine[] = [line(7, 700, [
+      { x: LINE_X, text: 'Line #', width: 30 },
+      { x: DESCRIPTION_X, text: 'Description', width: 70 },
+      { x: UNIT_X, text: 'Unit of Measure', width: 80 },
+      { x: ORIGIN_X, text: 'Origin/ Destination', width: 90 },
+      { x: CURRENCY_X, text: 'Cost', width: 30 },
+    ])];
+    let y = 680;
+    for (const row of rows) {
+      const anchor = row.anchor ? (anchorTokens ? anchorTokens(row) : [{ x: LINE_X, text: row.anchor, width: 25 }]) : [];
+      lines.push(line(7, y, [
+        ...(row.anchorOnSecondLine ? [] : anchor),
+        { x: DESCRIPTION_X, text: row.description, width: 100 }, { x: UNIT_X, text: 'Widget', width: 60 },
+        { x: ORIGIN_X, text: 'A to B', width: 100 },
+        ...(row.marker === '' ? [] : [{ x: CURRENCY_X, text: row.marker ?? '$', width: 8 }]),
+        { x: AMOUNT_X, text: row.amount ?? '12.00', width: 40 },
+      ]));
+      y -= 12;
+      if (row.wrap || row.anchorOnSecondLine) {
+        lines.push(line(7, y, [
+          ...(row.anchorOnSecondLine ? anchor : []),
+          ...(row.wrap ? [{ x: DESCRIPTION_X, text: row.wrap, width: 60 }] : []),
+        ]));
+        y -= 12;
+      }
+    }
+    return lines;
+  };
+  const wrapped: AnchorRow[] = [
+    { anchor: '0001', description: 'Alpha service', wrap: 'first wrap' },
+    { anchor: '0002', description: 'Beta service', wrap: 'second wrap' },
+    { anchor: '0003', description: 'Gamma service' },
+  ];
+
+  it('R3-1: spacing alone cannot place a wrapped line midway between two priced lines', () => {
+    const result = buildPagePricedScheduleReconstruction({
+      layout: layoutOf([page(7, anchoredTable(wrapped))]), continuationEvidence: 'spacing_only',
+    }).pages[0]!;
+    expect(result.unassigned_lines.map((entry) => [entry.reason, entry.raw_text])).toEqual([
+      ['ambiguous_row_assignment', 'first wrap'], ['ambiguous_row_assignment', 'second wrap'],
+    ]);
+  });
+
+  it('R3-2: an identifier column establishes row starts and attributes each wrap to its row', () => {
+    const result = reconstructSinglePage(anchoredTable(wrapped))!;
+    expect(result.unassigned_lines).toEqual([]);
+    expect(result.rows.map((row) => cellText(row, 'description'))).toEqual([
+      'Alpha service first wrap', 'Beta service second wrap', 'Gamma service',
+    ]);
+    // The wrapped cell keeps both source lines' tokens; nothing is composed.
+    expect(result.rows[0]!.cells.find((cell) => cell.role === 'description')!.source_refs.map((ref) => ref.text))
+      .toEqual(['Alpha service', 'first wrap']);
+    // The identifier column shaped the rows but stays role-less structure.
+    expect(result.columns[0]).toMatchObject({ role: null, header_text: 'Line #' });
+    expect(result.rows.map((row) => row.unresolved_role_cells!.map((cell) => cell.raw_text))).toEqual([['0001'], ['0002'], ['0003']]);
+  });
+
+  it('R3-3: a column is not an anchor unless every row line holds exactly one token', () => {
+    const result = reconstructSinglePage(anchoredTable(wrapped, (row) => [
+      { x: LINE_X, text: row.anchor!, width: 12 }, { x: LINE_X + 16, text: 'x', width: 6 },
+    ]))!;
+    expect(result.unassigned_lines.map((entry) => entry.reason)).toEqual(['ambiguous_row_assignment', 'ambiguous_row_assignment']);
+  });
+
+  it('R3-4: anchors that do not sit at row starts are never used', () => {
+    // The identifier sits on each row's second line: priced lines fall above the
+    // first anchor, so the anchors cannot bound the rows and spacing rules stand.
+    const rows = wrapped.map((row) => ({ ...row, wrap: undefined, anchorOnSecondLine: true }));
+    const anchored = reconstructSinglePage(anchoredTable(rows))!;
+    const spacing = buildPagePricedScheduleReconstruction({
+      layout: layoutOf([page(7, anchoredTable(rows))]), continuationEvidence: 'spacing_only',
+    }).pages[0]!;
+    expect(anchored.rows.map((row) => row.cells)).toEqual(spacing.rows.map((row) => row.cells));
+    expect(anchored.unassigned_lines).toEqual(spacing.unassigned_lines);
+  });
+
+  it('R3-5: a row without a price marker is reported, never folded into its priced neighbours', () => {
+    const rows: AnchorRow[] = [
+      { anchor: '0001', description: 'Alpha service' },
+      // Its two lines are each clearly nearer a different priced neighbour.
+      { anchor: '0002', description: 'Unpriced service', marker: '', amount: '90.00', wrap: 'unpriced wrap' },
+      { anchor: '0003', description: 'Gamma service' },
+      { anchor: '0004', description: 'Delta service' },
+    ];
+    const spacing = buildPagePricedScheduleReconstruction({
+      layout: layoutOf([page(7, anchoredTable(rows))]), continuationEvidence: 'spacing_only',
+    }).pages[0]!;
+    const anchored = reconstructSinglePage(anchoredTable(rows))!;
+    // Without anchors each unpriced line is credited to a priced neighbour (making it ambiguous).
+    expect(spacing.rows.some((row) => row.raw_text.includes('Unpriced service'))
+      || spacing.rejected_spines.some((entry) => entry.raw_text.includes('Unpriced service'))).toBe(true);
+    expect(anchored.rows.map((row) => cellText(row, 'description'))).toEqual(['Alpha service', 'Gamma service', 'Delta service']);
+    expect(anchored.rows.every((row) => !row.raw_text.includes('Unpriced'))).toBe(true);
+    expect(anchored.unassigned_lines.map((entry) => [entry.reason, entry.raw_text])).toEqual([
+      ['unpriced_row', 'Unpriced service Widget A to B 90.00'], ['unpriced_row', 'unpriced wrap'],
+    ]);
+  });
+
+  it('R3-6: anchored rows price normally and an unpriced row prices nothing', () => {
+    const rows: AnchorRow[] = [
+      { anchor: '0001', description: 'Alpha service', wrap: 'first wrap' },
+      { anchor: '0002', description: 'Unpriced service', marker: '', amount: '90.00' },
+      { anchor: '0003', description: 'Gamma service' },
+    ];
+    const recon = buildPagePricedScheduleReconstruction({ layout: layoutOf([page(7, anchoredTable(rows))]) });
+    const priced = buildContractRateScheduleRows({ rateTable: null, pricedScheduleReconstruction: recon });
+    expect(priced.map((row) => [row.description, row.rate])).toEqual([['Alpha service first wrap', 12], ['Gamma service', 12]]);
+    expect(JSON.stringify(priced)).not.toMatch(/Unpriced|000[123]/);
+  });
+
+  it('R3-7: prose with no identifier column is unaffected by anchors', () => {
+    const lines = [headerWith('Cost'), ...twoBodyRows];
+    const anchored = reconstructSinglePage(lines);
+    const spacing = buildPagePricedScheduleReconstruction({
+      layout: layoutOf([page(7, lines)]), continuationEvidence: 'spacing_only',
+    }).pages[0] ?? null;
+    expect(anchored).toEqual(spacing);
+  });
+
 });

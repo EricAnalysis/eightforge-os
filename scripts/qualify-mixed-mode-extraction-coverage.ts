@@ -192,8 +192,14 @@ assert(dnPage, 'DN page 106 no longer reconstructs');
 const dnCandidates = (dnReconstruction.recovery_candidates ?? [])
   .filter((candidate) => candidate.physicalPageNumber === 106);
 const dnUnits = new Set(dnCandidates.map((candidate) => candidate.orderedObservationIds.join(':')));
-assert(dnUnits.size === 13 && dnCandidates.length === 26,
+// Row-start anchors (E3 remediation 3) attribute every DN p106 wrapped
+// continuation deterministically in production, so none remains ambiguous and no
+// continuation candidate is generated. The 13-unit / 26-candidate cohort is
+// preserved as spacing-only evaluation evidence (see the Phase 17 cohort).
+assert(dnUnits.size === 0 && dnCandidates.length === 0,
   `DN page 106 continuation shape changed: ${dnUnits.size} units, ${dnCandidates.length} candidates`);
+assert(dnPage.unassigned_lines.every((line) => line.reason !== 'ambiguous_row_assignment'),
+  'DN page 106 must leave no continuation ambiguous under row-start anchors');
 assert(dnCandidates.every((candidate) => RecoveryCandidateV2Schema.safeParse(candidate).success
   && candidate.evidence.every((entry) => entry.sourceLayer === 'pdf_native_text')),
 'DN page 106 candidates must remain native-text evidence with a closed schema');

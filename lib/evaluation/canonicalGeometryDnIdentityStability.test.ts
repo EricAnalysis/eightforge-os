@@ -102,6 +102,9 @@ describe.skipIf(!sourcePdfPath)('E2 identity stability on DN p106', () => {
     const pageDigest = page.effective_representation_digest!;
     const reconstruction = buildPagePricedScheduleReconstruction({
       layout,
+      // Pinned identities were recorded against spacing-only continuation
+      // evidence; the DN p106 recovery candidates exist only under it.
+      continuationEvidence: 'spacing_only',
       recoveryCandidateBuildContext: {
         sourceDocumentId: CANDIDATE_DOCUMENT_ID,
         sourceArtifactId: OBSERVATION_CONTEXT.sourceArtifactId,

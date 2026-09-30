@@ -234,7 +234,13 @@ export type PricedScheduleUnassignedLineReason =
   /** Sat between two rows without being meaningfully nearer to either. */
   | 'ambiguous_row_assignment'
   /** Sat past the table's established continuation spacing at an edge. */
-  | 'unsupported_trailing_line';
+  | 'unsupported_trailing_line'
+  /**
+   * Belongs, by the page's row-start anchors, to an authored row that carries no
+   * authored price marker. Reported instead of being attached to a neighbouring
+   * priced row, which would credit that row with another row's text.
+   */
+  | 'unpriced_row';
 
 export type PricedScheduleUnassignedLine = {
   readonly reason: PricedScheduleUnassignedLineReason;
@@ -839,6 +845,79 @@ function unresolvedHeaderCandidate(page: PdfLayoutPage): {
 }
 
 /**
+ * How continuation lines are attributed to rows. 'row_start_anchors' (the
+ * default) also uses row-start anchors when the page proves them; 'spacing_only'
+ * is the behaviour before anchors existed, kept only so pinned evaluation
+ * fixtures can reproduce the evidence they were recorded against.
+ */
+export type PricedScheduleContinuationEvidence = 'row_start_anchors' | 'spacing_only';
+
+type RowStartModel = {
+  /** Which anchor band a y falls in, or null outside the anchors' span. */
+  bandOf: (y: number) => number | null;
+  /** The single priced (spine) line in each band that has one. */
+  spineOfBand: ReadonlyMap<number, SourceLine>;
+};
+
+/**
+ * Row-start anchors: the lines of role-unresolved columns that mark where each
+ * authored row begins. A column qualifies only when every one of its body lines
+ * is a single token (an identifier-like column: a line number, an item code), and
+ * a row start is kept only where every qualifying column has a line. The anchors
+ * are then usable only when the page's own priced lines agree with them: every
+ * priced line falls inside exactly one anchor band and no band holds two. A band
+ * runs from its anchor down to the next anchor; the last band ends at the lowest
+ * priced line, and a priced line more than one anchor pitch below the last
+ * anchor means the anchors do not reach the table's end, so they are not used.
+ */
+function buildRowStartModel(
+  roleLess: ReadonlyArray<{ token: PdfToken; columnIndex: number }>,
+  spineLines: readonly SourceLine[],
+  tolerance: number,
+): RowStartModel | null {
+  const byColumn = new Map<number, PdfToken[]>();
+  for (const { token, columnIndex } of roleLess) {
+    byColumn.set(columnIndex, [...(byColumn.get(columnIndex) ?? []), token]);
+  }
+  const candidateStarts: number[][] = [];
+  for (const [, tokens] of [...byColumn.entries()].sort(([left], [right]) => left - right)) {
+    const lines: { y: number; count: number }[] = [];
+    for (const token of [...tokens].sort((left, right) => right.y - left.y || compareTokens(left, right))) {
+      const last = lines.at(-1);
+      if (last && last.y - token.y <= tolerance) last.count += 1;
+      else lines.push({ y: token.y, count: 1 });
+    }
+    if (lines.length < MINIMUM_PRICED_ROWS || lines.some((line) => line.count !== 1)) continue;
+    candidateStarts.push(lines.map((line) => line.y));
+  }
+  if (candidateStarts.length === 0) return null;
+  const [first, ...rest] = candidateStarts;
+  const starts = first!.filter((y) => rest.every((ys) => ys.some((other) => Math.abs(other - y) <= tolerance)));
+  if (starts.length < MINIMUM_PRICED_ROWS) return null;
+  const pitch = medianOf(starts.slice(1).map((y, index) => starts[index]! - y));
+  if (pitch == null || pitch <= tolerance) return null;
+  // The last band ends at the lowest priced line: below it nothing proves which
+  // row a line belongs to (a trailing total, a note), so edge rules decide.
+  const lowestSpine = Math.min(...spineLines.map((line) => line.y));
+  if (lowestSpine < starts.at(-1)! - pitch) return null;
+  const lastFloor = Math.min(starts.at(-1)!, lowestSpine) - tolerance;
+  const bandOf = (y: number): number | null => {
+    if (y > starts[0]! + tolerance) return null;
+    for (let index = 0; index < starts.length - 1; index += 1) {
+      if (y > starts[index + 1]! + tolerance) return index;
+    }
+    return y > lastFloor ? starts.length - 1 : null;
+  };
+  const spineOfBand = new Map<number, SourceLine>();
+  for (const spine of spineLines) {
+    const band = bandOf(spine.y);
+    if (band == null || spineOfBand.has(band)) return null;
+    spineOfBand.set(band, spine);
+  }
+  return { bandOf, spineOfBand };
+}
+
+/**
  * Index of the column whose horizontal band contains the token's center, or -1.
  * A token in an unrecognized column stays in that column: its value belongs to a
  * column this module cannot name, and is never folded into a neighbouring
@@ -1223,6 +1302,7 @@ function reconstructPage(
   appliedCandidates: Set<string>,
   candidateBuildContext?: RecoveryCandidateBuildContext,
   generatedCandidates: RecoveryCandidateV2[] = [],
+  continuationEvidence: PricedScheduleContinuationEvidence = 'row_start_anchors',
 ): PricedSchedulePage | null {
   const headers = detectHeaders(page);
   let header: DetectedHeader;
@@ -1374,6 +1454,50 @@ function reconstructPage(
   const spineIndex = new Map(spineLines.map((line, index) => [line, index]));
   const eligibleSpineLines = spineLines.filter((_, index) => !pitchOutliers.has(index));
 
+  // How spacing alone attributes a continuation line: to the clearly nearer of
+  // its two neighbouring priced lines, or ambiguous, or an edge line.
+  const spacingDecision = (line: SourceLine):
+    | { kind: 'edge' }
+    | { kind: 'ambiguous' }
+    | { kind: 'attach'; spine: SourceLine; distance: number } => {
+    let above: SourceLine | null = null;
+    let below: SourceLine | null = null;
+    for (const spine of eligibleSpineLines) {
+      if (spine.y > line.y && (!above || spine.y < above.y)) above = spine;
+      if (spine.y < line.y && (!below || spine.y > below.y)) below = spine;
+    }
+    if (!above || !below) return { kind: 'edge' };
+    const distanceAbove = above.y - line.y;
+    const distanceBelow = line.y - below.y;
+    const nearerDistance = Math.min(distanceAbove, distanceBelow);
+    const fartherDistance = Math.max(distanceAbove, distanceBelow);
+    if (fartherDistance > 0 && nearerDistance / fartherDistance > CONTINUATION_AMBIGUITY_RATIO) return { kind: 'ambiguous' };
+    return { kind: 'attach', spine: distanceAbove <= distanceBelow ? above : below, distance: nearerDistance };
+  };
+
+  // Row-start anchors resolve what spacing cannot -- which row a wrapped line
+  // belongs to -- but only on a page whose anchors are proven: no pitch outliers,
+  // the anchors agree with every priced line, and they contradict no attribution
+  // spacing already makes with certainty. Any contradiction disables them.
+  const glyphHeight = medianOf(banded.map((entry) => entry.token.height).filter((height) => height > 0));
+  let rowStart: RowStartModel | null = continuationEvidence === 'row_start_anchors'
+    && pitchOutliers.size === 0 && glyphHeight != null
+    ? buildRowStartModel(roleLess, spineLines, glyphHeight * LINE_MERGE_FRACTION)
+    : null;
+  if (rowStart) {
+    for (const line of sourceLines) {
+      if (spineIndex.has(line)) continue;
+      const band = rowStart.bandOf(line.y);
+      const spine = band == null ? undefined : rowStart.spineOfBand.get(band);
+      if (!spine) continue;
+      const decision = spacingDecision(line);
+      if (decision.kind === 'attach' && decision.spine !== spine) {
+        rowStart = null;
+        break;
+      }
+    }
+  }
+
   // Attach each continuation line to a row by vertical proximity, not by a
   // midpoint threshold. A line joins a row only when that row is clearly the
   // nearer of the two candidates; a line that sits between two rows without
@@ -1477,6 +1601,20 @@ function reconstructPage(
   }
 
   for (const line of activeContinuationLines) {
+    const band = rowStart ? rowStart.bandOf(line.y) : null;
+    if (rowStart && band != null) {
+      const anchoredSpine = rowStart.spineOfBand.get(band);
+      if (!anchoredSpine) {
+        reportLine(line, 'unpriced_row');
+        continue;
+      }
+      attached.get(anchoredSpine)!.push(line);
+      // Only a line spacing itself attributes to this row informs the page's
+      // established spacing; anchor-resolved lines never move that median.
+      const decision = spacingDecision(line);
+      if (decision.kind === 'attach' && decision.spine === anchoredSpine) interiorGaps.push(decision.distance);
+      continue;
+    }
     let above: SourceLine | null = null;
     let below: SourceLine | null = null;
     for (const spine of eligibleSpineLines) {
@@ -1805,6 +1943,8 @@ export function buildPagePricedScheduleReconstruction(params: {
   currentPageEvidence?: Readonly<Record<number, CurrentPageEvidence>>;
   /** Enables a deterministic candidate-generation pass before Forgewing. */
   recoveryCandidateBuildContext?: RecoveryCandidateBuildContext;
+  /** Defaults to 'row_start_anchors'. 'spacing_only' exists for pinned evaluation fixtures. */
+  continuationEvidence?: PricedScheduleContinuationEvidence;
 }): PagePricedScheduleReconstruction {
   const supplied = params.confirmedRateObservations ?? [];
   const confirmationCounts = new Map<string, number>();
@@ -1905,6 +2045,7 @@ export function buildPagePricedScheduleReconstruction(params: {
     const reconstructed = reconstructPage(
       page, confirmed, confirmedCandidates, appliedConfirmations, appliedCandidates,
       params.recoveryCandidateBuildContext, generatedCandidates,
+      params.continuationEvidence ?? 'row_start_anchors',
     );
     if (reconstructed) pages.push(reconstructed);
   }

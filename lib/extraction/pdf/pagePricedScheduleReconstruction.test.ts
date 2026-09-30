@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 import { describe, expect, it } from 'vitest';
 
 import type { PdfLayout, PdfLayoutLine, PdfLayoutPage, PdfToken } from '@/lib/extraction/pdf/extractText';
@@ -1874,10 +1876,12 @@ describe('generic single-page priced schedule reconstruction', () => {
   });
 
   it('R3-5: a row without a price marker is reported, never folded into its priced neighbours', () => {
+    // No amount at all: a lone well-formed amount there would now be a structured
+    // rate (R4), so the unpriced row carries non-numeric authored text instead.
     const rows: AnchorRow[] = [
       { anchor: '0001', description: 'Alpha service' },
       // Its two lines are each clearly nearer a different priced neighbour.
-      { anchor: '0002', description: 'Unpriced service', marker: '', amount: '90.00', wrap: 'unpriced wrap' },
+      { anchor: '0002', description: 'Unpriced service', marker: '', amount: 'TBD', wrap: 'unpriced wrap' },
       { anchor: '0003', description: 'Gamma service' },
       { anchor: '0004', description: 'Delta service' },
     ];
@@ -1891,14 +1895,14 @@ describe('generic single-page priced schedule reconstruction', () => {
     expect(anchored.rows.map((row) => cellText(row, 'description'))).toEqual(['Alpha service', 'Gamma service', 'Delta service']);
     expect(anchored.rows.every((row) => !row.raw_text.includes('Unpriced'))).toBe(true);
     expect(anchored.unassigned_lines.map((entry) => [entry.reason, entry.raw_text])).toEqual([
-      ['unpriced_row', 'Unpriced service Widget A to B 90.00'], ['unpriced_row', 'unpriced wrap'],
+      ['unpriced_row', 'Unpriced service Widget A to B TBD'], ['unpriced_row', 'unpriced wrap'],
     ]);
   });
 
   it('R3-6: anchored rows price normally and an unpriced row prices nothing', () => {
     const rows: AnchorRow[] = [
       { anchor: '0001', description: 'Alpha service', wrap: 'first wrap' },
-      { anchor: '0002', description: 'Unpriced service', marker: '', amount: '90.00' },
+      { anchor: '0002', description: 'Unpriced service', marker: '', amount: 'TBD' },
       { anchor: '0003', description: 'Gamma service' },
     ];
     const recon = buildPagePricedScheduleReconstruction({ layout: layoutOf([page(7, anchoredTable(rows))]) });
@@ -1914,6 +1918,174 @@ describe('generic single-page priced schedule reconstruction', () => {
       layout: layoutOf([page(7, lines)]), continuationEvidence: 'spacing_only',
     }).pages[0] ?? null;
     expect(anchored).toEqual(spacing);
+  });
+
+  // ---------------------------------------------------------------------------
+  // R4: structured rate cells. On a page whose header semantics are resolved and
+  // whose row-start anchors are proven, a row whose currency marker was not read
+  // is still priced when its rate column holds exactly one well-formed amount --
+  // optionally beside one glyph standing where the page's own recognized markers
+  // stand. The glyph is kept verbatim; no marker is ever manufactured.
+  // ---------------------------------------------------------------------------
+
+  const EXTENDED_X = 540;
+  type RateRow = {
+    anchor: string; description: string; rate?: TokenSpec[]; wrap?: string; wrapRate?: TokenSpec[];
+    unitText?: string; extended?: string;
+  };
+  const recognized = (amount = '12.00'): TokenSpec[] => [{ x: CURRENCY_X, text: '$', width: 8 }, { x: AMOUNT_X, text: amount, width: 40 }];
+  const structuredTable = (rows: readonly RateRow[], options: { descriptionLabel?: string; extended?: boolean } = {}) => {
+    const lines: PdfLayoutLine[] = [line(7, 700, [
+      { x: LINE_X, text: 'Line #', width: 30 },
+      { x: DESCRIPTION_X, text: options.descriptionLabel ?? 'Description', width: 70 },
+      { x: UNIT_X, text: 'Unit of Measure', width: 80 },
+      { x: ORIGIN_X, text: 'Origin/ Destination', width: 90 },
+      { x: CURRENCY_X, text: 'Cost', width: 30 },
+      ...(options.extended ? [{ x: EXTENDED_X, text: 'Extended Amount', width: 60 }] : []),
+    ])];
+    let y = 680;
+    for (const row of rows) {
+      lines.push(line(7, y, [
+        { x: LINE_X, text: row.anchor, width: 25 },
+        { x: DESCRIPTION_X, text: row.description, width: 100 },
+        { x: UNIT_X, text: row.unitText ?? 'Widget', width: 60 },
+        { x: ORIGIN_X, text: 'A to B', width: 100 },
+        ...(row.rate ?? recognized()),
+        ...(row.extended ? [{ x: EXTENDED_X, text: row.extended, width: 50 }] : []),
+      ]));
+      y -= 12;
+      if (row.wrap || row.wrapRate) {
+        lines.push(line(7, y, [
+          ...(row.wrap ? [{ x: DESCRIPTION_X, text: row.wrap, width: 60 }] : []),
+          ...(row.wrapRate ?? []),
+        ]));
+        y -= 12;
+      }
+    }
+    return lines;
+  };
+  const middle = (rate: TokenSpec[], extra: Partial<RateRow> = {}): RateRow[] => [
+    { anchor: '0001', description: 'Alpha service' },
+    { anchor: '0002', description: 'Beta service', rate, ...extra },
+    { anchor: '0003', description: 'Gamma service' },
+    { anchor: '0004', description: 'Delta service' },
+  ];
+  const rateCellOf = (row: NonNullable<ReturnType<typeof reconstructSinglePage>>['rows'][number]) =>
+    row.cells.find((cell) => cell.role === 'rate')!;
+  const priceOf = (lines: readonly PdfLayoutLine[]) => buildContractRateScheduleRows({
+    rateTable: null, pricedScheduleReconstruction: buildPagePricedScheduleReconstruction({ layout: layoutOf([page(7, lines)]) }),
+  }).map((row) => [row.description, row.rate_raw, row.rate]);
+
+  it('R4-1: a recognized currency marker prices exactly as before, with no structured derivation', () => {
+    const result = reconstructSinglePage(structuredTable(middle(recognized('120.00'))))!;
+    expect(result.rows.map((row) => cellText(row, 'rate'))).toEqual(['$ 12.00', '$ 120.00', '$ 12.00', '$ 12.00']);
+    expect(result.rows.every((row) => rateCellOf(row).structured_rate === undefined)).toBe(true);
+    expect(result.unassigned_lines).toEqual([]);
+  });
+
+  it('R4-2: a lone well-formed amount in an anchored row\'s rate column is the rate', () => {
+    const result = reconstructSinglePage(structuredTable(middle([{ x: AMOUNT_X, text: '120.00', width: 40 }])))!;
+    expect(result.unassigned_lines).toEqual([]);
+    expect(result.rows.map((row) => cellText(row, 'description'))).toEqual(['Alpha service', 'Beta service', 'Gamma service', 'Delta service']);
+    const rate = rateCellOf(result.rows[1]!);
+    expect(rate.raw_text).toBe('120.00');
+    expect(rate.structured_rate).toEqual({
+      derivation: 'structured_numeric_rate', amount_text: '120.00', amount_source_ref: rate.source_refs[0],
+    });
+  });
+
+  it('R4-3: an unread marker glyph stays verbatim evidence and never enters the number', () => {
+    for (const glyph of ['5', '§', 's']) {
+      const lines = structuredTable(middle([{ x: CURRENCY_X, text: glyph, width: 8 }, { x: AMOUNT_X, text: '120.00', width: 40 }]));
+      const rate = rateCellOf(reconstructSinglePage(lines)!.rows[1]!);
+      expect(rate.raw_text, glyph).toBe(`${glyph} 120.00`);
+      expect(rate.source_refs.map((ref) => ref.text)).toEqual([glyph, '120.00']);
+      expect(rate.structured_rate).toMatchObject({ amount_text: '120.00', marker_source_ref: { text: glyph } });
+      expect(JSON.stringify(rate)).not.toContain('$');
+      expect(priceOf(lines)[1], glyph).toEqual(['Beta service', `${glyph} 120.00`, 120]);
+    }
+  });
+
+  it('R4-4: the same amount outside the rate column is never a rate', () => {
+    const result = reconstructSinglePage(structuredTable(middle([], { unitText: '120.00' })))!;
+    expect(result.rows.map((row) => cellText(row, 'description'))).toEqual(['Alpha service', 'Gamma service', 'Delta service']);
+    expect(result.unassigned_lines.map((entry) => [entry.reason, entry.raw_text])).toEqual([['unpriced_row', 'Beta service 120.00 A to B']]);
+  });
+
+  it('R4-5: two amounts in one row\'s rate column fail closed', () => {
+    const sameLine = middle([{ x: 425, text: '95.00', width: 20 }, { x: AMOUNT_X, text: '120.00', width: 40 }]);
+    const wrapped = middle([{ x: AMOUNT_X, text: '120.00', width: 40 }], { wrap: 'wrap', wrapRate: [{ x: AMOUNT_X, text: '95.00', width: 40 }] });
+    for (const rows of [sameLine, wrapped]) {
+      const result = reconstructSinglePage(structuredTable(rows))!;
+      expect(result.rows.map((row) => cellText(row, 'description'))).toEqual(['Alpha service', 'Gamma service', 'Delta service']);
+      expect(result.unassigned_lines.every((entry) => entry.reason === 'unpriced_row')).toBe(true);
+      expect(result.rows.some((row) => rateCellOf(row).structured_rate)).toBe(false);
+    }
+  });
+
+  it('R4-6: a page whose header semantics are unresolved is never priced structurally', () => {
+    const lines = structuredTable(middle([{ x: AMOUNT_X, text: '120.00', width: 40 }]), { descriptionLabel: 'Equipment Description' });
+    const result = reconstructSinglePage(lines)!;
+    expect(result.semantic_status).toBe('unresolved');
+    expect(result.rows.some((row) => rateCellOf(row).structured_rate)).toBe(false);
+    expect(result.rows.flatMap((row) => row.cells).some((cell) => cell.raw_text === '120.00')).toBe(false);
+    expect(priceOf(lines)).toEqual([]);
+  });
+
+  it('R4-7: glyphs outside the marker position, or outside the rate column, are left untouched', () => {
+    // A glyph in the rate column but not where the page's markers stand.
+    const offSlot = reconstructSinglePage(structuredTable(middle([{ x: 428, text: '5', width: 6 }, { x: AMOUNT_X, text: '120.00', width: 40 }])))!;
+    expect(offSlot.rows).toHaveLength(3);
+    expect(offSlot.unassigned_lines.map((entry) => entry.reason)).toEqual(['unpriced_row']);
+    // The same characters in a description stay authored text and create no rate.
+    const prose = reconstructSinglePage(structuredTable(middle(recognized('120.00'), { description: 'Section § 5 s work' })))!;
+    expect(cellText(prose.rows[1]!, 'description')).toBe('Section § 5 s work');
+    expect(cellText(prose.rows[1]!, 'rate')).toBe('$ 120.00');
+    // Spacing-only continuation evidence never prices structurally.
+    const spacing = buildPagePricedScheduleReconstruction({
+      layout: layoutOf([page(7, structuredTable(middle([{ x: CURRENCY_X, text: '§', width: 8 }, { x: AMOUNT_X, text: '120.00', width: 40 }])))]),
+      continuationEvidence: 'spacing_only',
+    }).pages[0]!;
+    expect(spacing.rows.some((row) => rateCellOf(row).structured_rate)).toBe(false);
+  });
+
+  it('R4-8: an extended amount is never taken for the unit rate', () => {
+    const noRate = reconstructSinglePage(structuredTable(middle([], { extended: '1,200.00' }), { extended: true }))!;
+    expect(noRate.rows.map((row) => cellText(row, 'description'))).toEqual(['Alpha service', 'Gamma service', 'Delta service']);
+    expect(noRate.unassigned_lines.map((entry) => entry.reason)).toEqual(['unpriced_row']);
+    const both = structuredTable(middle([{ x: AMOUNT_X, text: '120.00', width: 40 }], { extended: '1,200.00' }), { extended: true });
+    const row = reconstructSinglePage(both)!.rows[1]!;
+    expect(rateCellOf(row).structured_rate?.amount_text).toBe('120.00');
+    expect(row.unresolved_role_cells!.map((cell) => [cell.header_text, cell.raw_text])).toEqual([['Line #', '0002'], ['Extended Amount', '1,200.00']]);
+    expect(priceOf(both)[1]).toEqual(['Beta service', '120.00', 120]);
+  });
+
+  it('R4-10: a number OCR damaged is never repaired into a rate', () => {
+    for (const damaged of ['00.00', '9O.00', '120.0', '1,20.00', '120', '12O']) {
+      const result = reconstructSinglePage(structuredTable(middle([{ x: CURRENCY_X, text: '§', width: 8 }, { x: AMOUNT_X, text: damaged, width: 40 }])))!;
+      expect(result.rows.map((row) => cellText(row, 'description')), damaged).toEqual(['Alpha service', 'Gamma service', 'Delta service']);
+      expect(result.unassigned_lines.map((entry) => entry.reason), damaged).toEqual(['unpriced_row']);
+    }
+  });
+
+  it('R4-11: the derivation points at the exact source token; row text is only what was read', () => {
+    const result = reconstructSinglePage(structuredTable(middle([{ x: CURRENCY_X, text: '§', width: 8, observation_id: 'obs:m' as PdfToken['observation_id'] }, { x: AMOUNT_X, text: '1,300.00', width: 40, observation_id: 'obs:a' as PdfToken['observation_id'] }])))!;
+    const row = result.rows[1]!;
+    const rate = rateCellOf(row);
+    expect(rate.structured_rate).toEqual({
+      derivation: 'structured_numeric_rate',
+      amount_text: '1,300.00',
+      amount_source_ref: rate.source_refs[1],
+      marker_source_ref: rate.source_refs[0],
+    });
+    expect(rate.source_refs.map((ref) => [ref.observation_id, ref.text, ref.x_min])).toEqual([['obs:m', '§', CURRENCY_X], ['obs:a', '1,300.00', AMOUNT_X]]);
+    expect(row.raw_text).not.toContain('$');
+    expect(row.raw_text).toContain('§ 1,300.00');
+  });
+
+  it('R4-12: production logic names no benchmark document or value', () => {
+    const source = readFileSync(new URL('./pagePricedScheduleReconstruction.ts', import.meta.url), 'utf8');
+    expect(source).not.toMatch(/DN12189513|Hillsdale|Williamson|Goodlettsville|\bp10[67]\b|90\.00|1,000\.00/i);
   });
 
 });

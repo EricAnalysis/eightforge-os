@@ -209,6 +209,41 @@ describe('OCR-normalized priced schedule reconstruction', () => {
     expect(rowsOf(ocrOnly(anchored))).toEqual(native);
   });
 
+  it('derives the same structured rate from OCR words as from native text when the marker is unread', () => {
+    const row = (y: number, code: string, description: string, rate: ReadonlyArray<{ x: number; text: string; width: number }>) =>
+      nativeLine(y, [
+        { x: 10, text: code, width: 12 }, { x: 50, text: description, width: 100 },
+        { x: 200, text: 'Widget', width: 60 }, { x: 300, text: 'Yard to Depot', width: 100 }, ...rate,
+      ]);
+    const dollar = [{ x: 450, text: '$', width: 8 }, { x: 470, text: '12.00', width: 40 }];
+    const lines = [
+      nativeLine(700, [
+        { x: 10, text: 'Code', width: 25 }, { x: 50, text: 'Description', width: 70 },
+        { x: 200, text: 'Unit', width: 30 }, { x: 300, text: 'Route', width: 40 }, { x: 450, text: 'Cost', width: 30 },
+      ]),
+      row(680, 'A1', 'Alpha service', dollar),
+      row(665, 'B2', 'Beta service', [{ x: 450, text: '§', width: 8 }, { x: 470, text: '120.00', width: 40 }]),
+      row(650, 'C3', 'Gamma service', [{ x: 470, text: '1,300.00', width: 40 }]),
+      row(635, 'D4', 'Delta service', dollar),
+    ];
+    const derived = (layout: PdfLayout) => buildPagePricedScheduleReconstruction({ layout }).pages[0]!.rows.map((entry) => {
+      const rate = entry.cells.find((cell) => cell.role === 'rate')!;
+      return [rate.raw_text, rate.structured_rate?.amount_text ?? null, rate.structured_rate?.marker_source_ref?.text ?? null];
+    });
+    const native = derived({
+      page_count: 1, gaps: [],
+      pages: [{ page_number: 1, width: PAGE_WIDTH, height: PAGE_HEIGHT, lines }],
+    });
+    expect(native).toEqual([
+      ['$ 12.00', null, null], ['§ 120.00', '120.00', '§'], ['1,300.00', '1,300.00', null], ['$ 12.00', null, null],
+    ]);
+    expect(derived(ocrOnly(lines))).toEqual(native);
+    expect(rowsOf(ocrOnly(lines))).toEqual(rowsOf({
+      page_count: 1, gaps: [],
+      pages: [{ page_number: 1, width: PAGE_WIDTH, height: PAGE_HEIGHT, lines }],
+    }));
+  });
+
   it('still fails closed, never guessing, when one role names two separate columns', () => {
     // Column gaps are never bridged: two unit columns remain an ambiguous header.
     const ambiguousHeader = [

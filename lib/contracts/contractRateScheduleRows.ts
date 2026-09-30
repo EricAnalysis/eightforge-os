@@ -1437,7 +1437,10 @@ function buildPagePricedScheduleRows(
 
       const unitCell = cellByRole(row, 'unit');
       const originDestinationCell = cellByRole(row, 'origin_destination');
-      const rate = numericRateFromAuthoredText(rateCell.raw_text);
+      // A rate proven by structure rather than a read currency marker names its
+      // amount token; the cell's other authored text (an unread marker glyph)
+      // is evidence, never part of the number.
+      const rate = numericRateFromAuthoredText(rateCell.structured_rate?.amount_text ?? rateCell.raw_text);
 
       const categoryResolution = resolveCanonicalRateCategory({
         sourceCategory: null,

@@ -62,6 +62,13 @@ const CURRENCY_SPINE_PATTERN = /^[$£€¥]$/;
 const CURRENCY_LED_AMOUNT_PATTERN = /^[$£€¥]\s*\S/;
 const RATE_NUMBER_PATTERN = /^\(?-?[\d,]+(?:\.\d+)?\)?$/;
 const RATE_MARKER_PATTERN = /^-$/;
+/**
+ * A well-formed authored monetary amount: a number with exactly two decimal
+ * places, optionally thousands-grouped, with no leading zero. Used only to
+ * recognize a rate whose currency marker was not read; a number that is not
+ * well-formed is never repaired or reinterpreted.
+ */
+const MONETARY_AMOUNT_PATTERN = /^(?:0|[1-9]\d{0,2}(?:,\d{3})+|[1-9]\d*)\.\d{2}$/;
 
 /** Roles that must be present before a page is treated as a priced schedule. */
 const REQUIRED_ROLES: readonly PricedScheduleColumnRole[] = ['description', 'rate'];
@@ -155,6 +162,28 @@ export type PricedScheduleCell = {
   readonly x_max: number;
   readonly y_min: number;
   readonly y_max: number;
+  /**
+   * Rate cells only, and only when the row was priced without a recognized
+   * currency marker: which of the cell's own tokens is the amount. The cell's
+   * raw text and source refs stay exactly as read; nothing is rewritten.
+   */
+  readonly structured_rate?: PricedScheduleStructuredRate;
+};
+
+/**
+ * How a rate cell without a recognized currency marker was proven to be a rate:
+ * the row is established by the page's row-start anchors, the table's header
+ * semantics are resolved, and the row's rate column holds exactly one
+ * well-formed amount -- optionally beside one glyph standing where the page's
+ * recognized currency markers stand, which is kept verbatim and never read.
+ */
+export type PricedScheduleStructuredRate = {
+  readonly derivation: 'structured_numeric_rate';
+  /** The amount token's text, verbatim. */
+  readonly amount_text: string;
+  readonly amount_source_ref: PricedScheduleCellSourceRef;
+  /** The glyph in the currency-marker position, verbatim, when OCR read one. */
+  readonly marker_source_ref?: PricedScheduleCellSourceRef;
 };
 
 /**
@@ -917,6 +946,59 @@ function buildRowStartModel(
   return { bandOf, spineOfBand };
 }
 
+type StructuredRateEvidence = { readonly amount: PdfToken; readonly marker: PdfToken | null };
+
+/**
+ * Rows the page's structure proves are priced although no currency marker was
+ * read on them. Considered only inside proven row-start bands that hold no
+ * priced line. A band qualifies when its rate-column tokens are exactly one
+ * well-formed amount, or that amount plus one single glyph on the same line, to
+ * its left, standing where the page's own recognized currency markers stand. Any
+ * other rate-column content -- a second amount, a malformed number, a glyph
+ * elsewhere -- leaves the band unpriced. Returns the amount's line per band.
+ */
+function structuredRateLines(
+  rowStart: RowStartModel,
+  sourceLines: readonly SourceLine[],
+  currencySpineLines: readonly SourceLine[],
+  tolerance: number,
+): Map<SourceLine, StructuredRateEvidence> {
+  const markerLefts = currencySpineLines.flatMap((line) => line.banded
+    .filter((entry) => entry.role === 'rate' && isRowSpineToken(entry.token))
+    .map((entry) => entry.token.x));
+  const found = new Map<SourceLine, StructuredRateEvidence>();
+  if (markerLefts.length === 0) return found;
+  const slotLow = Math.min(...markerLefts) - tolerance;
+  const slotHigh = Math.max(...markerLefts) + tolerance;
+  const spineSet = new Set(currencySpineLines);
+  const linesOfBand = new Map<number, SourceLine[]>();
+  for (const line of sourceLines) {
+    if (spineSet.has(line)) continue;
+    const band = rowStart.bandOf(line.y);
+    if (band == null || rowStart.spineOfBand.has(band)) continue;
+    linesOfBand.set(band, [...(linesOfBand.get(band) ?? []), line]);
+  }
+  for (const lines of linesOfBand.values()) {
+    const rateEntries = lines.flatMap((line) => line.banded
+      .filter((entry) => entry.role === 'rate')
+      .map((entry) => ({ token: entry.token, line })));
+    const amounts = rateEntries.filter((entry) => MONETARY_AMOUNT_PATTERN.test(entry.token.text.trim()));
+    if (amounts.length !== 1 || rateEntries.length > 2) continue;
+    const amount = amounts[0]!;
+    const other = rateEntries.find((entry) => entry !== amount);
+    if (other) {
+      const glyph = other.token.text.trim();
+      const isMarkerGlyph = [...glyph].length === 1
+        && other.line === amount.line
+        && other.token.x + other.token.width <= amount.token.x
+        && other.token.x >= slotLow && other.token.x <= slotHigh;
+      if (!isMarkerGlyph) continue;
+    }
+    found.set(amount.line, { amount: amount.token, marker: other?.token ?? null });
+  }
+  return found;
+}
+
 /**
  * Index of the column whose horizontal band contains the token's center, or -1.
  * A token in an unrecognized column stays in that column: its value belongs to a
@@ -1370,7 +1452,7 @@ function reconstructPage(
 
   const sourceLines = buildSourceLines(banded);
   // A source line is atomic: it names one row, and is never split across rows.
-  const spineLines = sourceLines.filter((line) =>
+  const currencySpineLines = sourceLines.filter((line) =>
     line.banded.some((entry) => entry.role === 'rate' && isRowSpineToken(entry.token)));
 
   const unassignedLines: PricedScheduleUnassignedLine[] = [];
@@ -1421,12 +1503,12 @@ function reconstructPage(
 
   // A qualifying header with no usable row sequence is distinct from a page
   // that was never a reconstruction candidate. Preserve its authored evidence.
-  if (spineLines.length === 0) {
+  if (currencySpineLines.length === 0) {
     for (const line of sourceLines) reportLine(line, 'unsupported_trailing_line');
     return pageResult('failed_closed', []);
   }
-  if (spineLines.length < MINIMUM_PRICED_ROWS) {
-    const spine = spineLines[0]!;
+  if (currencySpineLines.length < MINIMUM_PRICED_ROWS) {
+    const spine = currencySpineLines[0]!;
     rejectLines(spine, [spine], 'insufficient_priced_rows');
     for (const line of sourceLines) {
       if (line !== spine) reportLine(line, 'unsupported_trailing_line');
@@ -1437,32 +1519,33 @@ function reconstructPage(
   // Pitch eligibility is established from raw spines before any candidate can
   // become body authority. Each edge excludes its own adjacent gap, requires at
   // least two independent comparison gaps, and abstains on a discordant baseline.
-  const spineGaps = spineLines.slice(1).map((line, index) => spineLines[index]!.y - line.y);
-  const pitchOutliers = new Set<number>();
-  const evaluateEdge = (edgeIndex: number, ownGapIndex: number) => {
-    const baseline = spineGaps.filter((_, index) => index !== ownGapIndex);
-    if (!isCoherentPitchBaseline(baseline)) return;
-    const expected = medianOf(baseline);
-    if (expected == null || expected <= 0) return;
-    const ownGap = spineGaps[ownGapIndex]!;
-    const withinEnvelope = ownGap <= expected * ROW_PITCH_ENVELOPE_FACTOR
-      && ownGap >= expected / ROW_PITCH_ENVELOPE_FACTOR;
-    if (!withinEnvelope) pitchOutliers.add(edgeIndex);
+  const pitchOutliersOf = (spines: readonly SourceLine[]): Set<number> => {
+    const spineGaps = spines.slice(1).map((line, index) => spines[index]!.y - line.y);
+    const outliers = new Set<number>();
+    const evaluateEdge = (edgeIndex: number, ownGapIndex: number) => {
+      const baseline = spineGaps.filter((_, index) => index !== ownGapIndex);
+      if (!isCoherentPitchBaseline(baseline)) return;
+      const expected = medianOf(baseline);
+      if (expected == null || expected <= 0) return;
+      const ownGap = spineGaps[ownGapIndex]!;
+      const withinEnvelope = ownGap <= expected * ROW_PITCH_ENVELOPE_FACTOR
+        && ownGap >= expected / ROW_PITCH_ENVELOPE_FACTOR;
+      if (!withinEnvelope) outliers.add(edgeIndex);
+    };
+    evaluateEdge(0, 0);
+    evaluateEdge(spines.length - 1, spineGaps.length - 1);
+    return outliers;
   };
-  evaluateEdge(0, 0);
-  evaluateEdge(spineLines.length - 1, spineGaps.length - 1);
-  const spineIndex = new Map(spineLines.map((line, index) => [line, index]));
-  const eligibleSpineLines = spineLines.filter((_, index) => !pitchOutliers.has(index));
 
   // How spacing alone attributes a continuation line: to the clearly nearer of
   // its two neighbouring priced lines, or ambiguous, or an edge line.
-  const spacingDecision = (line: SourceLine):
+  const spacingDecisionAmong = (eligible: readonly SourceLine[]) => (line: SourceLine):
     | { kind: 'edge' }
     | { kind: 'ambiguous' }
     | { kind: 'attach'; spine: SourceLine; distance: number } => {
     let above: SourceLine | null = null;
     let below: SourceLine | null = null;
-    for (const spine of eligibleSpineLines) {
+    for (const spine of eligible) {
       if (spine.y > line.y && (!above || spine.y < above.y)) above = spine;
       if (spine.y < line.y && (!below || spine.y > below.y)) below = spine;
     }
@@ -1480,23 +1563,54 @@ function reconstructPage(
   // the anchors agree with every priced line, and they contradict no attribution
   // spacing already makes with certainty. Any contradiction disables them.
   const glyphHeight = medianOf(banded.map((entry) => entry.token.height).filter((height) => height > 0));
-  let rowStart: RowStartModel | null = continuationEvidence === 'row_start_anchors'
-    && pitchOutliers.size === 0 && glyphHeight != null
-    ? buildRowStartModel(roleLess, spineLines, glyphHeight * LINE_MERGE_FRACTION)
-    : null;
-  if (rowStart) {
+  const lineTolerance = glyphHeight == null ? 0 : glyphHeight * LINE_MERGE_FRACTION;
+  const provenRowStarts = (spines: readonly SourceLine[]): RowStartModel | null => {
+    if (continuationEvidence !== 'row_start_anchors' || glyphHeight == null) return null;
+    if (pitchOutliersOf(spines).size !== 0) return null;
+    const model = buildRowStartModel(roleLess, spines, lineTolerance);
+    if (!model) return null;
+    const spineSet = new Set(spines);
+    const decide = spacingDecisionAmong(spines);
     for (const line of sourceLines) {
-      if (spineIndex.has(line)) continue;
-      const band = rowStart.bandOf(line.y);
-      const spine = band == null ? undefined : rowStart.spineOfBand.get(band);
+      if (spineSet.has(line)) continue;
+      const band = model.bandOf(line.y);
+      const spine = band == null ? undefined : model.spineOfBand.get(band);
       if (!spine) continue;
-      const decision = spacingDecision(line);
-      if (decision.kind === 'attach' && decision.spine !== spine) {
-        rowStart = null;
-        break;
+      const decision = decide(line);
+      if (decision.kind === 'attach' && decision.spine !== spine) return null;
+    }
+    return model;
+  };
+
+  // A row whose currency marker was not read is priced only on a page whose
+  // header semantics are resolved and whose row-start anchors are proven by the
+  // recognized spines. The added rows must then still satisfy the anchors'
+  // structure (no pitch outlier, one priced line per band, the table's end).
+  // Spacing is not re-tested against them: they were placed by the anchors, and
+  // a row priced on its last line is no evidence about its neighbours' lines.
+  // Otherwise the page keeps its recognized spines alone.
+  let spineLines: readonly SourceLine[] = currencySpineLines;
+  let rowStart = provenRowStarts(currencySpineLines);
+  let structuredRates = new Map<SourceLine, StructuredRateEvidence>();
+  if (rowStart && semanticsResolved) {
+    const found = structuredRateLines(rowStart, sourceLines, currencySpineLines, lineTolerance);
+    if (found.size > 0) {
+      const augmented = [...currencySpineLines, ...found.keys()].sort((left, right) => right.y - left.y);
+      const augmentedRowStart = pitchOutliersOf(augmented).size === 0
+        ? buildRowStartModel(roleLess, augmented, lineTolerance)
+        : null;
+      if (augmentedRowStart) {
+        spineLines = augmented;
+        rowStart = augmentedRowStart;
+        structuredRates = found;
       }
     }
   }
+
+  const pitchOutliers = pitchOutliersOf(spineLines);
+  const spineIndex = new Map(spineLines.map((line, index) => [line, index]));
+  const eligibleSpineLines = spineLines.filter((_, index) => !pitchOutliers.has(index));
+  const spacingDecision = spacingDecisionAmong(eligibleSpineLines);
 
   // Attach each continuation line to a row by vertical proximity, not by a
   // midpoint threshold. A line joins a row only when that row is clearly the
@@ -1700,7 +1814,14 @@ function reconstructPage(
     const index = spineIndex.get(spine)!;
     const lines = [spine, ...attached.get(spine)!].sort((left, right) => right.y - left.y);
     const contributed = lines.flatMap((line) => line.banded);
-    const ambiguous = lines.reduce((count, line) => count + rateLikeClusterCount(line), 0) > 1;
+    // A structured rate is unambiguous only while the row's rate column holds
+    // exactly the tokens that proved it.
+    const structured = structuredRates.get(spine) ?? null;
+    const rateTokens = contributed.filter((entry) => entry.role === 'rate').map((entry) => entry.token);
+    const ambiguous = structured
+      ? rateTokens.length !== (structured.marker ? 2 : 1) || !rateTokens.includes(structured.amount)
+        || (structured.marker != null && !rateTokens.includes(structured.marker))
+      : lines.reduce((count, line) => count + rateLikeClusterCount(line), 0) > 1;
     const targetRowIdentity = `page_priced_schedule:p${page.page_number}:r${index}`;
     if (ambiguous) {
       for (const cluster of lines.flatMap((line) => rateLikeClusters(line))) {
@@ -1730,6 +1851,18 @@ function reconstructPage(
         ? banded.filter((entry) => entry.token.observation_id
           && confirmation.observation_ids.includes(entry.token.observation_id))
         : banded);
+      if (cell && role === 'rate' && structured && !ambiguous) {
+        cells.push({
+          ...cell,
+          structured_rate: {
+            derivation: 'structured_numeric_rate',
+            amount_text: structured.amount.text.trim(),
+            amount_source_ref: sourceRefForToken(structured.amount),
+            ...(structured.marker ? { marker_source_ref: sourceRefForToken(structured.marker) } : {}),
+          },
+        });
+        continue;
+      }
       if (cell) cells.push(cell);
     }
     const populatedRoles = new Set(cells.map((cell) => cell.role));

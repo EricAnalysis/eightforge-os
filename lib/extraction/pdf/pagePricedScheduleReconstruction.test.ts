@@ -2083,6 +2083,178 @@ describe('generic single-page priced schedule reconstruction', () => {
     expect(row.raw_text).toContain('§ 1,300.00');
   });
 
+  // ---------------------------------------------------------------------------
+  // R5: deterministic same-line column membership. Tight authored word
+  // clusters may overhang one unresolved structural column while remaining in
+  // their established starting column; separately spaced Qty evidence stays in
+  // Qty. Text and numeric meaning are never consulted.
+  // ---------------------------------------------------------------------------
+
+  const membershipHeader = () => line(7, 700, [
+    { x: 50, text: 'Description', width: 60 },
+    { x: 170, text: 'Qty', width: 30 },
+    { x: 250, text: 'Unit', width: 35 },
+    { x: 350, text: 'Cost', width: 30 },
+  ]);
+  const membershipRow = (y: number, prefix: string) => line(7, y, [
+    { x: 50, text: `${prefix} head`, width: 75, observation_id: `${prefix}:head` as PdfToken['observation_id'] },
+    // Center x=150 lies in Qty (Description/Qty boundary x=140), but the tight
+    // two-token cluster occupies Description 3:1 by horizontal overlap.
+    { x: 130, text: 'tail', width: 40, observation_id: `${prefix}:tail` as PdfToken['observation_id'] },
+    { x: 190, text: '9', width: 10, observation_id: `${prefix}:qty` as PdfToken['observation_id'] },
+    { x: 255, text: 'EA', width: 15, observation_id: `${prefix}:unit` as PdfToken['observation_id'] },
+    { x: 350, text: '$', width: 8, observation_id: `${prefix}:marker` as PdfToken['observation_id'] },
+    { x: 365, text: '12.00', width: 35, observation_id: `${prefix}:amount` as PdfToken['observation_id'] },
+  ]);
+
+  it('R5-1: a clear source-cluster majority keeps overhanging text out of Qty without losing evidence', () => {
+    const result = reconstructSinglePage([membershipHeader(), membershipRow(680, 'a'), membershipRow(660, 'b')])!;
+    expect(result.rows.map((row) => cellText(row, 'description'))).toEqual(['a head tail', 'b head tail']);
+    expect(result.rows.map((row) => row.unresolved_role_cells?.map((cell) => [cell.header_text, cell.raw_text]))).toEqual([
+      [['Qty', '9']], [['Qty', '9']],
+    ]);
+    const refs = result.rows[0]!.cells.flatMap((cell) => cell.source_refs)
+      .concat(result.rows[0]!.unresolved_role_cells!.flatMap((cell) => cell.source_refs));
+    expect(refs.map((ref) => ref.observation_id).sort()).toEqual([
+      'a:amount', 'a:head', 'a:marker', 'a:qty', 'a:tail', 'a:unit',
+    ]);
+    expect(refs.filter((ref) => ref.observation_id === 'a:tail')).toEqual([
+      expect.objectContaining({ text: 'tail', x_min: 130, x_max: 170 }),
+    ]);
+  });
+
+  it('R5-2: an exact boundary tie abstains while deterministic neighbours stay in their columns', () => {
+    const ambiguous = line(7, 680, [
+      { x: 50, text: 'Alpha', width: 70 },
+      // Equal 10-point overlap on each side of the x=140 boundary.
+      { x: 130, text: 'boundary', width: 20, observation_id: 'ambiguous' as PdfToken['observation_id'] },
+      { x: 190, text: '9', width: 10 }, { x: 255, text: 'EA', width: 15 },
+      { x: 350, text: '$', width: 8 }, { x: 365, text: '12.00', width: 35 },
+    ]);
+    const result = reconstructSinglePage([membershipHeader(), ambiguous, membershipRow(660, 'b')])!;
+    const refs = result.rows.flatMap((row) => row.cells.flatMap((cell) => cell.source_refs)
+      .concat((row.unresolved_role_cells ?? []).flatMap((cell) => cell.source_refs)));
+    expect(refs.some((ref) => ref.observation_id === 'ambiguous')).toBe(false);
+    expect(cellText(result.rows[0]!, 'description')).toBe('Alpha');
+    expect(result.rows[0]!.unresolved_role_cells?.find((cell) => cell.header_text === 'Qty')?.raw_text).toBe('9');
+    expect(result.unattached_role_less_tokens).toEqual([
+      expect.objectContaining({ observation_id: 'ambiguous', column_index: 1 }),
+    ]);
+  });
+
+  it('R5-3: a row-attributed wrapped cluster retains Description membership and authored order', () => {
+    const wrap = line(7, 674, [
+      { x: 50, text: 'continued', width: 75, observation_id: 'wrap:head' as PdfToken['observation_id'] },
+      { x: 130, text: 'tail', width: 40, observation_id: 'wrap:tail' as PdfToken['observation_id'] },
+    ]);
+    const result = reconstructSinglePage([
+      membershipHeader(), membershipRow(680, 'a'), wrap, membershipRow(650, 'b'), membershipRow(620, 'c'),
+    ])!;
+    expect(cellText(result.rows[0]!, 'description')).toBe('a head tail continued tail');
+    const description = result.rows[0]!.cells.find((cell) => cell.role === 'description')!;
+    expect(description.source_refs.filter((ref) => ref.observation_id?.startsWith('wrap:'))
+      .map((ref) => [ref.observation_id, ref.x_min, ref.x_max])).toEqual([
+      ['wrap:head', 50, 125], ['wrap:tail', 130, 170],
+    ]);
+    expect(result.rows[0]!.unresolved_role_cells?.find((cell) => cell.header_text === 'Qty')?.raw_text).toBe('9');
+  });
+
+  it('R5-4: a tight cluster spanning three columns is not pulled into its first column', () => {
+    const spanning = line(7, 680, [
+      { x: 105, text: 'left', width: 45 },
+      { x: 155, text: 'middle', width: 45 },
+      { x: 205, text: 'right', width: 45 },
+      { x: 255, text: 'EA', width: 15 },
+      { x: 350, text: '$', width: 8 }, { x: 365, text: '12.00', width: 35 },
+    ]);
+    const result = reconstructSinglePage([membershipHeader(), spanning, membershipRow(660, 'b')])!;
+    expect(cellText(result.rows[0]!, 'description')).toBe('left');
+    expect(result.rows[0]!.unresolved_role_cells?.find((cell) => cell.header_text === 'Qty')?.raw_text).toBe('middle');
+    expect(cellText(result.rows[0]!, 'unit')).toBe('right EA');
+  });
+
+  it('R5-5: line and token input order do not change column membership', () => {
+    const lines = [membershipHeader(), membershipRow(680, 'a'), membershipRow(660, 'b')];
+    const reversed = [...lines].reverse().map((entry) => ({ ...entry, tokens: [...entry.tokens].reverse() }));
+    expect(reconstructSinglePage(reversed)).toEqual(reconstructSinglePage(lines));
+  });
+
+  it('R5-6: ordinary non-table prose remains outside reconstructed rows', () => {
+    const prose = line(7, 610, [
+      { x: 50, text: 'Payment terms continue', width: 75 }, { x: 130, text: 'elsewhere', width: 40 },
+    ]);
+    const result = reconstructSinglePage([
+      membershipHeader(), membershipRow(680, 'a'), membershipRow(660, 'b'), prose,
+    ])!;
+    expect(result.rows.map((row) => cellText(row, 'description'))).toEqual(['a head tail', 'b head tail']);
+    expect(result.unassigned_lines).toEqual([expect.objectContaining({ reason: 'unsupported_trailing_line' })]);
+  });
+
+  it('R5-7: a cluster starting in a role-less column keeps primitive (center) membership', () => {
+    // Role-less columns take part in per-token membership like any column, but a
+    // cluster is only reclaimed into a recognized starting column: structure is
+    // never rewritten into a recognized (semantic) cell or between two of them.
+    const header = line(7, 700, [
+      { x: 10, text: 'Code', width: 25 }, { x: 60, text: 'Description', width: 60 },
+      { x: 170, text: 'Qty', width: 30 }, { x: 250, text: 'Unit', width: 35 }, { x: 350, text: 'Cost', width: 30 },
+    ]);
+    const row = (y: number, code: string) => line(7, y, [
+      { x: 10, text: code, width: 20 }, { x: 33, text: 'x', width: 30 },
+      { x: 80, text: 'Alpha', width: 50 }, { x: 190, text: '9', width: 10 }, { x: 255, text: 'EA', width: 15 },
+      { x: 350, text: '$', width: 8 }, { x: 365, text: '12.00', width: 35 },
+    ]);
+    const lines = [header, row(680, 'A1'), row(660, 'B2')];
+    const production = reconstructSinglePage(lines)!;
+    const center = buildPagePricedScheduleReconstruction({
+      layout: layoutOf([page(7, lines)]), continuationEvidence: 'spacing_only',
+    }).pages[0]!;
+    expect(production.rows.map((entry) => [entry.cells, entry.unresolved_role_cells]))
+      .toEqual(center.rows.map((entry) => [entry.cells, entry.unresolved_role_cells]));
+    // "x" overhangs Code into Description; it is not reclaimed into role-less Code.
+    expect(cellText(production.rows[0]!, 'description')).toBe('x Alpha');
+  });
+
+  it('R5-8: every body token lands exactly once -- in a cell, a role-less cell, or a diagnostic', () => {
+    const tie = line(7, 670, [
+      { x: 50, text: 'Alpha', width: 70, observation_id: 't:head' as PdfToken['observation_id'] },
+      { x: 130, text: 'boundary', width: 20, observation_id: 't:tie' as PdfToken['observation_id'] },
+      { x: 190, text: '9', width: 10, observation_id: 't:qty' as PdfToken['observation_id'] },
+      { x: 255, text: 'EA', width: 15, observation_id: 't:unit' as PdfToken['observation_id'] },
+      { x: 350, text: '$', width: 8, observation_id: 't:marker' as PdfToken['observation_id'] },
+      { x: 365, text: '12.00', width: 35, observation_id: 't:amount' as PdfToken['observation_id'] },
+    ]);
+    const lines = [membershipHeader(), membershipRow(690, 'a'), tie, membershipRow(650, 'b')];
+    const result = reconstructSinglePage(lines)!;
+    const seen = [
+      ...result.rows.flatMap((row) => row.cells.flatMap((cell) => cell.source_refs)),
+      ...result.rows.flatMap((row) => (row.unresolved_role_cells ?? []).flatMap((cell) => cell.source_refs)),
+      ...result.unassigned_lines.flatMap((entry) => entry.source_refs),
+      ...(result.unattached_role_less_tokens ?? []),
+    ].map((ref) => ref.observation_id);
+    const body = lines.slice(1).flatMap((entry) => entry.tokens.map((token) => token.observation_id));
+    expect([...seen].sort()).toEqual([...body].sort());
+  });
+
+  it('R5-9: spacing-only fixtures keep pre-R5 center-band membership', () => {
+    const lines = [membershipHeader(), membershipRow(680, 'a'), membershipRow(660, 'b')];
+    const spacing = buildPagePricedScheduleReconstruction({
+      layout: layoutOf([page(7, lines)]), continuationEvidence: 'spacing_only',
+    }).pages[0]!;
+    expect(spacing.rows.map((row) => cellText(row, 'description'))).toEqual(['a head', 'b head']);
+    expect(spacing.rows[0]!.unresolved_role_cells?.map((cell) => [cell.header_text, cell.raw_text]))
+      .toEqual([['Qty', 'tail 9']]);
+  });
+
+  it('R5-10: corrected membership changes only the description text that prices, never the rate', () => {
+    const lines = [membershipHeader(), membershipRow(680, 'a'), membershipRow(660, 'b')];
+    const priced = buildContractRateScheduleRows({
+      rateTable: null, pricedScheduleReconstruction: buildPagePricedScheduleReconstruction({ layout: layoutOf([page(7, lines)]) }),
+    });
+    expect(priced.map((row) => [row.description, row.unit, row.rate_raw, row.rate]))
+      .toEqual([['a head tail', 'EA', '$ 12.00', 12], ['b head tail', 'EA', '$ 12.00', 12]]);
+    expect(JSON.stringify(priced)).not.toContain('"9"');
+  });
+
   it('R4-12: production logic names no benchmark document or value', () => {
     const source = readFileSync(new URL('./pagePricedScheduleReconstruction.ts', import.meta.url), 'utf8');
     expect(source).not.toMatch(/DN12189513|Hillsdale|Williamson|Goodlettsville|\bp10[67]\b|90\.00|1,000\.00/i);

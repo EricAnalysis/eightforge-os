@@ -184,6 +184,43 @@ describe('OCR-normalized priced schedule reconstruction', () => {
     }));
   });
 
+  it('keeps an overhanging word cluster and separated role-less Qty identical in native and OCR geometry', () => {
+    const membershipLines = [
+      nativeLine(700, [
+        { x: 50, text: 'Description', width: 60 }, { x: 170, text: 'Qty', width: 30 },
+        { x: 250, text: 'Unit', width: 35 }, { x: 350, text: 'Cost', width: 30 },
+      ]),
+      ...[680, 660].map((y, index) => nativeLine(y, [
+        { x: 50, text: index === 0 ? 'Alpha' : 'Beta', width: 75 },
+        // Center lies in Qty, but the tight cluster has a 3:1 Description overlap.
+        { x: 130, text: 'tail', width: 40 },
+        { x: 190, text: `${index + 1}`, width: 10 },
+        { x: 255, text: 'EA', width: 15 },
+        { x: 350, text: '$', width: 8 }, { x: 365, text: '12.00', width: 35 },
+      ])),
+    ];
+    const projection = (layout: PdfLayout) => buildPagePricedScheduleReconstruction({ layout }).pages[0]!.rows
+      .map((row) => ({
+        cells: row.cells.map((cell) => [cell.role, cell.raw_text]),
+        unresolved: (row.unresolved_role_cells ?? []).map((cell) => [cell.header_text, cell.raw_text]),
+      }));
+    const nativeLayout: PdfLayout = {
+      page_count: 1, gaps: [],
+      pages: [{ page_number: 1, width: PAGE_WIDTH, height: PAGE_HEIGHT, lines: membershipLines }],
+    };
+    const ocrLayout = ocrOnly(membershipLines);
+    expect(projection(nativeLayout)).toEqual([
+      { cells: [['description', 'Alpha tail'], ['unit', 'EA'], ['rate', '$ 12.00']], unresolved: [['Qty', '1']] },
+      { cells: [['description', 'Beta tail'], ['unit', 'EA'], ['rate', '$ 12.00']], unresolved: [['Qty', '2']] },
+    ]);
+    expect(projection(ocrLayout)).toEqual(projection(nativeLayout));
+    const ocrDescription = buildPagePricedScheduleReconstruction({ layout: ocrLayout }).pages[0]!.rows[0]!.cells
+      .find((cell) => cell.role === 'description')!;
+    expect(ocrDescription.source_refs.find((ref) => ref.text === 'tail')).toMatchObject({
+      source: 'ocr_fallback', x_min: 130 * RENDER_SCALE, x_max: 170 * RENDER_SCALE - 2,
+    });
+  });
+
   it('attributes a wrapped line by row-start anchors identically from OCR words as from native text', () => {
     const priced = (y: number, code: string, description: string) => nativeLine(y, [
       { x: 10, text: code, width: 12 }, { x: 50, text: description, width: 100 },

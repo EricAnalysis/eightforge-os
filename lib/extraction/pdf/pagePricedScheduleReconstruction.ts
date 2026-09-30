@@ -583,6 +583,12 @@ export const PRICED_SCHEDULE_HEADER_INTERPRETATION_VERSION =
  */
 const HEADER_WORD_GAP_CEILING = 0.75;
 /**
+ * A body word cluster may cross one header-midpoint boundary while still being
+ * authored in its starting column. Override token-by-token membership only
+ * when that starting column owns at least twice the neighbouring overlap.
+ */
+const COLUMN_CLUSTER_OVERLAP_SEPARATION_FACTOR = 2;
+/**
  * Words are grouped only when the line separates its two kinds of gap clearly:
  * every column gap must be at least this many times the widest word gap.
  * Anything less is ambiguous and is abstained on, never guessed.
@@ -663,12 +669,7 @@ type GroupedHeaderReading = {
 const roundRatio = (value: number) => Math.round(value * 10_000) / 10_000;
 
 function groupedHeaderReading(tokens: readonly PdfToken[]): GroupedHeaderReading {
-  const sorted = [...tokens].sort(compareTokens);
-  const ratios = sorted.slice(1).map((token, index) => {
-    const previous = sorted[index]!;
-    const height = Math.max(previous.height, token.height, Number.EPSILON);
-    return (token.x - (previous.x + previous.width)) / height;
-  });
+  const { sorted, ratios } = tokenGapReading(tokens);
   const intra = ratios.filter((ratio) => ratio <= HEADER_WORD_GAP_CEILING);
   const inter = ratios.filter((ratio) => ratio > HEADER_WORD_GAP_CEILING);
   const maxIntra = intra.length > 0 ? Math.max(...intra) : null;
@@ -687,6 +688,17 @@ function groupedHeaderReading(tokens: readonly PdfToken[]): GroupedHeaderReading
       clear,
     },
   };
+}
+
+/** Same-line gaps in glyph-height units, shared by header and body grouping. */
+function tokenGapReading(tokens: readonly PdfToken[]): { sorted: PdfToken[]; ratios: number[] } {
+  const sorted = [...tokens].sort(compareTokens);
+  const ratios = sorted.slice(1).map((token, index) => {
+    const previous = sorted[index]!;
+    const height = Math.max(previous.height, token.height, Number.EPSILON);
+    return (token.x - (previous.x + previous.width)) / height;
+  });
+  return { sorted, ratios };
 }
 
 /** Groups sorted tokens; joins[i] says whether token i+1 continues token i's label. */
@@ -877,7 +889,8 @@ function unresolvedHeaderCandidate(page: PdfLayoutPage): {
  * How continuation lines are attributed to rows. 'row_start_anchors' (the
  * default) also uses row-start anchors when the page proves them; 'spacing_only'
  * is the behaviour before anchors existed, kept only so pinned evaluation
- * fixtures can reproduce the evidence they were recorded against.
+ * fixtures can reproduce the evidence they were recorded against. For the same
+ * reason 'spacing_only' also keeps center-band token-to-column membership.
  */
 export type PricedScheduleContinuationEvidence = 'row_start_anchors' | 'spacing_only';
 
@@ -999,16 +1012,72 @@ function structuredRateLines(
   return found;
 }
 
-/**
- * Index of the column whose horizontal band contains the token's center, or -1.
- * A token in an unrecognized column stays in that column: its value belongs to a
- * column this module cannot name, and is never folded into a neighbouring
- * column's authored text.
- */
-function columnIndexForToken(token: PdfToken, columns: readonly PricedScheduleColumnBand[]): number {
+/** Original center-band membership, retained only as frozen row-start evidence. */
+function centerColumnIndexForToken(token: PdfToken, columns: readonly PricedScheduleColumnBand[]): number {
   const center = tokenCenterX(token);
   return columns.findIndex((column) => (column.x_min == null || center >= column.x_min)
     && (column.x_max == null || center < column.x_max));
+}
+
+function horizontalOverlap(
+  left: number,
+  right: number,
+  column: PricedScheduleColumnBand,
+): number {
+  return Math.max(0, Math.min(right, column.x_max ?? right) - Math.max(left, column.x_min ?? left));
+}
+
+/**
+ * A primitive token belongs to the one column containing a strict majority of
+ * its canonical width. Exact boundary ties abstain instead of using a center
+ * tie-break. For ordinary one-boundary tokens this preserves center membership.
+ */
+function columnIndexForToken(token: PdfToken, columns: readonly PricedScheduleColumnBand[]): number {
+  if (!(token.width > 0)) return -1;
+  const right = token.x + token.width;
+  const overlaps = columns.map((column, index) => ({
+    index,
+    overlap: horizontalOverlap(token.x, right, column),
+  })).sort((left, rightEntry) => rightEntry.overlap - left.overlap || left.index - rightEntry.index);
+  const best = overlaps[0];
+  return best && best.overlap > token.width / 2 ? best.index : -1;
+}
+
+/**
+ * Refines membership for authored same-line word clusters. A cluster may stay
+ * in its starting column when it spans only that column and its immediate right
+ * neighbour, and its starting column owns a clear overlap majority. This keeps
+ * wrapped description ink together without inspecting text, roles, or values.
+ */
+function columnAssignmentsForLine(
+  tokens: readonly PdfToken[],
+  columns: readonly PricedScheduleColumnBand[],
+): ReadonlyMap<PdfToken, number> {
+  const assignments = new Map(tokens.map((token) => [token, columnIndexForToken(token, columns)]));
+  const { sorted, ratios } = tokenGapReading(tokens);
+  const clusters = groupTokens(sorted, ratios.map((ratio) => ratio <= HEADER_WORD_GAP_CEILING));
+  for (const cluster of clusters) {
+    if (cluster.tokens.length < 2) continue;
+    const baseline = cluster.tokens.map((token) => centerColumnIndexForToken(token, columns));
+    const firstColumn = baseline[0]!;
+    const spanned = [...new Set(baseline)].sort((left, right) => left - right);
+    if (firstColumn < 0 || spanned.length !== 2
+      || spanned[0] !== firstColumn || spanned[1] !== firstColumn + 1) continue;
+    // This refinement protects an established semantic cell from ink that
+    // overhangs into an unresolved structural neighbour. It must not rewrite a
+    // role-less cell into a recognized one (or one recognized role into
+    // another); those boundaries retain primitive-token membership.
+    if (columns[firstColumn]!.role == null || columns[firstColumn + 1]!.role != null) continue;
+    const left = Math.min(...cluster.tokens.map((token) => token.x));
+    const right = Math.max(...cluster.tokens.map((token) => token.x + token.width));
+    if (!(right > left)) continue;
+    const firstOverlap = horizontalOverlap(left, right, columns[firstColumn]!);
+    const nextOverlap = horizontalOverlap(left, right, columns[firstColumn + 1]!);
+    if (!(firstOverlap > nextOverlap
+      && firstOverlap >= nextOverlap * COLUMN_CLUSTER_OVERLAP_SEPARATION_FACTOR)) continue;
+    for (const token of cluster.tokens) assignments.set(token, firstColumn);
+  }
+  return assignments;
 }
 
 /**
@@ -1431,16 +1500,43 @@ function reconstructPage(
   }
 
   const banded: BandedToken[] = [];
+  // Primitive tokens whose geometry does not give any column a strict width
+  // majority remain diagnostic evidence. They must not silently disappear or
+  // participate in row admission through the older center-band tie-break.
+  const ambiguousColumnBanded: BandedToken[] = [];
+  const ambiguousColumnRoleLess: Array<{ token: PdfToken; columnIndex: number }> = [];
   // Tokens in columns whose role is unresolved. They take no part in any row
   // admission decision; they are attached to published rows afterwards.
   const roleLess: Array<{ token: PdfToken; columnIndex: number }> = [];
+  // R5 refines published cell membership only. Preserve the pre-R5 center-band
+  // role-less evidence that row-start attribution was already proven against.
+  const rowStartRoleLess: Array<{ token: PdfToken; columnIndex: number }> = [];
   for (const line of page.lines) {
+    // Pinned evaluation fixtures ('spacing_only') keep the pre-R5 center-band
+    // membership their recorded evidence and candidate identities were built on.
+    const assignments = continuationEvidence === 'row_start_anchors'
+      ? columnAssignmentsForLine(line.tokens, header.columns)
+      : new Map(line.tokens.map((token) => [token, centerColumnIndexForToken(token, header.columns)]));
     for (const token of line.tokens) {
       // Only content below the header belongs to the schedule body.
       if (token.y >= header.y) continue;
       if (token.text.trim().length === 0) continue;
-      const columnIndex = columnIndexForToken(token, header.columns);
-      if (columnIndex < 0) continue;
+      const baselineColumnIndex = centerColumnIndexForToken(token, header.columns);
+      if (baselineColumnIndex >= 0 && !header.columns[baselineColumnIndex]!.role) {
+        rowStartRoleLess.push({ token, columnIndex: baselineColumnIndex });
+      }
+      const columnIndex = assignments.get(token) ?? -1;
+      if (columnIndex < 0) {
+        if (baselineColumnIndex >= 0) {
+          const baselineRole = header.columns[baselineColumnIndex]!.role;
+          if (baselineRole) {
+            ambiguousColumnBanded.push({ token, role: baselineRole, y: token.y });
+          } else {
+            ambiguousColumnRoleLess.push({ token, columnIndex: baselineColumnIndex });
+          }
+        }
+        continue;
+      }
       const role = header.columns[columnIndex]!.role;
       if (!role) {
         roleLess.push({ token, columnIndex });
@@ -1451,6 +1547,7 @@ function reconstructPage(
   }
 
   const sourceLines = buildSourceLines(banded);
+  const ambiguousColumnLines = buildSourceLines(ambiguousColumnBanded);
   // A source line is atomic: it names one row, and is never split across rows.
   const currencySpineLines = sourceLines.filter((line) =>
     line.banded.some((entry) => entry.role === 'rate' && isRowSpineToken(entry.token)));
@@ -1470,6 +1567,9 @@ function reconstructPage(
 
   const rejectedSpines: PricedScheduleRejectedSpine[] = [];
   const unattachedRoleLess: (PricedScheduleCellSourceRef & { column_index: number })[] = [];
+  for (const { token, columnIndex } of ambiguousColumnRoleLess) {
+    unattachedRoleLess.push({ ...sourceRefForToken(token), column_index: columnIndex });
+  }
   const rejectLines = (
     spine: SourceLine,
     lines: readonly SourceLine[],
@@ -1567,7 +1667,7 @@ function reconstructPage(
   const provenRowStarts = (spines: readonly SourceLine[]): RowStartModel | null => {
     if (continuationEvidence !== 'row_start_anchors' || glyphHeight == null) return null;
     if (pitchOutliersOf(spines).size !== 0) return null;
-    const model = buildRowStartModel(roleLess, spines, lineTolerance);
+    const model = buildRowStartModel(rowStartRoleLess, spines, lineTolerance);
     if (!model) return null;
     const spineSet = new Set(spines);
     const decide = spacingDecisionAmong(spines);
@@ -1597,7 +1697,7 @@ function reconstructPage(
     if (found.size > 0) {
       const augmented = [...currencySpineLines, ...found.keys()].sort((left, right) => right.y - left.y);
       const augmentedRowStart = pitchOutliersOf(augmented).size === 0
-        ? buildRowStartModel(roleLess, augmented, lineTolerance)
+        ? buildRowStartModel(rowStartRoleLess, augmented, lineTolerance)
         : null;
       if (augmentedRowStart) {
         spineLines = augmented;
@@ -1961,6 +2061,16 @@ function reconstructPage(
   }
 
   const roleLessByRow = attachRoleLessTokens(accepted, roleLess, header.columns, banded, unattachedRoleLess);
+  const highestSpineY = Math.max(...spineLines.map((line) => line.y));
+  const lowestSpineY = Math.min(...spineLines.map((line) => line.y));
+  for (const line of ambiguousColumnLines) {
+    reportLine(
+      line,
+      line.y > highestSpineY || line.y < lowestSpineY
+        ? 'unsupported_trailing_line'
+        : 'ambiguous_row_assignment',
+    );
+  }
   const rows: PricedScheduleRow[] = accepted.map((entry) => {
     const unresolvedRoleCells = roleLessByRow.get(entry) ?? [];
     return {

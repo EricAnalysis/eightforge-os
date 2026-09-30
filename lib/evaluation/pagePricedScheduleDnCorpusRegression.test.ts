@@ -771,9 +771,10 @@ describe.skipIf(!corpusConfigured)('dense priced schedule reconstruction against
 
   /**
    * Descriptions with row-start anchors, recorded from the real source. Each is
-   * the authored description or a token subsequence of it: rows 11 and 17-19
-   * still lack tokens ("-", "<", "<48”") whose centres fall in the Qty band, a
-   * column-banding limit that anchors do not touch.
+   * the authored description in full: R5 keeps a tight same-line word cluster in
+   * its Description column when its ink overhangs into Qty, while the separately
+   * spaced Qty values stay isolated role-less evidence. (The spacing-only
+   * expectations above keep pre-R5 center-band membership.)
    */
   const ANCHORED_DESCRIPTIONS: readonly string[] = [
     'Vegetative Debris Removal',
@@ -786,18 +787,23 @@ describe.skipIf(!corpusConfigured)('dense priced schedule reconstruction against
     'Electronic Debris Removal and Disposal',
     'Landfill Tipping Fee',
     'Hazardous Tree Stump Excavation and Removal <24”',
-    'Hazardous Tree Stump Excavation and Removal >=24” -',
+    'Hazardous Tree Stump Excavation and Removal >=24” - <48”',
     'Hazardous Tree Stump Excavation and Removal 48” & >',
     'Hazardous Tree Stump Removal >12"- <24"',
     'Hazardous Tree Stump Removal =>24"- <48"',
     'Hazardous Tree Stump Removal =>48"',
     'Hazardous Limb Cutting (> 2”)',
-    'Hazardous Tree Cutting >= 6” <12”',
-    'Hazardous Tree Cutting 12” 24”',
-    'Hazardous Tree Cutting 24” 36”',
+    'Hazardous Tree Cutting >= 6” - <12”',
+    'Hazardous Tree Cutting 12” - < 24”',
+    'Hazardous Tree Cutting 24” - < 36”',
     'Hazardous Tree Cutting 36” & >',
     'Seeding and Mulching',
   ];
+  /** Qty values, recorded from the real source: each stays its own role-less cell. */
+  const EXPECTED_QTY = [
+    '7,500', '7,500', '2,500', '5', '1,100', '140', '120', '15', '5000', '400', '350',
+    '220', '75', '75', '75', '300', '600', '500', '100', '50', '2',
+  ] as const;
 
   it('attributes every wrapped continuation to its own row by row-start anchors', async () => {
     const { layout } = await loadReconstruction();
@@ -807,6 +813,11 @@ describe.skipIf(!corpusConfigured)('dense priced schedule reconstruction against
     expect(page.rows.map((row) => cellOf(row, 'description')?.raw_text)).toEqual(ANCHORED_DESCRIPTIONS);
     expect(page.rows.map((row) => cellOf(row, 'unit')?.raw_text)).toEqual(EXPECTED_UNITS);
     expect(page.rows.map((row) => cellOf(row, 'rate')?.raw_text)).toEqual(EXPECTED_RATE_RAW);
+    // Qty keeps exactly its own values; no description ink remains in it.
+    const qtyCells = page.rows.map((row) => row.unresolved_role_cells
+      ?.find((cell) => cell.header_text === 'Qty'));
+    expect(qtyCells.map((cell) => cell?.raw_text)).toEqual(EXPECTED_QTY);
+    expect(qtyCells.every((cell) => cell?.source_refs.map((ref) => ref.text).join(' ') === cell?.raw_text)).toBe(true);
     expect(page.rejected_spines).toEqual([]);
     // Only the trailing bid total remains unattributed; it stays out of every row.
     expect(page.unassigned_lines.map((entry) => [entry.reason, entry.raw_text]))

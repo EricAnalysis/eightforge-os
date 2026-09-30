@@ -1046,8 +1046,10 @@ function columnIndexForToken(token: PdfToken, columns: readonly PricedScheduleCo
 /**
  * Refines membership for authored same-line word clusters. A cluster may stay
  * in its starting column when it spans only that column and its immediate right
- * neighbour, and its starting column owns a clear overlap majority. This keeps
- * wrapped description ink together without inspecting text, roles, or values.
+ * neighbour, at least one of the two is role-less, and its starting column owns
+ * a clear overlap majority. This keeps authored text together (a wrapped
+ * description overhanging Qty, a category overhanging Description) without
+ * inspecting text or values.
  */
 function columnAssignmentsForLine(
   tokens: readonly PdfToken[],
@@ -1063,11 +1065,11 @@ function columnAssignmentsForLine(
     const spanned = [...new Set(baseline)].sort((left, right) => left - right);
     if (firstColumn < 0 || spanned.length !== 2
       || spanned[0] !== firstColumn || spanned[1] !== firstColumn + 1) continue;
-    // This refinement protects an established semantic cell from ink that
-    // overhangs into an unresolved structural neighbour. It must not rewrite a
-    // role-less cell into a recognized one (or one recognized role into
-    // another); those boundaries retain primitive-token membership.
-    if (columns[firstColumn]!.role == null || columns[firstColumn + 1]!.role != null) continue;
+    // A cluster keeps its authored starting column across a boundary with an
+    // unresolved (role-less) column on either side. It never moves ink between
+    // two recognized columns: that boundary keeps primitive-token membership,
+    // so no token passes from one semantic (pricing) cell into another.
+    if (columns[firstColumn]!.role != null && columns[firstColumn + 1]!.role != null) continue;
     const left = Math.min(...cluster.tokens.map((token) => token.x));
     const right = Math.max(...cluster.tokens.map((token) => token.x + token.width));
     if (!(right > left)) continue;

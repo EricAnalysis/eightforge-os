@@ -221,6 +221,36 @@ describe('OCR-normalized priced schedule reconstruction', () => {
     });
   });
 
+  it('keeps a role-less category overhang out of the description identically in native and OCR geometry', () => {
+    const categoryLines = [
+      nativeLine(700, [
+        { x: 10, text: 'Category', width: 40 }, { x: 110, text: 'Description', width: 60 },
+        { x: 250, text: 'Unit', width: 35 }, { x: 350, text: 'Cost', width: 30 },
+      ]),
+      ...[680, 660].map((y, index) => nativeLine(y, [
+        { x: 10, text: index === 0 ? 'Alpha' : 'Beta', width: 50 },
+        // Tight to the category word; its centre lies past the x=80 boundary.
+        { x: 64, text: 'haul', width: 40 },
+        { x: 130, text: 'work', width: 60 }, { x: 255, text: 'EA', width: 15 },
+        { x: 350, text: '$', width: 8 }, { x: 365, text: '12.00', width: 35 },
+      ])),
+    ];
+    const projection = (layout: PdfLayout) => buildPagePricedScheduleReconstruction({ layout }).pages[0]!.rows
+      .map((row) => ({
+        cells: row.cells.map((cell) => [cell.role, cell.raw_text]),
+        unresolved: (row.unresolved_role_cells ?? []).map((cell) => [cell.header_text, cell.raw_text]),
+      }));
+    const nativeLayout: PdfLayout = {
+      page_count: 1, gaps: [],
+      pages: [{ page_number: 1, width: PAGE_WIDTH, height: PAGE_HEIGHT, lines: categoryLines }],
+    };
+    expect(projection(nativeLayout)).toEqual([
+      { cells: [['description', 'work'], ['unit', 'EA'], ['rate', '$ 12.00']], unresolved: [['Category', 'Alpha haul']] },
+      { cells: [['description', 'work'], ['unit', 'EA'], ['rate', '$ 12.00']], unresolved: [['Category', 'Beta haul']] },
+    ]);
+    expect(projection(ocrOnly(categoryLines))).toEqual(projection(nativeLayout));
+  });
+
   it('attributes a wrapped line by row-start anchors identically from OCR words as from native text', () => {
     const priced = (y: number, code: string, description: string) => nativeLine(y, [
       { x: 10, text: code, width: 12 }, { x: 50, text: description, width: 100 },

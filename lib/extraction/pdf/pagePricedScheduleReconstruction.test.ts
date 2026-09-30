@@ -2190,28 +2190,85 @@ describe('generic single-page priced schedule reconstruction', () => {
     expect(result.unassigned_lines).toEqual([expect.objectContaining({ reason: 'unsupported_trailing_line' })]);
   });
 
-  it('R5-7: a cluster starting in a role-less column keeps primitive (center) membership', () => {
-    // Role-less columns take part in per-token membership like any column, but a
-    // cluster is only reclaimed into a recognized starting column: structure is
-    // never rewritten into a recognized (semantic) cell or between two of them.
-    const header = line(7, 700, [
-      { x: 10, text: 'Code', width: 25 }, { x: 60, text: 'Description', width: 60 },
-      { x: 170, text: 'Qty', width: 30 }, { x: 250, text: 'Unit', width: 35 }, { x: 350, text: 'Cost', width: 30 },
-    ]);
-    const row = (y: number, code: string) => line(7, y, [
-      { x: 10, text: code, width: 20 }, { x: 33, text: 'x', width: 30 },
-      { x: 80, text: 'Alpha', width: 50 }, { x: 190, text: '9', width: 10 }, { x: 255, text: 'EA', width: 15 },
-      { x: 350, text: '$', width: 8 }, { x: 365, text: '12.00', width: 35 },
-    ]);
-    const lines = [header, row(680, 'A1'), row(660, 'B2')];
+  // ---------------------------------------------------------------------------
+  // R6: the R5 cluster rule is role-symmetric except between two recognized
+  // columns. A left-aligned role-less column (a category) keeps its own words
+  // when they overhang a recognized neighbour (the description); no token ever
+  // passes between two semantic (pricing) cells.
+  // ---------------------------------------------------------------------------
+
+  const categoryHeader = () => line(7, 700, [
+    { x: 10, text: 'Category', width: 40 }, { x: 110, text: 'Description', width: 60 },
+    { x: 250, text: 'Unit', width: 35 }, { x: 350, text: 'Cost', width: 30 },
+  ]);
+  // Category/Description boundary sits at x=80 (midpoint of 50 and 110).
+  const categoryRow = (y: number, prefix: string, tail: { x: number; width: number } = { x: 64, width: 40 }) => line(7, y, [
+    { x: 10, text: `${prefix} cat`, width: 50, observation_id: `${prefix}:cat` as PdfToken['observation_id'] },
+    // Tight to the category head; centre past x=80, so per-token it is Description.
+    { x: tail.x, text: 'haul', width: tail.width, observation_id: `${prefix}:haul` as PdfToken['observation_id'] },
+    { x: 130, text: `${prefix} work`, width: 60, observation_id: `${prefix}:work` as PdfToken['observation_id'] },
+    { x: 255, text: 'EA', width: 15 },
+    { x: 350, text: '$', width: 8 }, { x: 365, text: '12.00', width: 35 },
+  ]);
+
+  it('R6-1: a role-less category cluster keeps its overhanging word out of the description', () => {
+    const lines = [categoryHeader(), categoryRow(680, 'a'), categoryRow(660, 'b')];
     const production = reconstructSinglePage(lines)!;
+    expect(production.rows.map((row) => cellText(row, 'description'))).toEqual(['a work', 'b work']);
+    expect(production.rows.map((row) => row.unresolved_role_cells?.map((cell) => [cell.header_text, cell.raw_text])))
+      .toEqual([[['Category', 'a cat haul']], [['Category', 'b cat haul']]]);
+    // Pre-R6 (and spacing-only) center membership put the category word in the description.
     const center = buildPagePricedScheduleReconstruction({
       layout: layoutOf([page(7, lines)]), continuationEvidence: 'spacing_only',
     }).pages[0]!;
-    expect(production.rows.map((entry) => [entry.cells, entry.unresolved_role_cells]))
-      .toEqual(center.rows.map((entry) => [entry.cells, entry.unresolved_role_cells]));
-    // "x" overhangs Code into Description; it is not reclaimed into role-less Code.
-    expect(cellText(production.rows[0]!, 'description')).toBe('x Alpha');
+    expect(center.rows.map((row) => cellText(row, 'description'))).toEqual(['haul a work', 'haul b work']);
+  });
+
+  it('R6-2: two recognized columns never exchange ink, however clear the overlap lead', () => {
+    // A description cluster overhanging Unit keeps primitive per-token membership.
+    const lines = [categoryHeader(), ...[680, 660].map((y, index) => line(7, y, [
+      { x: 10, text: `c${index}`, width: 20 },
+      { x: 130, text: `item${index} words`, width: 80 }, { x: 212, text: 'spill', width: 20 },
+      { x: 270, text: 'EA', width: 15 },
+      { x: 350, text: '$', width: 8 }, { x: 365, text: '12.00', width: 35 },
+    ]))];
+    const result = reconstructSinglePage(lines)!;
+    expect(result.rows.map((row) => [cellText(row, 'description'), cellText(row, 'unit')])).toEqual([
+      ['item0 words', 'spill EA'], ['item1 words', 'spill EA'],
+    ]);
+  });
+
+  it('R6-3: a role-less cluster without a 2x overlap lead keeps primitive membership', () => {
+    // "haul" now reaches far into Description: the category no longer holds 2x.
+    const lines = [categoryHeader(), categoryRow(680, 'a', { x: 64, width: 90 }), categoryRow(660, 'b', { x: 64, width: 90 })];
+    const result = reconstructSinglePage(lines)!;
+    expect(result.rows.map((row) => cellText(row, 'description'))).toEqual(['haul a work', 'haul b work']);
+  });
+
+  it('R6-4: a wrapped category line that no longer carries a description token is not pulled into a row', () => {
+    // The wrap line's only would-be Description word is category overhang. With it
+    // kept in Category the line has no row-admission evidence; its role-less
+    // tokens attach only by a row's own vertical extent, else stay reported.
+    const wrap = line(7, 670, [
+      { x: 10, text: 'wrapped', width: 50, observation_id: 'w:head' as PdfToken['observation_id'] },
+      { x: 64, text: 'tail', width: 40, observation_id: 'w:tail' as PdfToken['observation_id'] },
+    ]);
+    const result = reconstructSinglePage([categoryHeader(), categoryRow(690, 'a'), wrap, categoryRow(650, 'b')])!;
+    expect(result.rows.map((row) => cellText(row, 'description'))).toEqual(['a work', 'b work']);
+    const inRows = result.rows.flatMap((row) => (row.unresolved_role_cells ?? []).flatMap((cell) => cell.source_refs))
+      .map((ref) => ref.observation_id);
+    expect(inRows).not.toContain('w:head');
+    expect(inRows).not.toContain('w:tail');
+    expect((result.unattached_role_less_tokens ?? []).map((ref) => ref.observation_id)).toEqual(['w:head', 'w:tail']);
+  });
+
+  it('R6-5: a category overhang changes only the description text that prices, never the rate', () => {
+    const lines = [categoryHeader(), categoryRow(680, 'a'), categoryRow(660, 'b')];
+    const priced = buildContractRateScheduleRows({
+      rateTable: null, pricedScheduleReconstruction: buildPagePricedScheduleReconstruction({ layout: layoutOf([page(7, lines)]) }),
+    });
+    expect(priced.map((row) => [row.description, row.unit, row.rate_raw, row.rate]))
+      .toEqual([['a work', 'EA', '$ 12.00', 12], ['b work', 'EA', '$ 12.00', 12]]);
   });
 
   it('R5-8: every body token lands exactly once -- in a cell, a role-less cell, or a diagnostic', () => {

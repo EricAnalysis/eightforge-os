@@ -1,5 +1,7 @@
 import { hashCanonical } from '@/lib/extraction/domain/hash';
 import type { PdfLayout, PdfLayoutPage, PdfToken } from '@/lib/extraction/pdf/extractText';
+import type { RulingLineEvidence, RulingLineInput } from '@/lib/extraction/pdf/rulingLineEvidence';
+import { resolveRulingLineOwnership } from '@/lib/extraction/pdf/rulingLineOwnership';
 import {
   buildRecoveryCandidateV2,
   RecoveryCandidateV2Schema,
@@ -356,6 +358,14 @@ export type PricedSchedulePage = {
    * there are any.
    */
   readonly unattached_role_less_tokens?: readonly (PricedScheduleCellSourceRef & { readonly column_index: number })[];
+  /** Separate source/raster identity; never part of OCR observation or recovery identity. */
+  readonly ruling_line_evidence?: RulingLineEvidence;
+  readonly ruling_line_resolutions?: readonly {
+    readonly source_ref: PricedScheduleCellSourceRef;
+    readonly row_index: number;
+    readonly column_index: number;
+    readonly rule_ids: readonly string[];
+  }[];
 };
 
 /**
@@ -2401,6 +2411,9 @@ export function buildPagePricedScheduleReconstruction(params: {
   recoveryCandidateBuildContext?: RecoveryCandidateBuildContext;
   /** Defaults to 'row_start_anchors'. 'spacing_only' exists for pinned evaluation fixtures. */
   continuationEvidence?: PricedScheduleContinuationEvidence;
+  /** Trusted source-render evidence only. Entire path bypassed for frozen spacing_only. */
+  rulingLineInputs?: readonly RulingLineInput[];
+  rulingLineSourceSha256?: string;
 }): PagePricedScheduleReconstruction {
   const supplied = params.confirmedRateObservations ?? [];
   const confirmationCounts = new Map<string, number>();
@@ -2503,7 +2516,12 @@ export function buildPagePricedScheduleReconstruction(params: {
       params.recoveryCandidateBuildContext, generatedCandidates,
       params.continuationEvidence ?? 'row_start_anchors',
     );
-    if (reconstructed) pages.push(reconstructed);
+    if (reconstructed) {
+      const inputs = params.continuationEvidence === 'spacing_only' ? []
+        : (params.rulingLineInputs ?? []).filter((input) => input.evidence.physical_page_number === page.page_number
+          && input.evidence.source_sha256 === params.rulingLineSourceSha256);
+      pages.push(inputs.length === 1 ? resolveRulingLineOwnership(reconstructed, page, inputs[0]!) : reconstructed);
+    }
   }
   const base: PagePricedScheduleReconstruction = {
     parser_version: PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION,

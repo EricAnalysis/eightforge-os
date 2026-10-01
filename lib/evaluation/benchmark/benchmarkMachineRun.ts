@@ -1,4 +1,5 @@
-import { hashCanonical } from '@/lib/extraction/domain/hash';
+import { hashCanonical, sha256Hex } from '@/lib/extraction/domain/hash';
+import type { RulingLineInput } from '@/lib/extraction/pdf/rulingLineEvidence';
 import { loadPdfLayout, type PdfLayoutPage } from '@/lib/extraction/pdf/extractText';
 import {
   mergeOcrFallbackLayout,
@@ -74,10 +75,12 @@ export async function runBenchmarkMachinePass(input: Readonly<{
   physicalPageNumber: number;
   /** OCR word geometry for this page, when a separate OCR run produced it. */
   ocrPages?: readonly OcrGeometryPage[];
+  rulingLineInputs?: readonly RulingLineInput[];
   /** Exact bound frame used only when the native layout cannot represent an OCR-only page. */
   pageFrame?: BenchmarkPageLabels['frame'];
 }>): Promise<BenchmarkMachineRun> {
   const startedAt = Date.now();
+  const sourceSha256 = sha256Hex(input.bytes);
   const native = await loadPdfLayout(input.bytes, {
     priorityPageNumbers: [input.physicalPageNumber],
     maxPages: input.physicalPageNumber,
@@ -117,7 +120,8 @@ export async function runBenchmarkMachinePass(input: Readonly<{
   // only builder that claims table structure. Its cells are located through the
   // tokens they cite, so a cell's box is the union of its tokens' canonical
   // boxes rather than a second geometry path.
-  const reconstruction = buildPagePricedScheduleReconstruction({ layout });
+  const reconstruction = buildPagePricedScheduleReconstruction({ layout,
+    rulingLineInputs: input.rulingLineInputs, rulingLineSourceSha256: sourceSha256 });
   const canonicalByText = new Map<string, BenchmarkBox[]>();
   for (const token of tokens) {
     const box = token.canonical_bbox ? toBenchmarkBox(token.canonical_bbox) : null;

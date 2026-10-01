@@ -2258,8 +2258,13 @@ export async function extractDocument(
         recoveryAllowed: coverage != null && coverageAllowsRecovery(coverage),
       }];
     }));
+    const rulingLineInputs = ocrPageImages.length ? await (await import('@/lib/server/rulingLineRaster')).buildRulingLineInputsFromRenders({
+      sourceBytes: fileBytes, renders: ocrPageImages, ocrPages: ocrGeometryPages,
+    }) : [];
     const pricedScheduleReconstructionLayer = buildPagePricedScheduleReconstruction({
       layout: reconciledLayout,
+      rulingLineInputs,
+      rulingLineSourceSha256: sha256Hex(fileBytes),
       // Absent or empty leaves this call byte-identical to the one made before
       // recovery re-entry existed.
       confirmedRateObservations: recoveryContext?.confirmedRateObservations,

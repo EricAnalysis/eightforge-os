@@ -25,7 +25,7 @@ type LocalOcrResult = Readonly<{
     kind: 'ocr_execution_failed' | 'ocr_input_or_render_unavailable';
     detail: string;
   }> | null;
-  pageImages?: readonly Readonly<{ page_number: number }>[];
+  pageImages?: readonly Readonly<{ page_number: number; png_buffer?: Buffer; render_sha256?: string; width?: number; height?: number }>[];
   decodeInspections?: readonly Readonly<{
     page_number: number;
     inspection: Readonly<{ state: string }>;
@@ -91,7 +91,8 @@ export async function runBenchmarkSuggestionPass(input: Readonly<{
   }
 
   const startedAt = Date.now();
-  const result = await dependencies.runLocalOcr(input.bytes, {
+  // pdf.js may transfer its input buffer; preserve the source for the machine pass.
+  const result = await dependencies.runLocalOcr(input.bytes.slice(0), {
     pageNumbers: [input.physicalPageNumber],
     recognitionPageNumbers: [input.physicalPageNumber],
   });
@@ -119,11 +120,17 @@ export async function runBenchmarkSuggestionPass(input: Readonly<{
   const ocrPages = result.geometryPages.filter(
     (page) => page.page_number === input.physicalPageNumber,
   );
+  const renders = (result.pageImages ?? []).flatMap((page) => page.png_buffer && page.render_sha256 && page.width && page.height
+    ? [{ page_number: page.page_number, png_buffer: page.png_buffer, render_sha256: page.render_sha256, width: page.width, height: page.height }] : []);
+  const rulingLineInputs = renders.length ? await (await import('@/lib/server/rulingLineRaster')).buildRulingLineInputsFromRenders({
+    sourceBytes: input.bytes, renders, ocrPages,
+  }) : [];
   const run = await dependencies.runMachinePass({
     bytes: input.bytes,
     physicalPageNumber: input.physicalPageNumber,
     ocrPages,
     pageFrame: input.pageFrame,
+    ...(rulingLineInputs.length ? { rulingLineInputs } : {}),
   });
   if (input.requireOcrTokens && run.ocrTokenCount === 0) {
     throw new BenchmarkLocalOcrError('ocr_zero_tokens_for_required_page',

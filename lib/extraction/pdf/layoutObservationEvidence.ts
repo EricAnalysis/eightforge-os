@@ -5,6 +5,7 @@ import {
   rehydratePhysicalPageCoordinate,
 } from '@/lib/extraction/provenance/physicalPageCoordinate';
 import type { PdfLayout, PdfToken } from '@/lib/extraction/pdf/extractText';
+import { pricingAuthoritativeRow } from '@/lib/extraction/pdf/pricedScheduleAuthority';
 import {
   CANONICAL_FRAME_VERSION,
   type CanonicalBox,
@@ -117,8 +118,8 @@ type LocatedRef = Readonly<{
 }>;
 
 function acceptedRefs(reconstruction: PagePricedScheduleReconstruction): LocatedRef[] {
-  return reconstruction.pages.flatMap((page) => page.rows.flatMap((row) =>
-    row.cells.flatMap((cell) => cell.source_refs.map((ref) => ({
+  return reconstruction.pages.flatMap((page) => page.rows.flatMap((structuralRow) =>
+    (pricingAuthoritativeRow(page, structuralRow)?.cells ?? []).flatMap((cell) => cell.source_refs.map((ref) => ({
       page: page.physical_page_number,
       ref,
     })))));
@@ -137,13 +138,16 @@ function diagnosticRefs(reconstruction: PagePricedScheduleReconstruction): Locat
   ]);
 }
 
-/** Durable source observations for non-authoritative table-edge structure. */
+/** Durable observations remain inspectable without becoming pricing anchors. */
 function structuralRefs(reconstruction: PagePricedScheduleReconstruction): LocatedRef[] {
-  return reconstruction.pages.flatMap((page) => (page.table_edge_lines ?? [])
-    .flatMap((line) => line.source_refs.map((ref) => ({
+  return reconstruction.pages.flatMap((page) => [
+    ...(page.table_edge_lines ?? []).flatMap((line) => line.source_refs.map((ref) => ({
       page: page.physical_page_number,
       ref,
-    }))));
+    }))),
+    ...(Array.isArray(page.ruling_line_resolutions) ? page.ruling_line_resolutions : []).flatMap((resolution) =>
+      resolution?.source_ref ? [{ page: page.physical_page_number, ref: resolution.source_ref }] : []),
+  ]);
 }
 
 function tokenObservation(params: {

@@ -1,4 +1,5 @@
 import type { ContractRateScheduleRow } from './types';
+import { pricingAuthoritativeRow } from '@/lib/extraction/pdf/pricedScheduleAuthority';
 import type { PdfTable } from '@/lib/extraction/pdf/extractTables';
 import { normalizeTableCellGeometry, type GeometryCellRef } from '@/lib/extraction/tableGeometry';
 import {
@@ -1428,7 +1429,9 @@ function buildPagePricedScheduleRows(
     // source evidence awaiting review, never pricing facts.
     if (page.semantic_status === 'unresolved') continue;
     const pageRows = [...page.rows].sort((left, right) => left.row_index - right.row_index);
-    for (const row of pageRows) {
+    for (const structuralRow of pageRows) {
+      const row = pricingAuthoritativeRow(page, structuralRow);
+      if (!row) continue;
       const descriptionCell = cellByRole(row, 'description');
       const rateCell = cellByRole(row, 'rate');
       // Fail closed: a priced row needs both an authored description and an

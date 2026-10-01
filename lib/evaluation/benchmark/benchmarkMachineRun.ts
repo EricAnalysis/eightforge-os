@@ -158,6 +158,23 @@ export async function runBenchmarkMachinePass(input: Readonly<{
     headerBoxes.push(box);
   }
   if (headerBoxes.length > 0) rows.push({ orderedCellBoxes: headerBoxes });
+  const projectEdgeLines = (position: 'before_body' | 'after_body') => {
+    for (const line of reconstructedPage?.table_edge_lines?.filter((entry) => entry.position === position) ?? []) {
+      const rowBoxes: BenchmarkBox[] = [];
+      for (const cell of line.cells) {
+        const box = unionBox(cell.source_refs.flatMap((ref) => {
+          const refBox = boxForRef(ref);
+          return refBox ? [refBox] : [];
+        }));
+        if (!box) continue;
+        // Edge structure carries no semantic role and never becomes pricing.
+        cells.push({ text: cell.raw_text, box, isHeader: false, columnName: null });
+        rowBoxes.push(box);
+      }
+      if (rowBoxes.length > 0) rows.push({ orderedCellBoxes: rowBoxes });
+    }
+  };
+  projectEdgeLines('before_body');
   for (const row of reconstructedPage?.rows ?? []) {
     const rowBoxes: BenchmarkBox[] = [];
     // Structure in column order: resolved-role cells and role-unresolved cells
@@ -184,6 +201,7 @@ export async function runBenchmarkMachinePass(input: Readonly<{
     }
     if (rowBoxes.length > 0) rows.push({ orderedCellBoxes: rowBoxes });
   }
+  projectEdgeLines('after_body');
 
   const prediction: BenchmarkPrediction = Object.freeze({
     words: Object.freeze(words),

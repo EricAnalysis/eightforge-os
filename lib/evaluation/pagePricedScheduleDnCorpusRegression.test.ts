@@ -819,11 +819,21 @@ describe.skipIf(!corpusConfigured)('dense priced schedule reconstruction against
     expect(qtyCells.map((cell) => cell?.raw_text)).toEqual(EXPECTED_QTY);
     expect(qtyCells.every((cell) => cell?.source_refs.map((ref) => ref.text).join(' ') === cell?.raw_text)).toBe(true);
     expect(page.rejected_spines).toEqual([]);
-    // Only the trailing bid total remains unattributed; it stays out of every row.
-    expect(page.unassigned_lines.map((entry) => [entry.reason, entry.raw_text]))
-      .toEqual([['unsupported_trailing_line', 'Total Amount Of Bid For Entire Project:']]);
+    // Geometry places the section and total at the table edges, outside body
+    // rows. They remain role-unresolved structure and never become pricing.
+    expect(page.unassigned_lines).toEqual([]);
+    expect(page.table_edge_lines?.map((entry) => [entry.position, entry.raw_text,
+      entry.cells.map((cell) => [cell.column_index, cell.raw_text])])).toEqual([
+      ['before_body', 'ROADWAY ITEMS', [[4, 'ROADWAY ITEMS']]],
+      ['after_body', 'Total Amount Of Bid For Entire Project: $1,934,700.00', [
+        [null, 'Total Amount Of Bid For Entire Project:'], [7, '$1,934,700.00'],
+      ]],
+    ]);
+    expect(page.table_edge_lines?.flatMap((entry) => entry.source_refs).map((ref) => ref.text)).toEqual([
+      'ROADWAY ITEMS', 'Total Amount Of Bid For Entire Project:', '$1,934,700.00',
+    ]);
     const everyCellText = page.rows.flatMap((row) => row.cells.map((cell) => cell.raw_text));
-    expect(everyCellText.filter((text) => /Total Amount Of Bid/i.test(text))).toEqual([]);
+    expect(everyCellText.filter((text) => /ROADWAY ITEMS|Total Amount Of Bid/i.test(text))).toEqual([]);
     // Each former contamination marker appears in exactly one row: its own.
     for (const marker of UNAMBIGUOUS_CONTAMINATION_MARKERS) {
       const holders = page.rows.filter((row) => row.cells.some((cell) => cell.raw_text.includes(marker)));

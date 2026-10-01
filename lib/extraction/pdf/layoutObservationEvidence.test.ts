@@ -80,12 +80,23 @@ function layout(tokens: PdfToken[]): PdfLayout {
   };
 }
 
-function reconstruction(accepted: PricedScheduleCellSourceRef[], diagnostic: PricedScheduleCellSourceRef[] = []): PagePricedScheduleReconstruction {
+function reconstruction(
+  accepted: PricedScheduleCellSourceRef[],
+  diagnostic: PricedScheduleCellSourceRef[] = [],
+  structural: PricedScheduleCellSourceRef[] = [],
+): PagePricedScheduleReconstruction {
   return {
     parser_version: 'priced_schedule_reconstruction_v1',
     pages: [{
       status: 'reconstructed', physical_page_number: 7, header_raw_text: 'Description Cost', header_y: 120,
       columns: [],
+      ...(structural.length === 0 ? {} : { table_edge_lines: [{
+        position: 'before_body' as const,
+        raw_text: structural.map((entry) => entry.text).join(' '), source_refs: structural,
+        x_min: 10, x_max: 100, y_min: 100, y_max: 110,
+        cells: [{ column_index: null, raw_text: structural.map((entry) => entry.text).join(' '),
+          source_refs: structural, x_min: 10, x_max: 100, y_min: 100, y_max: 110 }],
+      }] }),
       rows: accepted.length === 0 ? [] : [{
         row_index: 0, physical_page_number: 7, raw_text: accepted.map((entry) => entry.text).join(' '),
         x_min: 10, x_max: 100, y_min: 100, y_max: 110,
@@ -102,6 +113,23 @@ function reconstruction(accepted: PricedScheduleCellSourceRef[], diagnostic: Pri
 }
 
 describe('selective PDF layout observation evidence', () => {
+  it('materializes table-edge observations without making them accepted or diagnostic facts', () => {
+    const edge = identifiedToken('item:edge', 'SECTION', 10, 100);
+    const result = buildPdfLayoutObservationsLayer({
+      layout: layout([edge]), reconstruction: reconstruction([], [], [ref(edge)]), context: CONTEXT,
+    });
+    expect(result.observations).toHaveLength(1);
+    expect(result.observations[0]).toMatchObject({ id: edge.observation_id, raw_text: 'SECTION' });
+    expect(result.closure).toMatchObject({
+      accepted_ref_count: 0, accepted_identified_ref_count: 0, diagnostic_identified_ref_count: 0,
+      persisted_observation_count: 1,
+    });
+    expect(resolvePdfLayoutDiagnosticEvidence({
+      reconstruction: reconstruction([], [], [ref(edge)]), persistedLayer: result,
+      context: { ...CONTEXT, totalPhysicalPages: 7 }, reason: 'ambiguous_rate_clusters',
+    })).toEqual([]);
+  });
+
   it('resolves an ambiguous-rate diagnostic only when every primitive closes exactly', () => {
     const description = identifiedToken('item:description', 'Candidate service', 10, 100);
     const firstRate = identifiedToken('item:rate-a', '$12.00', 50, 100);

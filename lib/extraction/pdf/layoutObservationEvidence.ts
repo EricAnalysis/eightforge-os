@@ -137,6 +137,15 @@ function diagnosticRefs(reconstruction: PagePricedScheduleReconstruction): Locat
   ]);
 }
 
+/** Durable source observations for non-authoritative table-edge structure. */
+function structuralRefs(reconstruction: PagePricedScheduleReconstruction): LocatedRef[] {
+  return reconstruction.pages.flatMap((page) => (page.table_edge_lines ?? [])
+    .flatMap((line) => line.source_refs.map((ref) => ({
+      page: page.physical_page_number,
+      ref,
+    }))));
+}
+
 function tokenObservation(params: {
   token: PdfToken;
   page: number;
@@ -693,6 +702,7 @@ export function buildPdfLayoutObservationsLayer(params: {
   const durableIds = new Set([
     ...acceptedRefs(params.reconstruction),
     ...diagnosticRefs(params.reconstruction),
+    ...structuralRefs(params.reconstruction),
   ].flatMap((entry) => entry.ref.observation_id ? [entry.ref.observation_id] : []));
   const definitions = new Map<string, PdfLayoutTokenObservation[]>();
   if (params.context) {

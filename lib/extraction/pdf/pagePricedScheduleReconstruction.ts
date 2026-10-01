@@ -225,6 +225,33 @@ export type PricedScheduleRow = {
 };
 
 /**
+ * One source-backed cell on a line that geometry places at a table edge rather
+ * than inside a body row. `column_index` is present only when every member is
+ * contained by the same authored header column; a spanning cell stays null.
+ * Edge cells are structure only and are deliberately outside `rows`.
+ */
+export type PricedScheduleTableEdgeCell = {
+  readonly column_index: number | null;
+  readonly raw_text: string;
+  readonly source_refs: readonly PricedScheduleCellSourceRef[];
+  readonly x_min: number;
+  readonly x_max: number;
+  readonly y_min: number;
+  readonly y_max: number;
+};
+
+export type PricedScheduleTableEdgeLine = {
+  readonly position: 'before_body' | 'after_body';
+  readonly cells: readonly PricedScheduleTableEdgeCell[];
+  readonly raw_text: string;
+  readonly source_refs: readonly PricedScheduleCellSourceRef[];
+  readonly x_min: number;
+  readonly x_max: number;
+  readonly y_min: number;
+  readonly y_max: number;
+};
+
+/**
  * Why a rate marker inside a qualifying page did not become a row. Rejections
  * are reported rather than dropped so that a priced line is never lost in
  * silence. These are diagnostics only: nothing downstream may treat them as
@@ -297,6 +324,8 @@ export type PricedSchedulePage = {
   readonly header_y: number;
   readonly columns: readonly PricedScheduleColumnBand[];
   readonly rows: readonly PricedScheduleRow[];
+  /** Source-backed table-edge structure; never a body row or pricing fact. */
+  readonly table_edge_lines?: readonly PricedScheduleTableEdgeLine[];
   /** Rate markers on this page that did not qualify as rows, and why. */
   readonly rejected_spines: readonly PricedScheduleRejectedSpine[];
   /**
@@ -901,22 +930,10 @@ type RowStartModel = {
   spineOfBand: ReadonlyMap<number, SourceLine>;
 };
 
-/**
- * Row-start anchors: the lines of role-unresolved columns that mark where each
- * authored row begins. A column qualifies only when every one of its body lines
- * is a single token (an identifier-like column: a line number, an item code), and
- * a row start is kept only where every qualifying column has a line. The anchors
- * are then usable only when the page's own priced lines agree with them: every
- * priced line falls inside exactly one anchor band and no band holds two. A band
- * runs from its anchor down to the next anchor; the last band ends at the lowest
- * priced line, and a priced line more than one anchor pitch below the last
- * anchor means the anchors do not reach the table's end, so they are not used.
- */
-function buildRowStartModel(
+function candidateRowStarts(
   roleLess: ReadonlyArray<{ token: PdfToken; columnIndex: number }>,
-  spineLines: readonly SourceLine[],
   tolerance: number,
-): RowStartModel | null {
+): { starts: readonly number[]; pitch: number } | null {
   const byColumn = new Map<number, PdfToken[]>();
   for (const { token, columnIndex } of roleLess) {
     byColumn.set(columnIndex, [...(byColumn.get(columnIndex) ?? []), token]);
@@ -937,7 +954,28 @@ function buildRowStartModel(
   const starts = first!.filter((y) => rest.every((ys) => ys.some((other) => Math.abs(other - y) <= tolerance)));
   if (starts.length < MINIMUM_PRICED_ROWS) return null;
   const pitch = medianOf(starts.slice(1).map((y, index) => starts[index]! - y));
-  if (pitch == null || pitch <= tolerance) return null;
+  return pitch != null && pitch > tolerance ? { starts, pitch } : null;
+}
+
+/**
+ * Row-start anchors: the lines of role-unresolved columns that mark where each
+ * authored row begins. A column qualifies only when every one of its body lines
+ * is a single token (an identifier-like column: a line number, an item code), and
+ * a row start is kept only where every qualifying column has a line. The anchors
+ * are then usable only when the page's own priced lines agree with them: every
+ * priced line falls inside exactly one anchor band and no band holds two. A band
+ * runs from its anchor down to the next anchor; the last band ends at the lowest
+ * priced line, and a priced line more than one anchor pitch below the last
+ * anchor means the anchors do not reach the table's end, so they are not used.
+ */
+function buildRowStartModel(
+  roleLess: ReadonlyArray<{ token: PdfToken; columnIndex: number }>,
+  spineLines: readonly SourceLine[],
+  tolerance: number,
+): RowStartModel | null {
+  const geometry = candidateRowStarts(roleLess, tolerance);
+  if (!geometry) return null;
+  const { starts, pitch } = geometry;
   // The last band ends at the lowest priced line: below it nothing proves which
   // row a line belongs to (a trailing total, a note), so edge rules decide.
   const lowestSpine = Math.min(...spineLines.map((line) => line.y));
@@ -1202,6 +1240,12 @@ type SourceLine = {
   tokens: PdfToken[];
 };
 
+type RawSourceLine = {
+  /** Visual baseline of the line, as the maximum y of its member tokens. */
+  y: number;
+  tokens: PdfToken[];
+};
+
 function medianOf(values: readonly number[]): number | null {
   if (values.length === 0) return null;
   const sorted = [...values].sort((left, right) => left - right);
@@ -1378,6 +1422,91 @@ function buildSourceLines(banded: readonly BandedToken[]): SourceLine[] {
   return merged;
 }
 
+/** The same visual-line grouping as `buildSourceLines`, without assigning roles. */
+function buildRawSourceLines(tokens: readonly PdfToken[]): RawSourceLine[] {
+  const byY = new Map<number, PdfToken[]>();
+  for (const token of tokens) {
+    const bucket = byY.get(token.y);
+    if (bucket) bucket.push(token);
+    else byY.set(token.y, [token]);
+  }
+  const rawLines = [...byY.entries()]
+    .map(([y, members]) => ({ y, tokens: [...members] }))
+    .sort((left, right) => right.y - left.y);
+  if (rawLines.length === 0) return [];
+  const typicalHeight = medianOf(tokens.map((token) => token.height).filter((height) => height > 0));
+  const mergeWithin = typicalHeight == null ? 0 : typicalHeight * LINE_MERGE_FRACTION;
+  const merged: RawSourceLine[] = [];
+  for (const line of rawLines) {
+    const previous = merged.at(-1);
+    if (previous && previous.y - line.y <= mergeWithin) {
+      previous.tokens.push(...line.tokens);
+      continue;
+    }
+    merged.push({ y: line.y, tokens: [...line.tokens] });
+  }
+  for (const line of merged) line.tokens.sort(compareTokens);
+  return merged;
+}
+
+function tableEdgeLine(
+  line: RawSourceLine,
+  position: PricedScheduleTableEdgeLine['position'],
+  columns: readonly PricedScheduleColumnBand[],
+): PricedScheduleTableEdgeLine | null {
+  const { sorted, ratios } = tokenGapReading(line.tokens);
+  const initialGroups = groupTokens(sorted, ratios.map((ratio) => ratio <= HEADER_WORD_GAP_CEILING));
+  // OCR can leave a wider-than-word gap between a marker glyph and amount in
+  // the same authored column. Merge such groups only when every token is
+  // contained by that exact column; never bridge two columns this way.
+  const groups: HeaderCell[] = [];
+  for (const group of initialGroups) {
+    const previous = groups.at(-1);
+    const containedColumn = (tokens: readonly PdfToken[]) => {
+      const indexes = tokens.map((token) => columnIndexForToken(token, columns));
+      return indexes[0] != null && indexes[0] >= 0 && indexes.every((index) => index === indexes[0])
+        ? indexes[0] : null;
+    };
+    const column = containedColumn(group.tokens);
+    if (previous && column != null && containedColumn(previous.tokens) === column) {
+      previous.tokens = [...previous.tokens, ...group.tokens];
+      previous.text = previous.tokens.map((token) => token.text.trim()).filter(Boolean).join(' ');
+      previous.xEnd = Math.max(...previous.tokens.map((token) => token.x + token.width));
+      continue;
+    }
+    groups.push({ ...group, tokens: [...group.tokens] });
+  }
+  const cells = groups.flatMap((group): PricedScheduleTableEdgeCell[] => {
+    const sourceRefs = group.tokens.map((token) => sourceRefForToken(token));
+    const rawText = group.tokens.map((token) => token.text.trim()).filter(Boolean).join(' ');
+    if (!rawText || sourceRefs.length === 0) return [];
+    const memberships = group.tokens.map((token) => columnIndexForToken(token, columns));
+    const first = memberships[0] ?? -1;
+    const columnIndex = first >= 0 && memberships.every((index) => index === first) ? first : null;
+    return [{
+      column_index: columnIndex,
+      raw_text: rawText,
+      source_refs: sourceRefs,
+      x_min: Math.min(...sourceRefs.map((ref) => ref.x_min)),
+      x_max: Math.max(...sourceRefs.map((ref) => ref.x_max)),
+      y_min: Math.min(...sourceRefs.map((ref) => ref.y_min)),
+      y_max: Math.max(...sourceRefs.map((ref) => ref.y_max)),
+    }];
+  });
+  if (cells.length === 0) return null;
+  const sourceRefs = cells.flatMap((cell) => cell.source_refs);
+  return {
+    position,
+    cells,
+    raw_text: cells.map((cell) => cell.raw_text).join(' '),
+    source_refs: sourceRefs,
+    x_min: Math.min(...sourceRefs.map((ref) => ref.x_min)),
+    x_max: Math.max(...sourceRefs.map((ref) => ref.x_max)),
+    y_min: Math.min(...sourceRefs.map((ref) => ref.y_min)),
+    y_max: Math.max(...sourceRefs.map((ref) => ref.y_max)),
+  };
+}
+
 function lineRawText(line: SourceLine): string {
   return line.tokens.map((token) => token.text.trim()).filter((text) => text.length > 0).join(' ');
 }
@@ -1502,6 +1631,7 @@ function reconstructPage(
   }
 
   const banded: BandedToken[] = [];
+  const bodyTokens: PdfToken[] = [];
   // Primitive tokens whose geometry does not give any column a strict width
   // majority remain diagnostic evidence. They must not silently disappear or
   // participate in row admission through the older center-band tie-break.
@@ -1523,6 +1653,7 @@ function reconstructPage(
       // Only content below the header belongs to the schedule body.
       if (token.y >= header.y) continue;
       if (token.text.trim().length === 0) continue;
+      bodyTokens.push(token);
       const baselineColumnIndex = centerColumnIndexForToken(token, header.columns);
       if (baselineColumnIndex >= 0 && !header.columns[baselineColumnIndex]!.role) {
         rowStartRoleLess.push({ token, columnIndex: baselineColumnIndex });
@@ -1548,13 +1679,102 @@ function reconstructPage(
     }
   }
 
-  const sourceLines = buildSourceLines(banded);
-  const ambiguousColumnLines = buildSourceLines(ambiguousColumnBanded);
+  let sourceLines = buildSourceLines(banded);
+  let ambiguousColumnLines = buildSourceLines(ambiguousColumnBanded);
+  const rawSourceLines = buildRawSourceLines(bodyTokens);
+  const tableEdgeLines: PricedScheduleTableEdgeLine[] = [];
+  const ambiguousTableEdgeLines: RawSourceLine[] = [];
+  const glyphHeight = medianOf(banded.map((entry) => entry.token.height).filter((height) => height > 0));
+  const lineTolerance = glyphHeight == null ? 0 : glyphHeight * LINE_MERGE_FRACTION;
+
+  // Row-start geometry establishes the authored body boundary independently of
+  // price recognition. This is intentionally earlier than spine selection: an
+  // edge total can itself carry a currency token, while a valid final body row
+  // can acquire its rate only during structured-rate interpretation.
+  const edgeGeometry = continuationEvidence === 'row_start_anchors'
+    ? candidateRowStarts(rowStartRoleLess, lineTolerance)
+    : null;
+  if (edgeGeometry) {
+    const highestStartY = edgeGeometry.starts[0]!;
+    const lowestStartY = edgeGeometry.starts.at(-1)!;
+    const bodyCurrencySpines = sourceLines.filter((line) => line.y <= highestStartY + lineTolerance
+      && line.y >= lowestStartY - lineTolerance
+      && line.banded.some((entry) => entry.role === 'rate' && isRowSpineToken(entry.token)));
+    if (bodyCurrencySpines.length >= MINIMUM_PRICED_ROWS) {
+      const maximumEdgeDistance = edgeGeometry.pitch * EDGE_CONTINUATION_TOLERANCE;
+      for (const line of rawSourceLines) {
+        const lineRoles = new Set(sourceLines
+          .filter((sourceLine) => sourceLine.tokens.some((token) => line.tokens.includes(token)))
+          .flatMap((sourceLine) => sourceLine.banded.map((entry) => entry.role)));
+        const beforeBody = line.y > highestStartY + lineTolerance
+          && line.y < header.y
+          && line.y - highestStartY <= maximumEdgeDistance
+          && !lineRoles.has('rate');
+        const afterBody = line.y < lowestStartY - lineTolerance
+          && lowestStartY - line.y <= maximumEdgeDistance;
+        if (!beforeBody && !afterBody) continue;
+        const edge = tableEdgeLine(line, beforeBody ? 'before_body' : 'after_body', header.columns);
+        if (!edge) continue;
+        if (afterBody) {
+          const lastColumn = header.columns.length - 1;
+          // A footer line must contain a spanning leading cell plus a separate
+          // terminal-column cell. Ordinary single-cell continuations abstain.
+          if (edge.cells.length < 2
+            || edge.cells[0]!.column_index !== null
+            || edge.cells.at(-1)!.column_index !== lastColumn) {
+            ambiguousTableEdgeLines.push(line);
+            continue;
+          }
+        }
+        tableEdgeLines.push(edge);
+      }
+    }
+  }
+  if (tableEdgeLines.length > 0 || ambiguousTableEdgeLines.length > 0) {
+    // Discovery follows canonical page order. Sort only by structural side so
+    // native bottom-left and OCR top-left source boxes cannot reverse output.
+    tableEdgeLines.sort((left, right) => (left.position === right.position
+      ? 0
+      : left.position === 'before_body' ? -1 : 1));
+    const edgeKeys = new Set([
+      ...tableEdgeLines.flatMap((line) => line.source_refs),
+      ...ambiguousTableEdgeLines.flatMap((line) => line.tokens.map((token) => sourceRefForToken(token))),
+    ].map((ref) => `${ref.observation_id ?? ''}|${ref.text}|${ref.x_min}|${ref.y_min}`));
+    const isEdgeToken = (token: PdfToken) => {
+      const ref = sourceRefForToken(token);
+      return edgeKeys.has(`${ref.observation_id ?? ''}|${ref.text}|${ref.x_min}|${ref.y_min}`);
+    };
+    const withoutEdgeTokens = (lines: readonly SourceLine[]) => lines.flatMap((line) => {
+      const kept = line.banded.filter((entry) => !isEdgeToken(entry.token));
+      if (kept.length === line.banded.length) return [line];
+      return kept.length === 0 ? [] : [{
+        y: Math.max(...kept.map((entry) => entry.y)),
+        banded: kept,
+        tokens: kept.map((entry) => entry.token).sort(compareTokens),
+      }];
+    });
+    sourceLines = withoutEdgeTokens(sourceLines);
+    ambiguousColumnLines = withoutEdgeTokens(ambiguousColumnLines);
+    for (const collection of [roleLess, rowStartRoleLess, ambiguousColumnRoleLess]) {
+      for (let index = collection.length - 1; index >= 0; index -= 1) {
+        if (isEdgeToken(collection[index]!.token)) collection.splice(index, 1);
+      }
+    }
+  }
   // A source line is atomic: it names one row, and is never split across rows.
   const currencySpineLines = sourceLines.filter((line) =>
     line.banded.some((entry) => entry.role === 'rate' && isRowSpineToken(entry.token)));
 
   const unassignedLines: PricedScheduleUnassignedLine[] = [];
+  for (const line of ambiguousTableEdgeLines) {
+    unassignedLines.push({
+      reason: 'unsupported_trailing_line',
+      physical_page_number: page.page_number,
+      raw_text: line.tokens.map((token) => token.text.trim()).filter(Boolean).join(' '),
+      source_refs: line.tokens.map((token) => sourceRefForToken(token)),
+      y: line.y,
+    });
+  }
   const reportLine = (line: SourceLine, reason: PricedScheduleUnassignedLineReason) => {
     const text = lineRawText(line);
     if (text.length === 0) return;
@@ -1596,6 +1816,7 @@ function reconstructPage(
     header_y: header.y,
     columns: header.columns,
     rows,
+    ...(tableEdgeLines.length > 0 ? { table_edge_lines: tableEdgeLines } : {}),
     rejected_spines: rejectedSpines,
     unassigned_lines: unassignedLines,
     ...(header.interpretation ? { header_interpretation: header.interpretation } : {}),
@@ -1664,8 +1885,6 @@ function reconstructPage(
   // belongs to -- but only on a page whose anchors are proven: no pitch outliers,
   // the anchors agree with every priced line, and they contradict no attribution
   // spacing already makes with certainty. Any contradiction disables them.
-  const glyphHeight = medianOf(banded.map((entry) => entry.token.height).filter((height) => height > 0));
-  const lineTolerance = glyphHeight == null ? 0 : glyphHeight * LINE_MERGE_FRACTION;
   const provenRowStarts = (spines: readonly SourceLine[]): RowStartModel | null => {
     if (continuationEvidence !== 'row_start_anchors' || glyphHeight == null) return null;
     if (pitchOutliersOf(spines).size !== 0) return null;
@@ -1708,7 +1927,6 @@ function reconstructPage(
       }
     }
   }
-
   const pitchOutliers = pitchOutliersOf(spineLines);
   const spineIndex = new Map(spineLines.map((line, index) => [line, index]));
   const eligibleSpineLines = spineLines.filter((_, index) => !pitchOutliers.has(index));

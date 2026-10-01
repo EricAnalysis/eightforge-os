@@ -2340,6 +2340,119 @@ describe('generic single-page priced schedule reconstruction', () => {
     expect(bodyRefs.filter((id) => id?.startsWith('h:'))).toEqual([]);
   });
 
+  // ---------------------------------------------------------------------------
+  // R8: source-backed lines immediately outside proven row-start boundaries
+  // remain table-edge structure. They are not body cells and have no semantic
+  // or pricing authority.
+  // ---------------------------------------------------------------------------
+
+  const edgeRows: AnchorRow[] = [
+    { anchor: '0001', description: 'Alpha service' },
+    { anchor: '0002', description: 'Beta service' },
+    { anchor: '0003', description: 'Gamma service' },
+  ];
+  const tableWithEdges = () => {
+    const lines = anchoredTable(edgeRows);
+    lines.splice(1, 0, line(7, 690, [
+      { x: 130, text: 'ROADWAY', width: 50, observation_id: 'edge:section:a' as PdfToken['observation_id'] },
+      { x: 184, text: 'ITEMS', width: 35, observation_id: 'edge:section:b' as PdfToken['observation_id'] },
+    ]));
+    lines.push(line(7, 644, [
+      { x: 240, text: 'Project', width: 50, observation_id: 'edge:total:a' as PdfToken['observation_id'] },
+      { x: 294, text: 'subtotal:', width: 60, observation_id: 'edge:total:b' as PdfToken['observation_id'] },
+      { x: CURRENCY_X, text: '$', width: 8, observation_id: 'edge:total:c' as PdfToken['observation_id'] },
+      { x: AMOUNT_X, text: '99.00', width: 40, observation_id: 'edge:total:d' as PdfToken['observation_id'] },
+    ]));
+    return lines;
+  };
+
+  it('R8-1: lines just above and below proven body rows remain separate table-edge structure', () => {
+    const result = reconstructSinglePage(tableWithEdges())!;
+    expect(result.table_edge_lines?.map((entry) => [entry.position, entry.raw_text])).toEqual([
+      ['before_body', 'ROADWAY ITEMS'], ['after_body', 'Project subtotal: $ 99.00'],
+    ]);
+    expect(result.table_edge_lines?.[0]!.cells).toEqual([
+      expect.objectContaining({ column_index: null, raw_text: 'ROADWAY ITEMS' }),
+    ]);
+    expect(result.table_edge_lines?.[1]!.cells).toEqual([
+      expect.objectContaining({ column_index: null, raw_text: 'Project subtotal:' }),
+      expect.objectContaining({ column_index: 4, raw_text: '$ 99.00' }),
+    ]);
+    expect(result.rows.map((row) => cellText(row, 'description'))).toEqual([
+      'Alpha service', 'Beta service', 'Gamma service',
+    ]);
+    expect(result.rows[0]!.raw_text).not.toMatch(/ROADWAY|ITEMS/);
+    expect(result.rows.at(-1)!.raw_text).not.toMatch(/Project|subtotal|99\.00/);
+  });
+
+  it('R8-2: edge cells retain exact source refs and boxes, and every body token lands exactly once', () => {
+    const lines = tableWithEdges();
+    const result = reconstructSinglePage(lines)!;
+    const section = result.table_edge_lines![0]!;
+    expect(section.source_refs.map((ref) => [ref.observation_id, ref.text, ref.x_min, ref.x_max, ref.y_min, ref.y_max])).toEqual([
+      ['edge:section:a', 'ROADWAY', 130, 180, 690, 700],
+      ['edge:section:b', 'ITEMS', 184, 219, 690, 700],
+    ]);
+    expect([section.x_min, section.x_max, section.y_min, section.y_max]).toEqual([130, 219, 690, 700]);
+    const seen = [
+      ...result.rows.flatMap((row) => row.cells.flatMap((cell) => cell.source_refs)),
+      ...result.rows.flatMap((row) => (row.unresolved_role_cells ?? []).flatMap((cell) => cell.source_refs)),
+      ...(result.table_edge_lines ?? []).flatMap((entry) => entry.source_refs),
+      ...result.unassigned_lines.flatMap((entry) => entry.source_refs),
+      ...(result.unattached_role_less_tokens ?? []),
+    ].map((ref) => ref.observation_id).filter(Boolean);
+    const body = lines.slice(1).flatMap((entry) => entry.tokens.map((token) => token.observation_id)).filter(Boolean);
+    expect([...seen].sort()).toEqual([...body].sort());
+  });
+
+  it('R8-3: edge structure never changes authoritative pricing', () => {
+    const priced = (lines: readonly PdfLayoutLine[]) => buildContractRateScheduleRows({
+      rateTable: null,
+      pricedScheduleReconstruction: buildPagePricedScheduleReconstruction({ layout: layoutOf([page(7, lines)]) }),
+    });
+    expect(priced(tableWithEdges())).toEqual(priced(anchoredTable(edgeRows)));
+  });
+
+  it('R8-4: an ambiguous footer shape and distant prose remain unresolved', () => {
+    const ambiguous = anchoredTable(edgeRows);
+    ambiguous.push(line(7, 644, [
+      { x: ORIGIN_X, text: 'Note', width: 30 },
+      { x: CURRENCY_X, text: '$', width: 8 }, { x: AMOUNT_X, text: '99.00', width: 40 },
+    ]));
+    ambiguous.push(line(7, 600, [{ x: DESCRIPTION_X, text: 'Payment terms continue elsewhere', width: 150 }]));
+    const result = reconstructSinglePage(ambiguous)!;
+    expect(result).not.toHaveProperty('table_edge_lines');
+    expect(result.unassigned_lines.map((entry) => entry.raw_text)).toEqual([
+      'Note $ 99.00', 'Payment terms continue elsewhere',
+    ]);
+  });
+
+  it('R8-5: spacing-only recovery behavior remains frozen', () => {
+    const result = buildPagePricedScheduleReconstruction({
+      layout: layoutOf([page(7, tableWithEdges())]), continuationEvidence: 'spacing_only',
+    }).pages[0]!;
+    expect(result).not.toHaveProperty('table_edge_lines');
+  });
+
+  it('R8-6: a structured-rate final row is established before footer classification', () => {
+    const lines = structuredTable([
+      { anchor: '0001', description: 'Alpha service' },
+      { anchor: '0002', description: 'Beta service' },
+      { anchor: '0003', description: 'Gamma service' },
+      { anchor: '0004', description: 'Delta service', rate: [{ x: AMOUNT_X, text: '45.00', width: 40 }] },
+    ]);
+    lines.push(line(7, 632, [
+      { x: 240, text: 'Project', width: 50 }, { x: 294, text: 'subtotal:', width: 60 },
+      { x: CURRENCY_X, text: '$', width: 8 }, { x: AMOUNT_X, text: '99.00', width: 40 },
+    ]));
+    const result = reconstructSinglePage(lines)!;
+    expect(result.rows.map((row) => cellText(row, 'description'))).toEqual([
+      'Alpha service', 'Beta service', 'Gamma service', 'Delta service',
+    ]);
+    expect(rateCellOf(result.rows.at(-1)!).structured_rate?.amount_text).toBe('45.00');
+    expect(result.table_edge_lines?.map((entry) => entry.raw_text)).toEqual(['Project subtotal: $ 99.00']);
+  });
+
   it('R4-12: production logic names no benchmark document or value', () => {
     const source = readFileSync(new URL('./pagePricedScheduleReconstruction.ts', import.meta.url), 'utf8');
     expect(source).not.toMatch(/DN12189513|Hillsdale|Williamson|Goodlettsville|\bp10[67]\b|90\.00|1,000\.00/i);

@@ -311,6 +311,45 @@ describe('OCR-normalized priced schedule reconstruction', () => {
     }));
   });
 
+  it('preserves equivalent table-edge structure from native and OCR geometry', () => {
+    const priced = (y: number, code: string, description: string) => nativeLine(y, [
+      { x: 10, text: code, width: 12 }, { x: 50, text: description, width: 100 },
+      { x: 200, text: 'Widget', width: 45 }, { x: 300, text: 'Yard to Depot', width: 70 },
+      { x: 450, text: '$', width: 8 }, { x: 470, text: '12.00', width: 40 },
+    ]);
+    const lines = [
+      nativeLine(700, [
+        { x: 10, text: 'Code', width: 25 }, { x: 50, text: 'Description', width: 70 },
+        { x: 200, text: 'Unit', width: 30 }, { x: 300, text: 'Route', width: 40 }, { x: 450, text: 'Cost', width: 30 },
+      ]),
+      nativeLine(690, [{ x: 130, text: 'ROADWAY', width: 50 }, { x: 184, text: 'ITEMS', width: 35 }]),
+      priced(675, 'A1', 'Alpha service'), priced(660, 'B2', 'Beta service'), priced(645, 'C3', 'Gamma service'),
+      nativeLine(630, [
+        { x: 240, text: 'Project', width: 50 }, { x: 294, text: 'subtotal:', width: 60 },
+        { x: 450, text: '$', width: 8 }, { x: 470, text: '99.00', width: 40 },
+      ]),
+    ];
+    const nativeLayout: PdfLayout = {
+      page_count: 1, gaps: [],
+      pages: [{ page_number: 1, width: PAGE_WIDTH, height: PAGE_HEIGHT, lines }],
+    };
+    const projection = (layout: PdfLayout) => {
+      const page = buildPagePricedScheduleReconstruction({ layout }).pages[0]!;
+      return {
+        rows: page.rows.map((row) => row.cells.map((cell) => [cell.role, cell.raw_text])),
+        edges: (page.table_edge_lines ?? []).map((edge) => ({
+          position: edge.position,
+          rawText: edge.raw_text,
+          cells: edge.cells.map((cell) => [cell.column_index, cell.raw_text]),
+          refs: edge.source_refs.map((ref) => ref.text),
+        })),
+      };
+    };
+    expect(projection(ocrOnly(lines))).toEqual(projection(nativeLayout));
+    const ocrEdges = buildPagePricedScheduleReconstruction({ layout: ocrOnly(lines) }).pages[0]!.table_edge_lines!;
+    expect(ocrEdges.flatMap((edge) => edge.source_refs).every((ref) => ref.source === 'ocr_fallback')).toBe(true);
+  });
+
   it('still fails closed, never guessing, when one role names two separate columns', () => {
     // Column gaps are never bridged: two unit columns remain an ambiguous header.
     const ambiguousHeader = [

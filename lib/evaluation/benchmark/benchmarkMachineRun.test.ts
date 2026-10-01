@@ -272,4 +272,27 @@ describe('benchmark machine pass', () => {
     expect(project(native.prediction.cells)).toHaveLength(4);
     expect(project(ocr.prediction.cells)).toEqual(project(native.prediction.cells));
   }, 60_000);
+
+  it('R8: projects table-edge lines around body rows without assigning semantic columns', async () => {
+    const row = (code: string, description: string, y: number) => [
+      ocrWord(code, 20, y), ocrWord(description, 100, y), ocrWord('EA', 400, y),
+      ocrWord('Yard', 600, y), ocrWord('$12.00', 900, y),
+    ];
+    const run = await ocrRun([
+      ocrWord('Code', 20, 180), ocrWord('Description', 100, 180), ocrWord('Unit', 400, 180),
+      ocrWord('Route', 600, 180), ocrWord('Cost', 900, 180),
+      ocrWord('ROADWAY', 260, 210), ocrWord('ITEMS', 360, 210),
+      ...row('A1', 'Alpha', 240), ...row('B2', 'Beta', 270), ...row('C3', 'Gamma', 300),
+      ocrWord('Project', 430, 330), ocrWord('subtotal:', 520, 330), ocrWord('$99.00', 900, 330),
+    ]);
+    const section = ['ROADWAY', 'ITEMS'].map((text) => run.prediction.cells.find((cell) => cell.text === text)!);
+    const totalLabel = run.prediction.cells.find((cell) => cell.text === 'Project subtotal:')!;
+    const totalAmount = run.prediction.cells.find((cell) => cell.text === '$99.00')!;
+    expect([...section, totalLabel, totalAmount].map((cell) => [cell.isHeader, cell.columnName])).toEqual([
+      [false, null], [false, null], [false, null], [false, null],
+    ]);
+    expect(run.prediction.rows[1]!.orderedCellBoxes).toEqual(section.map((cell) => cell.box));
+    expect(run.prediction.rows.at(-1)!.orderedCellBoxes).toEqual([totalLabel.box, totalAmount.box]);
+    expect(run.prediction.cells.find((cell) => cell.text === 'Alpha')?.columnName).toBe('description');
+  }, 60_000);
 });

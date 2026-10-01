@@ -278,21 +278,30 @@ describe('benchmark machine pass', () => {
       ocrWord(code, 20, y), ocrWord(description, 100, y), ocrWord('EA', 400, y),
       ocrWord('Yard', 600, y), ocrWord('$12.00', 900, y),
     ];
-    const run = await ocrRun([
+    const page = (section: OcrGeometryPage['words']) => ocrRun([
       ocrWord('Code', 20, 180), ocrWord('Description', 100, 180), ocrWord('Unit', 400, 180),
       ocrWord('Route', 600, 180), ocrWord('Cost', 900, 180),
-      ocrWord('ROADWAY', 260, 210), ocrWord('ITEMS', 360, 210),
+      ...section,
       ...row('A1', 'Alpha', 240), ...row('B2', 'Beta', 270), ...row('C3', 'Gamma', 300),
       ocrWord('Project', 430, 330), ocrWord('subtotal:', 520, 330), ocrWord('$99.00', 900, 330),
     ]);
-    const section = ['ROADWAY', 'ITEMS'].map((text) => run.prediction.cells.find((cell) => cell.text === text)!);
+    // A section label spanning the description/unit boundary is edge structure.
+    const run = await page([
+      ocrWord('ROADWAY', 150, 210), ocrWord('AND', 246, 210), ocrWord('BRIDGE', 294, 210), ocrWord('ITEMS', 378, 210),
+    ]);
+    const section = ['ROADWAY AND BRIDGE ITEMS'].map((text) => run.prediction.cells.find((cell) => cell.text === text)!);
     const totalLabel = run.prediction.cells.find((cell) => cell.text === 'Project subtotal:')!;
     const totalAmount = run.prediction.cells.find((cell) => cell.text === '$99.00')!;
     expect([...section, totalLabel, totalAmount].map((cell) => [cell.isHeader, cell.columnName])).toEqual([
-      [false, null], [false, null], [false, null], [false, null],
+      [false, null], [false, null], [false, null],
     ]);
     expect(run.prediction.rows[1]!.orderedCellBoxes).toEqual(section.map((cell) => cell.box));
     expect(run.prediction.rows.at(-1)!.orderedCellBoxes).toEqual([totalLabel.box, totalAmount.box]);
     expect(run.prediction.cells.find((cell) => cell.text === 'Alpha')?.columnName).toBe('description');
+    // The same words wholly inside the description column are indistinguishable
+    // from a first row wrapping above its anchor, so they never become edge structure.
+    const contained = await page([ocrWord('ROADWAY', 260, 210), ocrWord('ITEMS', 360, 210)]);
+    expect(contained.prediction.cells.filter((cell) => ['ROADWAY', 'ITEMS'].includes(cell.text)
+      && !cell.isHeader && cell.columnName === null)).toEqual([]);
   }, 60_000);
 });

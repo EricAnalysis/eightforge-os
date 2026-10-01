@@ -1683,7 +1683,6 @@ function reconstructPage(
   let ambiguousColumnLines = buildSourceLines(ambiguousColumnBanded);
   const rawSourceLines = buildRawSourceLines(bodyTokens);
   const tableEdgeLines: PricedScheduleTableEdgeLine[] = [];
-  const ambiguousTableEdgeLines: RawSourceLine[] = [];
   const glyphHeight = medianOf(banded.map((entry) => entry.token.height).filter((height) => height > 0));
   const lineTolerance = glyphHeight == null ? 0 : glyphHeight * LINE_MERGE_FRACTION;
 
@@ -1715,31 +1714,34 @@ function reconstructPage(
         if (!beforeBody && !afterBody) continue;
         const edge = tableEdgeLine(line, beforeBody ? 'before_body' : 'after_body', header.columns);
         if (!edge) continue;
-        if (afterBody) {
+        // Row-start anchors are not row extents: an authored row can wrap above
+        // or below its anchor. A line whose shape a body continuation could have
+        // is therefore never claimed as edge structure; it abstains and stays
+        // with the unchanged body rules, which attach it or report it.
+        if (beforeBody) {
+          // A cell wholly inside a role-resolved column reads as body content.
+          if (edge.cells.some((cell) => cell.column_index != null
+            && header.columns[cell.column_index]!.role != null)) continue;
+        } else {
           const lastColumn = header.columns.length - 1;
           // A footer line must contain a spanning leading cell plus a separate
           // terminal-column cell. Ordinary single-cell continuations abstain.
           if (edge.cells.length < 2
             || edge.cells[0]!.column_index !== null
-            || edge.cells.at(-1)!.column_index !== lastColumn) {
-            ambiguousTableEdgeLines.push(line);
-            continue;
-          }
+            || edge.cells.at(-1)!.column_index !== lastColumn) continue;
         }
         tableEdgeLines.push(edge);
       }
     }
   }
-  if (tableEdgeLines.length > 0 || ambiguousTableEdgeLines.length > 0) {
+  if (tableEdgeLines.length > 0) {
     // Discovery follows canonical page order. Sort only by structural side so
     // native bottom-left and OCR top-left source boxes cannot reverse output.
     tableEdgeLines.sort((left, right) => (left.position === right.position
       ? 0
       : left.position === 'before_body' ? -1 : 1));
-    const edgeKeys = new Set([
-      ...tableEdgeLines.flatMap((line) => line.source_refs),
-      ...ambiguousTableEdgeLines.flatMap((line) => line.tokens.map((token) => sourceRefForToken(token))),
-    ].map((ref) => `${ref.observation_id ?? ''}|${ref.text}|${ref.x_min}|${ref.y_min}`));
+    const edgeKeys = new Set(tableEdgeLines.flatMap((line) => line.source_refs)
+      .map((ref) => `${ref.observation_id ?? ''}|${ref.text}|${ref.x_min}|${ref.y_min}`));
     const isEdgeToken = (token: PdfToken) => {
       const ref = sourceRefForToken(token);
       return edgeKeys.has(`${ref.observation_id ?? ''}|${ref.text}|${ref.x_min}|${ref.y_min}`);
@@ -1766,15 +1768,6 @@ function reconstructPage(
     line.banded.some((entry) => entry.role === 'rate' && isRowSpineToken(entry.token)));
 
   const unassignedLines: PricedScheduleUnassignedLine[] = [];
-  for (const line of ambiguousTableEdgeLines) {
-    unassignedLines.push({
-      reason: 'unsupported_trailing_line',
-      physical_page_number: page.page_number,
-      raw_text: line.tokens.map((token) => token.text.trim()).filter(Boolean).join(' '),
-      source_refs: line.tokens.map((token) => sourceRefForToken(token)),
-      y: line.y,
-    });
-  }
   const reportLine = (line: SourceLine, reason: PricedScheduleUnassignedLineReason) => {
     const text = lineRawText(line);
     if (text.length === 0) return;

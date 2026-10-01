@@ -2422,9 +2422,14 @@ describe('generic single-page priced schedule reconstruction', () => {
     ambiguous.push(line(7, 600, [{ x: DESCRIPTION_X, text: 'Payment terms continue elsewhere', width: 150 }]));
     const result = reconstructSinglePage(ambiguous)!;
     expect(result).not.toHaveProperty('table_edge_lines');
-    expect(result.unassigned_lines.map((entry) => entry.raw_text)).toEqual([
-      'Note $ 99.00', 'Payment terms continue elsewhere',
+    // An ambiguous shape abstains from edge structure and keeps the body rules'
+    // own fail-closed outcome: never a row, always retained as evidence.
+    expect(result.rows.map((row) => cellText(row, 'description'))).toEqual([
+      'Alpha service', 'Beta service', 'Gamma service',
     ]);
+    expect(result.rows.some((row) => row.raw_text.includes('99.00'))).toBe(false);
+    expect([...result.rejected_spines, ...result.unassigned_lines].map((entry) => entry.raw_text))
+      .toEqual(expect.arrayContaining(['Note $ 99.00', 'Payment terms continue elsewhere']));
   });
 
   it('R8-5: spacing-only recovery behavior remains frozen', () => {
@@ -2451,6 +2456,56 @@ describe('generic single-page priced schedule reconstruction', () => {
     ]);
     expect(rateCellOf(result.rows.at(-1)!).structured_rate?.amount_text).toBe('45.00');
     expect(result.table_edge_lines?.map((entry) => entry.raw_text)).toEqual(['Project subtotal: $ 99.00']);
+  });
+
+  // Row-start anchors mark where rows begin, not how far they extend. A line a
+  // body continuation could produce must stay with the body rules: the R7 and
+  // R8 reconstructions of these shapes must be identical.
+  const anchoredRow = (y: number, anchor: string, description: string, rateOnSecondLine = false) => {
+    const rate = [{ x: CURRENCY_X, text: '$', width: 8 }, { x: AMOUNT_X, text: '12.00', width: 40 }];
+    return [
+      line(7, y, [{ x: LINE_X, text: anchor, width: 25 }, { x: DESCRIPTION_X, text: description, width: 100 },
+        { x: UNIT_X, text: 'Widget', width: 60 }, { x: ORIGIN_X, text: 'A to B', width: 100 },
+        ...(rateOnSecondLine ? [] : rate)]),
+      line(7, y - (rateOnSecondLine ? 12 : 6), [{ x: DESCRIPTION_X, text: `${description} tail`, width: 60 },
+        ...(rateOnSecondLine ? rate : [])]),
+    ];
+  };
+  const header = () => anchoredTable([])[0]!;
+
+  it('R8-7: a final row keeps its wrapped continuation below its anchor', () => {
+    const result = reconstructSinglePage([header(), ...anchoredRow(680, '0001', 'Alpha'),
+      ...anchoredRow(640, '0002', 'Beta'), ...anchoredRow(600, '0003', 'Gamma')])!;
+    expect(result.rows.map((row) => cellText(row, 'description'))).toEqual(['Alpha Alpha tail', 'Beta Beta tail', 'Gamma Gamma tail']);
+    expect(result.unassigned_lines).toEqual([]);
+    expect(result).not.toHaveProperty('table_edge_lines');
+  });
+
+  it('R8-8: a final row priced on its second line is never stripped into edge structure', () => {
+    const lines = [header(), ...anchoredRow(680, '0001', 'Alpha', true),
+      ...anchoredRow(640, '0002', 'Beta', true), ...anchoredRow(600, '0003', 'Gamma', true)];
+    const result = reconstructSinglePage(lines)!;
+    expect(result.rows.map((row) => [cellText(row, 'description'), cellText(row, 'rate')])).toEqual([
+      ['Alpha Alpha tail', '$ 12.00'], ['Beta Beta tail', '$ 12.00'], ['Gamma Gamma tail', '$ 12.00'],
+    ]);
+    expect(result).not.toHaveProperty('table_edge_lines');
+    expect(buildContractRateScheduleRows({
+      rateTable: null,
+      pricedScheduleReconstruction: buildPagePricedScheduleReconstruction({ layout: layoutOf([page(7, lines)]) }),
+    }).map((row) => row.rate)).toEqual([12, 12, 12]);
+  });
+
+  it('R8-9: a first row wrapping above its anchor keeps that line as body content', () => {
+    const centered = (y: number, anchor: string, description: string) => [
+      line(7, y + 6, [{ x: DESCRIPTION_X, text: `${description} upper`, width: 60 }]),
+      ...anchoredRow(y, anchor, description),
+    ];
+    const result = reconstructSinglePage([header(), ...centered(660, '0001', 'Alpha'),
+      ...centered(620, '0002', 'Beta'), ...centered(580, '0003', 'Gamma')])!;
+    expect(result.rows.map((row) => cellText(row, 'description'))).toEqual([
+      'Alpha upper Alpha Alpha tail', 'Beta upper Beta Beta tail', 'Gamma upper Gamma Gamma tail',
+    ]);
+    expect(result).not.toHaveProperty('table_edge_lines');
   });
 
   it('R4-12: production logic names no benchmark document or value', () => {

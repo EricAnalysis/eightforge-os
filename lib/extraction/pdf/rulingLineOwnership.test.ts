@@ -59,7 +59,7 @@ function primitiveRefs(page: PricedSchedulePage): PricedScheduleCellSourceRef[] 
 function fixture(options: {
   roleless?: boolean;
   candidate?: PricedScheduleCellSourceRef;
-  raster?: 'grid' | 'none' | 'decoration' | 'broken';
+  raster?: 'grid' | 'none' | 'decoration' | 'broken' | 'merged-body';
 } = {}) {
   const candidate = options.candidate ?? source('upper continuation', 70, 215, 100);
   const headers = [source(options.roleless ? 'Equipment' : 'Description', 70, 130, 95),
@@ -103,6 +103,7 @@ function fixture(options: {
       vertical(420, 420, 570); vertical(570, 420, 570);
     } else if (options.raster !== 'none') {
       for (const y of [100, 200, 300, 400]) {
+        if (options.raster === 'merged-body' && y === 300) continue;
         if (options.raster === 'broken' && y === 200) {
           horizontal(50, 140, y); horizontal(175, 550, y);
         } else horizontal(50, 550, y);
@@ -299,6 +300,24 @@ describe('ruling-line structural ownership, source-only and resolve-only', () =>
     const page: PricedSchedulePage = { ...f.page, rows: f.page.rows.map((row, index) => index === 1
       ? { ...row, cells: row.cells.map((entry) => entry.role === 'rate' ? cell('rate', [secondRate]) : entry) } : row) };
     const { layout, input } = f.rasterAndLayout(page);
+    expect(resolveRulingLineOwnership(page, layout, input)).toBe(page);
+  });
+
+  it.each([
+    ['a damaged-rate row', 'ambiguous_row_assignment', true],
+    ['an unpriced row', 'unpriced_row', false],
+  ] as const)('abstains when a ruled band is shared with %s', (_name, reason, unattachedDescription) => {
+    const f = fixture({ raster: 'merged-body' });
+    const stranded = source('stranded service', 70, 350, 100);
+    const strandedUnit = source('Hour', 320, 350), strandedRate = source('[$23.00', 430, 350, 55);
+    const page: PricedSchedulePage = { ...f.page, rows: [f.page.rows[0]!],
+      unattached_role_less_tokens: [...f.page.unattached_role_less_tokens!,
+        ...(unattachedDescription ? [{ ...stranded, column_index: 0 }] : [])],
+      unassigned_lines: [{ reason, physical_page_number: 1,
+        raw_text: unattachedDescription ? 'Hour [$23.00' : 'stranded service Hour [$23.00',
+        source_refs: unattachedDescription ? [strandedUnit, strandedRate] : [stranded, strandedUnit, strandedRate], y: 350 }] };
+    const { layout, input } = f.rasterAndLayout(page);
+    // Without the shared band, the same upper continuation resolves (first test above).
     expect(resolveRulingLineOwnership(page, layout, input)).toBe(page);
   });
 

@@ -3,6 +3,14 @@
 Evaluation baseline: `e2ff203581f3ae4b6a6b9f970dbaf87553310af2`, branch `codex/e3-contract-prep-four-page-benchmark`.
 Local source-backed implementation and measurement; no push, merge, OCR setting change, or benchmark truth mutation.
 
+## Adversarial review addendum (supersedes the measured totals below)
+
+The adversarial review of `0540818` found that a ruled band holding one admitted row and one unadmitted row (a damaged-rate or unpriced line) let the unadmitted row's description join the admitted row's priced description. A band now abstains when it contains protected structure (a rejected spine, an unpriced row or an edge line), or unowned ink in a priced-role column on a line outside the anchor row's own extent.
+
+On the four pages this abstains for Golden `c-0013`. That band holds a separate line whose only priced-column ink is an unowned glyph in an ambiguous-row line, which is geometrically indistinguishable from a stranded row. Results after review: Golden 41/100 and 1/25 exact rows; aggregate **510/583, F1 .9003, 87/116 exact rows, 73 unmatched**. Nothing is lost relative to R8. Hillsdale, p106 and p107 are byte-identical to `0540818`.
+
+Pricing note: Golden pricing row 6's canonical category changes `construction_demolition` (0.74) to `management_reduction` (0.88), because its description gains `Chipping Vegetative`. Rates, units, quantities and row counts are unchanged. The review also stopped ruling inputs for pages without a detected grid from being retained; such pages are never changed by this layer.
+
 ## Audit and predeclared recovery
 
 R12's 22 class-A *geometric* opportunities split into **7 RESOLVE / 15 OVERRIDE**.

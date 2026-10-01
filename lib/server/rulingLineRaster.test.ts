@@ -53,6 +53,17 @@ describe('ruling raster binding to the existing OCR input', () => {
     expect(await buildRulingLineInputsFromRenders(dimensions)).toEqual([]);
   });
 
+  it('retains no ink mask for a render without a ruled grid', async () => {
+    const input = fixture();
+    const canvas = createCanvas(600, 600), context = canvas.getContext('2d');
+    context.fillStyle = 'white'; context.fillRect(0, 0, 600, 600);
+    context.fillStyle = 'black'; context.fillRect(50, 100, 501, 1); context.fillRect(80, 230, 5, 12);
+    const png_buffer = canvas.toBuffer('image/png'), render_sha256 = sha256Hex(png_buffer);
+    input.renders[0] = { ...input.renders[0], png_buffer, render_sha256 };
+    input.ocrPages[0].representation_key = `tesseract:eng:psm11:pdfjs-scale2:${render_sha256}`;
+    expect(await buildRulingLineInputsFromRenders(input)).toEqual([]);
+  });
+
   it('does not detect ownership evidence without source OCR primitives', async () => {
     const input = fixture(); input.ocrPages[0].words = [];
     expect(await buildRulingLineInputsFromRenders(input)).toEqual([]);

@@ -178,6 +178,22 @@ export function resolveRulingLineOwnership(page: PricedSchedulePage, layout: Pdf
         ...(page.table_edge_lines?.flatMap((line) => line.source_refs) ?? []),
         ...page.unassigned_lines.filter((line) => line.reason === 'unpriced_row').flatMap((line) => line.source_refs),
     ].map(refKey));
+    // A ruled band proves one row only when it holds no evidence of another: no
+    // protected structure (rejected or unpriced lines, edge lines), and no
+    // unowned ink in a priced-role column on a line outside the anchor row's own
+    // extent. An unadmitted row sharing the band would otherwise donate its text
+    // to the admitted one. Ink on the anchor row's own line is not a second row.
+    const contestedBands = new Set<number>();
+    for (const token of located) {
+        const region = token.region;
+        if (!region || !token.uniqueInk || region.anchors.length !== 1)
+            continue;
+        const key = refKey(token.ref), role = map[region.col]!.column.role;
+        const anchor = page.rows[region.anchors[0]!]!, middle = (token.box.y0 + token.box.y1) / 2;
+        if (protectedRefs.has(key) || (role !== null && role !== 'description' && !resolvedOwners.has(key)
+            && (middle < anchor.y_min || middle > anchor.y_max)))
+            contestedBands.add(region.row);
+    }
     const plan = new Map<string, {
         row: number;
         col: number;
@@ -185,7 +201,8 @@ export function resolveRulingLineOwnership(page: PricedSchedulePage, layout: Pdf
     }>();
     for (const token of located) {
         const key = refKey(token.ref), region = token.region;
-        if (!allowed.has(key) || protectedRefs.has(key) || resolvedOwners.has(key) || !region || !token.uniqueInk || token.intersects || region.anchors.length !== 1)
+        if (!allowed.has(key) || protectedRefs.has(key) || resolvedOwners.has(key) || !region || !token.uniqueInk || token.intersects || region.anchors.length !== 1
+            || contestedBands.has(region.row))
             continue;
         // Whole primitive containment is required for NEW ownership. Existing
         // crossing refs are retained verbatim, not cropped or classified as noise.

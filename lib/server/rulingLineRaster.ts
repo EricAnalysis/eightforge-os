@@ -27,10 +27,15 @@ export async function buildRulingLineInputsFromRenders(input: {
             continue;
         const canvas = createCanvas(image.width, image.height), context = canvas.getContext('2d');
         context.drawImage(image, 0, 0);
-        result.push(buildRulingLineInput({ sourceSha256, renderSha256: render.render_sha256,
+        const built = buildRulingLineInput({ sourceSha256, renderSha256: render.render_sha256,
             physicalPageNumber: render.page_number, width: image.width, height: image.height,
             tokenGeometry: page.words,
-            rgba: context.getImageData(0, 0, image.width, image.height).data }));
+            rgba: context.getImageData(0, 0, image.width, image.height).data });
+        // Ownership needs a grid; a page without one is never changed by this layer.
+        // Dropping it here keeps a long scanned document from holding a full-page
+        // ink mask for every unruled page.
+        if (built.evidence.grids.length > 0)
+            result.push(built);
     }
     return result;
 }

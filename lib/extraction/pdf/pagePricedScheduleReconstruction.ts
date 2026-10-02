@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { hashCanonical } from '@/lib/extraction/domain/hash';
 import type { PdfLayout, PdfLayoutPage, PdfToken } from '@/lib/extraction/pdf/extractText';
 import type { RulingLineEvidence, RulingLineInput } from '@/lib/extraction/pdf/rulingLineEvidence';
@@ -210,6 +211,7 @@ export type PricedScheduleUnresolvedRoleCell = {
 };
 
 export type PricedScheduleRow = {
+  readonly header_semantics?: HeaderSemanticsSelection;
   readonly row_index: number;
   readonly physical_page_number: number;
   /** Cells whose column has a resolved semantic role. */
@@ -319,7 +321,13 @@ export type PricedScheduleRejectedSpine = {
   readonly y: number;
 };
 
+export type HeaderSemanticsSelection = Readonly<{
+  status: 'human_selected'; candidate_id: string; review_id: string;
+}>;
+export type ConfirmedHeaderSelection = Readonly<{ candidate: RecoveryCandidateV2; reviewId: string }>;
+
 export type PricedSchedulePage = {
+  readonly header_semantics?: HeaderSemanticsSelection;
   /** Whether this qualifying page yielded usable rows or retained a failed-closed audit result. */
   readonly status?: 'reconstructed' | 'failed_closed';
   readonly physical_page_number: number;
@@ -423,7 +431,9 @@ export type PricedScheduleRecoveryDiagnosticReason =
   /** The resolver supplied the same confirmation identity more than once. */
   | 'duplicate_recovery_confirmation'
   /** Bound to a token, but no priced row was admitted through it. */
-  | 'confirmed_recovery_not_applied';
+  | 'confirmed_recovery_not_applied'
+  | 'ambiguous_recovery_confirmation'
+  | 'confirmed_header_option_not_offered';
 
 export type PricedScheduleRecoveryDiagnostic = {
   readonly reason: PricedScheduleRecoveryDiagnosticReason;
@@ -1589,6 +1599,45 @@ function buildPageRecoveryCandidate(
   });
 }
 
+/** Build options from the current v2 unresolved reconstruction; no semantic winner is chosen. */
+export function buildHeaderRoleSelectionCandidates(
+  reconstruction: PagePricedScheduleReconstruction,
+  context: RecoveryCandidateBuildContext,
+): RecoveryCandidateV2[] {
+  if (reconstruction.parser_version !== PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION
+    || (context.allowedRecoveryTypes && !context.allowedRecoveryTypes.includes('priced_schedule_header_role_selection'))) return [];
+  return reconstruction.pages.flatMap(page => {
+    const interpretation = page.header_interpretation;
+    if (page.semantic_status !== 'unresolved' || !page.columns.length
+      || !interpretation || interpretation.status !== 'unresolved' || interpretation.options_limit_exceeded) return [];
+    const refs = interpretation.source_refs;
+    const digest = context.pageRepresentationDigestByPage[page.physical_page_number];
+    if (!digest || refs.some(ref => !ref.observation_id)) return [];
+    return (interpretation.options ?? []).flatMap(option => {
+      if (option.kind !== 'role_assignment' || !option.qualifies) return [];
+      const candidate = buildRecoveryCandidateV2({
+        recoveryType: 'priced_schedule_header_role_selection',
+        sourceDocumentId: context.sourceDocumentId, sourceArtifactId: context.sourceArtifactId,
+        physicalPageNumber: page.physical_page_number, pageRepresentationDigest: digest,
+        targetRowIdentity: `page_priced_schedule:p${page.physical_page_number}:header`,
+        orderedObservationIds: refs.map(ref => ref.observation_id!),
+        rawTexts: refs.map(ref => ref.text), composedRawText: page.header_raw_text,
+        evidence: refs.map(ref => ({ observationId: ref.observation_id!,
+          sourceLayer: ref.source === 'ocr_fallback' ? 'ocr' : 'pdf_native_text', rawText: ref.text,
+          boundingBox: { xMin: ref.x_min, xMax: ref.x_max, yMin: ref.y_min, yMax: ref.y_max } })),
+        headerRoleSelection: {
+          parserVersion: PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION,
+          headerInterpretationVersion: interpretation.version, optionId: option.option_id,
+          labels: option.labels.map(label => ({ text: label.text, role: label.role,
+            orderedObservationIds: label.source_refs.flatMap(ref => ref.observation_id ? [ref.observation_id] : []) })),
+          structuralRowCount: page.rows.length,
+        },
+      });
+      return candidate ? [candidate] : [];
+    });
+  });
+}
+
 function reconstructPage(
   page: PdfLayoutPage,
   confirmed: ReadonlyMap<string, ConfirmedRateObservation>,
@@ -1598,6 +1647,7 @@ function reconstructPage(
   candidateBuildContext?: RecoveryCandidateBuildContext,
   generatedCandidates: RecoveryCandidateV2[] = [],
   continuationEvidence: PricedScheduleContinuationEvidence = 'row_start_anchors',
+  headerSelection?: ConfirmedHeaderSelection,
 ): PricedSchedulePage | null {
   const headers = detectHeaders(page);
   let header: DetectedHeader;
@@ -1632,6 +1682,21 @@ function reconstructPage(
       interpretation: unresolved.interpretation,
     };
     semanticsResolved = false;
+    if (headerSelection && continuationEvidence !== 'spacing_only') {
+      const labels = headerSelection.candidate.headerRoleSelection!.labels;
+      const selectedColumns = header.columns.map(column => {
+        const ids = (column.header_source_refs ?? []).map(ref => ref.observation_id);
+        const label = labels.find(entry => entry.text === column.header_text
+          && entry.orderedObservationIds.length === ids.length
+          && entry.orderedObservationIds.every((id, index) => id === ids[index]));
+        return label ? { ...column, role: label.role } : null;
+      });
+      if (selectedColumns.every(column => column != null)
+        && headerRolesQualify(selectedColumns.map(column => column!.role))) {
+        header = { ...header, columns: selectedColumns as PricedScheduleColumnBand[] };
+        semanticsResolved = true;
+      }
+    }
     confirmed = new Map();
     confirmedCandidates = [];
     candidateBuildContext = undefined;
@@ -1817,6 +1882,10 @@ function reconstructPage(
     rows: readonly PricedScheduleRow[],
   ): PricedSchedulePage => ({
     status,
+    ...(semanticsResolved && headerSelection ? { header_semantics: {
+      status: 'human_selected' as const, candidate_id: headerSelection.candidate.candidateId,
+      review_id: headerSelection.reviewId,
+    } } : {}),
     physical_page_number: page.page_number,
     header_raw_text: header.rawText,
     header_y: header.y,
@@ -2300,6 +2369,10 @@ function reconstructPage(
   const rows: PricedScheduleRow[] = accepted.map((entry) => {
     const unresolvedRoleCells = roleLessByRow.get(entry) ?? [];
     return {
+      ...(semanticsResolved && headerSelection ? { header_semantics: {
+        status: 'human_selected' as const, candidate_id: headerSelection.candidate.candidateId,
+        review_id: headerSelection.reviewId,
+      } } : {}),
       row_index: entry.index,
       physical_page_number: page.page_number,
       cells: entry.cells,
@@ -2405,6 +2478,7 @@ export function buildPagePricedScheduleReconstruction(params: {
   confirmedRateObservations?: readonly ConfirmedRateObservation[];
   /** Exact persisted V2 candidates selected by a human; never browser-supplied. */
   confirmedRecoveryCandidates?: readonly RecoveryCandidateV2[];
+  confirmedHeaderSelections?: readonly ConfirmedHeaderSelection[];
   /**
    * Current effective evidence per physical page. Consulted only for supplied
    * confirmations: a page absent here cannot prove its evidence is unchanged.
@@ -2509,21 +2583,73 @@ export function buildPagePricedScheduleReconstruction(params: {
   const appliedCandidates = new Set<string>();
   const generatedCandidates: RecoveryCandidateV2[] = [];
   const pages: PricedSchedulePage[] = [];
+  const headerDiagnostics: PricedScheduleRecoveryDiagnostic[] = [];
   // Deterministic page order regardless of input ordering.
   const orderedPages = [...params.layout.pages].sort(
     (left, right) => left.page_number - right.page_number,
   );
   for (const page of orderedPages) {
-    const reconstructed = reconstructPage(
+    let reconstructed = reconstructPage(
       page, confirmed, confirmedCandidates, appliedConfirmations, appliedCandidates,
       params.recoveryCandidateBuildContext, generatedCandidates,
       params.continuationEvidence ?? 'row_start_anchors',
     );
+    const headerSelections = (params.confirmedHeaderSelections ?? []).filter(selection =>
+      selection.candidate.physicalPageNumber === page.page_number);
+    const version = params.continuationEvidence === 'spacing_only'
+      ? LEGACY_PRICED_SCHEDULE_RECONSTRUCTION_VERSION : PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION;
+    if (reconstructed && params.recoveryCandidateBuildContext) {
+      generatedCandidates.push(...buildHeaderRoleSelectionCandidates({ parser_version: version, pages: [reconstructed] },
+        params.recoveryCandidateBuildContext));
+    }
+    const conflicting = new Set(headerSelections.map(selection => selection.candidate.candidateId)).size > 1;
+    for (const selection of headerSelections) {
+      const candidate = selection.candidate;
+      const parsed = RecoveryCandidateV2Schema.safeParse(candidate);
+      let reason: PricedScheduleRecoveryDiagnosticReason | undefined;
+      let blocked_by: 'coverage_not_trusted' | undefined;
+      const gate = evidenceGate(candidate.pageRepresentationDigest, page.page_number);
+      if (!parsed.success || !z.string().uuid().safeParse(selection.reviewId).success || candidate.recoveryType !== 'priced_schedule_header_role_selection') {
+        reason = 'confirmed_recovery_not_applied';
+      } else if (gate) { reason = gate.reason; blocked_by = gate.blocked_by; }
+      else if (conflicting || headerSelections.length > 1) reason = 'ambiguous_recovery_confirmation';
+      else {
+        const currentCandidates = reconstructed ? buildHeaderRoleSelectionCandidates(
+          { parser_version: version, pages: [reconstructed] }, {
+            sourceDocumentId: candidate.sourceDocumentId, sourceArtifactId: candidate.sourceArtifactId,
+            pageRepresentationDigestByPage: { [page.page_number]: params.currentPageEvidence![page.page_number]!.pageRepresentationDigest! },
+          }) : [];
+        if (!currentCandidates.some(current => {
+          const closure = (entry: RecoveryCandidateV2) => ({ ...entry,
+            headerRoleSelection: entry.headerRoleSelection ? {
+              ...entry.headerRoleSelection, structuralRowCount: 0,
+            } : undefined });
+          return current.candidateId === candidate.candidateId && hashCanonical(closure(current)) === hashCanonical(closure(candidate));
+        })) {
+          reason = 'confirmed_header_option_not_offered';
+        } else {
+          reconstructed = reconstructPage(page, new Map(), [], appliedConfirmations, appliedCandidates,
+            undefined, [], params.continuationEvidence ?? 'row_start_anchors', selection);
+          if (!reconstructed?.header_semantics) reason = 'confirmed_recovery_not_applied';
+        }
+      }
+      if (reason) headerDiagnostics.push({ reason, ...(blocked_by ? { blocked_by } : {}),
+        observation_id: candidate.orderedObservationIds[0] as NonNullable<PdfToken['observation_id']>,
+        candidate_id: candidate.candidateId, physical_page_number: page.page_number, recovery_applied: false });
+    }
     if (reconstructed) {
       const inputs = params.continuationEvidence === 'spacing_only' ? []
         : (params.rulingLineInputs ?? []).filter((input) => input.evidence.physical_page_number === page.page_number
           && input.evidence.source_sha256 === params.rulingLineSourceSha256);
       pages.push(inputs.length === 1 ? resolveRulingLineOwnership(reconstructed, page, inputs[0]!) : reconstructed);
+    }
+  }
+  for (const selection of params.confirmedHeaderSelections ?? []) {
+    const candidate = selection.candidate;
+    if (!orderedPages.some(page => page.page_number === candidate.physicalPageNumber)) {
+      headerDiagnostics.push({ reason: 'confirmed_recovery_unbound',
+        observation_id: candidate.orderedObservationIds[0] as NonNullable<PdfToken['observation_id']>,
+        candidate_id: candidate.candidateId, physical_page_number: null, recovery_applied: false });
     }
   }
   const base: PagePricedScheduleReconstruction = {
@@ -2535,7 +2661,8 @@ export function buildPagePricedScheduleReconstruction(params: {
           left.candidateId.localeCompare(right.candidateId, 'en-US')) }
       : {}),
   };
-  if (supplied.length === 0 && parsedConfirmedCandidates.length === 0) return base;
+  if (supplied.length === 0 && parsedConfirmedCandidates.length === 0
+    && (params.confirmedHeaderSelections?.length ?? 0) === 0) return base;
 
   const recovery_diagnostics: PricedScheduleRecoveryDiagnostic[] = [...new Set([
     ...confirmed.keys(),
@@ -2553,7 +2680,7 @@ export function buildPagePricedScheduleReconstruction(params: {
       physical_page_number: pageByObservation.get(observationId) ?? null,
       recovery_applied: false,
     }));
-  recovery_diagnostics.push(...evidenceHeld);
+  recovery_diagnostics.push(...evidenceHeld, ...headerDiagnostics);
   for (const candidate of confirmedCandidates) {
     if (appliedCandidates.has(candidate.candidateId)) continue;
     const expectedIds = [

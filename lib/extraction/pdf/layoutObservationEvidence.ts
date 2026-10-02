@@ -128,6 +128,8 @@ function acceptedRefs(reconstruction: PagePricedScheduleReconstruction): Located
 
 function diagnosticRefs(reconstruction: PagePricedScheduleReconstruction): LocatedRef[] {
   return reconstruction.pages.flatMap((page) => [
+    ...(page.header_interpretation?.status === 'unresolved' ? page.header_interpretation.source_refs : [])
+      .map(ref => ({ page: page.physical_page_number, ref })),
     ...page.rejected_spines.flatMap((entry) => entry.source_refs.map((ref) => ({
       page: page.physical_page_number,
       ref,

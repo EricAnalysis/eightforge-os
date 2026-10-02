@@ -40,7 +40,8 @@ export type RecoveryVisualSourceEvidence = VisualSourceEvidenceBase & Readonly<{
   candidateId: string;
   recoveryType: 'pricing_rate_single_observation'
     | 'pricing_rate_multi_observation_cluster'
-    | 'priced_schedule_continuation_attribution';
+    | 'priced_schedule_continuation_attribution'
+    | 'priced_schedule_header_role_selection';
   composedRawText: string;
 }>;
 

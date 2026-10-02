@@ -1469,6 +1469,7 @@ function buildPagePricedScheduleRows(
 
       rows.push({
         row_id: rowId,
+        ...(row.header_semantics ? { header_semantics: row.header_semantics } : {}),
         description: descriptionCell.raw_text,
         unit: unitCell?.raw_text ?? null,
         rate,

@@ -259,6 +259,21 @@ function document(params?: {
 
 describe('Phase 3A pricing observation eligibility', () => {
   describe('page-priced reconstruction consumer boundary', () => {
+    it('carries human-selected header provenance through pricing preparation', () => {
+      const page = reconstructedPage(2);
+      const receipt = { status: 'human_selected' as const,
+        candidate_id: `recovery-candidate-v2-${'c'.repeat(64)}`,
+        review_id: '55555555-5555-4555-8555-555555555555' };
+      const selected = { ...page, header_semantics: receipt,
+        rows: page.rows.map(row => ({ ...row, header_semantics: receipt })) };
+      const result = buildContractIntelligencePricingSourcePreparation({
+        primaryDocument: document({ pricedSchedulePages: [selected], reconstructionVersion: 'priced_schedule_reconstruction_v2' }),
+        operatorRateSchedulePageRanges: [{ start: 2, end: 2 }],
+      });
+      expect(result.rows).toHaveLength(1);
+      expect(result.rows[0]?.header_semantics).toEqual(receipt);
+      expect(result.rows[0]?.rate).toBe(12);
+    });
     it('preserves the existing eligible fallback when reconstruction is absent', () => {
       const result = buildContractIntelligencePricingSourcePreparation({
         primaryDocument: document(),

@@ -7,6 +7,7 @@ This runbook describes the repo-owned operational ceiling for Forgewing recovery
 | Recovery type | Qualification | Maximum activation | New scheduling |
 | --- | --- | --- | --- |
 | Priced-schedule continuation attribution | `corpus_qualified` | `controlled` | Permitted when requested |
+| Priced-schedule header role selection | `synthetic_qualified` | `disabled` | Disabled even when requested |
 | Pricing multi-observation cluster V2 | `synthetic_qualified` | `disabled` | Disabled even when requested |
 | Pricing single-observation V1 | `synthetic_qualified` | `disabled` | Deprecated and disabled |
 

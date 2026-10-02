@@ -30,6 +30,7 @@ export const DIAGNOSTIC_CODES = [
   'confirmed_recovery_evidence_unverifiable',
   'duplicate_recovery_confirmation',
   'confirmed_recovery_not_applied',
+  'confirmed_header_option_not_offered',
   'ambiguous_recovery_authority',
   'incoherent_recovery_confirmation',
   'recovery_source_evidence_unbound',

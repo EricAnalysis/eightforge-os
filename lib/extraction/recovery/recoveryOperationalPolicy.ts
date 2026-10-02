@@ -14,6 +14,7 @@ export const RECOVERY_ACTIVATION_STATES = ['disabled', 'controlled', 'enabled'] 
 export type RecoveryActivation = typeof RECOVERY_ACTIVATION_STATES[number];
 
 export const RECOVERY_OPERATIONAL_TYPES = [
+  'priced_schedule_header_role_selection',
   'priced_schedule_continuation_attribution',
   'pricing_rate_multi_observation_cluster',
   'pricing_rate_single_observation',
@@ -32,6 +33,15 @@ export type RecoveryOperationalPolicyEntry = Readonly<{
 export const RECOVERY_OPERATIONAL_POLICY: Readonly<
   Record<RecoveryOperationalType, RecoveryOperationalPolicyEntry>
 > = Object.freeze({
+  // Built and synthetically tested; not yet qualified on a real corpus. A
+  // qualification change here is the only way it starts generating candidates.
+  priced_schedule_header_role_selection: Object.freeze({
+    qualification: 'synthetic_qualified',
+    qualificationCeiling: 'disabled',
+    reviewRequired: true,
+    deprecatedForNewScheduling: false,
+    perTypeCallCap: null,
+  }),
   priced_schedule_continuation_attribution: Object.freeze({
     qualification: 'corpus_qualified',
     qualificationCeiling: 'controlled',
@@ -176,6 +186,8 @@ export function readRecoveryOperationalConfig(
   }
 
   const requestedActivationByType = Object.freeze({
+    priced_schedule_header_role_selection:
+      master && v2 ? 'enabled' as const : 'disabled' as const,
     priced_schedule_continuation_attribution:
       master && v2 ? 'enabled' as const : 'disabled' as const,
     pricing_rate_multi_observation_cluster:
@@ -194,7 +206,9 @@ export function readRecoveryOperationalConfig(
         warnings.push({
           reason: 'unqualified_activation_requested',
           setting: recoveryType === 'pricing_rate_single_observation'
-            ? 'pricing_v1_gate' : 'pricing_cluster_v2_gate',
+            ? 'pricing_v1_gate'
+            : recoveryType === 'priced_schedule_header_role_selection'
+              ? 'recovery_v2_gate' : 'pricing_cluster_v2_gate',
           recoveryType,
         });
       }
@@ -260,7 +274,7 @@ export function admittedRecoveryV2GenerationTypes(
   config: RecoveryOperationalConfig,
 ): readonly Exclude<RecoveryOperationalType, 'pricing_rate_single_observation'>[] {
   return Object.freeze((['priced_schedule_continuation_attribution',
-    'pricing_rate_multi_observation_cluster'] as const)
+    'pricing_rate_multi_observation_cluster', 'priced_schedule_header_role_selection'] as const)
     .filter((recoveryType) => config.activationByType[recoveryType] !== 'disabled'));
 }
 

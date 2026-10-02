@@ -76,6 +76,7 @@ export type ContractPricingRowMergeDiagnostic = {
 };
 
 export type ContractPricingAssemblyRow = {
+  headerSemantics?: ContractRateScheduleRow['header_semantics'];
   /**
    * The row's own physical identity, verbatim from extraction. NOT unique
    * across documents: two uploads of one PDF mint identical `row_id`s, so this
@@ -2418,6 +2419,7 @@ function freezeContractPricingAssemblyRow(
   row: ContractPricingAssemblyRow,
 ): ContractPricingAssemblyRow {
   if (row.pricingDimensions) Object.freeze(row.pricingDimensions);
+  if (row.headerSemantics) Object.freeze(row.headerSemantics);
   if (row.pricingDimensionSources) Object.freeze(row.pricingDimensionSources);
   if (row.geometryRefs) {
     for (const ref of row.geometryRefs) {
@@ -2759,6 +2761,7 @@ export function assembleContractPricingRowsWithCandidates(
           confidence,
           sourceKind,
           sourceQuality,
+          ...(row.header_semantics ? { headerSemantics: { ...row.header_semantics } } : {}),
           // `valueCorrection`, not `correction`: asserting that two rows are the
           // same item is not an authored VALUE correction and must not flag the
           // row for authored-rate quarantine.
@@ -2812,6 +2815,7 @@ export function assembleContractPricingRows(
       sources,
     ).selectedRows.map((row) => ({
       ...row,
+      ...(row.headerSemantics ? { headerSemantics: { ...row.headerSemantics } } : {}),
       ...(row.pricingDimensions ? { pricingDimensions: { ...row.pricingDimensions } } : {}),
       ...(row.pricingDimensionSources ? { pricingDimensionSources: { ...row.pricingDimensionSources } } : {}),
       ...(row.geometryRefs ? {

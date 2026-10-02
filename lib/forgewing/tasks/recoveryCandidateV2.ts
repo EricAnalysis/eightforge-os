@@ -77,6 +77,9 @@ export async function runRecoveryCandidateV2Recommendation(
       inputJson: canonicalJson({
         taskType: 'recovery_candidate_v2',
         candidates: parsed.data,
+        ...(recoveryType === 'priced_schedule_header_role_selection' ? {
+          instructions: 'Rank and explain only these preserved qualifying header options. Select one supplied candidateId. Never create options, edit labels, assign roles, or authorize pricing.',
+        } : {}),
       }),
     });
   } catch (error) {

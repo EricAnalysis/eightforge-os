@@ -57,6 +57,7 @@ import { RecoveryCandidateV2Schema, type RecoveryCandidateV2 }
   from '@/lib/extraction/recovery/recoveryCandidateV2';
 import {
   groupRecoveryEvaluationUnits,
+  recoveryEvaluationUnitIdentity,
   planRecoveryEvaluation,
   type RecoveryEvaluationUnit,
 } from '@/lib/extraction/recovery/recoveryEvaluationPlanner';
@@ -1442,11 +1443,45 @@ export function scheduleRecoveryCandidateV2Shadow(
       });
       return;
     }
-    const plan = planRecoveryEvaluation(units, prior.state, {
+    // A singleton preserved header option is reviewable without an advisory
+    // provider answer. It still passes the same kill switch and exact prior-state
+    // closure; this envelope supplies no human authority and consumes no AI slot.
+    const singletonHeaders = units.filter((unit) =>
+      unit.recoveryType === 'priced_schedule_header_role_selection'
+      && unit.candidates.length === 1
+      && operational.activationByType.priced_schedule_header_role_selection !== 'disabled');
+    for (const unit of singletonHeaders) {
+      if (prior.state.proposedUnitIdentities.includes(recoveryEvaluationUnitIdentity(unit))
+        || unit.candidateIds.some((id) => prior.state.confirmedCandidateIds.includes(id))) continue;
+      const durable = buildDurableRecoveryProposalV2({
+        organizationId: input.organizationId,
+        extractionSnapshotId: input.extractionSnapshotId,
+        candidates: unit.candidates,
+        selectedCandidateId: unit.candidateIds[0]!,
+        certainty: 0,
+        reasonCategory: 'preserved_single_header_option',
+        providerModel: 'deterministic_header_options',
+        promptTemplateId: 'preserved_header_options',
+        promptTemplateVersion: '1',
+      });
+      const recorded = durable ? await (dependencies.persistProposal
+        ?? persistForgewingRecoveryProposalV2)(durable) : null;
+      if (!recorded || recorded.status !== 'persisted') {
+        await recordRecoveryGenerationOutcome({
+          ...outcomeBase(unit), outcomeCode: 'deterministic_validation_failed',
+          sanitizedReason: recorded
+            ? sanitizeRecoveryGenerationReason('deterministic_validation_failed', recorded.reason)
+            : 'projection_failed',
+          providerInvoked: false,
+        }, dependencies.persistOutcome ?? persistForgewingRecoveryGenerationOutcome);
+      }
+    }
+    const plan = planRecoveryEvaluation(units.filter((unit) => !singletonHeaders.includes(unit)), prior.state, {
       overallCap: dependencies.budget
         ? Math.max(0, dependencies.budget.limit - dependencies.budget.used)
         : operational.maxCalls,
       perTypeCap: {
+        priced_schedule_header_role_selection: operational.maxCalls,
         priced_schedule_continuation_attribution:
           RECOVERY_OPERATIONAL_POLICY.priced_schedule_continuation_attribution.perTypeCallCap
             ?? operational.maxCalls,
@@ -1454,6 +1489,8 @@ export function scheduleRecoveryCandidateV2Shadow(
           RECOVERY_OPERATIONAL_POLICY.pricing_rate_multi_observation_cluster.perTypeCallCap ?? 0,
       },
       activation: {
+        priced_schedule_header_role_selection:
+          operational.activationByType.priced_schedule_header_role_selection,
         priced_schedule_continuation_attribution:
           operational.activationByType.priced_schedule_continuation_attribution,
         pricing_rate_multi_observation_cluster:

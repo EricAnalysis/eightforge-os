@@ -38,6 +38,7 @@ describe('failure diagnostic registry', () => {
       'confirmed_recovery_unbound', 'duplicate_recovery_confirmation',
       'confirmed_recovery_not_applied', 'confirmed_recovery_evidence_changed',
       'confirmed_recovery_evidence_unverifiable',
+      'confirmed_header_option_not_offered',
     ] as const satisfies readonly ReconstructionProducerCode[];
     const exhaustive: Exclude<ReconstructionProducerCode,
       (typeof reconstructionCodes)[number]> extends never ? true : never = true;

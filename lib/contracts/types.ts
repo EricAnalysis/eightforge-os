@@ -201,6 +201,7 @@ export interface ContractAnalysisTrace {
 }
 
 export interface ContractRateScheduleRow {
+  header_semantics?: Readonly<{ status: 'human_selected'; candidate_id: string; review_id: string }>;
   row_id: string;
   description: string | null;
   unit: string | null;

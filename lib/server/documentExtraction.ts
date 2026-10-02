@@ -208,6 +208,7 @@ export type ExtractionProvenanceContext = {
 export type ExtractionRecoveryContext = {
   readonly confirmedRateObservations: readonly ConfirmedRateObservation[];
   readonly confirmedRecoveryCandidates?: readonly RecoveryCandidateV2[];
+  readonly confirmedHeaderSelections?: readonly Readonly<{ candidate: RecoveryCandidateV2; reviewId: string }>[];
 };
 
 export type ExtractionPayload = {
@@ -2269,6 +2270,7 @@ export async function extractDocument(
       // recovery re-entry existed.
       confirmedRateObservations: recoveryContext?.confirmedRateObservations,
       confirmedRecoveryCandidates: recoveryContext?.confirmedRecoveryCandidates,
+      confirmedHeaderSelections: recoveryContext?.confirmedHeaderSelections,
       currentPageEvidence,
       ...(admittedRecoveryTypes.length > 0
         && provenanceContext

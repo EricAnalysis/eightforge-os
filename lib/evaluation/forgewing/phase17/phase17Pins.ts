@@ -83,7 +83,16 @@ export type Phase17ContractPins = Readonly<{
   }>;
 }>;
 
-/** Accepted at Phase 17 implementation. Updating these requires review. */
+/**
+ * Accepted at Phase 17 implementation. Updating these requires review.
+ *
+ * 2026-10-02, recovery type 3 (header role selection): the task, candidate,
+ * durable-proposal, planner and policy source digests moved because those files
+ * gained the new type. The evaluated continuation contract did not change: the
+ * prompt, output schema and request builder digests are identical, continuation
+ * candidate ids and digests are byte-identical, the continuation policy entry is
+ * unchanged, and the header type ships synthetic_qualified with a disabled ceiling.
+ */
 export const PHASE17_ACCEPTED_CONTRACT_PINS: Phase17ContractPins = {
   promptTemplateId: 'forgewing-recovery-candidate-v2',
   promptTemplateVersion: 'v2',
@@ -102,13 +111,13 @@ export const PHASE17_ACCEPTED_CONTRACT_PINS: Phase17ContractPins = {
     bindsOutputSchema: true,
     bindsUserInputExactly: true,
   },
-  taskContractSha256: 'b67847fd5668c40d3ec7143cbd90d4de8ed66986b82b259be2dce29429b2add9',
-  candidateContractSha256: '6a48ebf3b62def7bd139af8db72ec580dc34dc5ec5ca0ac7c977dcebb8a307b9',
-  durableProposalContractSha256: 'ba17f9acccd16696fbb7abcf8521572a0e5a6f15fbb0596b435ffd85b5c3203f',
-  plannerContractSha256: 'f30dbad74456d89d4c7a41a3a28768dc182f2c5bffea7003e87be2d1265d21aa',
+  taskContractSha256: '127c41006855b910d423ec6d436c220a0e24bb98974b20e71a9580a8679719ae',
+  candidateContractSha256: '26ed2eb160be1d88a223a5737fca75b0950fcc537b3235aae72bd6e89575308f',
+  durableProposalContractSha256: '3e0992f270f908e7800140af374fc892bd27f8dad638fac1d67546810f27be0c',
+  plannerContractSha256: '5c3e0c4e755c5f30fabc0d89da31b0cc891a82379fa6fd4b74cc132d82c09fef',
   operationalPolicy: {
     version: 'phase-16-v1',
-    digest: '19bb1e926871fbf24c8e5d46cc2e4c23d62e444d6420d89c6df8b5bdc6d64e86',
+    digest: 'd7e403b3a7b364db529ec180f316edd97628cce0237bfe2e12837fb871637e46',
     continuationQualification: 'corpus_qualified',
     continuationQualificationCeiling: 'controlled',
   },

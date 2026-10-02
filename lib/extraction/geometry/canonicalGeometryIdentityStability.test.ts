@@ -109,10 +109,17 @@ async function run(scenario: Scenario) {
     : native;
   const page = layout.pages[0]!;
   const digest = page.effective_representation_digest!;
+  // Production now has a distinct semantic version. The recorded pre-E2
+  // reconstruction pins remain against the explicit frozen compatibility path,
+  // not a relabelled current production reconstruction.
+  expect(buildPagePricedScheduleReconstruction({ layout }).parser_version)
+    .toBe('priced_schedule_reconstruction_v2');
   const reconstruction = buildPagePricedScheduleReconstruction({
     layout,
+    continuationEvidence: 'spacing_only',
     recoveryCandidateBuildContext: { ...CONTEXT, pageRepresentationDigestByPage: { 1: digest } },
   });
+  expect(reconstruction.parser_version).toBe('priced_schedule_reconstruction_v1');
   const candidates = reconstruction.recovery_candidates ?? [];
   const tokens = page.lines.flatMap((line) => line.tokens);
   const proposalsV2 = (['pricing_rate_multi_observation_cluster', 'priced_schedule_continuation_attribution'] as const)

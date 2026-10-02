@@ -14,6 +14,7 @@ export const DIAGNOSTIC_CODES = [
   'expected_pricing_page_no_usable_evidence',
   'page_skipped_due_evidence_limit',
   'pricing_page_reconstruction_failed',
+  'ruling_line_pricing_authority_withheld',
   'ambiguous_row_assignment',
   'unpriced_row',
   'ambiguous_rate_clusters',

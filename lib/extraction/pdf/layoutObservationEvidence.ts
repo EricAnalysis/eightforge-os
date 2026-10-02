@@ -5,7 +5,8 @@ import {
   rehydratePhysicalPageCoordinate,
 } from '@/lib/extraction/provenance/physicalPageCoordinate';
 import type { PdfLayout, PdfToken } from '@/lib/extraction/pdf/extractText';
-import { pricingAuthoritativeRow } from '@/lib/extraction/pdf/pricedScheduleAuthority';
+import { pricingAuthoritativePage, pricingAuthorityDiagnostics } from '@/lib/extraction/pdf/pricedScheduleAuthority';
+import { isSupportedPricedScheduleVersion } from '@/lib/extraction/pdf/pricedScheduleVersion';
 import {
   CANONICAL_FRAME_VERSION,
   type CanonicalBox,
@@ -118,8 +119,8 @@ type LocatedRef = Readonly<{
 }>;
 
 function acceptedRefs(reconstruction: PagePricedScheduleReconstruction): LocatedRef[] {
-  return reconstruction.pages.flatMap((page) => page.rows.flatMap((structuralRow) =>
-    (pricingAuthoritativeRow(page, structuralRow)?.cells ?? []).flatMap((cell) => cell.source_refs.map((ref) => ({
+  return reconstruction.pages.flatMap((page) => (pricingAuthoritativePage(page, reconstruction.parser_version)?.rows ?? []).flatMap((row) =>
+    row.cells.flatMap((cell) => cell.source_refs.map((ref) => ({
       page: page.physical_page_number,
       ref,
     })))));
@@ -421,6 +422,8 @@ export function resolvePdfLayoutObservationEvidence(params: {
   persistedLayer: unknown;
   context: PdfLayoutObservationBindingContext | null;
 }): readonly PdfLayoutTokenObservation[] | null {
+  if (!isSupportedPricedScheduleVersion(params.reconstruction.parser_version)
+    || pricingAuthorityDiagnostics(params.reconstruction).length) return null;
   if (params.reconstruction.pages.some((page) =>
     page.rows.some((row) => row.physical_page_number !== page.physical_page_number))) {
     return null;
@@ -476,7 +479,9 @@ export function resolvePdfLayoutObservationEvidenceByRow(params: {
   context: PdfLayoutObservationBindingContext | null;
 }): readonly PdfLayoutTokenObservation[] {
   const byId = new Map<string, PdfLayoutTokenObservation>();
-  for (const page of params.reconstruction.pages) {
+  for (const structuralPage of params.reconstruction.pages) {
+    const page = pricingAuthoritativePage(structuralPage, params.reconstruction.parser_version);
+    if (!page) continue;
     for (const row of page.rows) {
       const resolved = resolvePdfLayoutObservationEvidence({
         reconstruction: {
@@ -508,7 +513,7 @@ export function resolvePdfLayoutDiagnosticEvidence(params: {
   if (!params.context || !isRecord(params.persistedLayer)) return [];
   const layer = params.persistedLayer;
   if (
-    params.reconstruction.parser_version !== 'priced_schedule_reconstruction_v1'
+    !isSupportedPricedScheduleVersion(params.reconstruction.parser_version)
     || layer.parser_version !== PDF_LAYOUT_OBSERVATIONS_LAYER_VERSION
     || layer.observation_version !== PDF_LAYOUT_OBSERVATION_VERSION
     || layer.source_kind !== 'pdf'

@@ -2,6 +2,9 @@ import { hashCanonical } from '@/lib/extraction/domain/hash';
 import type { PdfLayout, PdfLayoutPage, PdfToken } from '@/lib/extraction/pdf/extractText';
 import type { RulingLineEvidence, RulingLineInput } from '@/lib/extraction/pdf/rulingLineEvidence';
 import { resolveRulingLineOwnership } from '@/lib/extraction/pdf/rulingLineOwnership';
+import { LEGACY_PRICED_SCHEDULE_RECONSTRUCTION_VERSION, PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION,
+  type PricedScheduleReconstructionVersion } from '@/lib/extraction/pdf/pricedScheduleVersion';
+export { PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION } from '@/lib/extraction/pdf/pricedScheduleVersion';
 import {
   buildRecoveryCandidateV2,
   RecoveryCandidateV2Schema,
@@ -23,8 +26,6 @@ import {
  * row count, description, unit, or price. Every decision below is derived from
  * the page's own header line and its own token geometry.
  */
-
-export const PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION = 'priced_schedule_reconstruction_v1';
 
 export type PricedScheduleColumnRole =
   | 'description'
@@ -360,6 +361,8 @@ export type PricedSchedulePage = {
   readonly unattached_role_less_tokens?: readonly (PricedScheduleCellSourceRef & { readonly column_index: number })[];
   /** Separate source/raster identity; never part of OCR observation or recovery identity. */
   readonly ruling_line_evidence?: RulingLineEvidence;
+  /** v2 completeness check; separate from raw observation and ruling evidence identities. */
+  readonly ruling_line_resolution_digest?: string;
   readonly ruling_line_resolutions?: readonly {
     readonly source_ref: PricedScheduleCellSourceRef;
     readonly row_index: number;
@@ -433,7 +436,7 @@ export type PricedScheduleRecoveryDiagnostic = {
 };
 
 export type PagePricedScheduleReconstruction = {
-  readonly parser_version: typeof PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION;
+  readonly parser_version: PricedScheduleReconstructionVersion;
   readonly pages: readonly PricedSchedulePage[];
   /**
    * Present only when confirmations were supplied. Absent otherwise, so the
@@ -2524,7 +2527,8 @@ export function buildPagePricedScheduleReconstruction(params: {
     }
   }
   const base: PagePricedScheduleReconstruction = {
-    parser_version: PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION,
+    parser_version: params.continuationEvidence === 'spacing_only'
+      ? LEGACY_PRICED_SCHEDULE_RECONSTRUCTION_VERSION : PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION,
     pages,
     ...(params.recoveryCandidateBuildContext
       ? { recovery_candidates: generatedCandidates.sort((left, right) =>

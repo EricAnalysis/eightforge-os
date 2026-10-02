@@ -1,5 +1,5 @@
 import type { ContractRateScheduleRow } from './types';
-import { pricingAuthoritativeRow } from '@/lib/extraction/pdf/pricedScheduleAuthority';
+import { pricingAuthoritativePage, pricingAuthorityDiagnostics, type PricingAuthorityDiagnostic } from '@/lib/extraction/pdf/pricedScheduleAuthority';
 import type { PdfTable } from '@/lib/extraction/pdf/extractTables';
 import { normalizeTableCellGeometry, type GeometryCellRef } from '@/lib/extraction/tableGeometry';
 import {
@@ -70,6 +70,8 @@ type BuildContractRateScheduleRowsInput = {
   /** Untrusted persisted token evidence used only for exact modern anchor binding. */
   pricedScheduleLayoutObservations?: unknown;
   pricedScheduleObservationContext?: PdfLayoutObservationBindingContext | null;
+  /** Diagnostic provenance does not grant observation-binding authority. */
+  pricedScheduleDiagnosticContext?: Readonly<{ sourceDocumentId?: string; sourceArtifactId?: string }>;
   /** Explicit historical-only compatibility for evidence predating page proof. */
   allowUnscopedCompatibility?: boolean;
 };
@@ -1424,14 +1426,14 @@ function buildPagePricedScheduleRows(
     (left, right) => left.physical_page_number - right.physical_page_number,
   );
 
-  for (const page of pages) {
+  for (const structuralPage of pages) {
+    const page = pricingAuthoritativePage(structuralPage, reconstruction.parser_version);
+    if (!page) continue;
     // Structure-only page: a required semantic role is unresolved. Its rows are
     // source evidence awaiting review, never pricing facts.
     if (page.semantic_status === 'unresolved') continue;
     const pageRows = [...page.rows].sort((left, right) => left.row_index - right.row_index);
-    for (const structuralRow of pageRows) {
-      const row = pricingAuthoritativeRow(page, structuralRow);
-      if (!row) continue;
+    for (const row of pageRows) {
       const descriptionCell = cellByRole(row, 'description');
       const rateCell = cellByRole(row, 'rate');
       // Fail closed: a priced row needs both an authored description and an
@@ -1506,6 +1508,17 @@ function buildPagePricedScheduleRows(
   return rows;
 }
 
+/** Production callers retain the explicit withheld-page reason alongside rows. */
+export function buildContractRateScheduleRowsWithDiagnostics(params: BuildContractRateScheduleRowsInput): {
+  rows: ContractRateScheduleRow[];
+  diagnostics: readonly PricingAuthorityDiagnostic[];
+} {
+  return { rows: buildContractRateScheduleRows(params), diagnostics: params.pricedScheduleReconstruction
+    ? pricingAuthorityDiagnostics(params.pricedScheduleReconstruction,
+      params.pricedScheduleDiagnosticContext ?? params.pricedScheduleObservationContext ?? {}) : [] };
+}
+
+/** Row-only compatibility API; production preparation uses the diagnostic-bearing result. */
 export function buildContractRateScheduleRows(
   params: BuildContractRateScheduleRowsInput,
 ): ContractRateScheduleRow[] {

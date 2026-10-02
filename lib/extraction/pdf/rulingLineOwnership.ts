@@ -1,4 +1,5 @@
 import type { PdfLayoutPage, PdfToken } from '@/lib/extraction/pdf/extractText';
+import { hashCanonical } from '@/lib/extraction/domain/hash';
 import type { PricedSchedulePage, PricedScheduleCellSourceRef, PricedScheduleCell, PricedScheduleUnresolvedRoleCell } from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
 import { rulingLineInputIsIntact, rulingTokenGeometryDigest, type RulingLineInput, type RulingLineRule } from '@/lib/extraction/pdf/rulingLineEvidence';
 const ordinate = (rule: RulingLineRule, coordinate: number) => rule.slope * coordinate + rule.intercept;
@@ -260,5 +261,6 @@ export function resolveRulingLineOwnership(page: PricedSchedulePage, layout: Pdf
     });
     const { unattached_role_less_tokens: _old, ...base } = page;
     return { ...base, rows, unassigned_lines: unassigned, ...(unattached?.length ? { unattached_role_less_tokens: unattached } : {}),
-        ruling_line_evidence: e, ruling_line_resolutions: changes };
+        ruling_line_evidence: e, ruling_line_resolutions: changes,
+        ruling_line_resolution_digest: hashCanonical({ evidence_digest: e.evidence_digest, resolutions: changes }) };
 }

@@ -3,6 +3,10 @@ import { DiagnosticCodeSchema, DiagnosticRecoveryTypeSchema, FailureDiagnosticSc
   type FailureDiagnostic }
   from '@/lib/diagnostics/failureDiagnostic';
 import { diagnosticId } from '@/lib/diagnostics/diagnosticIdentity';
+import { hashCanonical } from '@/lib/extraction/domain/hash';
+import { isSupportedPricedScheduleVersion } from '@/lib/extraction/pdf/pricedScheduleVersion';
+import { pricingAuthorityDiagnostics, type PricingAuthorityDiagnostic } from '@/lib/extraction/pdf/pricedScheduleAuthority';
+import type { PagePricedScheduleReconstruction } from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
 import { getFailureRegistryEntry } from '@/lib/diagnostics/failureRegistry';
 import { resolveCanonicalObservationBoxes } from '@/lib/extraction/pdf/layoutObservationEvidence';
 import type { DiagnosticVisualSourceEvidence, VisualSourceBox }
@@ -42,6 +46,7 @@ export type DiagnosticCurrentState =
 const FAILURE_DIAGNOSTIC_SUMMARY_MAX_LENGTH = 1_200;
 
 export type DocumentDiagnostic = FailureDiagnostic & Readonly<{
+  pricingAuthorityDiagnostic?: PricingAuthorityDiagnostic;
   currentState: DiagnosticCurrentState;
   recoveryProposalId: string | null;
   visualEvidence: DiagnosticVisualSourceEvidence | null;
@@ -138,6 +143,7 @@ function buildDiagnostic(input: Readonly<{
   ocrPixelHeight?: number;
   proposal?: RecoveryReviewCandidate | null;
   recoveryType?: DiagnosticRecoveryType | null;
+  pricingAuthorityDiagnostic?: PricingAuthorityDiagnostic;
 }>): DocumentDiagnostic | null {
   const registry = getFailureRegistryEntry(input.code);
   const scope = {
@@ -150,6 +156,11 @@ function buildDiagnostic(input: Readonly<{
   let id: string;
   try { id = diagnosticId({ code: input.code, scope, evidenceRefs: input.evidenceRefs }); }
   catch { return null; }
+  // Only this new diagnostic class binds its authority failure context. Keep
+  // distinct affected pages visible even when missing OCR identity forces
+  // document scope; do not change any historical diagnostic identity.
+  if (input.pricingAuthorityDiagnostic) id = hashCanonical({ diagnosticId: id,
+    pricingAuthorityDiagnostic: input.pricingAuthorityDiagnostic });
   const candidate = {
     diagnosticId: id,
     code: input.code,
@@ -215,7 +226,8 @@ function buildDiagnostic(input: Readonly<{
       } : {}),
       boxes: [...input.visualBoxes],
     } : null;
-  return { ...parsed.data, currentState, recoveryProposalId: proposal?.proposalId ?? null,
+  return { ...parsed.data, ...(input.pricingAuthorityDiagnostic ? { pricingAuthorityDiagnostic: input.pricingAuthorityDiagnostic } : {}),
+    currentState, recoveryProposalId: proposal?.proposalId ?? null,
     visualEvidence, recoveryPolicy };
 }
 
@@ -262,7 +274,7 @@ function reconstructionDiagnostics(params: Readonly<{
   const pdf = record(layers?.pdf);
   const reconstruction = record(pdf?.priced_schedule_reconstruction_v1);
   const observationsLayer = record(pdf?.layout_observations_v1);
-  if (reconstruction?.parser_version !== 'priced_schedule_reconstruction_v1'
+  if (!isSupportedPricedScheduleVersion(reconstruction?.parser_version)
     || !Array.isArray(reconstruction.pages)) return [];
   const sourceArtifactId = typeof observationsLayer?.source_artifact_id === 'string'
     ? observationsLayer.source_artifact_id
@@ -276,6 +288,24 @@ function reconstructionDiagnostics(params: Readonly<{
     }
   }
   const output: DocumentDiagnostic[] = [];
+  // This diagnostic does not require an OCR observation digest. The snapshot,
+  // source/page, and separate ruling evidence identity are still auditable.
+  for (const authority of pricingAuthorityDiagnostics({
+    parser_version: reconstruction.parser_version,
+    pages: reconstruction.pages as PagePricedScheduleReconstruction['pages'],
+  }, { sourceDocumentId: params.sourceDocumentId, ...(sourceArtifactId ? { sourceArtifactId } : {}) })) {
+    const digest = pageDigest.get(authority.physical_page_number) ?? null;
+    const diagnostic = buildDiagnostic({ code: authority.code,
+      organizationId: params.organizationId, sourceDocumentId: params.sourceDocumentId, sourceArtifactId,
+      // Preserve the existing page-scoped identity guard. Without an observation
+      // digest this is document-scoped, with the affected page in structured detail.
+      physicalPageNumber: digest ? authority.physical_page_number : null,
+      pageRepresentationDigest: digest,
+      summary: `${authority.parser_version}: pricing withheld (${authority.issue}); page ${authority.physical_page_number}, resolution ${authority.resolution_index ?? 'page metadata'}.`,
+      evidenceRefs: [], extractionSnapshotId: params.extractionSnapshotId, occurredAt: params.occurredAt,
+      pricingAuthorityDiagnostic: authority });
+    if (diagnostic) output.push(diagnostic);
+  }
   for (const rawPage of records(reconstruction.pages)) {
     const page = Number(rawPage.physical_page_number);
     const digest = pageDigest.get(page) ?? null;

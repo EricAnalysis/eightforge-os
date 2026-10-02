@@ -2618,6 +2618,7 @@ function prepareContractValidationContext(
                 structuralRateScheduleRows,
                 candidatesBySourceRow: assembly.candidatesBySourceRow,
                 pricingSourceEligibility: pricingSourcePreparation.eligibility,
+                pricingAuthorityDiagnostics: pricingSourcePreparation.pricingAuthorityDiagnostics,
               },
             });
             if (!analysis) return null;

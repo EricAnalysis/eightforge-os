@@ -96,7 +96,9 @@ BEGIN
       JOIN jsonb_array_elements(candidate->'evidence') evidence(value)
         ON evidence.value->>'observationId' = member.observation_id
     ) THEN RETURN false; END IF;
-    flattened_ids := flattened_ids || label->'orderedObservationIds';
+    -- Parenthesized: || and -> share precedence, so the bare form would apply
+    -- -> to the concatenated array and yield NULL.
+    flattened_ids := flattened_ids || (label->'orderedObservationIds');
   END LOOP;
   IF flattened_ids IS DISTINCT FROM candidate->'orderedObservationIds'
     OR (SELECT count(*) FROM jsonb_array_elements(header->'labels') entry
@@ -184,7 +186,7 @@ BEGIN
          )
          OR CASE WHEN p_recovery_type = 'priced_schedule_header_role_selection'
            THEN NOT public.is_valid_header_role_recovery_candidate(candidate)
-           ELSE false END
+           ELSE candidate ? 'headerRoleSelection' END
          OR CASE WHEN candidate ? 'targetContextEvidence' THEN
            CASE WHEN
              candidate->>'recoveryType' IS DISTINCT FROM

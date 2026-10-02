@@ -42,7 +42,30 @@ The Phase 17 contract pins for the task, candidate, durable proposal, planner an
   - Every priced row carries the `human_selected` receipt. Header evidence is durable. The original interpretation is unchanged.
 - **Tests:** focused extraction, evaluation, contracts, canonical, server, diagnostics, Forgewing and component suites, 3,638 passed. The one failure is the pre-existing CRLF `goldenTransactionFixtureManifest` test. `tsc --noEmit`, `npm run build` and `git diff --check` pass.
 
+## Activation gate (2026-10-02)
+
+Docker (and so the local Supabase stack) is not installed on the verification machine. The database gate instead ran on a throwaway local **PostgreSQL 18.4** (WSL) carrying all 109 prior repo migrations plus a minimal Supabase platform shim: `anon`/`authenticated`/`service_role` roles, `auth.uid()`/`auth.role()`/`auth.users`, and `pgcrypto` in `extensions`. Writes went through the real application functions (`persistForgewingRecoveryProposalV2`, `recordForgewingRecoveryProposalReview`) as `service_role`. Reads went through the real resolvers (`resolveEffectiveRecoveryConfirmations`, `loadConfirmedRecoverySelections`, `readRecoveryReviewQueue`). The harness is gitignored (`.benchmark-workspace/_type3_db_roundtrip.ts`). Nothing touched a remote database.
+
+**Defect found and fixed:** the validator's `flattened_ids || label->'orderedObservationIds'` parsed as `(flattened_ids || label) -> ...` (shared operator precedence), so it yielded NULL and **rejected every genuine header candidate**. It is now parenthesized. Unit tests could not catch this because they mock the RPC. The RPC also now refuses a `headerRoleSelection` payload on any other recovery type. The migration was corrected in place; it had never been applied to a shared database.
+
+Results, all 25 checks passing:
+
+- **Migration.** Applies cleanly on top of pre-existing proposal/review rows. The schema diff is limited to the four widened constraints, the new validator function and the extended RPC body; no table, column or data is dropped.
+- **Existing types.** A pre-migration continuation confirmation still resolves after the migration, and a new continuation proposal is still writable.
+- **Header persistence.**
+  - The real Hillsdale candidate (exactly the one preserved qualifying option) persists through the deterministic envelope, and replay is idempotent.
+  - The database refuses a label text that differs from its cited evidence, a duplicate description role, a missing rate role, a dishonest deterministic envelope, a header payload on another type, and acceptance of a candidate the proposal never offered.
+- **Reviews.** Defer, accept (stores the candidate id and review id; review v2) and reject (confirms nothing) all record. UPDATE and DELETE on reviews and proposals are refused ("forgewing recovery records are immutable").
+- **Reprocess from stored confirmations.**
+  - The resolver returns the header selection with the stored review id; continuation confirmations stay on their own channel.
+  - Hillsdale pricing rows go 0 → 39, the Dozer line stays withheld, and every recovered row carries `human_selected` with the stored review id.
+  - The original interpretation is preserved and there are no recovery diagnostics.
+- **Review read model** (`readRecoveryReviewQueue` on the stored rows):
+  - Deterministic proposal: `recommendationAvailable: false`, state `accepted_awaiting_reprocess`.
+  - Advisory proposal: `rejected`.
+  - Only the preserved option is selectable (3 labels, 39 rows, 5 evidence boxes).
+  - The panel submits only a disposition, a candidate id and a required rationale; there is no value or role input.
+
 ## Not verified here
 
-- The migration was reviewed statically but not applied: the local Supabase stack needs Docker, which is not running.
-- The `RecoveryReviewPanel` changes have not been exercised in a browser against live review data.
+- The full Supabase stack (PostgREST, Auth) and the browser rendering of `RecoveryReviewPanel` with live data. This needs Docker. In particular, canonical box overlay on the source page depends on a full persisted extraction record, which the database harness did not seed.

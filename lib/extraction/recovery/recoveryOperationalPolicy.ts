@@ -33,11 +33,12 @@ export type RecoveryOperationalPolicyEntry = Readonly<{
 export const RECOVERY_OPERATIONAL_POLICY: Readonly<
   Record<RecoveryOperationalType, RecoveryOperationalPolicyEntry>
 > = Object.freeze({
-  // Built and synthetically tested; not yet qualified on a real corpus. A
-  // qualification change here is the only way it starts generating candidates.
+  // Corpus-qualified 2026-10-03 on Hillsdale through a real local Supabase
+  // stack: migration, operator review, reprocess and human_selected provenance
+  // (docs/extraction/recovery-type3-header-role-selection.md).
   priced_schedule_header_role_selection: Object.freeze({
-    qualification: 'synthetic_qualified',
-    qualificationCeiling: 'disabled',
+    qualification: 'corpus_qualified',
+    qualificationCeiling: 'controlled',
     reviewRequired: true,
     deprecatedForNewScheduling: false,
     perTypeCallCap: null,

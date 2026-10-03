@@ -92,6 +92,10 @@ export type Phase17ContractPins = Readonly<{
  * prompt, output schema and request builder digests are identical, continuation
  * candidate ids and digests are byte-identical, the continuation policy entry is
  * unchanged, and the header type ships synthetic_qualified with a disabled ceiling.
+ *
+ * 2026-10-03: the policy digest moved again when the header type was qualified
+ * (corpus_qualified, controlled). The continuation entry and every other pin
+ * are unchanged.
  */
 export const PHASE17_ACCEPTED_CONTRACT_PINS: Phase17ContractPins = {
   promptTemplateId: 'forgewing-recovery-candidate-v2',
@@ -117,7 +121,7 @@ export const PHASE17_ACCEPTED_CONTRACT_PINS: Phase17ContractPins = {
   plannerContractSha256: '5c3e0c4e755c5f30fabc0d89da31b0cc891a82379fa6fd4b74cc132d82c09fef',
   operationalPolicy: {
     version: 'phase-16-v1',
-    digest: 'd7e403b3a7b364db529ec180f316edd97628cce0237bfe2e12837fb871637e46',
+    digest: '58d29066479981434bf0af04c4cb18cd0e09a826033bcfc099d2acd4bafc4fa5',
     continuationQualification: 'corpus_qualified',
     continuationQualificationCeiling: 'controlled',
   },

@@ -4,24 +4,6 @@ import { scheduleRecoveryCandidateV2Shadow } from '@/lib/extraction/persistence/
 import { recoveryEvaluationUnitIdentity } from '@/lib/extraction/recovery/recoveryEvaluationPlanner';
 import { ForgewingCallBudget } from '@/lib/forgewing/runtime/budget';
 
-// The type ships synthetic_qualified with a disabled ceiling. These tests
-// exercise the scheduling mechanism under a simulated future qualification
-// (ceiling 'controlled'); the last test proves the real policy keeps it dormant.
-let simulateQualification = true;
-vi.mock('@/lib/extraction/recovery/recoveryOperationalPolicy', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/extraction/recovery/recoveryOperationalPolicy')>();
-  return { ...actual, readRecoveryOperationalConfig: (
-    env: Parameters<typeof actual.readRecoveryOperationalConfig>[0],
-    options?: Parameters<typeof actual.readRecoveryOperationalConfig>[1],
-  ) => {
-    const config = actual.readRecoveryOperationalConfig(env, options);
-    if (!simulateQualification) return config;
-    return { ...config, activationByType: { ...config.activationByType,
-      priced_schedule_header_role_selection: actual.minimumRecoveryActivation('controlled',
-        config.requestedActivationByType.priced_schedule_header_role_selection) } };
-  } };
-});
-
 const candidate = () => buildRecoveryCandidateV2({
   recoveryType: 'priced_schedule_header_role_selection',
   sourceDocumentId: '11111111-1111-4111-8111-111111111111',
@@ -106,15 +88,5 @@ describe('preserved header singleton scheduling', () => {
     expect(result.persistOutcome).toHaveBeenCalledWith(expect.objectContaining({
       outcomeCode: 'deterministic_validation_failed', sanitizedReason: 'write_failed', providerInvoked: false,
     }));
-  });
-  it('stays dormant under the shipped policy even with every gate enabled', async () => {
-    simulateQualification = false;
-    try {
-      const result = await schedule(enabled);
-      expect(result.run).not.toHaveBeenCalled();
-      expect(result.persistProposal).not.toHaveBeenCalled();
-    } finally {
-      simulateQualification = true;
-    }
   });
 });

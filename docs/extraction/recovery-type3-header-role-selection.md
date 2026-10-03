@@ -28,9 +28,17 @@ A page whose table structure reconstructs but whose header semantics are unresol
 
 ## Activation
 
-The type ships **`synthetic_qualified` with a `disabled` ceiling**, matching the multi-observation cluster V2 precedent. It generates no candidates in any deployment until a reviewed qualification change in `recoveryOperationalPolicy.ts` (see `docs/runbooks/forgewing-recovery-activation.md`). Requesting it through the V2 gate emits `unqualified_activation_requested` (`recovery_v2_gate`).
+**Qualified 2026-10-03: `corpus_qualified`, ceiling `controlled`** (explicit decision, after the activation gate below). Behaviour is the same as continuation attribution:
 
-The Phase 17 contract pins for the task, candidate, durable proposal, planner and policy sources were updated because those files gained the type. The prompt, output schema and request-builder digests are unchanged, and continuation candidate ids and digests are byte-identical.
+- Candidates are generated and proposals scheduled only when both `FORGEWING_SHADOW_ENABLED=1` and `FORGEWING_EXTRACTION_RECOVERY_V2_ENABLED=1`.
+- Human review remains mandatory, and `enabled` stays reserved for `production_qualified`.
+- With both gates off (the default), nothing changes.
+
+**Deployment order matters.** Apply `20261002190502_recovery_header_role_selection.sql` (the corrected version from `be629b1`) to the target database **before** turning the gates on. Otherwise the proposal RPC rejects the new type: each attempt is recorded as a failed generation outcome, nothing is persisted, and pricing is unaffected.
+
+**Pricing still needs the document's pricing scope to be authoritative.** Selecting a header resolves semantics only. Rows price once operator rate-schedule pages make the pricing source scope authoritative (see the UI gate below).
+
+Phase 17 pins: the task, candidate, durable-proposal, planner and policy source digests moved when the type was added (2026-10-02), and the policy digest moved again at qualification. The prompt, output schema and request-builder digests are unchanged, and continuation candidate ids and digests are byte-identical.
 
 ## Verification
 

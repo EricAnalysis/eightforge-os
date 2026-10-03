@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { SourceEvidencePage } from '@/components/recovery/SourceEvidencePage';
 import { supabase } from '@/lib/supabaseClient';
+import { recoveryReviewAcceptsDecision } from '@/lib/recovery/recoveryReviewDecision';
 import type { VisualSourceEvidence, VisualSourceBox } from '@/lib/recovery/visualSourceEvidence';
 import type {
   RecoveryReviewCandidate,
@@ -273,7 +274,7 @@ export function RecoveryReviewPanel({
             && candidate.reviewState === 'accepted_awaiting_reprocess'
             ? 'reprocessing'
             : candidate.reviewState;
-          const decided = candidate.reviewState !== 'pending_review';
+          const decided = !recoveryReviewAcceptsDecision(candidate.reviewState);
           const chosen = selection[candidate.proposalId]
             ?? (candidate.proposalVersion === 2
               ? candidate.selectableCandidates.find((entry) => entry.proposed)?.candidateId

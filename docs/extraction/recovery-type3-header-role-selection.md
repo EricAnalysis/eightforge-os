@@ -66,6 +66,35 @@ Results, all 25 checks passing:
   - Only the preserved option is selectable (3 labels, 39 rows, 5 evidence boxes).
   - The panel submits only a disposition, a candidate id and a required rationale; there is no value or role input.
 
+## UI and end-to-end gate (2026-10-03)
+
+**Setup.** A local Supabase stack (Docker Desktop; Postgres 17.6, Auth, REST, Storage, gateway) in a scratch project outside the repo. **All 110 migrations apply on the real Supabase image.** The Next dev server ran from this worktree, which has no `.env` files, with only local-stack settings, so production was unreachable. A generated test reviewer was used. Hillsdale went through the real `/api/documents/upload` and `/api/documents/process` routes, including OCR. The full document has two semantically unresolved pages: p2 "Personnel Description" (10 rows) and p3 "Equipment Description" (39 rows).
+
+The type remains `disabled`, so the scheduler does not generate proposals. The deterministic proposal envelope was therefore built from the **persisted** extraction (`buildHeaderRoleSelectionCandidates` with the persisted observation digests) and saved with the application's own `persistForgewingRecoveryProposalV2`. The policy was not changed.
+
+**Browser results** (`RecoveryReviewPanel` in the document page):
+
+- Both proposals render as "Header semantics withheld — select a preserved role assignment", labelled "No Forgewing recommendation. This option was preserved by the extractor."
+- Each offers exactly one radio option (label → role map plus structural row count), a required rationale, and Confirm / Reject / Defer. There is no value or role input.
+- "View source" renders the stored Hillsdale page with header-token highlight boxes ("Member 1 of 5").
+- Page 2 rejected: shown as "rejected · review v1"; it stays withheld.
+- Page 3 deferred, then accepted: "accepted · review v2 · confirmed selection recorded".
+- The panel's Reprocess run produced an extraction where p3 is `resolved` with `header_semantics: human_selected` (the stored review id and candidate id), with no recovery diagnostics. P2 stays unresolved.
+
+**Pricing through the real product pipeline.**
+
+- With machine-detected rate pages only, the pricing source scope is `provisional` (authoritative pages `[]`), so `rate_schedule_rows` is empty. This is a separate, pre-existing authority gate, working as designed.
+- After operator upload guidance (rate schedule on pages 2–3, through `/api/documents/[id]/upload-guidance`) and a recovery reprocess, the scope is `authoritative [2, 3]`. The contract analysis then carries **39 `page_priced_schedule` rows, all from p3, every one `human_selected` with the single stored review id**. P2 contributes 0 rows and the CAT D6 Dozer row stays withheld; rates are correct (for example, JD 544 Wheel Loader at $250/Hour).
+
+**Defect fixed (pre-existing, all recovery types).** The panel treated `deferred` as closed and hid the review form, so a deferred proposal could never be decided in the UI, even though reviews are versioned and the latest is effective. The decision-state rule now lives in the client-safe `lib/recovery/recoveryReviewDecision.ts`, with a test: pending and deferred stay open; accepted, rejected and ambiguous are closed.
+
+**Findings recorded, not fixed (out of scope).**
+
+- *Migrations do not fully reproduce the production schema.* `document-diagnostics` returns 500 because it selects `documents.updated_at`, which no migration creates. The field-level `document_extractions` upsert writes `data` null against the migration's NOT NULL constraint. Both occur before any recovery action.
+- *A slow storage response blocks a recovery reprocess, fail-closed.* The storage-identity capture has a 1-second bound. When it timed out on the local stack, processing found no artifact identity, refused with "No effective recovery confirmation was available", and succeeded on retry.
+- *No "applied" review state.* By design the read model never marks an accepted proposal as consumed, so the panel keeps showing "Confirmed — reprocessing required" after a successful reprocess. This applies to every recovery type.
+- `recoveryReviewBoundaries.test.ts` failed intermittently (two different cases) while Docker and the dev server were loading the machine. It passed alone and on three further combined runs.
+
 ## Not verified here
 
-- The full Supabase stack (PostgREST, Auth) and the browser rendering of `RecoveryReviewPanel` with live data. This needs Docker. In particular, canonical box overlay on the source page depends on a full persisted extraction record, which the database harness did not seed.
+- Production deployment and the remote database: deliberately untouched.

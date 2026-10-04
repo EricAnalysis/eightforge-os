@@ -81,6 +81,10 @@ RETURNS TABLE(assertion_id uuid, inserted boolean) LANGUAGE sql AS $$
     '{"coordinate_space":"source","boxes":[{"x_min":440,"x_max":520,"y_min":300,"y_max":312}]}',
     p_page_digest, 'priced_schedule_reconstruction_v2', p_observations, 'sia 50', p_anchor,
     p_origin, p_proposal, p_supersedes, p_request) $$;
+-- Request and review digests are unique across each whole table, so these
+-- fixtures use their own namespace rather than ones other suites may hold.
+CREATE FUNCTION pg_temp.rq(p_key text) RETURNS text LANGUAGE sql AS $$
+  SELECT encode(sha256(convert_to('b42-request:' || p_key, 'UTF8')), 'hex') $$;
 CREATE FUNCTION pg_temp.assertion(p_request text) RETURNS uuid LANGUAGE sql AS $$
   SELECT id FROM public.human_fact_assertions WHERE request_digest_sha256 = p_request $$;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA pg_temp TO service_role, authenticated;
@@ -159,42 +163,42 @@ DO $$ DECLARE r record; BEGIN
   SELECT * INTO r FROM public.record_forgewing_value_reading_review(
     'b4200000-0000-4000-8000-000000000001', pg_temp.proposal_id('other-anchor'),
     pg_temp.proposal_digest('other-anchor'), 'b4200000-0000-4000-8000-0000000000a1', 'rejected',
-    'Reads the wrong row', repeat('c', 64));
+    'Reads the wrong row', pg_temp.rq('c'));
   IF NOT r.inserted OR r.review_version <> 1 THEN RAISE EXCEPTION 'B4.2 FAIL: rejection'; END IF;
   SELECT * INTO r FROM public.record_forgewing_value_reading_review(
     'b4200000-0000-4000-8000-000000000001', pg_temp.proposal_id('other-anchor'),
     pg_temp.proposal_digest('other-anchor'), 'b4200000-0000-4000-8000-0000000000a1', 'rejected',
-    'Reads the wrong row', repeat('c', 64));
+    'Reads the wrong row', pg_temp.rq('c'));
   IF r.inserted THEN RAISE EXCEPTION 'B4.2 FAIL: idempotent review replay inserted'; END IF;
   SELECT * INTO r FROM public.record_forgewing_value_reading_review(
     'b4200000-0000-4000-8000-000000000001', pg_temp.proposal_id('p1'), pg_temp.proposal_digest('p1'),
-    'b4200000-0000-4000-8000-0000000000a1', 'deferred', 'Check the original first', repeat('d', 64));
+    'b4200000-0000-4000-8000-0000000000a1', 'deferred', 'Check the original first', pg_temp.rq('d'));
   IF NOT r.inserted THEN RAISE EXCEPTION 'B4.2 FAIL: deferral'; END IF;
 END $$;
 DO $$ BEGIN
   PERFORM public.record_forgewing_value_reading_review(
     'b4200000-0000-4000-8000-000000000001', pg_temp.proposal_id('p1'), pg_temp.proposal_digest('p1'),
-    'b4200000-0000-4000-8000-0000000000a1', 'accepted', 'Looks right', repeat('e', 64));
+    'b4200000-0000-4000-8000-0000000000a1', 'accepted', 'Looks right', pg_temp.rq('e'));
   RAISE EXCEPTION 'B4.2 FAIL: an accepting value-reading review was recorded';
 EXCEPTION WHEN invalid_parameter_value THEN NULL; END $$;
 DO $$ BEGIN
   -- The phase 12 review function confirms observations; on a value reading it must refuse.
   PERFORM public.record_forgewing_recovery_proposal_review(
     'b4200000-0000-4000-8000-000000000001', pg_temp.proposal_id('p1'), pg_temp.proposal_digest('p1'),
-    'b4200000-0000-4000-8000-0000000000a1', 'accepted', 'obs-1', 'Looks right', repeat('f', 64));
+    'b4200000-0000-4000-8000-0000000000a1', 'accepted', 'obs-1', 'Looks right', pg_temp.rq('f'));
   RAISE EXCEPTION 'B4.2 FAIL: the phase 12 review function accepted a value reading';
 EXCEPTION WHEN OTHERS THEN IF SQLERRM LIKE 'B4.2 FAIL%' THEN RAISE; END IF; END $$;
 DO $$ BEGIN
   PERFORM public.record_forgewing_recovery_proposal_review_v2(
     'b4200000-0000-4000-8000-000000000001', pg_temp.proposal_id('p1'), pg_temp.proposal_digest('p1'),
     'b4200000-0000-4000-8000-0000000000a1', 'accepted', 'recovery-candidate-v2-' || repeat('0', 64),
-    'Looks right', repeat('9', 64));
+    'Looks right', pg_temp.rq('9'));
   RAISE EXCEPTION 'B4.2 FAIL: the v2 review function accepted a value reading';
 EXCEPTION WHEN no_data_found THEN NULL; END $$;
 DO $$ BEGIN
   PERFORM public.record_forgewing_value_reading_review(
     'b4200000-0000-4000-8000-000000000002', pg_temp.proposal_id('p1'), pg_temp.proposal_digest('p1'),
-    'b4200000-0000-4000-8000-0000000000b1', 'rejected', 'Not ours', repeat('8', 64));
+    'b4200000-0000-4000-8000-0000000000b1', 'rejected', 'Not ours', pg_temp.rq('8'));
   RAISE EXCEPTION 'B4.2 FAIL: another organization reviewed the proposal';
 EXCEPTION WHEN insufficient_privilege THEN NULL; END $$;
 DO $$ BEGIN
@@ -207,7 +211,7 @@ END $$;
 -- 11. Core operator entry is unchanged, and the caller never chooses an AI origin.
 DO $$ DECLARE r record; BEGIN
   SELECT * INTO r FROM pg_temp.assert_value('{"description":"Hauling","unit_type":"TON","rate_amount":9}',
-    NULL, repeat('0', 64), p_origin => 'operator_entered', p_anchor => 'p8:line:500');
+    NULL, pg_temp.rq('0'), p_origin => 'operator_entered', p_anchor => 'p8:line:500');
   IF NOT r.inserted THEN RAISE EXCEPTION 'B4.2 FAIL: operator_entered'; END IF;
   IF (SELECT review_origin FROM public.human_fact_assertions WHERE id = r.assertion_id) <> 'operator_entered'
      OR (SELECT forgewing_proposal_id FROM public.human_fact_assertions WHERE id = r.assertion_id) IS NOT NULL THEN
@@ -215,55 +219,55 @@ DO $$ DECLARE r record; BEGIN
   END IF;
 END $$;
 DO $$ BEGIN PERFORM pg_temp.assert_value('{"description":"Debris removal","unit_type":"CY","rate_amount":14.5}',
-    NULL, repeat('1', 64));
+    NULL, pg_temp.rq('1'));
   RAISE EXCEPTION 'B4.2 FAIL: ai_proposed without a proposal accepted';
 EXCEPTION WHEN invalid_parameter_value THEN NULL; END $$;
 DO $$ BEGIN PERFORM pg_temp.assert_value('{"description":"Debris removal","unit_type":"CY","rate_amount":14.5}',
-    pg_temp.proposal_id('p1'), repeat('1', 64), p_origin => 'operator_entered');
+    pg_temp.proposal_id('p1'), pg_temp.rq('1'), p_origin => 'operator_entered');
   RAISE EXCEPTION 'B4.2 FAIL: operator_entered citing a proposal accepted';
 EXCEPTION WHEN invalid_parameter_value THEN NULL; END $$;
 DO $$ BEGIN PERFORM pg_temp.assert_value('{"description":"Debris removal","unit_type":"CY","rate_amount":99}',
-    pg_temp.proposal_id('p1'), repeat('1', 64), p_origin => 'ai_proposed_operator_approved');
+    pg_temp.proposal_id('p1'), pg_temp.rq('1'), p_origin => 'ai_proposed_operator_approved');
   RAISE EXCEPTION 'B4.2 FAIL: a caller-chosen AI origin accepted';
 EXCEPTION WHEN invalid_parameter_value THEN NULL; END $$;
 
 -- 5-9. The binding must equal the assertion's verified binding exactly.
 DO $$ BEGIN PERFORM pg_temp.assert_value('{"description":"Debris removal","unit_type":"CY","rate_amount":14.5}',
-    pg_temp.proposal_id('p1'), repeat('2', 64), p_org => 'b4200000-0000-4000-8000-000000000002',
+    pg_temp.proposal_id('p1'), pg_temp.rq('2'), p_org => 'b4200000-0000-4000-8000-000000000002',
     p_actor => 'b4200000-0000-4000-8000-0000000000b1', p_document => 'b4200000-0000-4000-8000-0000000000d3',
     p_artifact => 'b4200000-0000-4000-8000-0000000000f3');
   RAISE EXCEPTION 'B4.2 FAIL: wrong organization accepted';
 EXCEPTION WHEN insufficient_privilege THEN NULL; END $$;
 DO $$ BEGIN PERFORM pg_temp.assert_value('{"description":"Debris removal","unit_type":"CY","rate_amount":14.5}',
-    pg_temp.proposal_id('p1'), repeat('2', 64), p_document => 'b4200000-0000-4000-8000-0000000000d2',
+    pg_temp.proposal_id('p1'), pg_temp.rq('2'), p_document => 'b4200000-0000-4000-8000-0000000000d2',
     p_artifact => 'b4200000-0000-4000-8000-0000000000f2');
   RAISE EXCEPTION 'B4.2 FAIL: wrong document accepted';
 EXCEPTION WHEN check_violation THEN NULL; END $$;
 DO $$ BEGIN PERFORM pg_temp.assert_value('{"description":"Debris removal","unit_type":"CY","rate_amount":14.5}',
-    pg_temp.proposal_id('p1'), repeat('2', 64), p_anchor => 'p8:line:420');
+    pg_temp.proposal_id('p1'), pg_temp.rq('2'), p_anchor => 'p8:line:420');
   RAISE EXCEPTION 'B4.2 FAIL: wrong anchor accepted';
 EXCEPTION WHEN check_violation THEN NULL; END $$;
 DO $$ BEGIN PERFORM pg_temp.assert_value('{"description":"Debris removal","unit_type":"CY","rate_amount":14.5}',
-    pg_temp.proposal_id('p1'), repeat('2', 64), p_page_digest => repeat('b', 64));
+    pg_temp.proposal_id('p1'), pg_temp.rq('2'), p_page_digest => repeat('b', 64));
   RAISE EXCEPTION 'B4.2 FAIL: stale page digest accepted';
 EXCEPTION WHEN check_violation THEN NULL; END $$;
 DO $$ BEGIN PERFORM pg_temp.assert_value('{"description":"Debris removal","unit_type":"CY","rate_amount":14.5}',
-    pg_temp.proposal_id('p1'), repeat('2', 64), p_observations => ARRAY['obs-1', 'obs-3']);
+    pg_temp.proposal_id('p1'), pg_temp.rq('2'), p_observations => ARRAY['obs-1', 'obs-3']);
   RAISE EXCEPTION 'B4.2 FAIL: mismatched observations accepted';
 EXCEPTION WHEN check_violation THEN NULL; END $$;
 DO $$ BEGIN PERFORM pg_temp.assert_value('{"description":"Debris removal","unit_type":"CY","rate_amount":14.5}',
-    pg_temp.proposal_id('p1'), repeat('2', 64), p_observations => ARRAY['obs-1']);
+    pg_temp.proposal_id('p1'), pg_temp.rq('2'), p_observations => ARRAY['obs-1']);
   RAISE EXCEPTION 'B4.2 FAIL: a subset of the observations accepted';
 EXCEPTION WHEN check_violation THEN NULL; END $$;
 DO $$ BEGIN PERFORM pg_temp.assert_value('{"description":"Debris removal","unit_type":"CY","rate_amount":14.5}',
-    pg_temp.proposal_id('unreadable'), repeat('2', 64));
+    pg_temp.proposal_id('unreadable'), pg_temp.rq('2'));
   RAISE EXCEPTION 'B4.2 FAIL: an unreadable reading was promoted';
 EXCEPTION WHEN check_violation THEN NULL; END $$;
 DO $$ BEGIN PERFORM pg_temp.assert_value('{"description":"Debris removal","unit_type":"CY","rate_amount":14.5}',
-    'forgewing-proposal-recovery-v2-' || repeat('0', 64), repeat('2', 64));
+    'forgewing-proposal-recovery-v2-' || repeat('0', 64), pg_temp.rq('2'));
   RAISE EXCEPTION 'B4.2 FAIL: a non-value-reading proposal id accepted';
 EXCEPTION WHEN check_violation THEN NULL; END $$;
-DO $$ BEGIN PERFORM pg_temp.assert_value('"14.5"', pg_temp.proposal_id('p1'), repeat('2', 64));
+DO $$ BEGIN PERFORM pg_temp.assert_value('"14.5"', pg_temp.proposal_id('p1'), pg_temp.rq('2'));
   RAISE EXCEPTION 'B4.2 FAIL: a non-rate-row value citing a proposal accepted';
 EXCEPTION WHEN invalid_parameter_value THEN NULL; END $$;
 DO $$ BEGIN
@@ -277,47 +281,47 @@ DO $$ DECLARE r record; BEGIN
   -- Same value in another key order, with surrounding spaces and 14.50 for 14.5.
   SELECT * INTO r FROM pg_temp.assert_value(
     '{"rate_amount":14.50,"unit_type":" CY","description":"Debris removal "}',
-    pg_temp.proposal_id('p1'), repeat('3', 64), p_observations => ARRAY['obs-2', 'obs-1']);
+    pg_temp.proposal_id('p1'), pg_temp.rq('3'), p_observations => ARRAY['obs-2', 'obs-1']);
   IF NOT r.inserted OR (SELECT review_origin FROM public.human_fact_assertions WHERE id = r.assertion_id)
      <> 'ai_proposed_operator_approved' THEN
     RAISE EXCEPTION 'B4.2 FAIL: exact value not recorded as approved';
   END IF;
   SELECT * INTO r FROM pg_temp.assert_value(
     '{"rate_amount":14.50,"unit_type":" CY","description":"Debris removal "}',
-    pg_temp.proposal_id('p1'), repeat('3', 64), p_observations => ARRAY['obs-2', 'obs-1']);
+    pg_temp.proposal_id('p1'), pg_temp.rq('3'), p_observations => ARRAY['obs-2', 'obs-1']);
   IF r.inserted THEN RAISE EXCEPTION 'B4.2 FAIL: idempotent AI-origin replay inserted'; END IF;
 END $$;
 DO $$ BEGIN PERFORM pg_temp.assert_value('{"rate_amount":14.50,"unit_type":" CY","description":"Debris removal "}',
-    NULL, repeat('3', 64), p_origin => 'operator_entered', p_observations => ARRAY['obs-2', 'obs-1']);
+    NULL, pg_temp.rq('3'), p_origin => 'operator_entered', p_observations => ARRAY['obs-2', 'obs-1']);
   RAISE EXCEPTION 'B4.2 FAIL: replay without the proposal accepted';
 EXCEPTION WHEN unique_violation THEN NULL; END $$;
 DO $$ DECLARE r record; BEGIN
   SELECT * INTO r FROM pg_temp.assert_value(
     '{"description":"Debris removal","unit_type":"CY","rate_amount":14.75}',
-    pg_temp.proposal_id('p1'), repeat('4', 64), pg_temp.assertion(repeat('3', 64)));
+    pg_temp.proposal_id('p1'), pg_temp.rq('4'), pg_temp.assertion(pg_temp.rq('3')));
   IF NOT r.inserted OR (SELECT review_origin FROM public.human_fact_assertions WHERE id = r.assertion_id)
      <> 'ai_proposed_operator_modified' THEN
     RAISE EXCEPTION 'B4.2 FAIL: edited value not recorded as modified';
   END IF;
   SELECT * INTO r FROM pg_temp.assert_value(
     '{"description":"Debris removal","unit_type":"CY","rate_amount":14.5,"category":"Debris"}',
-    pg_temp.proposal_id('p1'), repeat('5', 64), pg_temp.assertion(repeat('4', 64)));
+    pg_temp.proposal_id('p1'), pg_temp.rq('5'), pg_temp.assertion(pg_temp.rq('4')));
   IF (SELECT review_origin FROM public.human_fact_assertions WHERE id = r.assertion_id)
      <> 'ai_proposed_operator_modified' THEN
     RAISE EXCEPTION 'B4.2 FAIL: an added category not recorded as modified';
   END IF;
 END $$;
-DO $$ BEGIN PERFORM pg_temp.assert_value(NULL, pg_temp.proposal_id('p1'), repeat('6', 64),
-    pg_temp.assertion(repeat('5', 64)), p_status => 'withdrawn');
+DO $$ BEGIN PERFORM pg_temp.assert_value(NULL, pg_temp.proposal_id('p1'), pg_temp.rq('6'),
+    pg_temp.assertion(pg_temp.rq('5')), p_status => 'withdrawn');
   RAISE EXCEPTION 'B4.2 FAIL: a withdrawal citing a proposal accepted';
 EXCEPTION WHEN invalid_parameter_value THEN NULL; END $$;
 DO $$ DECLARE r record; BEGIN
-  SELECT * INTO r FROM pg_temp.assert_value(NULL, NULL, repeat('6', 64), pg_temp.assertion(repeat('5', 64)),
+  SELECT * INTO r FROM pg_temp.assert_value(NULL, NULL, pg_temp.rq('6'), pg_temp.assertion(pg_temp.rq('5')),
     p_origin => 'operator_entered', p_status => 'withdrawn');
   IF NOT r.inserted THEN RAISE EXCEPTION 'B4.2 FAIL: withdrawal'; END IF;
 END $$;
 DO $$ BEGIN PERFORM pg_temp.assert_value('{"description":"Debris removal","unit_type":"CY","rate_amount":14.5}',
-    pg_temp.proposal_id('p1'), repeat('7', 64), pg_temp.assertion(repeat('3', 64)));
+    pg_temp.proposal_id('p1'), pg_temp.rq('7'), pg_temp.assertion(pg_temp.rq('3')));
   RAISE EXCEPTION 'B4.2 FAIL: superseding a non-head accepted';
 EXCEPTION WHEN serialization_failure THEN NULL; END $$;
 RESET ROLE;
@@ -341,13 +345,13 @@ DO $$ BEGIN
     proposal_digest_sha256, review_version, reviewer_actor_id, disposition, confirmed_observation_id,
     confirmed_raw_text, reviewer_rationale, review_request_digest_sha256)
   SELECT organization_id, id, proposal_digest_sha256, 99, 'b4200000-0000-4000-8000-0000000000a1', 'accepted',
-    'obs-1', 'sia 50', 'forced', repeat('7', 64)
+    'obs-1', 'sia 50', 'forced', pg_temp.rq('7')
   FROM public.forgewing_recovery_proposals WHERE proposal_id = pg_temp.proposal_id('p1');
   RAISE EXCEPTION 'B4.2 FAIL: an approving review row on a value reading was stored';
 EXCEPTION WHEN insufficient_privilege THEN NULL; END $$;
 DO $$ BEGIN
   UPDATE public.human_fact_assertions SET review_origin = 'ai_proposed_operator_approved'
-    WHERE request_digest_sha256 = repeat('4', 64);
+    WHERE request_digest_sha256 = pg_temp.rq('4');
   RAISE EXCEPTION 'B4.2 FAIL: assertion history updated';
 EXCEPTION WHEN OTHERS THEN IF SQLERRM LIKE 'B4.2 FAIL%' THEN RAISE; END IF; END $$;
 DO $$ BEGIN
@@ -364,7 +368,8 @@ DO $$ BEGIN
 EXCEPTION WHEN check_violation THEN NULL; END $$;
 DO $$ BEGIN
   IF (SELECT string_agg(status || ':' || review_origin || ':' || coalesce(asserted_value->>'rate_amount', '-'),
-        ' > ' ORDER BY asserted_at, request_digest_sha256)
+        ' > ' ORDER BY asserted_at,
+          array_position(ARRAY[pg_temp.rq('3'), pg_temp.rq('4'), pg_temp.rq('5'), pg_temp.rq('6')], request_digest_sha256))
       FROM public.human_fact_assertions WHERE anchor_key = 'p8:line:300' AND source_document_id = 'b4200000-0000-4000-8000-0000000000d1')
      IS DISTINCT FROM 'active:ai_proposed_operator_approved:14.50 > active:ai_proposed_operator_modified:14.75'
        || ' > active:ai_proposed_operator_modified:14.5 > withdrawn:operator_entered:-' THEN

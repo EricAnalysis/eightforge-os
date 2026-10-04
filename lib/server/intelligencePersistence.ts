@@ -25,6 +25,10 @@ import {
   scheduleEligiblePricingReasoningShadow,
 } from '@/lib/extraction/persistence/complianceShadow';
 import {
+  resolveForgewingEntitlement,
+  type OrganizationForgewingEntitlementResolver,
+} from '@/lib/server/forgewingEntitlement';
+import {
   resolvePdfLayoutDiagnosticEvidence,
   resolvePdfLayoutObservationEvidenceByRow,
 } from '@/lib/extraction/pdf/layoutObservationEvidence';
@@ -1329,6 +1333,8 @@ export async function generateAndPersistCanonicalIntelligence(params: {
   extractionData?: Record<string, unknown> | null;
   /** Server-derived. False for confirmed-recovery reprocessing only. */
   providerWorkAllowed?: boolean;
+  /** Test seam. Production always resolves the organization's entitlement server-side. */
+  resolveForgewingEntitlement?: OrganizationForgewingEntitlementResolver;
 }): Promise<PersistCanonicalIntelligenceResult> {
   const buildContext = await loadBuildParams(params.admin, {
     documentId: params.documentId,
@@ -1408,6 +1414,12 @@ export async function generateAndPersistCanonicalIntelligence(params: {
     && buildContext.extractionSnapshotId
     && typeof pricingSourceArtifactId === 'string'
     && pricingSourceArtifactId.trim().length > 0
+    // Forgewing pricing/recovery work runs only for an entitled organization.
+    // Everything above and below this block is EightForge Core and runs for all.
+    && (await (params.resolveForgewingEntitlement ?? resolveForgewingEntitlement)(
+      params.admin,
+      params.organizationId,
+    )).entitled
   ) {
     const pricingLayoutObservations = pricingLayoutSourceObservations(
       pipelineResult.primaryDocument,

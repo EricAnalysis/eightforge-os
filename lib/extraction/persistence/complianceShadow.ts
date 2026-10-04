@@ -43,6 +43,10 @@ import {
   isForgewingTableContinuationEnabled,
 } from '@/lib/forgewing/runtime/modelConfig';
 import { ForgewingCallBudget } from '@/lib/forgewing/runtime/budget';
+import {
+  resolveForgewingEntitlement,
+  type OrganizationForgewingEntitlementResolver,
+} from '@/lib/server/forgewingEntitlement';
 import { buildRuntimeShadowParserManifest } from '@/lib/extraction/persistence/shadowRuntimeManifest';
 import { sniffExtractionMediaType } from '@/lib/extraction/persistence/shadowSourceIdentity';
 import { publishExtractionStep1ShadowNonBlocking } from '@/lib/extraction/persistence/step1Shadow';
@@ -1534,6 +1538,24 @@ export function scheduleRecoveryCandidateV2Shadow(
   }
 }
 
+/**
+ * Forgewing wraps the deterministic Step 3 bridge only for an entitled
+ * organization (EightForge Core vs Core + Forgewing). The deterministic bridge
+ * itself, and the publication around it, run for every organization, so
+ * canonical truth is identical in both tiers. Not entitled returns the SAME
+ * bridge, unwrapped.
+ */
+export function step3BridgeForForgewingEntitlement(
+  deterministicBridge: Step3InterpretationBridge | undefined,
+  entitled: boolean,
+  organizationId: string,
+  sourceDocumentId: string,
+): Step3InterpretationBridge | undefined {
+  return entitled
+    ? withForgewingRegionClassificationShadow(deterministicBridge, organizationId, sourceDocumentId)
+    : deterministicBridge;
+}
+
 export function withForgewingRegionClassificationShadow(
   deterministicBridge: Step3InterpretationBridge | undefined,
   organizationId: string,
@@ -1969,6 +1991,7 @@ export async function publishExtractionComplianceShadowNonBlocking(
  */
 export function scheduleExtractionComplianceShadow(
   input: ScheduledShadowWriteInput,
+  dependencies: Readonly<{ resolveEntitlement?: OrganizationForgewingEntitlementResolver }> = {},
 ): Promise<void> {
   return (async () => {
     if (!input.storageVersionBeforeDownload) {
@@ -2030,8 +2053,12 @@ export function scheduleExtractionComplianceShadow(
       await settleWithin(publishExtractionStep1ShadowNonBlocking({
           ...commonInput,
           locatedObservations,
-          step3InterpretationBridge: withForgewingRegionClassificationShadow(
+          step3InterpretationBridge: step3BridgeForForgewingEntitlement(
             input.step3InterpretationBridge,
+            (await (dependencies.resolveEntitlement ?? resolveForgewingEntitlement)(
+              input.admin,
+              input.organizationId,
+            )).entitled,
             input.organizationId,
             input.sourceDocumentId,
           ),

@@ -109,6 +109,24 @@ describe('resolution queue server read (B5-A)', () => {
     expect(result.status === 'ok' && result.queue.forgewingSuggestionsIncluded).toBe(true);
   });
 
+  it('lists Forgewing suggestions only for an entitled organization', async () => {
+    const readRecoveryQueue = vi.fn(async () => ({ status: 'ok' as const, candidates: [] }));
+    const run = async (entitled: boolean) => {
+      const { client } = fakeClient({ documents: [{ id: DOC, title: 'Contract' }] });
+      const resolveEntitlement = vi.fn(async () => (entitled
+        ? { entitled: true as const, reason: 'entitled' as const, eventId: 'e-1' }
+        : { entitled: false as const, reason: 'no_entitlement' as const }));
+      const result = await readResolutionQueue({ organizationId: ORG, projectId: PROJECT },
+        { admin: client, resolveEntitlement, readRecoveryQueue });
+      expect(resolveEntitlement).toHaveBeenCalledWith(expect.anything(), ORG);
+      return result.status === 'ok' && result.queue.forgewingSuggestionsIncluded;
+    };
+    expect(await run(false)).toBe(false);
+    expect(readRecoveryQueue).not.toHaveBeenCalled();
+    expect(await run(true)).toBe(true);
+    expect(readRecoveryQueue).toHaveBeenCalled();
+  });
+
   it('refuses a project outside the actor organization', async () => {
     const { client, reads } = fakeClient({}, 'other-org');
     await expect(readResolutionQueue({ organizationId: ORG, projectId: PROJECT }, { admin: client, forgewingEnabled: false }))

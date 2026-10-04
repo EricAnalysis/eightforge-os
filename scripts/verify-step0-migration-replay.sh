@@ -2858,6 +2858,9 @@ WSLENV="${WSLENV:+${WSLENV}:}B3_DATABASE_URL" \
   npx --no-install vite-node --config vitest.config.ts \
     scripts/verify-region-bound-assertions-from-postgres.ts
 
+# B4.1 gates: default-deny data policy and the durable provider-call budget.
+"${psql[@]}" --file scripts/sql/verify-forgewing-gates.sql
+
 echo "FRESH REPLAY: PASS (${#migrations[@]} migrations)"
 echo "PHASE 1B MIGRATION LEDGER / OBJECT REPLAY: PASS"
 echo "PHASE 1B PAGE / FRAGMENT PROVENANCE INSERT / UPDATE MATRIX: PASS"

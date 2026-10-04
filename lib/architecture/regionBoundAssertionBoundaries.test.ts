@@ -29,19 +29,26 @@ describe('B3 region-bound human review boundaries', () => {
     expect(source).not.toMatch(/forgewing_recovery_proposals|forgewing_recovery_proposal_reviews/);
   });
 
-  it('records manual entries only as operator_entered, never with an AI origin', () => {
+  it('never chooses an AI origin: manual entry is operator_entered, a cited proposal only ai_proposed', () => {
     const adapter = read('lib/server/regionBoundHumanAssertions.ts');
-    expect(adapter).toMatch(/p_review_origin: 'operator_entered'/);
-    expect(adapter).toMatch(/p_forgewing_proposal_id: null/);
-    expect(adapter).not.toMatch(/p_review_origin: 'ai_proposed/);
+    expect(adapter).toMatch(/p_review_origin: input\.forgewingProposalId \? 'ai_proposed' : 'operator_entered'/);
+    expect(adapter).toMatch(/p_forgewing_proposal_id: input\.forgewingProposalId \?\? null/);
+    expect(adapter).not.toMatch(/ai_proposed_operator/);
   });
 
-  it('the database refuses AI-origin assertions until proposals exist as their own records', () => {
-    const migration = read('supabase/migrations/20261004160000_human_fact_assertions_region_bound.sql');
-    expect(migration).toMatch(/IF p_review_origin IS DISTINCT FROM 'operator_entered' OR p_forgewing_proposal_id IS NOT NULL THEN/);
-    // Writes go only through the function; the table stays append-only.
-    expect(migration).not.toMatch(/GRANT[^;]*INSERT[^;]*human_fact_assertions/i);
-    expect(migration).not.toMatch(/DROP TRIGGER/i);
+  it('the database derives the stored origin itself and verifies a cited proposal (B4.2)', () => {
+    const b3 = read('supabase/migrations/20261004160000_human_fact_assertions_region_bound.sql');
+    const b42 = read('supabase/migrations/20261004220000_forgewing_value_reading_proposals.sql');
+    const fn = b42.slice(b42.indexOf('CREATE OR REPLACE FUNCTION public.record_region_bound_human_fact_assertion('));
+    // The caller's token never reaches the row: the insert stores v_origin.
+    expect(fn).toMatch(/v_origin, p_forgewing_proposal_id, p_request_digest_sha256\)/);
+    expect(fn).not.toMatch(/p_review_origin, p_forgewing_proposal_id, p_request_digest_sha256\)/);
+    expect(fn).toMatch(/THEN 'ai_proposed_operator_approved' ELSE 'ai_proposed_operator_modified' END/);
+    for (const migration of [b3, b42]) {
+      // Writes go only through the function; the table stays append-only.
+      expect(migration).not.toMatch(/GRANT[^;]*INSERT[^;]*human_fact_assertions/i);
+      expect(migration).not.toMatch(/DROP TRIGGER/i);
+    }
   });
 
   it('the Validator applies human review once, at the shared assembled-row seam', () => {

@@ -98,6 +98,10 @@ export async function POST(
     return jsonError('This value was reviewed again in the meantime; reload and supersede the latest review.',
       409, 'stale_chain_head');
   }
+  if (recorded.status === 'proposal_not_bound') {
+    return jsonError('The suggestion no longer matches this source region; reload and review again.',
+      409, 'proposal_not_bound');
+  }
   if (recorded.status === 'rejected') return jsonError(recorded.reason, 422);
 
   const projectId = typeof context.document.project_id === 'string' ? context.document.project_id : null;

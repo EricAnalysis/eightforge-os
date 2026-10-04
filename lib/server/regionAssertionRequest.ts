@@ -6,6 +6,7 @@ import {
   type SourceRegion,
 } from '@/lib/humanFactAssertions/regionBoundAssertions';
 import type { RecordRegionAssertionInput } from '@/lib/server/regionBoundHumanAssertions';
+import { VALUE_READING_PROPOSAL_ID_PATTERN } from '@/lib/server/valueReadingProposals';
 
 /**
  * The region-bound assertion write contract (B3), shared by the record route
@@ -48,6 +49,8 @@ export type ParsedRegionAssertionRequest = Readonly<{
   sourceRegion: SourceRegion;
   sourceObservationIds: readonly string[];
   supersedesAssertionId: string | null;
+  /** A value-reading proposal the operator used. Verified by the record function, never trusted here. */
+  forgewingProposalId: string | null;
 }>;
 
 export type RegionAssertionRequestRejection = Readonly<{ ok: false; status: 400 | 409; error: string; code?: string }>;
@@ -80,6 +83,14 @@ export function parseRegionAssertionRequest(body: unknown):
       + 'physicalPageNumber and pageRepresentationDigest are required' };
   }
   if (status === 'withdrawn' && !supersedes) return { ok: false, status: 400, error: 'A withdrawal must supersede an assertion' };
+  const proposalId = record.forgewingProposalId == null ? null : record.forgewingProposalId;
+  if (proposalId !== null
+    && (typeof proposalId !== 'string' || !VALUE_READING_PROPOSAL_ID_PATTERN.test(proposalId))) {
+    return { ok: false, status: 400, error: 'forgewingProposalId is not a value-reading proposal id' };
+  }
+  if (proposalId !== null && (status === 'withdrawn' || factKey !== CONTRACT_RATE_ROW_FACT_KEY)) {
+    return { ok: false, status: 400, error: 'Only a reviewed rate row value can use a suggestion' };
+  }
   const value = status === 'withdrawn' ? null : record.value;
   if (status === 'active') {
     if (value === undefined || value === null) return { ok: false, status: 400, error: 'value is required' };
@@ -97,6 +108,7 @@ export function parseRegionAssertionRequest(body: unknown):
       factKey, status, value, reason, anchorKey, idempotencyKey,
       physicalPageNumber: page, pageRepresentationDigest: digest, sourceRegion: region,
       sourceObservationIds: observationIds, supersedesAssertionId: supersedes,
+      forgewingProposalId: proposalId,
     },
   };
 }
@@ -145,6 +157,7 @@ export function prepareRegionAssertionRecord(params: Readonly<{
       anchorKey: request.anchorKey,
       supersedesAssertionId: request.supersedesAssertionId,
       idempotencyKey: request.idempotencyKey,
+      forgewingProposalId: request.forgewingProposalId,
     },
   };
 }
@@ -173,7 +186,9 @@ export function regionAssertionChainCheck(
 
 /**
  * The row the record function would insert for this input. Ephemeral: used
- * only to derive an in-memory Validator snapshot, never written.
+ * only to derive an in-memory Validator snapshot, never written. A cited
+ * proposal is not carried: impact is computed from the operator's value
+ * alone, and the Validator never reads review origin.
  */
 export function hypotheticalRegionAssertionRow(
   input: RecordRegionAssertionInput,

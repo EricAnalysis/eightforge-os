@@ -112,6 +112,16 @@ describe('effective recovery confirmation resolver', () => {
     }
   });
 
+  it('never confirms a value reading, even if an approving review row appeared (B4.2)', async () => {
+    const reading = { ...proposalRow(7), proposal_version: 3, recovery_type: 'priced_value_reading',
+      proposal_id: `forgewing-proposal-value-reading-${'7'.repeat(64)}` };
+    const result = await resolveEffectiveRecoveryConfirmations(query, {
+      admin: client([reading], [reviewRow(reading)]),
+    });
+    expect(result.status === 'ok' && result.confirmations).toEqual([]);
+    expect(result.status === 'ok' && result.diagnostics).toEqual([]);
+  });
+
   it('yields nothing for an unreviewed proposal', async () => {
     const result = await resolveEffectiveRecoveryConfirmations(query, {
       admin: client([proposalRow(1)], []),

@@ -9,6 +9,7 @@ import {
   type RecoveryConfirmationDiagnostic,
 } from '@/lib/forgewingConfirmedRecovery';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
+import { isValueReadingProposalRow } from '@/lib/server/valueReadingProposals';
 
 /**
  * The single business-logic seam between human review and reconstruction.
@@ -100,6 +101,8 @@ export async function resolveEffectiveRecoveryConfirmations(
   }
   const proposals = (Array.isArray(proposalRead.data) ? proposalRead.data : [])
     .filter(isRecord)
+    // A value reading (version 3) is never confirmed through a review.
+    .filter((row) => !isValueReadingProposalRow(row))
     .flatMap((row) => {
       const id = row.id;
       const proposalId = row.proposal_id;

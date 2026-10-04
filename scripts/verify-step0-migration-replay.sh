@@ -2861,6 +2861,14 @@ WSLENV="${WSLENV:+${WSLENV}:}B3_DATABASE_URL" \
 # B4.1 gates: default-deny data policy and the durable provider-call budget.
 "${psql[@]}" --file scripts/sql/verify-forgewing-gates.sql
 
+# B4.2 value-reading proposals: immutable, non-authoritative, promoted only by
+# a database-verified human fact assertion.
+"${psql[@]}" --file scripts/sql/verify-forgewing-value-reading.sql
+B42_DATABASE_URL="${replay_database_url}" \
+WSLENV="${WSLENV:+${WSLENV}:}B42_DATABASE_URL" \
+  npx --no-install vite-node --config vitest.config.ts \
+    scripts/verify-value-reading-from-postgres.ts
+
 echo "FRESH REPLAY: PASS (${#migrations[@]} migrations)"
 echo "PHASE 1B MIGRATION LEDGER / OBJECT REPLAY: PASS"
 echo "PHASE 1B PAGE / FRAGMENT PROVENANCE INSERT / UPDATE MATRIX: PASS"
@@ -2885,3 +2893,5 @@ echo "PHASE 12 EFFECTIVE CONFIRMATION / CONCURRENCY: PASS"
 echo "PHASE 15 RECOVERY GENERATION OUTCOME / ACL / IMMUTABILITY: PASS"
 echo "B3 REGION-BOUND HUMAN ASSERTION ACL / IDEMPOTENCY / CHAIN / IMMUTABILITY: PASS"
 echo "B3 REGION-BOUND ASSERTION TYPESCRIPT ADAPTER ROUND TRIP: PASS"
+echo "B4.2 VALUE-READING PROPOSAL IMMUTABILITY / VERIFIED HUMAN PROMOTION / ONE ROAD TO TRUTH: PASS"
+echo "B4.2 VALUE-READING TYPESCRIPT ADAPTER ROUND TRIP: PASS"

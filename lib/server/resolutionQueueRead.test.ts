@@ -68,6 +68,30 @@ describe('resolution queue server read (B5-A)', () => {
     expect(writes).toEqual([]);
   });
 
+  it('draws the case evidence on its source page, server-side, from the same blob (B5-B)', async () => {
+    const withArtifact = structuredClone(extraction);
+    (withArtifact.data.extraction.content_layers_v1.pdf as Record<string, unknown>).layout_observations_v1 = {
+      source_artifact_id: 'artifact-1', observations: [],
+      source_page_geometries: [{ source_layer: 'ocr', physical_page_number: 2, page_representation_digest: DIGEST,
+        pixel_width: 1700, pixel_height: 2200 }],
+    };
+    const { client } = fakeClient({
+      documents: [{ id: DOC, title: 'Contract' }],
+      document_extractions: [withArtifact],
+    });
+    const result = await readResolutionQueue({ organizationId: ORG, projectId: PROJECT },
+      { admin: client, forgewingEnabled: false });
+    if (result.status !== 'ok') throw new Error(result.status);
+    expect(result.queue.cases[0]!.evidence[0]).toMatchObject({
+      role: 'current',
+      visual: {
+        kind: 'diagnostic', sourceArtifactId: 'artifact-1', sourceDocumentId: DOC, physicalPageNumber: 2,
+        pageRepresentationDigest: DIGEST, ocrPixelWidth: 1700, ocrPixelHeight: 2200,
+        boxes: [{ observationId: 'o1', rawText: 'Hauling' }, { observationId: 'o2', rawText: '8.7S' }],
+      },
+    });
+  });
+
   it('does not read Forgewing proposals when Forgewing is off', async () => {
     const { client } = fakeClient({ documents: [{ id: DOC, title: 'Contract' }] });
     const readRecoveryQueue = vi.fn();

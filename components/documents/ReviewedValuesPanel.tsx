@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
+import Link from 'next/link';
+
+import { resolutionWorkspaceHref } from '@/lib/resolution/resolutionDeepLink';
 import { supabase } from '@/lib/supabaseClient';
 import type {
   EffectiveRegionAssertion,
@@ -63,7 +66,12 @@ function newIdempotencyKey(): string {
     : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-export function ReviewedValuesPanel({ documentId, onChanged }: { documentId: string; onChanged?: () => void }) {
+export function ReviewedValuesPanel({ documentId, projectId = null, onChanged }: {
+  documentId: string;
+  /** When the document belongs to a project, each line links into its Resolution Workspace. */
+  projectId?: string | null;
+  onChanged?: () => void;
+}) {
   const [data, setData] = useState<PanelData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openAnchor, setOpenAnchor] = useState<string | null>(null);
@@ -212,6 +220,13 @@ export function ReviewedValuesPanel({ documentId, onChanged }: { documentId: str
                   </div>
                 );
               })()}
+              {projectId && !effective ? (
+                <Link href={resolutionWorkspaceHref(projectId, { documentId, anchorKey: target.anchorKey })}
+                  data-testid="reviewed-value-resolve-link"
+                  className="mt-1 block text-xs text-[var(--ef-purple-primary)] hover:underline">
+                  Resolve in workspace
+                </Link>
+              ) : null}
               {openAnchor === target.anchorKey ? (
                 <div className="mt-2 grid grid-cols-2 gap-2">
                   {(['description', 'unit', 'rate', 'category'] as const).map((field) => (

@@ -87,8 +87,14 @@ function formatRate(option: ManualRateLinkOptionResponse): string {
   return [option.rateCode, option.description, option.unitType, amount].filter(Boolean).join(' / ');
 }
 
+/** The only parts of an issue this panel reads: which project, and which invoice line. */
+export type ManualRateLinkSubject = Readonly<{
+  projectId: IssueObject['projectId'];
+  finding: Readonly<{ subject_id: IssueObject['finding']['subject_id'] }>;
+}>;
+
 export function ManualRateLinkResolutionPanel(props: {
-  issue: IssueObject;
+  issue: ManualRateLinkSubject;
   onActionComplete: () => void | Promise<void>;
 }) {
   const { issue, onActionComplete } = props;

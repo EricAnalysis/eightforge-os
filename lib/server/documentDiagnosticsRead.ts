@@ -8,7 +8,12 @@ import { isSupportedPricedScheduleVersion } from '@/lib/extraction/pdf/pricedSch
 import { pricingAuthorityDiagnostics, type PricingAuthorityDiagnostic } from '@/lib/extraction/pdf/pricedScheduleAuthority';
 import type { PagePricedScheduleReconstruction } from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
 import { getFailureRegistryEntry } from '@/lib/diagnostics/failureRegistry';
-import { resolveCanonicalObservationBoxes } from '@/lib/extraction/pdf/layoutObservationEvidence';
+import {
+  diagnosticSourceBoxes,
+  exactOcrPageGeometry,
+  parseDiagnosticSourceRefs,
+  type DiagnosticSourceRef,
+} from '@/lib/recovery/diagnosticVisualEvidence';
 import type { DiagnosticVisualSourceEvidence, VisualSourceBox }
   from '@/lib/recovery/visualSourceEvidence';
 import { readRecoveryReviewQueue, type RecoveryReviewCandidate }
@@ -91,39 +96,9 @@ function iso(value: unknown): string {
   catch { return new Date(0).toISOString(); }
 }
 
-type DiagnosticSourceRef = Readonly<{ observation_id?: string; text: string;
-  x_min: number; x_max: number; y_min: number; y_max: number;
-  source?: 'pdfjs' | 'ocr_fallback' }>;
-
 function evidenceRefs(refs: readonly DiagnosticSourceRef[]): DiagnosticEvidenceRef[] {
   return refs.flatMap((ref) => ref.observation_id
     ? [{ kind: 'observation' as const, observationId: ref.observation_id }] : []);
-}
-
-function boxes(
-  refs: readonly DiagnosticSourceRef[],
-  page: number,
-  canonicalSidecar?: unknown,
-): VisualSourceBox[] {
-  const drawn = refs.flatMap((ref, memberIndex) => ref.observation_id ? [{
-    observationId: ref.observation_id,
-    rawText: ref.text,
-    role: 'candidate_member' as const,
-    boundingBox: { xMin: ref.x_min, xMax: ref.x_max, yMin: ref.y_min, yMax: ref.y_max },
-    sourceLayer: ref.source === 'ocr_fallback' ? 'ocr' as const : 'pdf_native_text' as const,
-    sourceCoordinateSpace: ref.source === 'ocr_fallback'
-      ? 'ocr_render_px' as const : 'pdf_user_unrotated' as const,
-    memberIndex,
-  }] : []);
-  // Canonical geometry is adopted only for a ref whose source box still
-  // matches the one the sidecar was derived from.
-  const canonical = resolveCanonicalObservationBoxes(canonicalSidecar, drawn.map((box) => ({
-    observationId: box.observationId, physicalPageNumber: page, boundingBox: box.boundingBox,
-  })));
-  return drawn.map((box) => {
-    const canonicalBoundingBox = canonical.get(box.observationId);
-    return canonicalBoundingBox ? { ...box, canonicalBoundingBox } : box;
-  });
 }
 
 function buildDiagnostic(input: Readonly<{
@@ -244,22 +219,6 @@ function matchingProposal(
     && proposal.evidence.some((entry) => observationIds.has(entry.observationId))) ?? null;
 }
 
-function exactOcrPageGeometry(
-  observationsLayer: Record<string, unknown> | null,
-  page: number,
-  pageRepresentationDigest: string,
-): Readonly<{ width: number; height: number }> | null {
-  const matches = records(observationsLayer?.source_page_geometries).filter((entry) =>
-    entry.source_layer === 'ocr'
-    && entry.physical_page_number === page
-    && entry.page_representation_digest === pageRepresentationDigest);
-  if (matches.length !== 1) return null;
-  const width = Number(matches[0]!.pixel_width);
-  const height = Number(matches[0]!.pixel_height);
-  return Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0
-    ? { width, height } : null;
-}
-
 function reconstructionDiagnostics(params: Readonly<{
   organizationId: string;
   sourceDocumentId: string;
@@ -313,12 +272,7 @@ function reconstructionDiagnostics(params: Readonly<{
     for (const raw of [...records(rawPage.rejected_spines), ...records(rawPage.unassigned_lines)]) {
       const parsedCode = DiagnosticCodeSchema.safeParse(raw.reason);
       if (!parsedCode.success) continue;
-      const sourceRefs = records(raw.source_refs).map((ref) => ({
-        observation_id: typeof ref.observation_id === 'string' ? ref.observation_id : undefined,
-        text: String(ref.text ?? ''), x_min: Number(ref.x_min), x_max: Number(ref.x_max),
-        y_min: Number(ref.y_min), y_max: Number(ref.y_max),
-        source: ref.source === 'ocr_fallback' ? 'ocr_fallback' as const : 'pdfjs' as const,
-      }));
+      const sourceRefs = parseDiagnosticSourceRefs(raw.source_refs);
       const refs = evidenceRefs(sourceRefs);
       const ocrGeometry = exactOcrPageGeometry(observationsLayer, page, digest);
       const diagnostic = buildDiagnostic({ code: parsedCode.data,
@@ -326,7 +280,7 @@ function reconstructionDiagnostics(params: Readonly<{
         sourceArtifactId, physicalPageNumber: page, pageRepresentationDigest: digest,
         summary: typeof raw.raw_text === 'string' ? raw.raw_text : undefined,
         evidenceRefs: refs,
-        visualBoxes: boxes(sourceRefs, page, observationsLayer?.canonical_geometry_v1),
+        visualBoxes: diagnosticSourceBoxes(sourceRefs, page, observationsLayer?.canonical_geometry_v1),
         ocrPixelWidth: ocrGeometry?.width, ocrPixelHeight: ocrGeometry?.height,
         extractionSnapshotId: params.extractionSnapshotId, occurredAt: params.occurredAt,
         proposal: matchingProposal(parsedCode.data, page, refs, params.proposals) });

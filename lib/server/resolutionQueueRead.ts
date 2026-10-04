@@ -1,16 +1,22 @@
 import { pickPreferredExtractionBlob } from '@/lib/blobExtractionSelection';
 import type { ProjectExecutionItemRow } from '@/lib/executionItems';
 import { readRecoveryOperationalConfig } from '@/lib/extraction/recovery/recoveryOperationalPolicy';
-import { documentReviewedValueState } from '@/lib/humanFactAssertions/regionBoundAssertions';
+import {
+  currentDocumentEvidenceFromExtractionData,
+  documentReviewedValueState,
+} from '@/lib/humanFactAssertions/regionBoundAssertions';
+import { documentPageFrames, type DocumentPageFrames } from '@/lib/recovery/diagnosticVisualEvidence';
+import { recoveryCandidateVisualEvidence } from '@/lib/recovery/recoveryVisualEvidence';
 import type { ProjectDecisionRow } from '@/lib/projectOverview';
 import {
   buildResolutionQueue,
   type DocumentReviewedValueState,
   type PendingRecoveryProposal,
+  type RecoveryConfirmationOption,
   type ResolutionQueue,
 } from '@/lib/resolution/resolutionCases';
 import { resolveProjectIssueObjects } from '@/lib/resolveProjectIssueObjects';
-import { readRecoveryReviewQueue } from '@/lib/server/forgewingRecoveryReviewRead';
+import { readRecoveryReviewQueue, type RecoveryReviewCandidate } from '@/lib/server/forgewingRecoveryReviewRead';
 import { loadRegionBoundAssertionRows, type RegionAssertionClient } from '@/lib/server/regionBoundHumanAssertions';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import type { ValidationEvidence, ValidationFinding } from '@/types/validator';
@@ -45,6 +51,25 @@ export type ResolutionReadClient = { from(table: string): { select(columns: stri
 
 function rows<T>(data: unknown): T[] {
   return Array.isArray(data) ? data as T[] : [];
+}
+
+/** The confirmations the review route accepts for this proposal, by exact id, with their evidence. */
+function selectableConfirmations(candidate: RecoveryReviewCandidate): RecoveryConfirmationOption[] {
+  return candidate.proposalVersion === 2
+    ? candidate.selectableCandidates.map((entry) => ({
+        field: 'confirmedCandidateId' as const,
+        id: entry.candidateId,
+        rawText: entry.composedRawText,
+        proposed: entry.proposed,
+        visual: recoveryCandidateVisualEvidence(candidate, entry.candidateId),
+      }))
+    : candidate.selectableObservations.map((entry) => ({
+        field: 'confirmedObservationId' as const,
+        id: entry.observationId,
+        rawText: entry.rawText,
+        proposed: entry.proposed,
+        visual: recoveryCandidateVisualEvidence(candidate, entry.observationId),
+      }));
 }
 
 export async function readResolutionQueue(
@@ -114,8 +139,16 @@ export async function readResolutionQueue(
     extractionsByDocument.set(row.document_id, [...(extractionsByDocument.get(row.document_id) ?? []), row]);
   }
   const reviewedValuesByDocument = new Map<string, DocumentReviewedValueState>();
+  const documentPages = new Map<string, DocumentPageFrames>();
   for (const documentId of documentIds) {
     const preferred = pickPreferredExtractionBlob(extractionsByDocument.get(documentId) ?? []);
+    const frames = documentPageFrames({
+      extractionData: preferred?.data ?? null,
+      sourceDocumentId: documentId,
+      pageRepresentationDigestByPage:
+        currentDocumentEvidenceFromExtractionData(preferred?.data ?? null).pageRepresentationDigestByPage,
+    });
+    if (frames) documentPages.set(documentId, frames);
     reviewedValuesByDocument.set(documentId, documentReviewedValueState({
       documentId,
       organizationId: query.organizationId,
@@ -144,6 +177,9 @@ export async function readResolutionQueue(
           certainty: candidate.certainty,
           reviewState: candidate.reviewState,
           evidence: candidate.evidence.map((entry) => ({ observationId: entry.observationId, rawText: entry.rawText })),
+          proposalVersion: candidate.proposalVersion,
+          selectableConfirmations: selectableConfirmations(candidate),
+          sourceEvidenceUnbound: candidate.sourceEvidenceBinding === 'unbound_identity_incomplete',
         });
       }
     }
@@ -159,6 +195,7 @@ export async function readResolutionQueue(
       reviewedValuesByDocument,
       recoveryProposals,
       forgewingEnabled,
+      documentPages,
     }),
   };
 }

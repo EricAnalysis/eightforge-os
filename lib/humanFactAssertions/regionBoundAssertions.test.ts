@@ -91,6 +91,27 @@ describe('reviewed-value entry targets (B3)', () => {
       .toBe(targets[0]!.anchorKey);
   });
 
+  it('draws each line on its source page from the server-side extraction (B5-B)', () => {
+    const withArtifact = (refs: unknown[]) => {
+      const base = data(DIGEST, refs);
+      const pdf = base.extraction.content_layers_v1.pdf as Record<string, unknown>;
+      pdf.layout_observations_v1 = { source_artifact_id: 'artifact-1', observations: [] };
+      return base;
+    };
+    // Without a document identity, or without a source artifact, no page is offered.
+    expect(regionAssertionEntryTargets(withArtifact([ref('o1', 'Hauling', 10)]))[0]!.visual).toBeNull();
+    expect(regionAssertionEntryTargets(data(DIGEST, [ref('o1', 'Hauling', 10)]), 'doc-1')[0]!.visual).toBeNull();
+    const [target] = regionAssertionEntryTargets(withArtifact([ref('o1', 'Hauling', 10), ref('o2', 'sia 50', 400)]), 'doc-1');
+    expect(target!.visual).toMatchObject({
+      kind: 'diagnostic', diagnosticId: target!.anchorKey, sourceArtifactId: 'artifact-1', sourceDocumentId: 'doc-1',
+      physicalPageNumber: 3, pageRepresentationDigest: DIGEST,
+      boxes: [
+        { observationId: 'o1', rawText: 'Hauling', boundingBox: { xMin: 10, xMax: 20, yMin: 300, yMax: 310 }, memberIndex: 0 },
+        { observationId: 'o2', rawText: 'sia 50', boundingBox: { xMin: 400 }, memberIndex: 1 },
+      ],
+    });
+  });
+
   it('offers nothing it cannot bind exactly', () => {
     expect(regionAssertionEntryTargets(data(null, [ref('o1', 'Hauling', 10)]))).toEqual([]);
     expect(regionAssertionEntryTargets(data(DIGEST, [ref('o1', 'Hauling', 10), ref(null, 'sia 50', 400)]))).toEqual([]);

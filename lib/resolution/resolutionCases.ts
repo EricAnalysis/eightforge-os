@@ -1,11 +1,16 @@
-import type {
-  EffectiveRegionAssertion,
-  HeldRegionAssertion,
-  HumanFactAssertionRow,
-  RegionAssertionEntryTarget,
+import {
+  formatReviewedValue,
+  type EffectiveRegionAssertion,
+  type HeldRegionAssertion,
+  type HumanFactAssertionRow,
+  type RegionAssertionEntryTarget,
 } from '@/lib/humanFactAssertions/regionBoundAssertions';
+import { getIssueDisplayLabel } from '@/lib/issueDisplayFormatter';
 import { isIssueRequiringReview, type IssueObject } from '@/lib/issueObjects';
+import { pageFrameVisual, type DocumentPageFrames } from '@/lib/recovery/diagnosticVisualEvidence';
+import type { VisualSourceEvidence } from '@/lib/recovery/visualSourceEvidence';
 import { isApprovalBlocker } from '@/lib/validator/findingSemantics';
+import { isHumanReviewedEvidenceNote } from '@/lib/validator/humanReviewedEvidence';
 import type { ValidationEvidence } from '@/types/validator';
 
 /**
@@ -56,6 +61,12 @@ export type ResolutionCaseKind =
   | 'reviewed_value_needs_rereview'
   | 'recovery_proposal_pending';
 
+/**
+ * Which evidence this is for the decision: what the source shows now, what an
+ * earlier review rested on, or what the Validator cited in support.
+ */
+export type ResolutionEvidenceRole = 'current' | 'previous' | 'supporting';
+
 /** Where the evidence is. Source-bound only: document, page, observations, region. */
 export type ResolutionEvidenceRef = Readonly<{
   documentId: string | null;
@@ -63,6 +74,52 @@ export type ResolutionEvidenceRef = Readonly<{
   observationIds: readonly string[];
   region: RegionAssertionEntryTarget['sourceRegion'] | null;
   label: string;
+  role: ResolutionEvidenceRole;
+  /**
+   * The source page with this evidence drawn on it, built on the server from
+   * the current extraction. Null when the page cannot be shown (no source
+   * artifact, or the page is not a current verified page). Previous evidence
+   * is never drawn on the current page.
+   */
+  visual: VisualSourceEvidence | null;
+  /** The Validator's persisted evidence values, verbatim; null for other sources. */
+  detail: Readonly<{
+    evidenceType: string;
+    fieldName: string | null;
+    value: string | null;
+    note: string | null;
+    /** True when the cited value is a human-reviewed value (B3.1 marker). */
+    humanReviewed: boolean;
+  }> | null;
+}>;
+
+/** The review a re-review case is about, verbatim from the append-only ledger. */
+export type PreviousReview = Readonly<{
+  assertionId: string;
+  status: HumanFactAssertionRow['status'];
+  value: unknown;
+  /** The value as every human-reviewed label shows it; null for a withdrawal. */
+  valueText: string | null;
+  reason: string;
+  assertedAt: string;
+  actorId: string;
+  physicalPageNumber: number | null;
+  pageRepresentationDigest: string | null;
+  observationIds: readonly string[];
+  region: unknown;
+  /** What extraction read when the review was made. */
+  originalSourceText: string | null;
+}>;
+
+/** A confirmation the reviewer may choose for a recovery proposal, by its exact server id. */
+export type RecoveryConfirmationOption = Readonly<{
+  /** The request field the review route takes for this proposal version. */
+  field: 'confirmedObservationId' | 'confirmedCandidateId';
+  id: string;
+  rawText: string;
+  /** True for the option the proposal selected. A suggestion, not a default. */
+  proposed: boolean;
+  visual: VisualSourceEvidence | null;
 }>;
 
 /**
@@ -95,6 +152,8 @@ export type ResolutionAction =
       endpoint: string;
       anchorKey: string;
       supersedesAssertionId: string;
+      /** The current target the withdrawal binds; offered only when one exists. */
+      target: RegionAssertionEntryTarget;
     }>
   | Readonly<{
       kind: 'review_recovery_proposal';
@@ -102,13 +161,20 @@ export type ResolutionAction =
       endpoint: '/api/internal/forgewing-recovery-review';
       proposalId: string;
       proposalDigestSha256: string;
+      proposalVersion: 1 | 2;
       dispositions: readonly ('accepted' | 'modified' | 'rejected' | 'deferred')[];
+      /** Server-derived options for accepted/modified; the client never names another id. */
+      selectableConfirmations: readonly RecoveryConfirmationOption[];
+      /** The persisted candidates no longer close over their source identity: draw nothing. */
+      sourceEvidenceUnbound: boolean;
     }>
   | Readonly<{
       kind: 'link_invoice_line_rate';
       method: 'POST';
       endpoint: string;
       findingId: string;
+      /** The finding's own subject: the invoice line the link is for. */
+      invoiceLineSubjectId: string;
     }>
   | Readonly<{
       kind: 'resolve_execution_item';
@@ -135,8 +201,20 @@ export type ResolutionCase = Readonly<{
   projectId: string;
   documentId: string | null;
   physicalPageNumber: number | null;
+  /** Operator-readable title. Never a raw rule id. */
   title: string;
   problem: string;
+  /** The Validator finding this case is, verbatim; null for other kinds. */
+  finding: Readonly<{
+    ruleId: string;
+    severity: string;
+    field: string | null;
+    expected: string | null;
+    actual: string | null;
+    recommendedAction: string;
+  }> | null;
+  /** The review a re-review case concerns; empty for other kinds. */
+  previousReviews: readonly PreviousReview[];
   /** What EightForge knows deterministically. */
   deterministicState: string;
   /** What extraction read at the source, when there is one. Never rewritten. */
@@ -160,6 +238,8 @@ export type ResolutionCaseGroup = Readonly<{
   tier: ResolutionImpactTier;
   title: string;
   caseIds: readonly string[];
+  /** Validator findings in the group. */
+  findingCount: number;
   exposureAmount: number | null;
 }>;
 
@@ -192,6 +272,9 @@ export type PendingRecoveryProposal = Readonly<{
   certainty: number;
   reviewState: string;
   evidence: readonly Readonly<{ observationId: string; rawText: string }>[];
+  proposalVersion: 1 | 2;
+  selectableConfirmations: readonly RecoveryConfirmationOption[];
+  sourceEvidenceUnbound: boolean;
 }>;
 
 export type ResolutionDocument = Readonly<{
@@ -201,6 +284,9 @@ export type ResolutionDocument = Readonly<{
 }>;
 
 const MANUAL_RATE_LINK_RULE_IDS = new Set(['FINANCIAL_RATE_CODE_MISSING', 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS']);
+
+/** A rule or check key such as `FINANCIAL_RATE_CODE_MISSING` or `FINANCIAL_NTE_FACT_MISSING:project-1`. */
+const RAW_RULE_KEY = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+(?::|$)/;
 
 const HELD_REASON_TEXT: Record<HeldRegionAssertion['reason'], string> = {
   page_representation_changed: 'The page was re-extracted differently since this value was reviewed.',
@@ -238,6 +324,36 @@ function chainHead(history: readonly HumanFactAssertionRow[], anchorKey: string)
   return heads.length === 1 ? heads[0]!.id : null;
 }
 
+function currentTargetEvidence(documentId: string, target: RegionAssertionEntryTarget): ResolutionEvidenceRef {
+  return {
+    documentId,
+    physicalPageNumber: target.physicalPageNumber,
+    observationIds: target.sourceObservationIds,
+    region: target.sourceRegion,
+    label: target.rawText,
+    role: 'current',
+    visual: target.visual,
+    detail: null,
+  };
+}
+
+function previousReviewOf(row: HumanFactAssertionRow): PreviousReview {
+  return {
+    assertionId: row.id,
+    status: row.status,
+    value: row.asserted_value,
+    valueText: row.status === 'withdrawn' || row.asserted_value == null ? null : formatReviewedValue(row.asserted_value),
+    reason: row.reason,
+    assertedAt: row.asserted_at,
+    actorId: row.actor_id,
+    physicalPageNumber: row.physical_page_number ?? null,
+    pageRepresentationDigest: row.page_representation_digest ?? null,
+    observationIds: row.source_observation_ids ?? [],
+    region: row.source_region ?? null,
+    originalSourceText: row.original_source_text ?? null,
+  };
+}
+
 function findingTier(issue: IssueObject): ResolutionImpactTier {
   const finding = issue.finding;
   if (isApprovalBlocker(finding)) return 'blocks_approval';
@@ -251,6 +367,7 @@ function validatorCases(params: {
   projectId: string;
   issues: readonly IssueObject[];
   evidence: readonly ValidationEvidence[];
+  documentPages: ReadonlyMap<string, DocumentPageFrames>;
 }): ResolutionCase[] {
   const evidenceByFinding = new Map<string, ValidationEvidence[]>();
   for (const row of params.evidence) {
@@ -266,6 +383,7 @@ function validatorCases(params: {
         method: 'POST',
         endpoint: `/api/projects/${params.projectId}/invoice-line-rate-link`,
         findingId: finding.id,
+        invoiceLineSubjectId: finding.subject_id,
       });
     }
     if (issue.executionItemId) {
@@ -282,13 +400,34 @@ function validatorCases(params: {
     });
     const rows = (evidenceByFinding.get(finding.id) ?? [])
       .slice().sort((left, right) => left.id.localeCompare(right.id, 'en-US'));
-    const evidence = rows.map((row) => ({
-      documentId: row.source_document_id,
-      physicalPageNumber: row.source_page,
-      observationIds: [],
-      region: null,
-      label: row.note ?? row.field_name ?? row.evidence_type,
-    }));
+    const display = getIssueDisplayLabel(issue.issueType, issue.title);
+    // The shared label falls back to the finding's check key for rules it has
+    // no template for. A raw key is not an operator title: use the finding's
+    // own summary, which the Validator already writes in plain language.
+    const title = RAW_RULE_KEY.test(display.title) && issue.summary.trim() ? issue.summary.trim() : display.title;
+    const evidence: ResolutionEvidenceRef[] = rows.map((row) => {
+      const label = row.note ?? row.field_name ?? row.evidence_type;
+      return {
+        documentId: row.source_document_id,
+        physicalPageNumber: row.source_page,
+        observationIds: [],
+        region: null,
+        label,
+        role: 'supporting' as const,
+        // Validator evidence cites a page, not observations: the page is shown
+        // without a highlight rather than with a guessed one.
+        visual: row.source_document_id
+          ? pageFrameVisual(params.documentPages.get(row.source_document_id), row.source_page, `evidence:${row.id}`, label)
+          : null,
+        detail: {
+          evidenceType: row.evidence_type,
+          fieldName: row.field_name,
+          value: row.field_value,
+          note: row.note,
+          humanReviewed: isHumanReviewedEvidenceNote(row.note),
+        },
+      };
+    });
     // Findings that rest on the same contract rate row share a root cause. The
     // row's record id is the source identity the Validator itself cites.
     const rateRow = rows.find((row) => row.evidence_type === 'rate_schedule' && row.record_id);
@@ -300,12 +439,21 @@ function validatorCases(params: {
       projectId: params.projectId,
       documentId: evidence.find((entry) => entry.documentId)?.documentId ?? null,
       physicalPageNumber: evidence.find((entry) => entry.physicalPageNumber != null)?.physicalPageNumber ?? null,
-      title: issue.title,
-      problem: issue.summary,
+      title,
+      problem: title === issue.summary.trim() ? display.explanation : issue.summary,
+      finding: {
+        ruleId: finding.rule_id,
+        severity: finding.severity,
+        field: finding.field,
+        expected: finding.expected,
+        actual: finding.actual,
+        recommendedAction: finding.required_action?.trim() || display.recommended_action,
+      },
+      previousReviews: [],
       deterministicState: [
         finding.expected != null ? `Expected ${finding.expected}` : null,
         finding.actual != null ? `found ${finding.actual}` : null,
-      ].filter(Boolean).join(', ') || finding.rule_id,
+      ].filter(Boolean).join(', ') || display.explanation,
       originalSourceText: null,
       rootCauseKey: rateRow ? `rate_row:${rateRow.source_document_id ?? ''}:${rateRow.record_id}` : `finding:${finding.id}`,
       evidence,
@@ -340,16 +488,12 @@ function reviewedValueCases(params: {
         title: `Unread priced line · ${label} p.${target.physicalPageNumber}`,
         problem: UNRESOLVED_REASON_TEXT[target.unresolvedReason]
           ?? 'Extraction could not read this priced line as a table row.',
+        finding: null,
+        previousReviews: [],
         deterministicState: 'No priced row exists for this line. It is not used in pricing.',
         originalSourceText: target.rawText,
         rootCauseKey: `unresolved_page:${documentId}:${target.physicalPageNumber}`,
-        evidence: [{
-          documentId,
-          physicalPageNumber: target.physicalPageNumber,
-          observationIds: target.sourceObservationIds,
-          region: target.sourceRegion,
-          label: target.rawText,
-        }],
+        evidence: [currentTargetEvidence(documentId, target)],
         suggestions: [],
         actions: [
           {
@@ -383,15 +527,22 @@ function reviewedValueCases(params: {
           supersedesAssertionId: chainHead(state.history, anchorKey),
         });
       }
-      if (head && chainHead(state.history, anchorKey) === head) {
+      // Withdrawal is bound to the current target like any other review, so it
+      // is offered only when the current extraction still presents one.
+      if (target && head && chainHead(state.history, anchorKey) === head) {
         actions.push({
           kind: 'withdraw_reviewed_value',
           method: 'POST',
           endpoint: regionAssertionEndpoint(documentId),
           anchorKey,
           supersedesAssertionId: head,
+          target,
         });
       }
+      const previousReviews = state.history
+        .filter((row) => held.assertionIds.includes(row.id))
+        .sort((left, right) => left.asserted_at.localeCompare(right.asserted_at, 'en-US') || left.id.localeCompare(right.id, 'en-US'))
+        .map(previousReviewOf);
       actions.push({ kind: 'open_document', href: documentHref(documentId, page) });
       cases.push({
         caseId: `rereview:${documentId}:${anchorKey}`,
@@ -403,16 +554,26 @@ function reviewedValueCases(params: {
         physicalPageNumber: page,
         title: `Reviewed value not applied · ${label}${page != null ? ` p.${page}` : ''}`,
         problem: HELD_REASON_TEXT[held.reason],
+        finding: null,
+        previousReviews,
         deterministicState: 'The human-reviewed value is held, not applied, until it is reviewed again.',
-        originalSourceText: state.history.find((row) => held.assertionIds.includes(row.id))?.original_source_text ?? null,
+        originalSourceText: target?.rawText ?? null,
         rootCauseKey: `reviewed_value:${documentId}:${anchorKey}`,
-        evidence: target ? [{
-          documentId,
-          physicalPageNumber: target.physicalPageNumber,
-          observationIds: target.sourceObservationIds,
-          region: target.sourceRegion,
-          label: target.rawText,
-        }] : [],
+        evidence: [
+          ...(target ? [currentTargetEvidence(documentId, target)] : []),
+          // What the earlier review rested on. Its page representation is no
+          // longer current, so it is described, never drawn on today's page.
+          ...previousReviews.map((review) => ({
+            documentId,
+            physicalPageNumber: review.physicalPageNumber,
+            observationIds: review.observationIds,
+            region: null,
+            label: review.originalSourceText ?? 'Reviewed region',
+            role: 'previous' as const,
+            visual: null,
+            detail: null,
+          })),
+        ],
         suggestions: [],
         actions,
         sourceRefs: { assertionIds: held.assertionIds, anchorKey },
@@ -440,6 +601,8 @@ function recoveryCases(params: {
       physicalPageNumber: proposal.physicalPageNumber,
       title: `Withheld priced row · ${documentLabel(params.documents, documentId)} p.${proposal.physicalPageNumber}`,
       problem: `Extraction withheld this row: ${proposal.recoveryReason}.`,
+      finding: null,
+      previousReviews: [],
       deterministicState: 'The row is withheld. Nothing is priced until an operator reviews it.',
       originalSourceText: proposal.evidence.map((entry) => entry.rawText).join(' ') || null,
       rootCauseKey: `recovery:${documentId}:${proposal.physicalPageNumber}`,
@@ -449,6 +612,11 @@ function recoveryCases(params: {
         observationIds: proposal.evidence.map((entry) => entry.observationId),
         region: null,
         label: proposal.recoveryType,
+        role: 'current' as const,
+        visual: proposal.sourceEvidenceUnbound
+          ? null
+          : proposal.selectableConfirmations.find((option) => option.proposed)?.visual ?? null,
+        detail: null,
       }],
       suggestions: [{
         source: 'forgewing_recovery_proposal' as const,
@@ -463,7 +631,10 @@ function recoveryCases(params: {
           endpoint: '/api/internal/forgewing-recovery-review' as const,
           proposalId: proposal.proposalId,
           proposalDigestSha256: proposal.proposalDigestSha256,
+          proposalVersion: proposal.proposalVersion,
           dispositions: ['accepted', 'modified', 'rejected', 'deferred'] as const,
+          selectableConfirmations: proposal.selectableConfirmations,
+          sourceEvidenceUnbound: proposal.sourceEvidenceUnbound,
         },
         { kind: 'open_document' as const, href: documentHref(documentId, proposal.physicalPageNumber) },
       ],
@@ -491,10 +662,15 @@ export function buildResolutionQueue(params: {
   recoveryProposals: readonly PendingRecoveryProposal[];
   /** Forgewing suggestion sources appear only for an organization with Forgewing enabled. */
   forgewingEnabled: boolean;
+  /** Current verified pages per document, for page-level evidence. */
+  documentPages?: ReadonlyMap<string, DocumentPageFrames>;
 }): ResolutionQueue {
   const documents = new Map(params.documents.map((document) => [document.id, document] as const));
   const cases = [
-    ...validatorCases({ projectId: params.projectId, issues: params.issues, evidence: params.evidence }),
+    ...validatorCases({
+      projectId: params.projectId, issues: params.issues, evidence: params.evidence,
+      documentPages: params.documentPages ?? new Map(),
+    }),
     ...reviewedValueCases({
       projectId: params.projectId, documents, reviewedValuesByDocument: params.reviewedValuesByDocument,
     }),
@@ -513,6 +689,7 @@ export function buildResolutionQueue(params: {
       tier: members[0]!.tier,
       title: members.length === 1 ? members[0]!.title : `${members[0]!.title} (+${members.length - 1} related)`,
       caseIds: members.map((member) => member.caseId),
+      findingCount: members.filter((member) => member.kind === 'validator_finding').length,
       exposureAmount: amounts.length > 0 ? amounts.reduce((sum, amount) => sum + amount, 0) : null,
     };
   }).sort((left, right) => {

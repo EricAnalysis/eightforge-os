@@ -286,12 +286,11 @@ function contractNextAction(params: {
       return 'Confirm the governing contract ceiling.';
     }
 
+    // The full row: semantic normalization humanizes rule_id and subject_type.
     return findingNextAction({
+      ...worstFinding,
       status: worstFinding.status as 'open' | 'resolved' | 'dismissed' | 'muted',
       severity: worstFinding.severity as 'critical' | 'warning' | 'info',
-      blocked_reason: worstFinding.blocked_reason,
-      decision_eligible: worstFinding.decision_eligible,
-      action_eligible: worstFinding.action_eligible,
     });
   }
 
@@ -698,13 +697,12 @@ async function resolveContractTruth(
 
   const fallbackApprovalLabel =
     validatorRaw != null ? operatorApprovalLabel(validatorRaw) : 'Not Evaluated';
+  // The full row: semantic normalization humanizes rule_id and subject_type.
   const approvalLabel = worstFinding
     ? findingApprovalLabel({
+        ...worstFinding,
         status: worstFinding.status as 'open' | 'resolved' | 'dismissed' | 'muted',
         severity: worstFinding.severity as 'critical' | 'warning' | 'info',
-        blocked_reason: worstFinding.blocked_reason,
-        decision_eligible: worstFinding.decision_eligible,
-        action_eligible: worstFinding.action_eligible,
       })
     : hasRateBasedSignal || contractCeiling != null
       ? 'Approved'

@@ -130,6 +130,35 @@ describe('selective PDF layout observation evidence', () => {
     })).toEqual([]);
   });
 
+  it('materializes role-less cells and unattached role-less tokens without counting them in closure', () => {
+    const accepted = identifiedToken('item:accepted', 'Alpha service', 10, 100);
+    const roleLess = identifiedToken('item:role-less', 'EA', 40, 100);
+    const unattached = identifiedToken('item:unattached', 'LS', 40, 60);
+    const unrelated = identifiedToken('item:unrelated', 'footer', 90, 20);
+    const base = reconstruction([ref(accepted)]);
+    const page = base.pages[0]!;
+    const withUnresolved: PagePricedScheduleReconstruction = {
+      ...base,
+      pages: [{
+        ...page,
+        rows: [{ ...page.rows[0]!, unresolved_role_cells: [{
+          role: null, column_index: 1, header_text: 'Basis', raw_text: 'EA', source_refs: [ref(roleLess)],
+          x_min: 40, x_max: 50, y_min: 100, y_max: 110,
+        }] }],
+        unattached_role_less_tokens: [{ ...ref(unattached), column_index: 1 }],
+      }],
+    };
+    const result = buildPdfLayoutObservationsLayer({
+      layout: layout([accepted, roleLess, unattached, unrelated]), reconstruction: withUnresolved, context: CONTEXT,
+    });
+    expect(result.observations.map((entry) => entry.id).sort()).toEqual(
+      [accepted, roleLess, unattached].map((entry) => entry.observation_id!).sort(),
+    );
+    expect(result.closure).toMatchObject({
+      status: 'complete', accepted_ref_count: 1, diagnostic_identified_ref_count: 0,
+    });
+  });
+
   it('resolves an ambiguous-rate diagnostic only when every primitive closes exactly', () => {
     const description = identifiedToken('item:description', 'Candidate service', 10, 100);
     const firstRate = identifiedToken('item:rate-a', '$12.00', 50, 100);

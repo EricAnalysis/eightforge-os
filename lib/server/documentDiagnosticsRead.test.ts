@@ -367,7 +367,7 @@ describe('document diagnostics read model', () => {
   it('keeps recovery queue read failure visible without hiding independent diagnostics', async () => {
     const result = await readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {
       admin: admin({ documents: [{ id: DOC, processing_error: null,
-        updated_at: '2026-09-12T13:00:00.000Z' }],
+        processed_at: '2026-09-12T13:00:00.000Z' }],
         document_extractions: [extraction], forgewing_recovery_generation_outcomes: [] }),
       readRecoveryQueue: async () => ({ status: 'read_failed', reason: 'review_read_failed' }),
     });
@@ -418,7 +418,7 @@ describe('document diagnostics read model', () => {
   it('classifies existing processing error text read-only without changing its write path', async () => {
     const result = await readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {
       admin: admin({ documents: [{ id: DOC, processing_error: 'Worker failed',
-        updated_at: '2026-09-12T13:00:00Z' }], document_extractions: [],
+        processed_at: '2026-09-12T13:00:00Z' }], document_extractions: [],
         forgewing_recovery_generation_outcomes: [] }),
       readRecoveryQueue: async () => ({ status: 'ok', candidates: [] }),
     });
@@ -427,11 +427,25 @@ describe('document diagnostics read model', () => {
     });
   });
 
+  it('reads only document columns that exist (documents has no updated_at)', async () => {
+    const selected: string[] = [];
+    const result = await readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {
+      admin: admin({ documents: [{ id: DOC, processing_error: 'Worker failed', processed_at: null,
+        created_at: '2026-09-12T11:00:00Z' }], document_extractions: [],
+        forgewing_recovery_generation_outcomes: [] },
+      (table, columns) => { if (table === 'documents') selected.push(columns); }),
+      readRecoveryQueue: async () => ({ status: 'ok', candidates: [] }),
+    });
+    expect(selected).toEqual(['id, processing_error, processed_at, created_at']);
+    // A failed document may never have been processed; its creation time stands in.
+    expect(result.status === 'ok' && result.diagnostics[0]?.occurredAt).toBe('2026-09-12T11:00:00.000Z');
+  });
+
   it('classifies immutable failed job history and uses it instead of duplicating document error', async () => {
     const jobId = '55555555-5555-4555-8555-555555555555';
     const result = await readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {
       admin: admin({ documents: [{ id: DOC, processing_error: 'Worker failed',
-        updated_at: '2026-09-12T13:00:00Z' }], document_extractions: [],
+        processed_at: '2026-09-12T13:00:00Z' }], document_extractions: [],
         forgewing_recovery_generation_outcomes: [], document_analysis_jobs: [{
           id: jobId, status: 'failed', error_message: 'Worker failed',
           completed_at: '2026-09-12T13:00:00Z',
@@ -501,7 +515,7 @@ describe('document diagnostics read model', () => {
     'keeps a blocking processing diagnostic when runtime text has %i characters', async (length) => {
       const result = await readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {
         admin: admin({ documents: [{ id: DOC, processing_error: 'x'.repeat(length),
-          updated_at: '2026-09-12T13:00:00Z' }], document_extractions: [],
+          processed_at: '2026-09-12T13:00:00Z' }], document_extractions: [],
           forgewing_recovery_generation_outcomes: [] }),
         readRecoveryQueue: async () => ({ status: 'ok', candidates: [] }),
       });

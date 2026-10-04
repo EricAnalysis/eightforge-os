@@ -1795,7 +1795,7 @@ export default function DocumentDetailPage({
             <DiagnosticsPanel documentId={id} />
             {/* Operator-entered values for priced lines extraction could not
                 read. EightForge Core: never gated by Forgewing. */}
-            <ReviewedValuesPanel documentId={id} onChanged={loadAllData} />
+            <ReviewedValuesPanel documentId={id} projectId={project?.id ?? doc.project_id ?? null} onChanged={loadAllData} />
             <DocumentProjectControls
               documentId={id}
               documentLabel={displayTitle}

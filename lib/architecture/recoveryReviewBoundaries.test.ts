@@ -99,6 +99,8 @@ const VISUAL_SOURCE_MODULES = [
   'components/documents/RecoveryReviewPanel.tsx',
   'components/evaluation/forgewing/A3LinkagePdfPage.tsx',
   'components/recovery/SourceEvidencePage.tsx',
+  'lib/recovery/diagnosticVisualEvidence.ts',
+  'lib/recovery/recoveryVisualEvidence.ts',
   'lib/recovery/sourceGeometry.ts',
   'lib/recovery/visualSourceEvidence.ts',
   'lib/server/forgewingRecoveryReviewRead.ts',

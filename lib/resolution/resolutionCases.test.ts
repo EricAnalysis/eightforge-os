@@ -41,6 +41,10 @@ function target(anchor: string, page = 8, rawText = 'Debris removal CY 1 $ sia 5
     anchorKey: anchor, physicalPageNumber: page, pageRepresentationDigest: DIGEST, unresolvedReason: 'header_not_found',
     rawText, sourceObservationIds: [`${anchor}:o1`, `${anchor}:o2`],
     sourceRegion: { coordinate_space: 'source', boxes: [{ x_min: 1, x_max: 2, y_min: 3, y_max: 4 }] },
+    visual: {
+      kind: 'diagnostic', diagnosticId: anchor, summary: rawText, sourceArtifactId: 'artifact-1',
+      sourceDocumentId: CONTRACT, physicalPageNumber: page, pageRepresentationDigest: DIGEST, boxes: [],
+    },
   };
 }
 
@@ -61,6 +65,11 @@ const proposal: PendingRecoveryProposal = {
   proposalId: 'proposal-1', proposalDigestSha256: 'd'.repeat(64), recoveryType: 'pricing_rate_single_observation',
   physicalPageNumber: 9, sourceDocumentId: CONTRACT, recoveryReason: 'ambiguous_rate_clusters', proposedValue: '$8.75',
   certainty: 0.93, reviewState: 'pending_review', evidence: [{ observationId: 'p9:o1', rawText: '8.7S' }],
+  proposalVersion: 1, sourceEvidenceUnbound: false,
+  selectableConfirmations: [
+    { field: 'confirmedObservationId', id: 'p9:o1', rawText: '8.7S', proposed: true, visual: null },
+    { field: 'confirmedObservationId', id: 'p9:o2', rawText: '9.25', proposed: false, visual: null },
+  ],
 };
 
 const DOCUMENTS = [{ id: CONTRACT, title: 'Contract' }, { id: INVOICE, title: 'Invoice' }];
@@ -72,6 +81,7 @@ function queue(params: {
   proposals?: PendingRecoveryProposal[];
   forgewingEnabled?: boolean;
   executionItems?: unknown[];
+  documentPages?: Parameters<typeof buildResolutionQueue>[0]['documentPages'];
 } = {}) {
   const findings = params.findings ?? [];
   const evidenceRows = params.evidence ?? [];
@@ -86,6 +96,7 @@ function queue(params: {
     reviewedValuesByDocument: new Map(params.reviewed ? [[CONTRACT, params.reviewed]] : []),
     recoveryProposals: params.proposals ?? [],
     forgewingEnabled: params.forgewingEnabled ?? false,
+    documentPages: params.documentPages,
   });
 }
 
@@ -154,7 +165,8 @@ describe('ResolutionCase read model (B5-A)', () => {
     }) });
     expect(result.cases).toHaveLength(1);
     expect(result.cases[0]).toMatchObject({
-      kind: 'reviewed_value_needs_rereview', tier: 'missing_authoritative_value', originalSourceText: 'sia 50',
+      kind: 'reviewed_value_needs_rereview', tier: 'missing_authoritative_value',
+      originalSourceText: 'Debris removal CY 1 $ sia 50',
       sourceRefs: { assertionIds: ['a1'], anchorKey: 'p8:a' },
     });
     expect(result.cases[0]!.actions.map((action) => action.kind))
@@ -222,5 +234,108 @@ describe('ResolutionCase read model (B5-A)', () => {
     // Every case belongs to exactly one group.
     expect(result.groups.flatMap((group) => group.caseIds).sort())
       .toEqual(result.cases.map((entry) => entry.caseId).sort());
+  });
+});
+
+describe('ResolutionCase workspace fields (B5-B)', () => {
+  it('gives a re-review case the previous value, previous evidence, current evidence and the reason', () => {
+    const first = assertion('a1', 'p8:a', { reason: 'First read', asserted_at: '2026-10-01T00:00:00Z' });
+    const result = queue({ reviewed: emptyReviewed({
+      entryTargets: [target('p8:a')], history: [first],
+      held: [{ reason: 'page_representation_changed', documentId: CONTRACT, factKey: 'contract_rate_row',
+        anchorKey: 'p8:a', assertionIds: ['a1'] }],
+    }) });
+    const entry = result.cases[0]!;
+    expect(entry.problem).toBe('The page was re-extracted differently since this value was reviewed.');
+    expect(entry.previousReviews).toEqual([{
+      assertionId: 'a1', status: 'active', value: first.asserted_value, valueText: 'Debris removal · CY · 14.5',
+      reason: 'First read',
+      assertedAt: '2026-10-01T00:00:00Z', actorId: 'op', physicalPageNumber: 8, pageRepresentationDigest: DIGEST,
+      observationIds: ['p8:a:o1'], region: first.source_region, originalSourceText: 'sia 50',
+    }]);
+    expect(entry.evidence.map((ref) => ref.role)).toEqual(['current', 'previous']);
+    // Current evidence is drawn from the server's own target; previous evidence is never drawn on today's page.
+    expect(entry.evidence[0]!.visual).toEqual(target('p8:a').visual);
+    expect(entry.evidence[1]).toMatchObject({ visual: null, label: 'sia 50', observationIds: ['p8:a:o1'] });
+    // Withdrawal binds the current target exactly like any other review.
+    expect(entry.actions.find((action) => action.kind === 'withdraw_reviewed_value'))
+      .toMatchObject({ supersedesAssertionId: 'a1', target: { anchorKey: 'p8:a' } });
+  });
+
+  it('offers no review or withdrawal for a held value the current extraction no longer presents', () => {
+    const result = queue({ reviewed: emptyReviewed({
+      entryTargets: [], history: [assertion('a1', 'p8:a')],
+      held: [{ reason: 'page_representation_changed', documentId: CONTRACT, factKey: 'contract_rate_row',
+        anchorKey: 'p8:a', assertionIds: ['a1'] }],
+    }) });
+    expect(result.cases[0]!.actions.map((action) => action.kind)).toEqual(['open_document']);
+    expect(result.cases[0]!.evidence.map((ref) => ref.role)).toEqual(['previous']);
+    expect(result.cases[0]!.originalSourceText).toBeNull();
+  });
+
+  it('labels findings readably and carries the finding and its evidence verbatim', () => {
+    const result = queue({
+      findings: [finding('f1', { rule_id: 'FINANCIAL_RATE_CODE_MISSING', check_key: 'FINANCIAL_RATE_CODE_MISSING' })],
+      evidence: [
+        evidence('f1', 'human_fact_assertion:a9', { note: 'Human-reviewed value (assertion a9)', source_page: 8 }),
+        evidence('f1', 'rate-row-2', { id: 'ev:other', source_page: 99 }),
+      ],
+      documentPages: new Map([[CONTRACT, {
+        sourceDocumentId: CONTRACT, sourceArtifactId: 'artifact-1',
+        pages: new Map([[8, { pageRepresentationDigest: DIGEST }]]),
+      }]]),
+    });
+    const entry = result.cases[0]!;
+    expect(entry.title).not.toContain('FINANCIAL_RATE_CODE_MISSING');
+    expect(entry.title.length).toBeGreaterThan(0);
+    expect(entry.finding).toMatchObject({
+      ruleId: 'FINANCIAL_RATE_CODE_MISSING', severity: 'warning', field: 'unit_price', expected: '12.75', actual: '13',
+    });
+    const [reviewed, other] = entry.evidence; // ordered by evidence id
+    expect(reviewed).toMatchObject({
+      role: 'supporting',
+      detail: { evidenceType: 'rate_schedule', fieldName: 'rate_amount', value: '12.75', humanReviewed: true },
+      // The page is shown without a guessed highlight.
+      visual: { kind: 'diagnostic', sourceArtifactId: 'artifact-1', physicalPageNumber: 8, boxes: [] },
+    });
+    // A page that is not a current verified page is not shown.
+    expect(other).toMatchObject({ visual: null, detail: { humanReviewed: false } });
+    expect(entry.actions[0]).toMatchObject({ kind: 'link_invoice_line_rate', invoiceLineSubjectId: 'line:f1' });
+    expect(result.groups[0]).toMatchObject({ findingCount: 1 });
+  });
+
+  it('never titles a case with a raw rule or check key', () => {
+    const result = queue({ findings: [
+      finding('nte', { rule_id: 'FINANCIAL_NTE_FACT_MISSING', check_key: 'FINANCIAL_NTE_FACT_MISSING:project-b5a',
+        problem: 'Nte Amount does not match the expected project truth.' } as Partial<ValidationFinding>),
+    ] });
+    const entry = result.cases[0]!;
+    expect(entry.title).not.toMatch(/[A-Z]{3,}_[A-Z_]{3,}/);
+    expect(entry.title.length).toBeGreaterThan(0);
+    expect(entry.finding!.ruleId).toBe('FINANCIAL_NTE_FACT_MISSING');
+    expect(entry.problem).not.toBe(entry.title);
+  });
+
+  it('carries the recovery confirmations the server derived, by exact id, without a value', () => {
+    const enabled = queue({ proposals: [proposal], forgewingEnabled: true });
+    const action = enabled.cases[0]!.actions[0]!;
+    expect(action).toMatchObject({
+      kind: 'review_recovery_proposal', proposalVersion: 1, sourceEvidenceUnbound: false,
+      selectableConfirmations: [
+        { field: 'confirmedObservationId', id: 'p9:o1', proposed: true },
+        { field: 'confirmedObservationId', id: 'p9:o2', proposed: false },
+      ],
+    });
+  });
+
+  it('counts findings per group, and only findings', () => {
+    const result = queue({
+      findings: [finding('f1'), finding('f2')],
+      evidence: [evidence('f1', 'row-1'), evidence('f2', 'row-1')],
+      reviewed: emptyReviewed({ entryTargets: [target('p8:a')] }),
+    });
+    const groups = new Map(result.groups.map((group) => [group.rootCauseKey, group]));
+    expect(groups.get(`rate_row:${CONTRACT}:row-1`)!.findingCount).toBe(2);
+    expect(groups.get(`unresolved_page:${CONTRACT}:8`)!.findingCount).toBe(0);
   });
 });

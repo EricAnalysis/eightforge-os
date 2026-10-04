@@ -9,6 +9,7 @@ import { ValidatorDecisionExecutionPanel } from '@/components/validator/Validato
 import { ValidatorEvidenceDrawer } from '@/components/validator/ValidatorEvidenceDrawer';
 import { ValidatorFindingsPanel } from '@/components/validator/ValidatorFindingsPanel';
 import { getIssueDisplayLabel } from '@/lib/issueDisplayFormatter';
+import { resolutionWorkspaceHref } from '@/lib/resolution/resolutionDeepLink';
 import type { IssueObject } from '@/lib/issueObjects';
 import {
   resolveValidationSummaryFromProjectFacts,
@@ -1048,6 +1049,13 @@ export function ValidatorTab({
             Findings are read only. Evidence &amp; Truth is read only. Only Decision &amp; Execution writes,
             and only through Execution.
           </p>
+          <Link
+            href={resolutionWorkspaceHref(projectId, { findingId: selectedIssue?.findingId ?? null })}
+            data-testid="validator-resolve-link"
+            className="mt-2 inline-block text-[11px] font-semibold text-[var(--ef-purple-primary)] hover:underline"
+          >
+            {selectedIssue?.findingId ? 'Resolve this finding in the workspace' : 'Open the Resolution Workspace'}
+          </Link>
         </div>
 
         {loading ? (

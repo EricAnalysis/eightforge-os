@@ -5,6 +5,8 @@ import type { HumanReviewReceipt } from '@/lib/humanFactAssertions/humanReviewRe
 import { HUMAN_REVIEWED_EVIDENCE_PREFIX } from '@/lib/validator/humanReviewedEvidence';
 import { isSupportedPricedScheduleVersion } from '@/lib/extraction/pdf/pricedScheduleVersion';
 import type { PricedSchedulePage } from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
+import { pageVisualEvidence, parseDiagnosticSourceRefs } from '@/lib/recovery/diagnosticVisualEvidence';
+import type { DiagnosticVisualSourceEvidence } from '@/lib/recovery/visualSourceEvidence';
 
 /**
  * Region-bound human-reviewed values (Forgewing resolution layer B3).
@@ -400,7 +402,8 @@ export function currentDocumentEvidenceFromExtractionData(data: unknown): Curren
   return { pageRepresentationDigestByPage: digests, reconstructionRowObservationIds: rowObservations };
 }
 
-function formatValue(value: unknown): string {
+/** Display text for a reviewed value, as every human-reviewed label writes it. */
+export function formatReviewedValue(value: unknown): string {
   const rate = parseReviewedRateRowValue(value);
   if (rate) return `${rate.description} · ${rate.unit_type} · ${rate.rate_amount}`;
   return typeof value === 'string' ? value : JSON.stringify(value);
@@ -417,13 +420,13 @@ export function describeHumanReviewedValue(params: {
   /** The Forgewing proposal's value, resolved from its own non-authoritative record. */
   forgewingSuggestedValue?: unknown;
 }): string {
-  const parts = [`${HUMAN_REVIEWED_EVIDENCE_PREFIX} value: ${formatValue(params.value)}`];
+  const parts = [`${HUMAN_REVIEWED_EVIDENCE_PREFIX} value: ${formatReviewedValue(params.value)}`];
   parts.push(params.provenance.originalSourceText != null
     ? `extraction read "${params.provenance.originalSourceText}"`
     : 'extraction produced no value');
   if (params.forgewingSuggestedValue !== undefined
     && JSON.stringify(params.forgewingSuggestedValue) !== JSON.stringify(params.value)) {
-    parts.push(`Forgewing suggested ${formatValue(params.forgewingSuggestedValue)}; operator entered ${formatValue(params.value)}`);
+    parts.push(`Forgewing suggested ${formatReviewedValue(params.forgewingSuggestedValue)}; operator entered ${formatReviewedValue(params.value)}`);
   }
   parts.push(`page ${params.provenance.physicalPageNumber}`);
   parts.push(`assertion ${params.provenance.assertionId}`);
@@ -566,6 +569,8 @@ export type RegionAssertionEntryTarget = Readonly<{
   rawText: string;
   sourceObservationIds: readonly string[];
   sourceRegion: SourceRegion;
+  /** The line drawn on its source page, built on the server; null when the page cannot be shown. */
+  visual: DiagnosticVisualSourceEvidence | null;
 }>;
 
 /**
@@ -574,7 +579,10 @@ export type RegionAssertionEntryTarget = Readonly<{
  * representation is known. Derived on the server from the current extraction,
  * so the client never supplies an anchor of its own.
  */
-export function regionAssertionEntryTargets(extractionData: unknown): RegionAssertionEntryTarget[] {
+export function regionAssertionEntryTargets(
+  extractionData: unknown,
+  sourceDocumentId: string | null = null,
+): RegionAssertionEntryTarget[] {
   const current = currentDocumentEvidenceFromExtractionData(extractionData);
   const pdf = asRecord(asRecord(asRecord(asRecord(extractionData)?.extraction)?.content_layers_v1)?.pdf);
   const unresolved = asRecord(pdf?.priced_schedule_reconstruction_v1)?.unresolved_pages;
@@ -595,14 +603,24 @@ export function regionAssertionEntryTargets(extractionData: unknown): RegionAsse
         : []);
       // Only lines whose every token carries an observation identity can be bound exactly.
       if (ids.length === 0 || ids.length !== refs.length || typeof line?.raw_text !== 'string' || typeof line?.y !== 'number') continue;
+      const anchorKey = `p${pageNumber}:priced_line:${hashCanonical(ids).slice(0, 32)}`;
       targets.push({
-        anchorKey: `p${pageNumber}:priced_line:${hashCanonical(ids).slice(0, 32)}`,
+        anchorKey,
         physicalPageNumber: pageNumber,
         pageRepresentationDigest: digest,
         unresolvedReason: typeof page.reason === 'string' ? page.reason : 'unresolved',
         rawText: line.raw_text,
         sourceObservationIds: ids,
         sourceRegion: { coordinate_space: 'source', boxes },
+        visual: sourceDocumentId ? pageVisualEvidence({
+          evidenceId: anchorKey,
+          summary: `Page ${pageNumber} · extraction read: ${line.raw_text}`,
+          extractionData,
+          sourceDocumentId,
+          physicalPageNumber: pageNumber,
+          pageRepresentationDigest: digest,
+          refs: parseDiagnosticSourceRefs(line.source_refs),
+        }) : null,
       });
     }
   }
@@ -636,6 +654,6 @@ export function documentReviewedValueState(params: {
     history,
     effective: resolution.effective,
     held: resolution.held,
-    entryTargets: regionAssertionEntryTargets(params.extractionData),
+    entryTargets: regionAssertionEntryTargets(params.extractionData, params.documentId),
   };
 }

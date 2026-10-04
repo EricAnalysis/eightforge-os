@@ -577,7 +577,7 @@ export async function readDocumentDiagnostics(
     ? getSupabaseAdmin() as unknown as DiagnosticReadClient | null : dependencies.admin;
   if (!admin) return { status: 'not_configured' };
   const [documentRead, extractionRead, outcomeRead, jobRead, reviewRead] = await Promise.all([
-    admin.from('documents').select('id, processing_error, updated_at').eq('organization_id', query.organizationId)
+    admin.from('documents').select('id, processing_error, processed_at, created_at').eq('organization_id', query.organizationId)
       .eq('id', query.sourceDocumentId),
     admin.from('document_extractions').select('id, data, created_at').eq('organization_id', query.organizationId)
       .eq('document_id', query.sourceDocumentId).is('field_key', null),
@@ -621,7 +621,7 @@ export async function readDocumentDiagnostics(
       sourceArtifactId: null, physicalPageNumber: null, pageRepresentationDigest: null,
       evidenceRefs: [],
       extractionSnapshotId: latest ? String(latest.id) : null,
-      occurredAt: iso(document.updated_at ?? latest?.created_at) });
+      occurredAt: iso(document.processed_at ?? latest?.created_at) });
     if (item) diagnostics.push(item);
   }
   const sourceArtifactId = latestData ? extractionSourceArtifactId(latestData) : null;
@@ -636,7 +636,7 @@ export async function readDocumentDiagnostics(
         sourceArtifactId: null, physicalPageNumber: null, pageRepresentationDigest: null,
         evidenceRefs: [],
         extractionSnapshotId: latest ? String(latest.id) : null,
-        occurredAt: iso(document.updated_at ?? latest?.created_at) });
+        occurredAt: iso(document.processed_at ?? latest?.created_at) });
       if (item) diagnostics.push(item);
     } else if (confirmationRead.status === 'ok') {
       for (const authority of confirmationRead.diagnostics) {
@@ -687,7 +687,7 @@ export async function readDocumentDiagnostics(
       organizationId: query.organizationId, sourceDocumentId: query.sourceDocumentId,
       sourceArtifactId: null, physicalPageNumber: null, pageRepresentationDigest: null,
       summary: document.processing_error, evidenceRefs: [], extractionSnapshotId: null,
-      occurredAt: iso(document.updated_at) });
+      occurredAt: iso(document.processed_at ?? document.created_at) });
     if (item) diagnostics.push(item);
   }
   const currentPageDigests = latestData ? extractionPageRepresentationDigests(latestData) : new Map();

@@ -18,12 +18,15 @@
 -- Production records this migration as applied without running it, because
 -- on production it is a no-op.
 --
--- Application code still writes some repo-only objects. They are dropped here
--- so that both paths stay identical, then re-added by a later forward
--- migration that production also runs
--- (20261003120100_project_approval_snapshot_attribution_columns):
---   project_approval_snapshots.run_id, triggering_decision_id and created_by,
---   and their two partial indexes (written by lib/server/approvalSnapshots.ts).
+-- Application code still depends on some repo-only objects. They are dropped
+-- here so that both paths stay identical, then re-added by later forward
+-- migrations that production also runs:
+--   20261003120100_project_approval_snapshot_attribution_columns:
+--     project_approval_snapshots.run_id, triggering_decision_id and created_by,
+--     and their two partial indexes (written by lib/server/approvalSnapshots.ts).
+--   20261003120200_state_projection_shadow_mismatches_natural_key:
+--     idx_state_projection_shadow_mismatches_natural_key, the conflict target
+--     of app/api/projects/[id]/shadow-mismatches/route.ts.
 --
 -- Production also differs from this repo in ways this migration reproduces
 -- rather than corrects: it has no foreign keys on document_fact_overrides or

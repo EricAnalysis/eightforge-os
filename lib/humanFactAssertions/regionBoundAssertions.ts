@@ -628,6 +628,23 @@ export function regionAssertionEntryTargets(
 }
 
 /**
+ * Entry targets still open for review: no effective or held reviewed value
+ * covers the anchor. Shared by the resolution queue's unreadable-line cases and
+ * the value-reading engine, so both agree on exactly which lines are open.
+ */
+export function openRegionAssertionEntryTargets(state: Readonly<{
+  effective: readonly EffectiveRegionAssertion[];
+  held: readonly HeldRegionAssertion[];
+  entryTargets: readonly RegionAssertionEntryTarget[];
+}>): RegionAssertionEntryTarget[] {
+  const effectiveAnchors = new Set(state.effective.map((entry) => entry.anchorKey));
+  // A held group of competing anchors is keyed by their sorted, comma-joined keys.
+  const heldAnchors = new Set(state.held.flatMap((entry) => entry.anchorKey.split(',')));
+  return state.entryTargets.filter((target) =>
+    !effectiveAnchors.has(target.anchorKey) && !heldAnchors.has(target.anchorKey));
+}
+
+/**
  * One document's reviewed-value state against its current extraction: the
  * full history, what is effective, what is held, and the lines still open for
  * review. Shared by the document route and the resolution queue so both

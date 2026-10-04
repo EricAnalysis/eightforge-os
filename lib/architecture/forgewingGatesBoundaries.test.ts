@@ -33,15 +33,21 @@ describe('Forgewing B4.1 gate boundaries', () => {
     expect(source).toContain('RESERVE_FORGEWING_PROVIDER_CALL_RPC');
   });
 
-  it('nothing in the product grants a data-processing authorization or spends the budget yet', () => {
+  it('nothing in the product grants a data-processing authorization', () => {
     const offenders = production().filter((file) => file !== GATES).filter((file) => {
       const source = code(file);
       return source.includes('organization_forgewing_data_policy_events')
-        || source.includes('FORGEWING_DATA_POLICY_EVENTS_TABLE')
-        || source.includes('reserveForgewingProviderCall')
-        || source.includes('reserve_forgewing_provider_call');
+        || source.includes('FORGEWING_DATA_POLICY_EVENTS_TABLE');
     });
     expect(offenders).toEqual([]);
+  });
+
+  it('only the value-reading engine spends the budget (B4.3)', () => {
+    const spenders = production().filter((file) => file !== GATES).filter((file) => {
+      const source = code(file);
+      return source.includes('reserveForgewingProviderCall') || source.includes('reserve_forgewing_provider_call');
+    });
+    expect(spenders).toEqual([path.join('lib', 'server', 'valueReadingEngine.ts')]);
   });
 
   it('no Core path consults a Forgewing gate', () => {

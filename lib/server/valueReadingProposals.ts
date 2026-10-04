@@ -391,3 +391,91 @@ export async function loadValueReadingRecords(
   });
   return { proposals, reviews };
 }
+
+/** The stored proposal that already answered this exact request, if any. Reuse first, call never. */
+export async function loadValueReadingProposalByRequestDigest(
+  admin: ValueReadingClient,
+  query: Readonly<{ organizationId: string; requestDigestSha256: string }>,
+): Promise<ValueReadingProposalRecord | null> {
+  const read = await admin.from(VALUE_READING_PROPOSAL_TABLE).select(VALUE_READING_PROPOSAL_SELECT)
+    .eq('organization_id', query.organizationId)
+    .eq('proposal_version', VALUE_READING_PROPOSAL_VERSION)
+    .eq('request_digest_sha256', query.requestDigestSha256);
+  if (read.error) throw new Error(`Failed to read value reading: ${read.error.message ?? 'unknown error'}`);
+  const parsed = (Array.isArray(read.data) ? read.data : []).flatMap((row) => {
+    const record = row && typeof row === 'object' ? parseValueReadingProposalRow(row as Record<string, unknown>) : null;
+    return record && record.binding.organizationId === query.organizationId ? [record] : [];
+  });
+  return parsed[0] ?? null;
+}
+
+export const RECORD_VALUE_READING_OUTCOME_RPC = 'record_forgewing_recovery_generation_outcome' as const;
+
+/** Why a value-reading attempt ended without a proposal. Non-authoritative; explains only. */
+export type ValueReadingOutcomeCode =
+  | 'entitlement_missing'
+  | 'data_policy_not_approved'
+  | 'budget_exhausted'
+  | 'provider_failed'
+  | 'structured_output_invalid'
+  | 'deterministic_validation_failed'
+  | 'evidence_binding_failed'
+  | 'proposal_persist_failed';
+
+export type ValueReadingOutcomeReason =
+  | 'no_entitlement' | 'entitlement_revoked'
+  | 'data_policy_not_approved' | 'data_policy_revoked'
+  | 'budget_exhausted' | 'budget_not_configured'
+  | 'provider_timeout' | 'provider_truncated_output' | 'provider_error'
+  | 'invalid_json' | 'invalid_proposal'
+  | 'proposal_value_validation_failed'
+  | 'binding_changed' | 'region_image_unavailable'
+  | 'write_failed';
+
+export type ValueReadingOutcome = Readonly<{
+  binding: Pick<ValueReadingBinding, 'organizationId' | 'sourceDocumentId' | 'sourceArtifactId'
+    | 'extractionSnapshotId' | 'physicalPageNumber' | 'pageRepresentationDigest'>;
+  requestDigestSha256: string;
+  /** The reservation this attempt spent, when it reached the provider. Distinguishes attempts. */
+  reservationId: string | null;
+  outcomeCode: ValueReadingOutcomeCode;
+  sanitizedReason: ValueReadingOutcomeReason;
+  providerInvoked: boolean;
+}>;
+
+/** One attempt, one identity: a gate refusal of the same request is recorded once. */
+export function valueReadingOutcomeId(outcome: ValueReadingOutcome): string {
+  return hashCanonical({
+    kind: 'value_reading_outcome_v1',
+    organizationId: outcome.binding.organizationId,
+    requestDigestSha256: outcome.requestDigestSha256,
+    reservationId: outcome.reservationId,
+    outcomeCode: outcome.outcomeCode,
+    sanitizedReason: outcome.sanitizedReason,
+  });
+}
+
+export async function recordValueReadingOutcome(
+  admin: ValueReadingClient,
+  outcome: ValueReadingOutcome,
+): Promise<Readonly<{ status: 'recorded'; diagnosticId: string } | { status: 'failed'; reason: string }>> {
+  const diagnosticId = valueReadingOutcomeId(outcome);
+  const { data, error } = await admin.rpc(RECORD_VALUE_READING_OUTCOME_RPC, {
+    p_organization_id: outcome.binding.organizationId,
+    p_source_document_id: outcome.binding.sourceDocumentId,
+    p_source_artifact_id: outcome.binding.sourceArtifactId,
+    p_extraction_snapshot_id: outcome.binding.extractionSnapshotId,
+    p_physical_page_number: outcome.binding.physicalPageNumber,
+    p_page_representation_digest: outcome.binding.pageRepresentationDigest,
+    p_diagnostic_id: diagnosticId,
+    p_recovery_type: VALUE_READING_RECOVERY_TYPE,
+    p_outcome_code: outcome.outcomeCode,
+    p_sanitized_reason: outcome.sanitizedReason,
+    p_provider_invoked: outcome.providerInvoked,
+    p_candidate_ids: [],
+  });
+  if (error) return { status: 'failed', reason: error.message ?? 'value-reading outcome rejected' };
+  const row = Array.isArray(data) ? data[0] as { outcome_row_id?: unknown } | undefined : undefined;
+  return row && typeof row.outcome_row_id === 'string'
+    ? { status: 'recorded', diagnosticId } : { status: 'failed', reason: 'record function returned no outcome' };
+}

@@ -165,6 +165,7 @@ function projectRow(
     authored_quarantine: authoredQuarantine,
     raw_value: row.rawValues,
     ...keys,
+    ...(row.sourceFamily.humanReview ? { human_review: row.sourceFamily.humanReview } : {}),
   } satisfies RateScheduleItem;
 }
 

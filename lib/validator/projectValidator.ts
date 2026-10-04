@@ -157,6 +157,18 @@ import type {
 } from '@/types/validator';
 import { isBlockingFinding } from '@/lib/validator/findingSemantics';
 import { completeEffectiveInvoiceLineCanonicalFields } from '@/lib/validator/effectiveInvoiceLineCompletion';
+import {
+  currentDocumentEvidenceFromExtractionData,
+  describeHumanReviewedValue,
+  resolveRegionBoundAssertions,
+  reviewedContractPricingRows,
+  reviewedDocumentFieldAssertions,
+  type CurrentDocumentEvidence,
+  type EffectiveRegionAssertion,
+  type HeldRegionAssertion,
+  type HumanFactAssertionRow,
+} from '@/lib/humanFactAssertions/regionBoundAssertions';
+import { loadRegionBoundAssertionRows, type RegionAssertionClient } from '@/lib/server/regionBoundHumanAssertions';
 
 const PACK_REQUIRED_SOURCES = 'required_sources';
 const PACK_IDENTITY_CONSISTENCY = 'identity_consistency';
@@ -1245,6 +1257,12 @@ async function loadLegacyExtractionRows(
   return rowsByDocumentId;
 }
 
+async function loadRegionAssertionRows(documentIds: readonly string[]) {
+  const admin = getSupabaseAdmin();
+  if (!admin) throw new Error('Server validation client is not configured.');
+  return loadRegionBoundAssertionRows(admin as unknown as RegionAssertionClient, documentIds);
+}
+
 async function loadDocumentFactOverrides(
   documentIds: readonly string[],
 ): Promise<DocumentFactOverrideRow[]> {
@@ -1591,6 +1609,8 @@ export function buildFactsByDocumentId(params: {
   legacyRowsByDocumentId: Map<string, ValidatorLegacyExtractionRow>;
   overrideRows: readonly DocumentFactOverrideRow[];
   reviewRows: readonly DocumentFactReviewRow[];
+  /** Effective region-bound human assertions (B3) for document fields. */
+  regionAssertions?: readonly EffectiveRegionAssertion[];
 }): {
   factsByDocumentId: Map<string, ValidatorFactRecord[]>;
   allFacts: ValidatorFactRecord[];
@@ -1760,6 +1780,27 @@ export function buildFactsByDocumentId(params: {
           note,
         }),
       );
+    }
+
+    for (const assertion of reviewedDocumentFieldAssertions(params.regionAssertions ?? [])) {
+      if (assertion.documentId !== document.id) continue;
+      const record = factRecord({
+        documentId: document.id,
+        key: assertion.factKey,
+        value: assertion.value,
+        source: 'human_assertion',
+        fieldType: null,
+        note: describeHumanReviewedValue({ value: assertion.value, provenance: assertion.provenance }),
+      });
+      // The value is bound to an exact page; evidence points there.
+      facts.push({
+        ...record,
+        evidence: record.evidence.map((entry) => ({
+          ...entry,
+          source_page: assertion.provenance.physicalPageNumber,
+          record_id: `human_fact_assertion:${assertion.provenance.assertionId}`,
+        })),
+      });
     }
 
     factsByDocumentId.set(document.id, collapseEffectiveFactRecords(facts));
@@ -1964,8 +2005,13 @@ export function buildRateScheduleItems(params: {
     authoredValueCorrection: row.authoredValueCorrection,
     rate_raw: row.rawText,
     raw_text: row.rawText,
+    human_review: row.humanReview ?? null,
   }));
-  const categorylessPersistedCompatibilityRows = assembledRateRows.length > 0
+  // Human-reviewed rows (B3) are additive truth for regions extraction did not
+  // price. They never stand in for deterministic coverage, so they cannot
+  // suppress a document's fallback rows.
+  const deterministicAssembledRowCount = assembledRateRows.filter((row) => row.human_review == null).length;
+  const categorylessPersistedCompatibilityRows = deterministicAssembledRowCount > 0
     ? []
     : (params.contractValidationContext?.analysis.rate_schedule_rows ?? [])
       .filter((row) => {
@@ -2009,16 +2055,20 @@ export function buildRateScheduleItems(params: {
       (row as { source_document_id?: string | null }).source_document_id
       ?? params.contractValidationContext?.document_id
       ?? 'contract_summary';
-    const item = normalizeRateScheduleItem(
+    const normalized = normalizeRateScheduleItem(
       row,
       sourceDocumentId,
       row.row_id ?? `contract_rate_row:${index + 1}`,
     );
+    // A human-reviewed row keeps its receipt, so every downstream consumer can
+    // show it as human-reviewed and trace it to its assertion.
+    const humanReview = (row as { human_review?: RateScheduleItem['human_review'] }).human_review ?? null;
+    const item = normalized && humanReview ? { ...normalized, human_review: humanReview } : normalized;
     // A document counts as covered only once it has actually contributed an
     // item. Deriving coverage from the raw input instead would let a document
     // whose rows all normalized away suppress its own fact rows and lose the
     // pricing entirely — silence rather than double-counting, but still a loss.
-    if (item != null) assembledSourceDocumentIds.add(sourceDocumentId);
+    if (item != null && humanReview == null) assembledSourceDocumentIds.add(sourceDocumentId);
     pushItem(item);
   }
 
@@ -2399,7 +2449,8 @@ function prepareContractValidationContext(
       facts.some(
         (fact) =>
           fact.key === key
-          && (fact.source === 'human_override' || fact.source === 'human_review'),
+          && (fact.source === 'human_override' || fact.source === 'human_assertion'
+            || fact.source === 'human_review'),
       ),
     );
 
@@ -2515,6 +2566,9 @@ function prepareContractValidationContext(
     const document = params.documents.find((candidate) => candidate.id === contractDocumentId) ?? null;
     if (document) {
       const contractFacts = params.factsByDocumentId.get(contractDocumentId) ?? [];
+      // Region-bound assertions (B3) are deliberately not counted here: they
+      // price regions through assembled rows and must not switch the contract
+      // context onto the low-fidelity synthetic re-derivation below.
       const hasHumanOverrides = contractFacts.some(
         (fact) => fact.source === 'human_override' || fact.source === 'human_review',
       );
@@ -3316,6 +3370,8 @@ export type ValidatorSourceSnapshot = {
   readonly contractUploadGuidanceRateScheduleIncluded: ContractUploadGuidanceRateScheduleIncluded | null;
   readonly invoiceLineRateLinkRows: readonly InvoiceLineRateLinkRow[];
   readonly sourceArtifactSnapshotDigest: string | null;
+  /** Reviewed values withheld fail-closed (stale page, ambiguity); surfaced, never applied. */
+  readonly heldRegionAssertions?: readonly HeldRegionAssertion[];
 };
 
 /**
@@ -3338,6 +3394,7 @@ export async function loadValidatorSourceSnapshot(
     loadTickets,
     transactionData,
     sourceArtifactSnapshotResult,
+    regionAssertionRead,
   ] =
     await Promise.all([
       loadExtractionFactRows(documentIds),
@@ -3352,7 +3409,12 @@ export async function loadValidatorSourceSnapshot(
         documentIds,
       }),
       loadSourceArtifactSnapshot({ project, documents }),
+      loadRegionAssertionRows(documentIds),
     ]);
+  const regionAssertionResolution = resolveRegionAssertionsForSnapshot({
+    rows: regionAssertionRead.rows,
+    legacyRowsByDocumentId,
+  });
 
   const sourceArtifactSnapshot = sourceArtifactSnapshotResult.entries;
 
@@ -3402,6 +3464,7 @@ export async function loadValidatorSourceSnapshot(
     legacyRowsByDocumentId,
     overrideRows,
     reviewRows,
+    regionAssertions: regionAssertionResolution.effective,
   });
   const scopedInvoiceTruth = resolveValidationInvoiceScope({
     invoices: baseInvoices,
@@ -3443,9 +3506,20 @@ export async function loadValidatorSourceSnapshot(
     preparedContractValidationContext,
   );
   const contractValidationContext = contractPricingExecution.contractValidationContext;
-  const assembledContractPricingRows = retainAssembledContractPricingRows(
-    contractPricingExecution.assembly.selectedRows,
-  );
+  // Human-reviewed rate rows (B3) join the one assembled-row list that both the
+  // legacy projection and canonical truth consume. Only documents that are rate
+  // sources in this execution contribute, exactly as for extracted rows.
+  const reviewedRateDocumentIds = new Set(uniqueDocumentIds([
+    ...truthCategoryDocumentIds.contract_identity,
+    ...truthCategoryDocumentIds.pricing,
+  ]).filter((documentId) => !excludedValidationDocumentIds.has(documentId)));
+  const assembledContractPricingRows = retainAssembledContractPricingRows([
+    ...contractPricingExecution.assembly.selectedRows,
+    ...reviewedContractPricingRows({
+      effective: regionAssertionResolution.effective,
+      rateDocumentIds: reviewedRateDocumentIds,
+    }),
+  ]);
   const baseFactLookups = buildFactLookups({
     factsByDocumentId,
     contractValidationContext,
@@ -3483,7 +3557,25 @@ export async function loadValidatorSourceSnapshot(
     contractUploadGuidanceRateScheduleIncluded: contractUploadGuidance?.rate_schedule_included ?? null,
     invoiceLineRateLinkRows,
     sourceArtifactSnapshotDigest: buildSourceArtifactSnapshotDigest(sourceArtifactSnapshot),
+    heldRegionAssertions: regionAssertionResolution.held,
   };
+}
+
+/**
+ * Region-bound human assertions against each document's current extraction.
+ * Pure over loaded rows: the current page digests and priced observations come
+ * from the extraction blob this snapshot already loaded, never a second read.
+ */
+export function resolveRegionAssertionsForSnapshot(params: {
+  rows: readonly HumanFactAssertionRow[];
+  legacyRowsByDocumentId: ReadonlyMap<string, ValidatorLegacyExtractionRow>;
+}): { effective: readonly EffectiveRegionAssertion[]; held: readonly HeldRegionAssertion[] } {
+  if (params.rows.length === 0) return { effective: [], held: [] };
+  const currentEvidenceByDocumentId = new Map<string, CurrentDocumentEvidence>();
+  for (const [documentId, row] of params.legacyRowsByDocumentId) {
+    currentEvidenceByDocumentId.set(documentId, currentDocumentEvidenceFromExtractionData(row.data ?? null));
+  }
+  return resolveRegionBoundAssertions({ rows: params.rows, currentEvidenceByDocumentId });
 }
 
 /**
@@ -3676,6 +3768,40 @@ export function buildValidatorInputFromSourceSnapshot(
   };
 }
 
+/**
+ * Labels every piece of rate evidence that rests on a human-reviewed rate row
+ * (B3), in every rule pack, so no rendered consumer can show the value as a
+ * machine reading. Adds the page when the pack did not record one. Changes
+ * nothing for rows without a review receipt.
+ */
+export function labelHumanReviewedRateEvidence(
+  findings: readonly ValidatorFindingResult[],
+  rateScheduleItems: readonly RateScheduleItem[],
+): ValidatorFindingResult[] {
+  const receipts = new Map(rateScheduleItems.flatMap((item) =>
+    item.human_review ? [[item.record_id, item.human_review] as const] : []));
+  if (receipts.size === 0) return [...findings];
+  return findings.map((finding) => {
+    if (!finding.evidence.some((entry) => entry.record_id != null && receipts.has(entry.record_id))) return finding;
+    return {
+      ...finding,
+      evidence: finding.evidence.map((entry) => {
+        const receipt = entry.record_id != null ? receipts.get(entry.record_id) : undefined;
+        if (!receipt) return entry;
+        const read = receipt.original_source_text != null
+          ? `extraction read "${receipt.original_source_text}"`
+          : 'extraction produced no value';
+        return {
+          ...entry,
+          source_page: entry.source_page ?? receipt.physical_page_number,
+          note: `Human-reviewed contract rate (operator entered on page ${receipt.physical_page_number}; ${read}; `
+            + `assertion ${receipt.assertion_id}). ${entry.note ?? ''}`.trim(),
+        };
+      }),
+    };
+  });
+}
+
 function finalizeResult(
   findings: readonly ValidatorFindingResult[],
   rulesApplied: readonly string[],
@@ -3799,7 +3925,7 @@ export function executeProjectValidation(
       // and return the blocked result without running financial or ticket checks.
       return {
         input,
-        result: finalizeResult(findings, rulesApplied, {
+        result: finalizeResult(labelHumanReviewedRateEvidence(findings, input.factLookups.rateScheduleItems), rulesApplied, {
           contractInvoiceReconciliation,
           invoiceTransactionReconciliation,
           crossDocumentRateVerification,
@@ -3883,7 +4009,7 @@ export function executeProjectValidation(
 
   return {
     input,
-    result: finalizeResult(findings, rulesApplied, {
+    result: finalizeResult(labelHumanReviewedRateEvidence(findings, input.factLookups.rateScheduleItems), rulesApplied, {
       contractInvoiceReconciliation,
       invoiceTransactionReconciliation,
       crossDocumentRateVerification,

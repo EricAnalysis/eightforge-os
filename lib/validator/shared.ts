@@ -1,3 +1,4 @@
+import type { HumanReviewReceipt } from '@/lib/humanFactAssertions/humanReviewReceipt';
 import type {
   DocumentRelationshipRecord,
   ResolvedDocumentPrecedenceFamily,
@@ -159,6 +160,7 @@ export type ValidatorTruthCategoryDocumentIds = {
 
 export type ValidatorFactSource =
   | 'human_override'
+  | 'human_assertion'
   | 'human_review'
   | 'canonical_contract_intelligence'
   | 'normalized_row'
@@ -220,6 +222,8 @@ export type RateScheduleItem = {
   manual_rate_link_contract_rate_row_id?: string | null;
   manual_rate_link_reason?: string | null;
   manual_rate_link_created_at?: string | null;
+  /** Present only on a row whose authority is a human-reviewed region assertion (B3). */
+  human_review?: HumanReviewReceipt | null;
 };
 
 export type ProjectTotals = {
@@ -1320,6 +1324,7 @@ export function buildValidationSummary(
 function compareFactPriority(left: ValidatorFactRecord, right: ValidatorFactRecord): number {
   const priority: Record<ValidatorFactSource, number> = {
     human_override: 0,
+    human_assertion: 0.5,
     human_review: 1,
     canonical_contract_intelligence: 2,
     normalized_row: 3,

@@ -34,6 +34,7 @@ import {
   requiresReview,
   unresolvedMapping,
   type CanonicalEvidenceRef,
+  type CanonicalOperatorReview,
   type CanonicalPrecedenceRef,
   type TruthEnvelope,
 } from '@/lib/canonical/truth/envelope';
@@ -51,6 +52,32 @@ import {
   type CanonicalPricingUnresolvedReason,
   type CanonicalRateScheduleRef,
 } from '@/lib/canonical/contract/pricing';
+
+// ─── Human-reviewed rows ─────────────────────────────────────────────────────
+
+/**
+ * The operator review behind a human-reviewed row (B3), or null. The row's
+ * values were entered by an operator for a source region extraction could not
+ * price, so its core envelopes record that review instead of presenting as
+ * unreviewed machine readings.
+ */
+function operatorReviewOf(candidate: CanonicalContractPricingCandidate): CanonicalOperatorReview | null {
+  const receipt = candidate.sourceFamily.humanReview;
+  if (!receipt) return null;
+  return {
+    status: 'corrected',
+    actorId: receipt.actor_id,
+    reason: receipt.reason,
+    reviewedAt: receipt.asserted_at,
+  };
+}
+
+function withOperatorReview<T>(
+  envelope: TruthEnvelope<T>,
+  review: CanonicalOperatorReview | null,
+): TruthEnvelope<T> {
+  return review ? { ...envelope, operatorReview: review } : envelope;
+}
 
 // ─── Display-group classification ────────────────────────────────────────────
 
@@ -376,10 +403,12 @@ export function resolveCanonicalPricingRow(
     evidence,
     rawText,
   );
+  const operatorReview = operatorReviewOf(candidate);
   const category = categoryEnvelope(candidate, evidence);
-  const description = observedEnvelope(candidate.description, evidence, candidate.rawValues.description);
-  const unit = observedEnvelope(candidate.unit, evidence, rawText);
-  const baseRate = observedEnvelope(candidate.rate, evidence, rawText);
+  const description = withOperatorReview(
+    observedEnvelope(candidate.description, evidence, candidate.rawValues.description), operatorReview);
+  const unit = withOperatorReview(observedEnvelope(candidate.unit, evidence, rawText), operatorReview);
+  const baseRate = withOperatorReview(observedEnvelope(candidate.rate, evidence, rawText), operatorReview);
 
   const extractionConflicted =
     hasRateDisagreementInMergeDiagnostics(candidate)

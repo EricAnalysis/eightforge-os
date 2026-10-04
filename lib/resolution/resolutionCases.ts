@@ -112,7 +112,8 @@ export type ResolutionAction =
     }>
   | Readonly<{
       kind: 'resolve_execution_item';
-      method: 'POST';
+      /** The execution outcome route accepts PATCH only. */
+      method: 'PATCH';
       endpoint: string;
       outcomes: readonly ('approve' | 'correct' | 'override')[];
     }>
@@ -270,7 +271,7 @@ function validatorCases(params: {
     if (issue.executionItemId) {
       actions.push({
         kind: 'resolve_execution_item',
-        method: 'POST',
+        method: 'PATCH',
         endpoint: `/api/execution-items/${issue.executionItemId}/outcome`,
         outcomes: ['approve', 'correct', 'override'],
       });

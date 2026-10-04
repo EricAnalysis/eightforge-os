@@ -191,6 +191,16 @@ describe('ResolutionCase read model (B5-A)', () => {
     expect(byId.get('finding:plain')!.actions.map((action) => action.kind)).toEqual(['open_in_validator']);
   });
 
+  it('names the execution outcome route with the method it accepts', () => {
+    const result = queue({
+      findings: [finding('executing', { linked_action_id: 'exec-1' })],
+      executionItems: [{ id: 'exec-1', project_id: PROJECT, status: 'open', finding_id: 'executing',
+        updated_at: '2026-10-04T00:00:00Z', created_at: '2026-10-04T00:00:00Z' }],
+    });
+    const action = result.cases[0]!.actions.find((entry) => entry.kind === 'resolve_execution_item');
+    expect(action).toMatchObject({ method: 'PATCH', endpoint: '/api/execution-items/exec-1/outcome' });
+  });
+
   it('excludes findings that are not open', () => {
     expect(queue({ findings: [finding('done', { status: 'resolved' })] }).cases).toEqual([]);
   });

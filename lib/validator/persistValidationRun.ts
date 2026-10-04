@@ -3,7 +3,14 @@ import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
 import { finalizeDecision } from '@/lib/server/decisionClosure';
 import { syncExecutionItems } from '@/lib/execution/syncExecutionItems';
-import { evaluateFindingRouting } from '@/lib/validator/validatorRouting';
+import {
+  asRecord,
+  asString,
+  buildEvidenceInserts,
+  clearedRecurrenceOf,
+  loadHistoricalResolvedFindings,
+  persistableFindingsForResult,
+} from '@/lib/validator/persistedFindingProjection';
 import { persistApprovalSnapshot } from '@/lib/server/approvalSnapshots';
 import { executeApprovalActions } from '@/lib/server/approvalActionEngine';
 import { emitValidationFindingLifecycleActivity } from '@/lib/validator/validationFindingActivity';
@@ -29,9 +36,6 @@ import type {
 } from '@/types/validator';
 
 const RULE_VERSION = '1.0.0';
-const UUID_PREFIX_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const FINANCIAL_MISSING_CONTRACT_RATE_RULE_ID = 'FINANCIAL_INVOICE_LINE_CODE_EXISTS_IN_CONTRACT';
-const CROSS_DOCUMENT_MISSING_CONTRACT_RATE_RULE_ID = 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS';
 const EXISTING_FINDING_CHECK_KEY_BATCH_SIZE = 25;
 const CONTRACT_INTELLIGENCE_DECISION_PREFIX = 'contract_intelligence:';
 const ACTIVE_CONTRACT_DECISION_STATUSES = ['open', 'in_review'] as const;
@@ -43,6 +47,14 @@ const CONTRACT_ISSUE_TYPE_BY_SUPPRESSED_ISSUE_ID: Record<string, string> = {
   'missing_required_clause:term_trigger': 'missing_required_clause',
   'missing_required_clause:activation_trigger': 'missing_required_clause',
 };
+
+export {
+  buildEvidenceInserts,
+  extractUuidPrefix,
+  loadHistoricalResolvedFindings,
+  persistedOpenFindingsForResult,
+  type HistoricalResolvedFindingRow,
+} from '@/lib/validator/persistedFindingProjection';
 
 export type PersistedValidationFinding = ValidationFinding & {
   evidence?: ValidationEvidence[];
@@ -58,35 +70,7 @@ export type PersistValidationRunResult = {
 
 type ExistingOpenFindingRow = ValidationFinding & { id: string };
 
-type HistoricalResolvedFindingRow = Pick<
-  ValidationFinding,
-  | 'id'
-  | 'check_key'
-  | 'rule_id'
-  | 'subject_type'
-  | 'subject_id'
-  | 'field'
-  | 'expected'
-  | 'actual'
-  | 'variance'
-  | 'variance_unit'
-  | 'status'
-  | 'linked_decision_id'
-> & {
-  evidenceSignature: string;
-};
 
-type PersistedEvidenceRow = Pick<
-  ValidationEvidence,
-  | 'evidence_type'
-  | 'source_document_id'
-  | 'source_page'
-  | 'fact_id'
-  | 'record_id'
-  | 'field_name'
-  | 'field_value'
-  | 'note'
->;
 
 type ProjectValidationActivityContext = {
   id: string;
@@ -134,52 +118,10 @@ function requireAdminClient() {
   return admin;
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value != null && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null;
-}
 
-function asString(value: unknown): string | null {
-  return typeof value === 'string' && value.trim().length > 0
-    ? value.trim()
-    : null;
-}
 
-export function extractUuidPrefix(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const firstSegment = value.split(':')[0]?.trim() ?? '';
-  return UUID_PREFIX_PATTERN.test(firstSegment) ? firstSegment : null;
-}
 
-function firstSemanticAnchor(row: ValidationEvidence): string | null {
-  for (const value of [row.fact_id, row.source_document_id, row.record_id]) {
-    if (typeof value === 'string' && value.includes(':')) return value;
-  }
 
-  return null;
-}
-
-export function buildEvidenceInserts(
-  findingId: string,
-  evidence: readonly ValidationEvidence[],
-) {
-  return evidence.map((row) => {
-    const semanticAnchor = firstSemanticAnchor(row);
-
-    return {
-      finding_id: findingId,
-      evidence_type: row.evidence_type,
-      source_document_id: extractUuidPrefix(row.source_document_id),
-      source_page: row.source_page,
-      fact_id: extractUuidPrefix(row.fact_id),
-      record_id: row.record_id ?? semanticAnchor,
-      field_name: row.field_name,
-      field_value: row.field_value,
-      note: row.note,
-    };
-  });
-}
 
 function summarizeFindings(findings: readonly ValidationFinding[]) {
   return {
@@ -211,32 +153,7 @@ function deriveOperationalValidationStatus(params: {
   return 'VALIDATED';
 }
 
-function applyFindingRouting(
-  finding: PersistableValidationFinding,
-): PersistableValidationFinding {
-  const routing = evaluateFindingRouting(finding);
 
-  return {
-    ...finding,
-    decision_eligible: routing.decision_eligible,
-    action_eligible: routing.action_eligible,
-  };
-}
-
-function suppressOverlappingMissingContractRateFindings(
-  findings: readonly PersistableValidationFinding[],
-): PersistableValidationFinding[] {
-  const subjectsWithCrossDocumentRate = new Set(
-    findings
-      .filter((finding) => finding.rule_id === CROSS_DOCUMENT_MISSING_CONTRACT_RATE_RULE_ID)
-      .map((finding) => finding.subject_id),
-  );
-
-  return findings.filter((finding) => !(
-    finding.rule_id === FINANCIAL_MISSING_CONTRACT_RATE_RULE_ID
-    && subjectsWithCrossDocumentRate.has(finding.subject_id)
-  ));
-}
 
 function findingIdentity(
   finding: Pick<ValidationFinding, 'check_key' | 'rule_id' | 'subject_id'>,
@@ -245,79 +162,13 @@ function findingIdentity(
   return checkKey.length > 0 ? checkKey : `${finding.rule_id}:${finding.subject_id}`;
 }
 
-function normalizeSignatureText(value: unknown): string | null {
-  if (value == null) return null;
-  const text = String(value).trim();
-  return text.length > 0 ? text : null;
-}
 
-function evidenceSignature(rows: readonly PersistedEvidenceRow[]): string {
-  return JSON.stringify(
-    rows
-      .map((row) => ({
-        evidence_type: normalizeSignatureText(row.evidence_type),
-        source_document_id: normalizeSignatureText(row.source_document_id),
-        source_page: row.source_page ?? null,
-        fact_id: normalizeSignatureText(row.fact_id),
-        record_id: normalizeSignatureText(row.record_id),
-        field_name: normalizeSignatureText(row.field_name),
-        field_value: normalizeSignatureText(row.field_value),
-        note: normalizeSignatureText(row.note),
-      }))
-      .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right), 'en-US')),
-  );
-}
 
-function findingClearanceSignature(params: {
-  projectId: string;
-  finding: Pick<
-    ValidationFinding,
-    | 'check_key'
-    | 'rule_id'
-    | 'subject_type'
-    | 'subject_id'
-    | 'field'
-    | 'expected'
-    | 'actual'
-    | 'variance'
-    | 'variance_unit'
-  >;
-  evidenceSignature: string;
-}): string {
-  return JSON.stringify({
-    project_id: params.projectId,
-    check_key: normalizeSignatureText(params.finding.check_key),
-    rule_id: normalizeSignatureText(params.finding.rule_id),
-    subject_type: normalizeSignatureText(params.finding.subject_type),
-    subject_id: normalizeSignatureText(params.finding.subject_id),
-    field: normalizeSignatureText(params.finding.field),
-    expected: normalizeSignatureText(params.finding.expected),
-    actual: normalizeSignatureText(params.finding.actual),
-    variance: params.finding.variance ?? null,
-    variance_unit: normalizeSignatureText(params.finding.variance_unit),
-    evidence: params.evidenceSignature,
-  });
-}
 
-function currentFindingEvidenceSignature(finding: PersistableValidationFinding): string {
-  return evidenceSignature(buildEvidenceInserts('00000000-0000-4000-8000-000000000000', finding.evidence ?? []));
-}
 
-function isSameClearedFinding(params: {
-  projectId: string;
-  finding: PersistableValidationFinding;
-  historical: HistoricalResolvedFindingRow;
-}): boolean {
-  return findingClearanceSignature({
-    projectId: params.projectId,
-    finding: params.finding,
-    evidenceSignature: currentFindingEvidenceSignature(params.finding),
-  }) === findingClearanceSignature({
-    projectId: params.projectId,
-    finding: params.historical,
-    evidenceSignature: params.historical.evidenceSignature,
-  });
-}
+
+
+
 
 function openFindingIdentitySet(
   findings: readonly Pick<ValidationFinding, 'check_key' | 'rule_id' | 'subject_id' | 'status'>[],
@@ -479,65 +330,6 @@ async function loadExistingOpenFindings(
   return findingsByCheckKey;
 }
 
-async function loadHistoricalResolvedFindings(
-  projectId: string,
-  checkKeys: readonly string[],
-): Promise<Map<string, HistoricalResolvedFindingRow[]>> {
-  if (checkKeys.length === 0) {
-    return new Map<string, HistoricalResolvedFindingRow[]>();
-  }
-
-  const admin = requireAdminClient();
-  const findingsByCheckKey = new Map<string, HistoricalResolvedFindingRow[]>();
-  const uniqueCheckKeys = Array.from(new Set(checkKeys));
-
-  for (let index = 0; index < uniqueCheckKeys.length; index += EXISTING_FINDING_CHECK_KEY_BATCH_SIZE) {
-    const batch = uniqueCheckKeys.slice(index, index + EXISTING_FINDING_CHECK_KEY_BATCH_SIZE);
-    const { data, error } = await admin
-      .from('project_validation_findings')
-      .select('id, check_key, rule_id, subject_type, subject_id, field, expected, actual, variance, variance_unit, status, linked_decision_id, resolved_at')
-      .eq('project_id', projectId)
-      .in('status', ['resolved', 'dismissed'])
-      .in('check_key', batch)
-      .order('resolved_at', { ascending: false, nullsFirst: false })
-      .order('updated_at', { ascending: false });
-
-    if (error) {
-      throw new Error(`Failed to load resolved validation findings: ${error.message}`);
-    }
-
-    const rows = (data ?? []) as Array<Omit<HistoricalResolvedFindingRow, 'evidenceSignature'>>;
-    if (rows.length === 0) continue;
-
-    const { data: evidenceRows, error: evidenceError } = await admin
-      .from('project_validation_evidence')
-      .select('finding_id, evidence_type, source_document_id, source_page, fact_id, record_id, field_name, field_value, note')
-      .in('finding_id', rows.map((row) => row.id));
-
-    if (evidenceError) {
-      throw new Error(`Failed to load resolved validation evidence: ${evidenceError.message}`);
-    }
-
-    const evidenceByFindingId = new Map<string, PersistedEvidenceRow[]>();
-    for (const row of (evidenceRows ?? []) as Array<PersistedEvidenceRow & { finding_id: string }>) {
-      const rowsForFinding = evidenceByFindingId.get(row.finding_id) ?? [];
-      rowsForFinding.push(row);
-      evidenceByFindingId.set(row.finding_id, rowsForFinding);
-    }
-
-    for (const row of rows) {
-      const historicalRow: HistoricalResolvedFindingRow = {
-        ...row,
-        evidenceSignature: evidenceSignature(evidenceByFindingId.get(row.id) ?? []),
-      };
-      const rowsForCheckKey = findingsByCheckKey.get(row.check_key) ?? [];
-      rowsForCheckKey.push(historicalRow);
-      findingsByCheckKey.set(row.check_key, rowsForCheckKey);
-    }
-  }
-
-  return findingsByCheckKey;
-}
 
 async function loadAllExistingOpenFindings(
   projectId: string,
@@ -1140,9 +932,7 @@ export async function persistValidationRun(
    */
   authorityMetadata?: ProjectTruthAuthorityMetadata | null,
 ): Promise<PersistValidationRunResult> {
-  const findings = suppressOverlappingMissingContractRateFindings(
-    (result.findings as PersistableValidationFinding[]).map(applyFindingRouting),
-  );
+  const findings = persistableFindingsForResult(result);
   const persistedFindings: PersistableValidationFinding[] = [];
   let runId: string | null = null;
 
@@ -1171,15 +961,11 @@ export async function persistValidationRun(
     );
 
     for (const finding of findings) {
-      const matchingResolvedFinding = finding.status === 'open'
-        ? historicalResolvedFindings
-          .get(finding.check_key)
-          ?.find((historical) => isSameClearedFinding({
-            projectId,
-            finding,
-            historical,
-          }))
-        : null;
+      const matchingResolvedFinding = clearedRecurrenceOf({
+        projectId,
+        finding,
+        history: historicalResolvedFindings,
+      });
       if (matchingResolvedFinding) {
         continue;
       }

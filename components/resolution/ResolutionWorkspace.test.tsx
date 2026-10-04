@@ -111,7 +111,7 @@ describe('Resolution Workspace rendering (B5-B)', () => {
   it('renders a finding by its readable title with human-reviewed evidence marked, and no exposure when none is stated', () => {
     const html = renderToStaticMarkup(<ResolutionEvidencePane entry={resolutionCase({
       kind: 'validator_finding', tier: 'affects_pricing', title: 'Invoice rate differs from contract',
-      finding: { ruleId: 'FINANCIAL_INVOICE_UNIT_PRICE_MATCHES_CONTRACT_RATE', severity: 'warning', field: 'unit_price',
+      finding: { checkKey: 'FINANCIAL_INVOICE_UNIT_PRICE_MATCHES_CONTRACT_RATE:line-1', ruleId: 'FINANCIAL_INVOICE_UNIT_PRICE_MATCHES_CONTRACT_RATE', severity: 'warning', field: 'unit_price',
         expected: '14.5', actual: '15', recommendedAction: 'Review the rate.' },
       evidence: [{ documentId: 'doc-1', physicalPageNumber: 8, observationIds: [], region: null,
         label: 'Human-reviewed value (assertion a1)', role: 'supporting', visual: null,

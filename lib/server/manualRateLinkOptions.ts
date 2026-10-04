@@ -73,7 +73,19 @@ export async function loadManualRateLinkOptions(params: {
   if (input.project.organization_id !== params.organizationId) {
     throw new ManualRateLinkOptionsError('Project not found', 404);
   }
+  return manualRateLinkOptionsFromInput(input, params.invoiceLineSubjectId);
+}
 
+/**
+ * The options for one invoice line from an already-built Validator input.
+ * Pure, so the B5-C impact preview offers exactly the options the link route
+ * would accept, from the same snapshot it previews against.
+ */
+export function manualRateLinkOptionsFromInput(
+  input: Awaited<ReturnType<typeof loadProjectValidatorInput>>,
+  invoiceLineSubjectId: string,
+): ManualRateLinkOptionsResult {
+  const params = { invoiceLineSubjectId };
   const canonicalSubjectId = canonicalInvoiceLineSubjectId(params.invoiceLineSubjectId);
   const line = input.invoiceLines.find((candidate) =>
     canonicalInvoiceLineSubjectId(lineSubjectId(candidate)) === canonicalSubjectId,

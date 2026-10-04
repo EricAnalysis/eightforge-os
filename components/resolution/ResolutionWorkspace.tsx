@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { SourceEvidencePage } from '@/components/recovery/SourceEvidencePage';
+import { ResolutionImpactSection } from '@/components/resolution/ResolutionImpactSection';
 import { ManualRateLinkResolutionPanel } from '@/components/validator/ManualRateLinkResolutionPanel';
 import {
   buildResolutionActionRequest,
@@ -223,6 +224,7 @@ export function ResolutionDecisionPane({ entry, forgewingSuggestionsIncluded, sa
   const [confirmationId, setConfirmationId] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<'approve' | 'correct' | 'override'>('approve');
   const [outcomeReason, setOutcomeReason] = useState('');
+  const [linkCandidate, setLinkCandidate] = useState<Readonly<{ documentId: string; recordId: string }> | null>(null);
 
   const enter = offeredAction(entry, 'enter_reviewed_value');
   const withdraw = offeredAction(entry, 'withdraw_reviewed_value');
@@ -256,6 +258,12 @@ export function ResolutionDecisionPane({ entry, forgewingSuggestionsIncluded, sa
       ) : null}
 
       {enter ? (
+        <ResolutionImpactSection entry={entry} input={form.description.trim() && form.unit.trim() && form.rate.trim()
+          // The reason does not change what the Validator reads, so it is not part of the candidate.
+          ? { kind: 'enter_reviewed_value', value: { description: form.description, unitType: form.unit, rate: form.rate, category: form.category }, reason: '' }
+          : null} />
+      ) : null}
+      {enter ? (
         <form className="grid grid-cols-2 gap-2" aria-label="Reviewed value"
           onSubmit={(event) => {
             event.preventDefault();
@@ -285,6 +293,7 @@ export function ResolutionDecisionPane({ entry, forgewingSuggestionsIncluded, sa
 
       {withdraw ? (
         <div className="space-y-2">
+          <ResolutionImpactSection entry={entry} input={{ kind: 'withdraw_reviewed_value', reason: '' }} />
           <textarea aria-label="withdraw reason" placeholder="Why withdraw this reviewed value (required)"
             className="w-full rounded border border-white/10 bg-transparent p-2 text-xs text-[var(--ef-text-primary)]"
             value={withdrawReason} onChange={(event) => setWithdrawReason(event.target.value)} />
@@ -298,6 +307,7 @@ export function ResolutionDecisionPane({ entry, forgewingSuggestionsIncluded, sa
 
       {recovery ? (
         <div className="space-y-2">
+          <ResolutionImpactSection entry={entry} input={{ kind: 'review_recovery_proposal' }} automatic />
           {recovery.sourceEvidenceUnbound ? (
             <p className="text-xs text-[var(--ef-critical)]">
               Source evidence is unbound: the persisted candidates no longer match the source. Nothing is drawn.
@@ -329,13 +339,20 @@ export function ResolutionDecisionPane({ entry, forgewingSuggestionsIncluded, sa
       ) : null}
 
       {link ? (
-        <ManualRateLinkResolutionPanel
-          issue={{ projectId: entry.projectId, finding: { subject_id: link.invoiceLineSubjectId } }}
-          onActionComplete={onLinked} />
+        <>
+          <ResolutionImpactSection entry={entry} input={linkCandidate
+            ? { kind: 'link_invoice_line_rate', contractDocumentId: linkCandidate.documentId, contractRateRowId: linkCandidate.recordId }
+            : null} />
+          <ManualRateLinkResolutionPanel
+            issue={{ projectId: entry.projectId, finding: { subject_id: link.invoiceLineSubjectId } }}
+            onActionComplete={onLinked}
+            onCandidateChange={setLinkCandidate} />
+        </>
       ) : null}
 
       {execution ? (
         <div className="space-y-2">
+          <ResolutionImpactSection entry={entry} input={{ kind: 'resolve_execution_item' }} automatic />
           <select aria-label="outcome" value={outcome}
             onChange={(event) => setOutcome(event.target.value as typeof outcome)}
             className="w-full rounded border border-white/10 bg-transparent p-2 text-xs text-[var(--ef-text-primary)]">

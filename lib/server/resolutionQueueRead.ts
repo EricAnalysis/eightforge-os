@@ -1,6 +1,5 @@
 import { pickPreferredExtractionBlob } from '@/lib/blobExtractionSelection';
 import type { ProjectExecutionItemRow } from '@/lib/executionItems';
-import { readRecoveryOperationalConfig } from '@/lib/extraction/recovery/recoveryOperationalPolicy';
 import {
   currentDocumentEvidenceFromExtractionData,
   documentReviewedValueState,
@@ -16,6 +15,7 @@ import {
   type ResolutionQueue,
 } from '@/lib/resolution/resolutionCases';
 import { resolveProjectIssueObjects } from '@/lib/resolveProjectIssueObjects';
+import { resolveForgewingEntitlement, type OrganizationForgewingEntitlementResolver } from '@/lib/server/forgewingEntitlement';
 import { readRecoveryReviewQueue, type RecoveryReviewCandidate } from '@/lib/server/forgewingRecoveryReviewRead';
 import { loadRegionBoundAssertionRows, type RegionAssertionClient } from '@/lib/server/regionBoundHumanAssertions';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
@@ -25,10 +25,10 @@ import type { ValidationEvidence, ValidationFinding } from '@/types/validator';
  * Server read for the resolution queue (B5-A). Read-only: it loads existing
  * records and hands them to the pure builder. It writes nothing.
  *
- * Forgewing suggestion sources (recovery proposals) are read only when
- * Forgewing is enabled. Today that means the deployment kill switch; it
- * becomes the per-organization entitlement once that lands. Everything else
- * is EightForge Core.
+ * Forgewing suggestion sources (recovery proposals) are read only for an
+ * organization entitled to Core + Forgewing (the kill switch AND its latest
+ * entitlement event). Everything else is EightForge Core, identical in both
+ * tiers.
  */
 
 const DECISION_SELECT = 'id, document_id, project_id, source, decision_type, title, summary, severity, status, '
@@ -77,6 +77,7 @@ export async function readResolutionQueue(
   dependencies: Readonly<{
     admin?: ResolutionReadClient | null;
     forgewingEnabled?: boolean;
+    resolveEntitlement?: OrganizationForgewingEntitlementResolver;
     readRecoveryQueue?: typeof readRecoveryReviewQueue;
   }> = {},
 ): Promise<ResolutionQueueReadResult> {
@@ -84,14 +85,17 @@ export async function readResolutionQueue(
     ? getSupabaseAdmin() as unknown as ResolutionReadClient | null
     : dependencies.admin;
   if (!admin) return { status: 'not_configured' };
-  const forgewingEnabled = dependencies.forgewingEnabled
-    ?? readRecoveryOperationalConfig(process.env, { context: 'resolution_queue' }).masterEnabled;
 
   const project = await admin.from('projects').select('id, organization_id')
     .eq('id', query.projectId).maybeSingle();
   if (project.error) return { status: 'read_failed', reason: 'project_read_failed' };
   const projectRow = project.data as { organization_id?: string } | null;
   if (!projectRow || projectRow.organization_id !== query.organizationId) return { status: 'not_found' };
+  // Commercial capability only: it decides whether Forgewing suggestions are
+  // listed, never what any case, value or finding is.
+  const forgewingEnabled = dependencies.forgewingEnabled
+    ?? (await (dependencies.resolveEntitlement ?? resolveForgewingEntitlement)(
+      admin as never, query.organizationId)).entitled;
 
   const [documentsRead, findingsRead, executionRead] = await Promise.all([
     admin.from('documents').select('id, title, name, document_type, document_role')

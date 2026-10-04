@@ -66,7 +66,7 @@ function pricedPage(pageNumber: number) {
 }
 
 describe('pricing layout observation scheduling handoff', () => {
-  it('hands off only exact authoritative ambiguous-rate diagnostics', () => {
+  it.each(['priced_schedule_reconstruction_v1', 'priced_schedule_reconstruction_v2'] as const)('%s hands off only exact authoritative ambiguous-rate diagnostics', (parser_version) => {
     const source = pricedPage(2);
     const row = source.page.rows[0]!;
     const secondRate = source.tokens[1]!;
@@ -97,7 +97,7 @@ describe('pricing layout observation scheduling handoff', () => {
       }],
     };
     const reconstruction: PagePricedScheduleReconstruction = {
-      parser_version: 'priced_schedule_reconstruction_v1', pages: [diagnosticPage],
+      parser_version, pages: [diagnosticPage],
     };
     const layout: PdfLayout = {
       page_count: TOTAL_PAGES, gaps: [], pages: [{
@@ -128,7 +128,7 @@ describe('pricing layout observation scheduling handoff', () => {
     expect(pricingRateClusterRecoveryDiagnostics(document, [5])).toEqual([]);
   });
 
-  it('keeps complete row evidence when neighboring and out-of-scope rows are incomplete', () => {
+  it.each(['priced_schedule_reconstruction_v1', 'priced_schedule_reconstruction_v2'] as const)('%s keeps complete row evidence when neighboring and out-of-scope rows are incomplete', (parser_version) => {
     const eligible = pricedPage(2);
     const outOfScope = pricedPage(5);
     const originalRow = eligible.page.rows[0]!;
@@ -149,7 +149,7 @@ describe('pricing layout observation scheduling handoff', () => {
     };
     const eligiblePage = { ...eligible.page, rows: [originalRow, incompleteNeighbor] };
     const reconstruction: PagePricedScheduleReconstruction = {
-      parser_version: 'priced_schedule_reconstruction_v1',
+      parser_version,
       pages: [eligiblePage, outOfScope.page],
     };
     const layout: PdfLayout = {

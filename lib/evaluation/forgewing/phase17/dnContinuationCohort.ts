@@ -143,6 +143,11 @@ export async function buildPhase17DnCohort(bytes: Uint8Array): Promise<Phase17Co
   }
   const reconstruction = buildPagePricedScheduleReconstruction({
     layout,
+    // Pinned evaluation fixture: this cohort is the set of DN p106 continuation
+    // fragments that spacing alone leaves ambiguous. Production now attributes
+    // them by row-start anchors (E3 remediation 3); the cohort keeps the evidence
+    // it was recorded against.
+    continuationEvidence: 'spacing_only',
     recoveryCandidateBuildContext: {
       ...context,
       pageRepresentationDigestByPage: Object.fromEntries(layout.pages.map((page) =>

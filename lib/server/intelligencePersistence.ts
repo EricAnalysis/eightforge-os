@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { isSupportedPricedScheduleVersion } from '@/lib/extraction/pdf/pricedScheduleVersion';
 import {
   buildDocumentIntelligence,
   type BuildIntelligenceParams,
@@ -204,12 +205,12 @@ export function pricingLayoutSourceObservations(
   const pdf = asRecord(document.content_layers?.pdf);
   const rawReconstruction = asRecord(pdf?.priced_schedule_reconstruction_v1);
   if (
-    rawReconstruction?.parser_version !== 'priced_schedule_reconstruction_v1'
+    !isSupportedPricedScheduleVersion(rawReconstruction?.parser_version)
     || !Array.isArray(rawReconstruction.pages)
   ) return [];
   const authorizedPageSet = new Set(authoritativePages);
   const scopedReconstruction: PagePricedScheduleReconstruction = {
-    parser_version: 'priced_schedule_reconstruction_v1',
+    parser_version: rawReconstruction.parser_version,
     pages: (rawReconstruction.pages as PagePricedScheduleReconstruction['pages'])
       .filter((page) => authorizedPageSet.has(page.physical_page_number)),
   };
@@ -242,11 +243,11 @@ export function pricingRateClusterRecoveryDiagnostics(
     : null;
   const pdf = asRecord(document.content_layers?.pdf);
   const rawReconstruction = asRecord(pdf?.priced_schedule_reconstruction_v1);
-  if (rawReconstruction?.parser_version !== 'priced_schedule_reconstruction_v1'
+  if (!isSupportedPricedScheduleVersion(rawReconstruction?.parser_version)
     || !Array.isArray(rawReconstruction.pages)) return [];
   const authorizedPageSet = new Set(authoritativePages);
   const scopedReconstruction: PagePricedScheduleReconstruction = {
-    parser_version: 'priced_schedule_reconstruction_v1',
+    parser_version: rawReconstruction.parser_version,
     pages: (rawReconstruction.pages as PagePricedScheduleReconstruction['pages'])
       .filter((page) => authorizedPageSet.has(page.physical_page_number)),
   };

@@ -22,8 +22,10 @@ export type RecoveryEvaluationPriorState = Readonly<{
 
 export type RecoveryEvaluationPolicy = Readonly<{
   overallCap: number;
-  perTypeCap: Readonly<Record<RecoveryTypeV2, number>>;
-  activation: Readonly<Record<RecoveryTypeV2, RecoveryActivation>>;
+  perTypeCap: Readonly<Record<Exclude<RecoveryTypeV2, 'priced_schedule_header_role_selection'>, number>
+    & Partial<Record<'priced_schedule_header_role_selection', number>>>;
+  activation: Readonly<Record<Exclude<RecoveryTypeV2, 'priced_schedule_header_role_selection'>, RecoveryActivation>
+    & Partial<Record<'priced_schedule_header_role_selection', RecoveryActivation>>>;
 }>;
 
 export type RecoveryEvaluationPlan = Readonly<{
@@ -91,8 +93,8 @@ export function planRecoveryEvaluation(
   const eligible: Array<{ unit: RecoveryEvaluationUnit; previouslyInvoked: boolean }> = [];
 
   for (const unit of units) {
-    if (policy.activation[unit.recoveryType] === 'disabled'
-      || policy.perTypeCap[unit.recoveryType] <= 0) {
+    if ((policy.activation[unit.recoveryType] ?? 'disabled') === 'disabled'
+      || (policy.perTypeCap[unit.recoveryType] ?? 0) <= 0) {
       disabled.push(unit);
       continue;
     }
@@ -116,7 +118,7 @@ export function planRecoveryEvaluation(
   for (const entry of eligible) {
     const typeUsed = perTypeUsed[entry.unit.recoveryType] ?? 0;
     if (selected.length >= policy.overallCap
-      || typeUsed >= policy.perTypeCap[entry.unit.recoveryType]) {
+      || typeUsed >= (policy.perTypeCap[entry.unit.recoveryType] ?? 0)) {
       budgetExhausted.push(entry.unit);
       continue;
     }

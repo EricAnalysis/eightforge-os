@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 import { describe, expect, it } from 'vitest';
 
 import type { PdfLayout, PdfLayoutLine, PdfLayoutPage, PdfToken } from '@/lib/extraction/pdf/extractText';
@@ -371,7 +373,13 @@ describe('generic single-page priced schedule reconstruction', () => {
       ]),
     });
 
-    expect(ambiguous.pages).toHaveLength(0);
+    // Reported, not reconstructed: the page fails closed with its header
+    // evidence and claims no columns or rows.
+    expect(ambiguous.pages).toHaveLength(1);
+    expect(ambiguous.pages[0]).toMatchObject({ status: 'failed_closed', columns: [], rows: [] });
+    expect(ambiguous.pages[0]!.header_interpretation).toMatchObject({
+      status: 'unresolved', reason: 'duplicate_role',
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -577,7 +585,8 @@ describe('generic single-page priced schedule reconstruction', () => {
 
   it('N3: does not reconstruct a header split across two lines', () => {
     // Documented limit: a header must present its labels on one line. A split
-    // header is not stitched together; the page simply fails closed.
+    // header is not stitched together; the page fails closed, and the one line
+    // that reads as a header is reported with no columns or rows claimed.
     const result = reconstructSinglePage([
       line(7, 706, [
         { x: DESCRIPTION_X, text: 'Description', width: 70 },
@@ -590,7 +599,10 @@ describe('generic single-page priced schedule reconstruction', () => {
       pricedLine(7, 680, { description: 'Alpha service', unit: 'Widget', origin: 'A to B', currency: '$', amount: '12.00' }),
       pricedLine(7, 660, { description: 'Beta service', unit: 'Widget', origin: 'B to C', currency: '$', amount: '3.50' }),
     ]);
-    expect(result).toBeNull();
+    expect(result).toMatchObject({ status: 'failed_closed', columns: [], rows: [], header_y: 700 });
+    expect(result!.header_interpretation).toMatchObject({ status: 'unresolved', reason: 'required_role_missing' });
+    // No label on the reported line lacks a role, so there is nothing to offer.
+    expect(result!.header_interpretation!.options).toEqual([]);
   });
 
   // ---------------------------------------------------------------------------
@@ -1470,6 +1482,1035 @@ describe('generic single-page priced schedule reconstruction', () => {
     expect(result!.rows).toEqual([]);
     expect(result!.rejected_spines.map((entry) => entry.reason)).toEqual(['insufficient_priced_rows']);
     expect(result!.rejected_spines[0]!.raw_text).toContain('Only service');
+  });
+
+  // ---------------------------------------------------------------------------
+  // OCR: word-level token sources present multi-word labels as separate tokens.
+  // A header is either resolved deterministically (token-by-token, or by
+  // grouping words the line's own geometry clearly separates from column gaps)
+  // or reported unresolved with its evidence and source-backed options.
+  // ---------------------------------------------------------------------------
+
+  const wordLevelBody = [
+    line(7, 680, [
+      { x: DESCRIPTION_X, text: 'Alpha', width: 25 }, { x: 78, text: 'service', width: 35 },
+      { x: UNIT_X, text: 'Widget', width: 30 }, { x: 445, text: '$12.00', width: 35 },
+    ]),
+    line(7, 660, [
+      { x: DESCRIPTION_X, text: 'Beta', width: 22 }, { x: 75, text: 'service', width: 35 },
+      { x: UNIT_X, text: 'Widget', width: 30 }, { x: 445, text: '$3.50', width: 30 },
+    ]),
+  ];
+  const refTexts = (label: { source_refs: readonly { text: string }[] }) => label.source_refs.map((ref) => ref.text);
+
+  it('OCR1: groups a clearly separated split header and records each label\'s source tokens', () => {
+    const result = reconstructSinglePage([
+      line(7, 700, [
+        { x: DESCRIPTION_X, text: 'Item', width: 20 }, { x: 73, text: 'Description', width: 55 },
+        { x: UNIT_X, text: 'Unit', width: 20 },
+        { x: 440, text: 'Unit', width: 20 }, { x: 463, text: 'Price', width: 25 },
+      ]),
+      ...wordLevelBody,
+    ]);
+    expect(result).toMatchObject({ status: 'reconstructed' });
+    expect(result!.columns.map((column) => [column.header_text, column.role])).toEqual([
+      ['Item Description', 'description'], ['Unit', 'unit'], ['Unit Price', 'rate'],
+    ]);
+    expect(result!.rows).toHaveLength(2);
+    expect(cellText(result!.rows[0]!, 'rate')).toBe('$12.00');
+    const interpretation = result!.header_interpretation!;
+    expect(interpretation).toMatchObject({
+      version: 'priced_schedule_header_interpretation_v1',
+      status: 'resolved_deterministically', method: 'word_grouped_labels',
+    });
+    expect(interpretation.grouping_basis).toMatchObject({ clear: true, max_intra_label_gap_ratio: 0.3, min_column_gap_ratio: 7.2 });
+    expect(interpretation.labels.map((label) => [label.text, refTexts(label)])).toEqual([
+      ['Item Description', ['Item', 'Description']], ['Unit', ['Unit']], ['Unit Price', ['Unit', 'Price']],
+    ]);
+    // The source tokens are cited with their own geometry, never replaced.
+    expect(interpretation.labels[2]!.source_refs.map((ref) => ref.x_min)).toEqual([440, 463]);
+    expect(interpretation.source_refs.map((ref) => ref.text)).toEqual(['Item', 'Description', 'Unit', 'Unit', 'Price']);
+  });
+
+  it('OCR2: does not group when word spaces and column gaps are not clearly separated', () => {
+    // Widest word gap 0.6 x height, narrowest column gap 1.0 x: less than 2x apart.
+    const result = reconstructSinglePage([
+      line(7, 700, [
+        { x: DESCRIPTION_X, text: 'Description', width: 55 },
+        { x: UNIT_X, text: 'Unit', width: 20 },
+        { x: 430, text: 'Unit', width: 20 }, { x: 456, text: 'Price', width: 25 }, { x: 491, text: 'Rate', width: 20 },
+      ]),
+      ...wordLevelBody,
+    ]);
+    expect(result).toMatchObject({ status: 'failed_closed', columns: [], rows: [] });
+    const interpretation = result!.header_interpretation!;
+    expect(interpretation).toMatchObject({ status: 'unresolved', reason: 'ambiguous_label_grouping' });
+    expect(interpretation.grouping_basis).toMatchObject({ clear: false });
+    // Alternatives vary only the uncertain gaps and cite only the line's tokens.
+    const options = interpretation.options!;
+    expect(options.length).toBeGreaterThan(1);
+    for (const option of options) {
+      expect(option.kind).toBe('label_grouping');
+      expect(option.labels.flatMap((label) => refTexts(label))).toEqual(['Description', 'Unit', 'Unit', 'Price', 'Rate']);
+      for (const label of option.labels) expect(label.text).toBe(refTexts(label).join(' '));
+    }
+    expect(new Set(options.map((option) => option.option_id)).size).toBe(options.length);
+  });
+
+  it('OCR3: an unrecognized label leaves its role unresolved while the table structure survives', () => {
+    const result = reconstructSinglePage([
+      line(7, 700, [
+        { x: DESCRIPTION_X, text: 'Equipment', width: 45 }, { x: 99, text: 'Description', width: 55 },
+        { x: UNIT_X, text: 'Unit', width: 20 },
+        { x: 440, text: 'Unit', width: 20 }, { x: 463, text: 'Price', width: 25 },
+      ]),
+      ...wordLevelBody,
+    ]);
+    // Structure resolved, semantics not: the table is rebuilt from geometry and
+    // "Equipment Description" stays authored text in a role-less column.
+    expect(result).toMatchObject({ status: 'reconstructed', semantic_status: 'unresolved' });
+    expect(result!.columns.map((column) => [column.header_text, column.role])).toEqual([
+      ['Equipment Description', null], ['Unit', 'unit'], ['Unit Price', 'rate'],
+    ]);
+    expect(result!.rows).toHaveLength(2);
+    expect(result!.rows[0]!.cells.map((cell) => [cell.role, cell.raw_text])).toEqual([['unit', 'Widget'], ['rate', '$12.00']]);
+    expect(result!.rows[0]!.unresolved_role_cells).toEqual([expect.objectContaining({
+      role: null, column_index: 0, header_text: 'Equipment Description', raw_text: 'Alpha service',
+    })]);
+    expect(result!.rows.flatMap((row) => row.cells).some((cell) => cell.role === 'description')).toBe(false);
+    // Promoting the column to a role needs a reviewed choice of this option.
+    const interpretation = result!.header_interpretation!;
+    expect(interpretation).toMatchObject({ status: 'unresolved', reason: 'required_role_missing' });
+    expect(interpretation.labels.map((label) => [label.text, label.role])).toEqual([
+      ['Equipment Description', null], ['Unit', 'unit'], ['Unit Price', 'rate'],
+    ]);
+    expect(interpretation.options).toHaveLength(1);
+    const option = interpretation.options![0]!;
+    expect(option).toMatchObject({ kind: 'role_assignment', qualifies: true });
+    expect(option.labels.map((label) => [label.text, label.role, refTexts(label)])).toEqual([
+      ['Equipment Description', 'description', ['Equipment', 'Description']],
+      ['Unit', 'unit', ['Unit']], ['Unit Price', 'rate', ['Unit', 'Price']],
+    ]);
+  });
+
+  it('OCR4: a role naming two separate columns still fails closed, offering which to keep', () => {
+    const result = reconstructSinglePage([
+      line(7, 700, [
+        { x: DESCRIPTION_X, text: 'Description', width: 55 },
+        { x: UNIT_X, text: 'Unit', width: 20 }, { x: ORIGIN_X, text: 'Unit', width: 20 },
+        { x: 440, text: 'Price', width: 25 },
+      ]),
+      ...wordLevelBody,
+    ]);
+    expect(result).toMatchObject({ status: 'failed_closed', columns: [], rows: [] });
+    const interpretation = result!.header_interpretation!;
+    expect(interpretation).toMatchObject({ status: 'unresolved', reason: 'duplicate_role' });
+    expect(interpretation.options!.map((option) => option.labels.map((label) => label.role))).toEqual([
+      ['description', 'unit', null, 'rate'],
+      ['description', null, 'unit', 'rate'],
+    ]);
+  });
+
+  it('OCR5: word-level prose never becomes a header or a recovery candidate', () => {
+    // Repeated role words make the token-by-token read fail; grouped, the words form
+    // one long run that is not a compact label, so no header can come of it.
+    const words = 'Unit pricing per Unit Price shall follow the Description of Cost'.split(' ');
+    let x = DESCRIPTION_X;
+    const result = reconstructSinglePage([
+      line(7, 700, words.map((text) => {
+        const spec = { x, text, width: text.length * 5 };
+        x += spec.width + 3;
+        return spec;
+      })),
+      ...wordLevelBody,
+    ]);
+    expect(result).toBeNull();
+  });
+
+  it('OCR6: header-like labels with no priced lines below are not a recovery candidate', () => {
+    const result = reconstructSinglePage([
+      line(7, 700, [
+        { x: DESCRIPTION_X, text: 'Equipment', width: 45 }, { x: 99, text: 'Description', width: 55 },
+        { x: UNIT_X, text: 'Unit', width: 20 },
+        { x: 440, text: 'Unit', width: 20 }, { x: 463, text: 'Price', width: 25 },
+      ]),
+      line(7, 680, [{ x: DESCRIPTION_X, text: 'Nearby', width: 30 }, { x: 90, text: 'words', width: 25 }]),
+    ]);
+    expect(result).toBeNull();
+  });
+
+  it('OCR7: a header that qualifies token-by-token is read exactly as before, even with tight gaps', () => {
+    const result = reconstructSinglePage([
+      line(7, 700, [
+        { x: DESCRIPTION_X, text: 'Description', width: 70 },
+        { x: 124, text: 'Unit', width: 20 },
+        { x: ORIGIN_X, text: 'Origin/ Destination', width: 90 },
+        { x: CURRENCY_X, text: 'Cost', width: 30 },
+      ]),
+      ...twoBodyRows,
+    ]);
+    expect(result).not.toBeNull();
+    expect(result!.columns.map((column) => column.header_text)).toEqual([
+      'Description', 'Unit', 'Origin/ Destination', 'Cost',
+    ]);
+    expect(result!).not.toHaveProperty('header_interpretation');
+  });
+
+  it('OCR8: interpretation never alters the source layout tokens', () => {
+    const lines = [
+      line(7, 700, [
+        { x: DESCRIPTION_X, text: 'Equipment', width: 45 }, { x: 99, text: 'Description', width: 55 },
+        { x: UNIT_X, text: 'Unit', width: 20 },
+        { x: 440, text: 'Unit', width: 20 }, { x: 463, text: 'Price', width: 25 },
+      ]),
+      ...wordLevelBody,
+    ];
+    const layout = layoutOf([page(7, lines)]);
+    const before = JSON.stringify(layout);
+    buildPagePricedScheduleReconstruction({ layout });
+    expect(JSON.stringify(layout)).toBe(before);
+  });
+
+  it('OCR9: the description vocabulary is unchanged: only its generic labels resolve', () => {
+    for (const label of ['Description', 'Item Description', 'Item', 'Description of Work']) {
+      const result = reconstructSinglePage([headerWith('Cost', label), ...twoBodyRows]);
+      expect(result, `description label ${label} must be recognised`).toMatchObject({ status: 'reconstructed' });
+    }
+    for (const label of ['Equipment Description', 'Heavy Equipment Description']) {
+      const result = reconstructSinglePage([headerWith('Cost', label), ...twoBodyRows]);
+      expect(result, `${label} must not be given a role`).toMatchObject({ status: 'reconstructed', semantic_status: 'unresolved' });
+      expect(result!.columns[0]).toMatchObject({ role: null, header_text: label });
+      expect(result!.rows.flatMap((row) => row.cells).some((cell) => cell.role === 'description')).toBe(false);
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // R2: source structure survives independently of semantic roles. A column the
+  // header defines keeps its body cells even when its role is unknown; those
+  // cells are role-less structure, never pricing evidence.
+  // ---------------------------------------------------------------------------
+
+  const LINE_X = 10;
+  const withLineNumbers = (lineNumbers: boolean) => [
+    line(7, 700, [
+      { x: LINE_X, text: 'Line #', width: 30 },
+      { x: DESCRIPTION_X, text: 'Description', width: 70 },
+      { x: UNIT_X, text: 'Unit of Measure', width: 80 },
+      { x: ORIGIN_X, text: 'Origin/ Destination', width: 90 },
+      { x: CURRENCY_X, text: 'Cost', width: 30 },
+    ]),
+    line(7, 680, [
+      ...(lineNumbers ? [{ x: LINE_X, text: '0001', width: 25 }] : []),
+      { x: DESCRIPTION_X, text: 'Alpha service', width: 100 }, { x: UNIT_X, text: 'Widget', width: 60 },
+      { x: ORIGIN_X, text: 'A to B', width: 100 }, { x: CURRENCY_X, text: '$', width: 8 }, { x: AMOUNT_X, text: '12.00', width: 40 },
+    ]),
+    line(7, 660, [
+      ...(lineNumbers ? [{ x: LINE_X, text: '0002', width: 25 }] : []),
+      { x: DESCRIPTION_X, text: 'Beta service', width: 100 }, { x: UNIT_X, text: 'Widget', width: 60 },
+      { x: ORIGIN_X, text: 'B to C', width: 100 }, { x: CURRENCY_X, text: '$', width: 8 }, { x: AMOUNT_X, text: '3.50', width: 40 },
+    ]),
+  ];
+
+  it('R2-1: a table of recognized columns is unchanged and carries no role-less fields', () => {
+    const result = reconstructSinglePage([headerWith('Cost'), ...twoBodyRows])!;
+    expect(result.status).toBe('reconstructed');
+    expect(result).not.toHaveProperty('semantic_status');
+    expect(result).not.toHaveProperty('unattached_role_less_tokens');
+    for (const row of result.rows) expect(row).not.toHaveProperty('unresolved_role_cells');
+  });
+
+  it('R2-2: an unknown column keeps its authored header, its source tokens, and its cells', () => {
+    const result = reconstructSinglePage(withLineNumbers(true))!;
+    expect(result.status).toBe('reconstructed');
+    expect(result).not.toHaveProperty('semantic_status');
+    expect(result.columns[0]).toMatchObject({ role: null, header_text: 'Line #' });
+    expect(result.columns[0]!.header_source_refs!.map((ref) => ref.text)).toEqual(['Line #']);
+    expect(result.rows.map((row) => row.unresolved_role_cells)).toEqual([
+      [expect.objectContaining({ role: null, column_index: 0, header_text: 'Line #', raw_text: '0001' })],
+      [expect.objectContaining({ role: null, column_index: 0, header_text: 'Line #', raw_text: '0002' })],
+    ]);
+    const cell = result.rows[0]!.unresolved_role_cells![0]!;
+    expect(cell.source_refs.map((ref) => [ref.text, ref.x_min])).toEqual([['0001', LINE_X]]);
+    // No canonical role name is written anywhere for the unknown column.
+    expect(JSON.stringify(result.rows[0]!.unresolved_role_cells)).not.toMatch(/description|unit|rate|origin/);
+  });
+
+  it('R2-3: role-less cells never change row admission or the resolved-role cells', () => {
+    const withTokens = reconstructSinglePage(withLineNumbers(true))!;
+    const withoutTokens = reconstructSinglePage(withLineNumbers(false))!;
+    expect(withTokens.rows.map((row) => row.cells)).toEqual(withoutTokens.rows.map((row) => row.cells));
+    expect(withTokens.rows.map((row) => row.raw_text)).toEqual(withoutTokens.rows.map((row) => row.raw_text));
+  });
+
+  it('R2-4: role-less cells never become pricing facts', () => {
+    const priced = (lines: readonly PdfLayoutLine[]) => buildContractRateScheduleRows({
+      rateTable: null,
+      pricedScheduleReconstruction: buildPagePricedScheduleReconstruction({ layout: layoutOf([page(7, lines)]) }),
+    });
+    const withTokens = priced(withLineNumbers(true));
+    expect(withTokens).toHaveLength(2);
+    expect(withTokens).toEqual(priced(withLineNumbers(false)));
+    expect(JSON.stringify(withTokens)).not.toMatch(/0001|0002/);
+  });
+
+  it('R2-5: a page whose required role is unresolved yields structure but no pricing facts', () => {
+    const recon = buildPagePricedScheduleReconstruction({
+      layout: layoutOf([page(7, [headerWith('Cost', 'Equipment Description'), ...twoBodyRows])]),
+    });
+    expect(recon.pages[0]).toMatchObject({ status: 'reconstructed', semantic_status: 'unresolved' });
+    expect(recon.pages[0]!.rows).toHaveLength(2);
+    expect(buildContractRateScheduleRows({ rateTable: null, pricedScheduleReconstruction: recon })).toEqual([]);
+  });
+
+  it('R2-6: pricing abstains on any page marked semantically unresolved, whatever its cells', () => {
+    const recon = buildPagePricedScheduleReconstruction({
+      layout: layoutOf([page(7, [headerWith('Cost'), ...twoBodyRows])]),
+    });
+    expect(buildContractRateScheduleRows({ rateTable: null, pricedScheduleReconstruction: recon })).toHaveLength(2);
+    const marked = { ...recon, pages: recon.pages.map((entry) => ({ ...entry, semantic_status: 'unresolved' as const })) };
+    expect(buildContractRateScheduleRows({ rateTable: null, pricedScheduleReconstruction: marked })).toEqual([]);
+  });
+
+  it('R2-7: a role-less token not inside exactly one row is reported, never guessed', () => {
+    const lines = withLineNumbers(false);
+    // Between the two rows' vertical extents: it belongs to neither.
+    lines.push(line(7, 670, [{ x: LINE_X, text: '0099', width: 25 }]));
+    const result = reconstructSinglePage(lines)!;
+    expect(result.rows.every((row) => !row.unresolved_role_cells)).toBe(true);
+    expect(result.unattached_role_less_tokens!.map((token) => [token.text, token.column_index])).toEqual([['0099', 0]]);
+  });
+
+  it('R2-8: a header that does not account for a missing required role stays failed closed', () => {
+    // Only the rate side of the header is present: no column could hold the
+    // description, so the table's columns are not bounded by the header.
+    const result = reconstructSinglePage([
+      line(7, 700, [{ x: ORIGIN_X, text: 'Origin/ Destination', width: 90 }, { x: CURRENCY_X, text: 'Cost', width: 30 }]),
+      ...twoBodyRows,
+    ]);
+    expect(result).toMatchObject({ status: 'failed_closed', columns: [], rows: [] });
+  });
+
+  // ---------------------------------------------------------------------------
+  // R3: row-start anchors. An identifier-like role-less column (one token per
+  // row, at each row's first line) proves where authored rows begin. Wrapped
+  // lines spacing cannot place are then attributed by the anchors; unproven or
+  // contradicted anchors are never used.
+  // ---------------------------------------------------------------------------
+
+  type AnchorRow = { anchor?: string; anchorOnSecondLine?: boolean; description: string; wrap?: string; amount?: string; marker?: string };
+  const anchoredTable = (rows: readonly AnchorRow[], anchorTokens?: (row: AnchorRow) => TokenSpec[]) => {
+    const lines: PdfLayoutLine[] = [line(7, 700, [
+      { x: LINE_X, text: 'Line #', width: 30 },
+      { x: DESCRIPTION_X, text: 'Description', width: 70 },
+      { x: UNIT_X, text: 'Unit of Measure', width: 80 },
+      { x: ORIGIN_X, text: 'Origin/ Destination', width: 90 },
+      { x: CURRENCY_X, text: 'Cost', width: 30 },
+    ])];
+    let y = 680;
+    for (const row of rows) {
+      const anchor = row.anchor ? (anchorTokens ? anchorTokens(row) : [{ x: LINE_X, text: row.anchor, width: 25 }]) : [];
+      lines.push(line(7, y, [
+        ...(row.anchorOnSecondLine ? [] : anchor),
+        { x: DESCRIPTION_X, text: row.description, width: 100 }, { x: UNIT_X, text: 'Widget', width: 60 },
+        { x: ORIGIN_X, text: 'A to B', width: 100 },
+        ...(row.marker === '' ? [] : [{ x: CURRENCY_X, text: row.marker ?? '$', width: 8 }]),
+        { x: AMOUNT_X, text: row.amount ?? '12.00', width: 40 },
+      ]));
+      y -= 12;
+      if (row.wrap || row.anchorOnSecondLine) {
+        lines.push(line(7, y, [
+          ...(row.anchorOnSecondLine ? anchor : []),
+          ...(row.wrap ? [{ x: DESCRIPTION_X, text: row.wrap, width: 60 }] : []),
+        ]));
+        y -= 12;
+      }
+    }
+    return lines;
+  };
+  const wrapped: AnchorRow[] = [
+    { anchor: '0001', description: 'Alpha service', wrap: 'first wrap' },
+    { anchor: '0002', description: 'Beta service', wrap: 'second wrap' },
+    { anchor: '0003', description: 'Gamma service' },
+  ];
+
+  it('R3-1: spacing alone cannot place a wrapped line midway between two priced lines', () => {
+    const result = buildPagePricedScheduleReconstruction({
+      layout: layoutOf([page(7, anchoredTable(wrapped))]), continuationEvidence: 'spacing_only',
+    }).pages[0]!;
+    expect(result.unassigned_lines.map((entry) => [entry.reason, entry.raw_text])).toEqual([
+      ['ambiguous_row_assignment', 'first wrap'], ['ambiguous_row_assignment', 'second wrap'],
+    ]);
+  });
+
+  it('R3-2: an identifier column establishes row starts and attributes each wrap to its row', () => {
+    const result = reconstructSinglePage(anchoredTable(wrapped))!;
+    expect(result.unassigned_lines).toEqual([]);
+    expect(result.rows.map((row) => cellText(row, 'description'))).toEqual([
+      'Alpha service first wrap', 'Beta service second wrap', 'Gamma service',
+    ]);
+    // The wrapped cell keeps both source lines' tokens; nothing is composed.
+    expect(result.rows[0]!.cells.find((cell) => cell.role === 'description')!.source_refs.map((ref) => ref.text))
+      .toEqual(['Alpha service', 'first wrap']);
+    // The identifier column shaped the rows but stays role-less structure.
+    expect(result.columns[0]).toMatchObject({ role: null, header_text: 'Line #' });
+    expect(result.rows.map((row) => row.unresolved_role_cells!.map((cell) => cell.raw_text))).toEqual([['0001'], ['0002'], ['0003']]);
+  });
+
+  it('R3-3: a column is not an anchor unless every row line holds exactly one token', () => {
+    const result = reconstructSinglePage(anchoredTable(wrapped, (row) => [
+      { x: LINE_X, text: row.anchor!, width: 12 }, { x: LINE_X + 16, text: 'x', width: 6 },
+    ]))!;
+    expect(result.unassigned_lines.map((entry) => entry.reason)).toEqual(['ambiguous_row_assignment', 'ambiguous_row_assignment']);
+  });
+
+  it('R3-4: anchors that do not sit at row starts are never used', () => {
+    // The identifier sits on each row's second line: priced lines fall above the
+    // first anchor, so the anchors cannot bound the rows and spacing rules stand.
+    const rows = wrapped.map((row) => ({ ...row, wrap: undefined, anchorOnSecondLine: true }));
+    const anchored = reconstructSinglePage(anchoredTable(rows))!;
+    const spacing = buildPagePricedScheduleReconstruction({
+      layout: layoutOf([page(7, anchoredTable(rows))]), continuationEvidence: 'spacing_only',
+    }).pages[0]!;
+    expect(anchored.rows.map((row) => row.cells)).toEqual(spacing.rows.map((row) => row.cells));
+    expect(anchored.unassigned_lines).toEqual(spacing.unassigned_lines);
+  });
+
+  it('R3-5: a row without a price marker is reported, never folded into its priced neighbours', () => {
+    // No amount at all: a lone well-formed amount there would now be a structured
+    // rate (R4), so the unpriced row carries non-numeric authored text instead.
+    const rows: AnchorRow[] = [
+      { anchor: '0001', description: 'Alpha service' },
+      // Its two lines are each clearly nearer a different priced neighbour.
+      { anchor: '0002', description: 'Unpriced service', marker: '', amount: 'TBD', wrap: 'unpriced wrap' },
+      { anchor: '0003', description: 'Gamma service' },
+      { anchor: '0004', description: 'Delta service' },
+    ];
+    const spacing = buildPagePricedScheduleReconstruction({
+      layout: layoutOf([page(7, anchoredTable(rows))]), continuationEvidence: 'spacing_only',
+    }).pages[0]!;
+    const anchored = reconstructSinglePage(anchoredTable(rows))!;
+    // Without anchors each unpriced line is credited to a priced neighbour (making it ambiguous).
+    expect(spacing.rows.some((row) => row.raw_text.includes('Unpriced service'))
+      || spacing.rejected_spines.some((entry) => entry.raw_text.includes('Unpriced service'))).toBe(true);
+    expect(anchored.rows.map((row) => cellText(row, 'description'))).toEqual(['Alpha service', 'Gamma service', 'Delta service']);
+    expect(anchored.rows.every((row) => !row.raw_text.includes('Unpriced'))).toBe(true);
+    expect(anchored.unassigned_lines.map((entry) => [entry.reason, entry.raw_text])).toEqual([
+      ['unpriced_row', 'Unpriced service Widget A to B TBD'], ['unpriced_row', 'unpriced wrap'],
+    ]);
+  });
+
+  it('R3-6: anchored rows price normally and an unpriced row prices nothing', () => {
+    const rows: AnchorRow[] = [
+      { anchor: '0001', description: 'Alpha service', wrap: 'first wrap' },
+      { anchor: '0002', description: 'Unpriced service', marker: '', amount: 'TBD' },
+      { anchor: '0003', description: 'Gamma service' },
+    ];
+    const recon = buildPagePricedScheduleReconstruction({ layout: layoutOf([page(7, anchoredTable(rows))]) });
+    const priced = buildContractRateScheduleRows({ rateTable: null, pricedScheduleReconstruction: recon });
+    expect(priced.map((row) => [row.description, row.rate])).toEqual([['Alpha service first wrap', 12], ['Gamma service', 12]]);
+    expect(JSON.stringify(priced)).not.toMatch(/Unpriced|000[123]/);
+  });
+
+  it('R3-7: prose with no identifier column is unaffected by anchors', () => {
+    const lines = [headerWith('Cost'), ...twoBodyRows];
+    const anchored = reconstructSinglePage(lines);
+    const spacing = buildPagePricedScheduleReconstruction({
+      layout: layoutOf([page(7, lines)]), continuationEvidence: 'spacing_only',
+    }).pages[0] ?? null;
+    expect(anchored).toEqual(spacing);
+  });
+
+  // ---------------------------------------------------------------------------
+  // R4: structured rate cells. On a page whose header semantics are resolved and
+  // whose row-start anchors are proven, a row whose currency marker was not read
+  // is still priced when its rate column holds exactly one well-formed amount --
+  // optionally beside one glyph standing where the page's own recognized markers
+  // stand. The glyph is kept verbatim; no marker is ever manufactured.
+  // ---------------------------------------------------------------------------
+
+  const EXTENDED_X = 540;
+  type RateRow = {
+    anchor: string; description: string; rate?: TokenSpec[]; wrap?: string; wrapRate?: TokenSpec[];
+    unitText?: string; extended?: string;
+  };
+  const recognized = (amount = '12.00'): TokenSpec[] => [{ x: CURRENCY_X, text: '$', width: 8 }, { x: AMOUNT_X, text: amount, width: 40 }];
+  const structuredTable = (rows: readonly RateRow[], options: { descriptionLabel?: string; extended?: boolean } = {}) => {
+    const lines: PdfLayoutLine[] = [line(7, 700, [
+      { x: LINE_X, text: 'Line #', width: 30 },
+      { x: DESCRIPTION_X, text: options.descriptionLabel ?? 'Description', width: 70 },
+      { x: UNIT_X, text: 'Unit of Measure', width: 80 },
+      { x: ORIGIN_X, text: 'Origin/ Destination', width: 90 },
+      { x: CURRENCY_X, text: 'Cost', width: 30 },
+      ...(options.extended ? [{ x: EXTENDED_X, text: 'Extended Amount', width: 60 }] : []),
+    ])];
+    let y = 680;
+    for (const row of rows) {
+      lines.push(line(7, y, [
+        { x: LINE_X, text: row.anchor, width: 25 },
+        { x: DESCRIPTION_X, text: row.description, width: 100 },
+        { x: UNIT_X, text: row.unitText ?? 'Widget', width: 60 },
+        { x: ORIGIN_X, text: 'A to B', width: 100 },
+        ...(row.rate ?? recognized()),
+        ...(row.extended ? [{ x: EXTENDED_X, text: row.extended, width: 50 }] : []),
+      ]));
+      y -= 12;
+      if (row.wrap || row.wrapRate) {
+        lines.push(line(7, y, [
+          ...(row.wrap ? [{ x: DESCRIPTION_X, text: row.wrap, width: 60 }] : []),
+          ...(row.wrapRate ?? []),
+        ]));
+        y -= 12;
+      }
+    }
+    return lines;
+  };
+  const middle = (rate: TokenSpec[], extra: Partial<RateRow> = {}): RateRow[] => [
+    { anchor: '0001', description: 'Alpha service' },
+    { anchor: '0002', description: 'Beta service', rate, ...extra },
+    { anchor: '0003', description: 'Gamma service' },
+    { anchor: '0004', description: 'Delta service' },
+  ];
+  const rateCellOf = (row: NonNullable<ReturnType<typeof reconstructSinglePage>>['rows'][number]) =>
+    row.cells.find((cell) => cell.role === 'rate')!;
+  const priceOf = (lines: readonly PdfLayoutLine[]) => buildContractRateScheduleRows({
+    rateTable: null, pricedScheduleReconstruction: buildPagePricedScheduleReconstruction({ layout: layoutOf([page(7, lines)]) }),
+  }).map((row) => [row.description, row.rate_raw, row.rate]);
+
+  it('R4-1: a recognized currency marker prices exactly as before, with no structured derivation', () => {
+    const result = reconstructSinglePage(structuredTable(middle(recognized('120.00'))))!;
+    expect(result.rows.map((row) => cellText(row, 'rate'))).toEqual(['$ 12.00', '$ 120.00', '$ 12.00', '$ 12.00']);
+    expect(result.rows.every((row) => rateCellOf(row).structured_rate === undefined)).toBe(true);
+    expect(result.unassigned_lines).toEqual([]);
+  });
+
+  it('R4-2: a lone well-formed amount in an anchored row\'s rate column is the rate', () => {
+    const result = reconstructSinglePage(structuredTable(middle([{ x: AMOUNT_X, text: '120.00', width: 40 }])))!;
+    expect(result.unassigned_lines).toEqual([]);
+    expect(result.rows.map((row) => cellText(row, 'description'))).toEqual(['Alpha service', 'Beta service', 'Gamma service', 'Delta service']);
+    const rate = rateCellOf(result.rows[1]!);
+    expect(rate.raw_text).toBe('120.00');
+    expect(rate.structured_rate).toEqual({
+      derivation: 'structured_numeric_rate', amount_text: '120.00', amount_source_ref: rate.source_refs[0],
+    });
+  });
+
+  it('R4-3: an unread marker glyph stays verbatim evidence and never enters the number', () => {
+    for (const glyph of ['5', '§', 's']) {
+      const lines = structuredTable(middle([{ x: CURRENCY_X, text: glyph, width: 8 }, { x: AMOUNT_X, text: '120.00', width: 40 }]));
+      const rate = rateCellOf(reconstructSinglePage(lines)!.rows[1]!);
+      expect(rate.raw_text, glyph).toBe(`${glyph} 120.00`);
+      expect(rate.source_refs.map((ref) => ref.text)).toEqual([glyph, '120.00']);
+      expect(rate.structured_rate).toMatchObject({ amount_text: '120.00', marker_source_ref: { text: glyph } });
+      expect(JSON.stringify(rate)).not.toContain('$');
+      expect(priceOf(lines)[1], glyph).toEqual(['Beta service', `${glyph} 120.00`, 120]);
+    }
+  });
+
+  it('R4-4: the same amount outside the rate column is never a rate', () => {
+    const result = reconstructSinglePage(structuredTable(middle([], { unitText: '120.00' })))!;
+    expect(result.rows.map((row) => cellText(row, 'description'))).toEqual(['Alpha service', 'Gamma service', 'Delta service']);
+    expect(result.unassigned_lines.map((entry) => [entry.reason, entry.raw_text])).toEqual([['unpriced_row', 'Beta service 120.00 A to B']]);
+  });
+
+  it('R4-5: two amounts in one row\'s rate column fail closed', () => {
+    const sameLine = middle([{ x: 425, text: '95.00', width: 20 }, { x: AMOUNT_X, text: '120.00', width: 40 }]);
+    const wrapped = middle([{ x: AMOUNT_X, text: '120.00', width: 40 }], { wrap: 'wrap', wrapRate: [{ x: AMOUNT_X, text: '95.00', width: 40 }] });
+    for (const rows of [sameLine, wrapped]) {
+      const result = reconstructSinglePage(structuredTable(rows))!;
+      expect(result.rows.map((row) => cellText(row, 'description'))).toEqual(['Alpha service', 'Gamma service', 'Delta service']);
+      expect(result.unassigned_lines.every((entry) => entry.reason === 'unpriced_row')).toBe(true);
+      expect(result.rows.some((row) => rateCellOf(row).structured_rate)).toBe(false);
+    }
+  });
+
+  it('R4-6: a page whose header semantics are unresolved is never priced structurally', () => {
+    const lines = structuredTable(middle([{ x: AMOUNT_X, text: '120.00', width: 40 }]), { descriptionLabel: 'Equipment Description' });
+    const result = reconstructSinglePage(lines)!;
+    expect(result.semantic_status).toBe('unresolved');
+    expect(result.rows.some((row) => rateCellOf(row).structured_rate)).toBe(false);
+    expect(result.rows.flatMap((row) => row.cells).some((cell) => cell.raw_text === '120.00')).toBe(false);
+    expect(priceOf(lines)).toEqual([]);
+  });
+
+  it('R4-7: glyphs outside the marker position, or outside the rate column, are left untouched', () => {
+    // A glyph in the rate column but not where the page's markers stand.
+    const offSlot = reconstructSinglePage(structuredTable(middle([{ x: 428, text: '5', width: 6 }, { x: AMOUNT_X, text: '120.00', width: 40 }])))!;
+    expect(offSlot.rows).toHaveLength(3);
+    expect(offSlot.unassigned_lines.map((entry) => entry.reason)).toEqual(['unpriced_row']);
+    // The same characters in a description stay authored text and create no rate.
+    const prose = reconstructSinglePage(structuredTable(middle(recognized('120.00'), { description: 'Section § 5 s work' })))!;
+    expect(cellText(prose.rows[1]!, 'description')).toBe('Section § 5 s work');
+    expect(cellText(prose.rows[1]!, 'rate')).toBe('$ 120.00');
+    // Spacing-only continuation evidence never prices structurally.
+    const spacing = buildPagePricedScheduleReconstruction({
+      layout: layoutOf([page(7, structuredTable(middle([{ x: CURRENCY_X, text: '§', width: 8 }, { x: AMOUNT_X, text: '120.00', width: 40 }])))]),
+      continuationEvidence: 'spacing_only',
+    }).pages[0]!;
+    expect(spacing.rows.some((row) => rateCellOf(row).structured_rate)).toBe(false);
+  });
+
+  it('R4-8: an extended amount is never taken for the unit rate', () => {
+    const noRate = reconstructSinglePage(structuredTable(middle([], { extended: '1,200.00' }), { extended: true }))!;
+    expect(noRate.rows.map((row) => cellText(row, 'description'))).toEqual(['Alpha service', 'Gamma service', 'Delta service']);
+    expect(noRate.unassigned_lines.map((entry) => entry.reason)).toEqual(['unpriced_row']);
+    const both = structuredTable(middle([{ x: AMOUNT_X, text: '120.00', width: 40 }], { extended: '1,200.00' }), { extended: true });
+    const row = reconstructSinglePage(both)!.rows[1]!;
+    expect(rateCellOf(row).structured_rate?.amount_text).toBe('120.00');
+    expect(row.unresolved_role_cells!.map((cell) => [cell.header_text, cell.raw_text])).toEqual([['Line #', '0002'], ['Extended Amount', '1,200.00']]);
+    expect(priceOf(both)[1]).toEqual(['Beta service', '120.00', 120]);
+  });
+
+  it('R4-10: a number OCR damaged is never repaired into a rate', () => {
+    for (const damaged of ['00.00', '9O.00', '120.0', '1,20.00', '120', '12O']) {
+      const result = reconstructSinglePage(structuredTable(middle([{ x: CURRENCY_X, text: '§', width: 8 }, { x: AMOUNT_X, text: damaged, width: 40 }])))!;
+      expect(result.rows.map((row) => cellText(row, 'description')), damaged).toEqual(['Alpha service', 'Gamma service', 'Delta service']);
+      expect(result.unassigned_lines.map((entry) => entry.reason), damaged).toEqual(['unpriced_row']);
+    }
+  });
+
+  it('R4-11: the derivation points at the exact source token; row text is only what was read', () => {
+    const result = reconstructSinglePage(structuredTable(middle([{ x: CURRENCY_X, text: '§', width: 8, observation_id: 'obs:m' as PdfToken['observation_id'] }, { x: AMOUNT_X, text: '1,300.00', width: 40, observation_id: 'obs:a' as PdfToken['observation_id'] }])))!;
+    const row = result.rows[1]!;
+    const rate = rateCellOf(row);
+    expect(rate.structured_rate).toEqual({
+      derivation: 'structured_numeric_rate',
+      amount_text: '1,300.00',
+      amount_source_ref: rate.source_refs[1],
+      marker_source_ref: rate.source_refs[0],
+    });
+    expect(rate.source_refs.map((ref) => [ref.observation_id, ref.text, ref.x_min])).toEqual([['obs:m', '§', CURRENCY_X], ['obs:a', '1,300.00', AMOUNT_X]]);
+    expect(row.raw_text).not.toContain('$');
+    expect(row.raw_text).toContain('§ 1,300.00');
+  });
+
+  // ---------------------------------------------------------------------------
+  // R5: deterministic same-line column membership. Tight authored word
+  // clusters may overhang one unresolved structural column while remaining in
+  // their established starting column; separately spaced Qty evidence stays in
+  // Qty. Text and numeric meaning are never consulted.
+  // ---------------------------------------------------------------------------
+
+  const membershipHeader = () => line(7, 700, [
+    { x: 50, text: 'Description', width: 60 },
+    { x: 170, text: 'Qty', width: 30 },
+    { x: 250, text: 'Unit', width: 35 },
+    { x: 350, text: 'Cost', width: 30 },
+  ]);
+  const membershipRow = (y: number, prefix: string) => line(7, y, [
+    { x: 50, text: `${prefix} head`, width: 75, observation_id: `${prefix}:head` as PdfToken['observation_id'] },
+    // Center x=150 lies in Qty (Description/Qty boundary x=140), but the tight
+    // two-token cluster occupies Description 3:1 by horizontal overlap.
+    { x: 130, text: 'tail', width: 40, observation_id: `${prefix}:tail` as PdfToken['observation_id'] },
+    { x: 190, text: '9', width: 10, observation_id: `${prefix}:qty` as PdfToken['observation_id'] },
+    { x: 255, text: 'EA', width: 15, observation_id: `${prefix}:unit` as PdfToken['observation_id'] },
+    { x: 350, text: '$', width: 8, observation_id: `${prefix}:marker` as PdfToken['observation_id'] },
+    { x: 365, text: '12.00', width: 35, observation_id: `${prefix}:amount` as PdfToken['observation_id'] },
+  ]);
+
+  it('R5-1: a clear source-cluster majority keeps overhanging text out of Qty without losing evidence', () => {
+    const result = reconstructSinglePage([membershipHeader(), membershipRow(680, 'a'), membershipRow(660, 'b')])!;
+    expect(result.rows.map((row) => cellText(row, 'description'))).toEqual(['a head tail', 'b head tail']);
+    expect(result.rows.map((row) => row.unresolved_role_cells?.map((cell) => [cell.header_text, cell.raw_text]))).toEqual([
+      [['Qty', '9']], [['Qty', '9']],
+    ]);
+    const refs = result.rows[0]!.cells.flatMap((cell) => cell.source_refs)
+      .concat(result.rows[0]!.unresolved_role_cells!.flatMap((cell) => cell.source_refs));
+    expect(refs.map((ref) => ref.observation_id).sort()).toEqual([
+      'a:amount', 'a:head', 'a:marker', 'a:qty', 'a:tail', 'a:unit',
+    ]);
+    expect(refs.filter((ref) => ref.observation_id === 'a:tail')).toEqual([
+      expect.objectContaining({ text: 'tail', x_min: 130, x_max: 170 }),
+    ]);
+  });
+
+  it('R5-2: an exact boundary tie abstains while deterministic neighbours stay in their columns', () => {
+    const ambiguous = line(7, 680, [
+      { x: 50, text: 'Alpha', width: 70 },
+      // Equal 10-point overlap on each side of the x=140 boundary.
+      { x: 130, text: 'boundary', width: 20, observation_id: 'ambiguous' as PdfToken['observation_id'] },
+      { x: 190, text: '9', width: 10 }, { x: 255, text: 'EA', width: 15 },
+      { x: 350, text: '$', width: 8 }, { x: 365, text: '12.00', width: 35 },
+    ]);
+    const result = reconstructSinglePage([membershipHeader(), ambiguous, membershipRow(660, 'b')])!;
+    const refs = result.rows.flatMap((row) => row.cells.flatMap((cell) => cell.source_refs)
+      .concat((row.unresolved_role_cells ?? []).flatMap((cell) => cell.source_refs)));
+    expect(refs.some((ref) => ref.observation_id === 'ambiguous')).toBe(false);
+    expect(cellText(result.rows[0]!, 'description')).toBe('Alpha');
+    expect(result.rows[0]!.unresolved_role_cells?.find((cell) => cell.header_text === 'Qty')?.raw_text).toBe('9');
+    expect(result.unattached_role_less_tokens).toEqual([
+      expect.objectContaining({ observation_id: 'ambiguous', column_index: 1 }),
+    ]);
+  });
+
+  it('R5-3: a row-attributed wrapped cluster retains Description membership and authored order', () => {
+    const wrap = line(7, 674, [
+      { x: 50, text: 'continued', width: 75, observation_id: 'wrap:head' as PdfToken['observation_id'] },
+      { x: 130, text: 'tail', width: 40, observation_id: 'wrap:tail' as PdfToken['observation_id'] },
+    ]);
+    const result = reconstructSinglePage([
+      membershipHeader(), membershipRow(680, 'a'), wrap, membershipRow(650, 'b'), membershipRow(620, 'c'),
+    ])!;
+    expect(cellText(result.rows[0]!, 'description')).toBe('a head tail continued tail');
+    const description = result.rows[0]!.cells.find((cell) => cell.role === 'description')!;
+    expect(description.source_refs.filter((ref) => ref.observation_id?.startsWith('wrap:'))
+      .map((ref) => [ref.observation_id, ref.x_min, ref.x_max])).toEqual([
+      ['wrap:head', 50, 125], ['wrap:tail', 130, 170],
+    ]);
+    expect(result.rows[0]!.unresolved_role_cells?.find((cell) => cell.header_text === 'Qty')?.raw_text).toBe('9');
+  });
+
+  it('R5-4: a tight cluster spanning three columns is not pulled into its first column', () => {
+    const spanning = line(7, 680, [
+      { x: 105, text: 'left', width: 45 },
+      { x: 155, text: 'middle', width: 45 },
+      { x: 205, text: 'right', width: 45 },
+      { x: 255, text: 'EA', width: 15 },
+      { x: 350, text: '$', width: 8 }, { x: 365, text: '12.00', width: 35 },
+    ]);
+    const result = reconstructSinglePage([membershipHeader(), spanning, membershipRow(660, 'b')])!;
+    expect(cellText(result.rows[0]!, 'description')).toBe('left');
+    expect(result.rows[0]!.unresolved_role_cells?.find((cell) => cell.header_text === 'Qty')?.raw_text).toBe('middle');
+    expect(cellText(result.rows[0]!, 'unit')).toBe('right EA');
+  });
+
+  it('R5-5: line and token input order do not change column membership', () => {
+    const lines = [membershipHeader(), membershipRow(680, 'a'), membershipRow(660, 'b')];
+    const reversed = [...lines].reverse().map((entry) => ({ ...entry, tokens: [...entry.tokens].reverse() }));
+    expect(reconstructSinglePage(reversed)).toEqual(reconstructSinglePage(lines));
+  });
+
+  it('R5-6: ordinary non-table prose remains outside reconstructed rows', () => {
+    const prose = line(7, 610, [
+      { x: 50, text: 'Payment terms continue', width: 75 }, { x: 130, text: 'elsewhere', width: 40 },
+    ]);
+    const result = reconstructSinglePage([
+      membershipHeader(), membershipRow(680, 'a'), membershipRow(660, 'b'), prose,
+    ])!;
+    expect(result.rows.map((row) => cellText(row, 'description'))).toEqual(['a head tail', 'b head tail']);
+    expect(result.unassigned_lines).toEqual([expect.objectContaining({ reason: 'unsupported_trailing_line' })]);
+  });
+
+  // ---------------------------------------------------------------------------
+  // R6: the R5 cluster rule is role-symmetric except between two recognized
+  // columns. A left-aligned role-less column (a category) keeps its own words
+  // when they overhang a recognized neighbour (the description); no token ever
+  // passes between two semantic (pricing) cells.
+  // ---------------------------------------------------------------------------
+
+  const categoryHeader = () => line(7, 700, [
+    { x: 10, text: 'Category', width: 40 }, { x: 110, text: 'Description', width: 60 },
+    { x: 250, text: 'Unit', width: 35 }, { x: 350, text: 'Cost', width: 30 },
+  ]);
+  // Category/Description boundary sits at x=80 (midpoint of 50 and 110).
+  const categoryRow = (y: number, prefix: string, tail: { x: number; width: number } = { x: 64, width: 40 }) => line(7, y, [
+    { x: 10, text: `${prefix} cat`, width: 50, observation_id: `${prefix}:cat` as PdfToken['observation_id'] },
+    // Tight to the category head; centre past x=80, so per-token it is Description.
+    { x: tail.x, text: 'haul', width: tail.width, observation_id: `${prefix}:haul` as PdfToken['observation_id'] },
+    { x: 130, text: `${prefix} work`, width: 60, observation_id: `${prefix}:work` as PdfToken['observation_id'] },
+    { x: 255, text: 'EA', width: 15 },
+    { x: 350, text: '$', width: 8 }, { x: 365, text: '12.00', width: 35 },
+  ]);
+
+  it('R6-1: a role-less category cluster keeps its overhanging word out of the description', () => {
+    const lines = [categoryHeader(), categoryRow(680, 'a'), categoryRow(660, 'b')];
+    const production = reconstructSinglePage(lines)!;
+    expect(production.rows.map((row) => cellText(row, 'description'))).toEqual(['a work', 'b work']);
+    expect(production.rows.map((row) => row.unresolved_role_cells?.map((cell) => [cell.header_text, cell.raw_text])))
+      .toEqual([[['Category', 'a cat haul']], [['Category', 'b cat haul']]]);
+    // Pre-R6 (and spacing-only) center membership put the category word in the description.
+    const center = buildPagePricedScheduleReconstruction({
+      layout: layoutOf([page(7, lines)]), continuationEvidence: 'spacing_only',
+    }).pages[0]!;
+    expect(center.rows.map((row) => cellText(row, 'description'))).toEqual(['haul a work', 'haul b work']);
+  });
+
+  it('R6-2: two recognized columns never exchange ink, however clear the overlap lead', () => {
+    // A description cluster overhanging Unit keeps primitive per-token membership.
+    const lines = [categoryHeader(), ...[680, 660].map((y, index) => line(7, y, [
+      { x: 10, text: `c${index}`, width: 20 },
+      { x: 130, text: `item${index} words`, width: 80 }, { x: 212, text: 'spill', width: 20 },
+      { x: 270, text: 'EA', width: 15 },
+      { x: 350, text: '$', width: 8 }, { x: 365, text: '12.00', width: 35 },
+    ]))];
+    const result = reconstructSinglePage(lines)!;
+    expect(result.rows.map((row) => [cellText(row, 'description'), cellText(row, 'unit')])).toEqual([
+      ['item0 words', 'spill EA'], ['item1 words', 'spill EA'],
+    ]);
+  });
+
+  it('R6-3: a role-less cluster without a 2x overlap lead keeps primitive membership', () => {
+    // "haul" now reaches far into Description: the category no longer holds 2x.
+    const lines = [categoryHeader(), categoryRow(680, 'a', { x: 64, width: 90 }), categoryRow(660, 'b', { x: 64, width: 90 })];
+    const result = reconstructSinglePage(lines)!;
+    expect(result.rows.map((row) => cellText(row, 'description'))).toEqual(['haul a work', 'haul b work']);
+  });
+
+  it('R6-4: a wrapped category line that no longer carries a description token is not pulled into a row', () => {
+    // The wrap line's only would-be Description word is category overhang. With it
+    // kept in Category the line has no row-admission evidence; its role-less
+    // tokens attach only by a row's own vertical extent, else stay reported.
+    const wrap = line(7, 670, [
+      { x: 10, text: 'wrapped', width: 50, observation_id: 'w:head' as PdfToken['observation_id'] },
+      { x: 64, text: 'tail', width: 40, observation_id: 'w:tail' as PdfToken['observation_id'] },
+    ]);
+    const result = reconstructSinglePage([categoryHeader(), categoryRow(690, 'a'), wrap, categoryRow(650, 'b')])!;
+    expect(result.rows.map((row) => cellText(row, 'description'))).toEqual(['a work', 'b work']);
+    const inRows = result.rows.flatMap((row) => (row.unresolved_role_cells ?? []).flatMap((cell) => cell.source_refs))
+      .map((ref) => ref.observation_id);
+    expect(inRows).not.toContain('w:head');
+    expect(inRows).not.toContain('w:tail');
+    expect((result.unattached_role_less_tokens ?? []).map((ref) => ref.observation_id)).toEqual(['w:head', 'w:tail']);
+  });
+
+  it('R6-5: a category overhang changes only the description text that prices, never the rate', () => {
+    const lines = [categoryHeader(), categoryRow(680, 'a'), categoryRow(660, 'b')];
+    const priced = buildContractRateScheduleRows({
+      rateTable: null, pricedScheduleReconstruction: buildPagePricedScheduleReconstruction({ layout: layoutOf([page(7, lines)]) }),
+    });
+    expect(priced.map((row) => [row.description, row.unit, row.rate_raw, row.rate]))
+      .toEqual([['a work', 'EA', '$ 12.00', 12], ['b work', 'EA', '$ 12.00', 12]]);
+  });
+
+  it('R5-8: every body token lands exactly once -- in a cell, a role-less cell, or a diagnostic', () => {
+    const tie = line(7, 670, [
+      { x: 50, text: 'Alpha', width: 70, observation_id: 't:head' as PdfToken['observation_id'] },
+      { x: 130, text: 'boundary', width: 20, observation_id: 't:tie' as PdfToken['observation_id'] },
+      { x: 190, text: '9', width: 10, observation_id: 't:qty' as PdfToken['observation_id'] },
+      { x: 255, text: 'EA', width: 15, observation_id: 't:unit' as PdfToken['observation_id'] },
+      { x: 350, text: '$', width: 8, observation_id: 't:marker' as PdfToken['observation_id'] },
+      { x: 365, text: '12.00', width: 35, observation_id: 't:amount' as PdfToken['observation_id'] },
+    ]);
+    const lines = [membershipHeader(), membershipRow(690, 'a'), tie, membershipRow(650, 'b')];
+    const result = reconstructSinglePage(lines)!;
+    const seen = [
+      ...result.rows.flatMap((row) => row.cells.flatMap((cell) => cell.source_refs)),
+      ...result.rows.flatMap((row) => (row.unresolved_role_cells ?? []).flatMap((cell) => cell.source_refs)),
+      ...result.unassigned_lines.flatMap((entry) => entry.source_refs),
+      ...(result.unattached_role_less_tokens ?? []),
+    ].map((ref) => ref.observation_id);
+    const body = lines.slice(1).flatMap((entry) => entry.tokens.map((token) => token.observation_id));
+    expect([...seen].sort()).toEqual([...body].sort());
+  });
+
+  it('R5-9: spacing-only fixtures keep pre-R5 center-band membership', () => {
+    const lines = [membershipHeader(), membershipRow(680, 'a'), membershipRow(660, 'b')];
+    const spacing = buildPagePricedScheduleReconstruction({
+      layout: layoutOf([page(7, lines)]), continuationEvidence: 'spacing_only',
+    }).pages[0]!;
+    expect(spacing.rows.map((row) => cellText(row, 'description'))).toEqual(['a head', 'b head']);
+    expect(spacing.rows[0]!.unresolved_role_cells?.map((cell) => [cell.header_text, cell.raw_text]))
+      .toEqual([['Qty', 'tail 9']]);
+  });
+
+  it('R5-10: corrected membership changes only the description text that prices, never the rate', () => {
+    const lines = [membershipHeader(), membershipRow(680, 'a'), membershipRow(660, 'b')];
+    const priced = buildContractRateScheduleRows({
+      rateTable: null, pricedScheduleReconstruction: buildPagePricedScheduleReconstruction({ layout: layoutOf([page(7, lines)]) }),
+    });
+    expect(priced.map((row) => [row.description, row.unit, row.rate_raw, row.rate]))
+      .toEqual([['a head tail', 'EA', '$ 12.00', 12], ['b head tail', 'EA', '$ 12.00', 12]]);
+    expect(JSON.stringify(priced)).not.toContain('"9"');
+  });
+
+  it('R7-8: every reconstructed column keeps the exact header words that established it', () => {
+    // OCR-style words: "Unit of Measure" arrives as three words, "Code" names no role.
+    const lines = [line(7, 700, [
+      { x: 10, text: 'Code', width: 25, observation_id: 'h:code' as PdfToken['observation_id'] },
+      { x: DESCRIPTION_X, text: 'Description', width: 60, observation_id: 'h:desc' as PdfToken['observation_id'] },
+      { x: UNIT_X, text: 'Unit', width: 20, observation_id: 'h:unit' as PdfToken['observation_id'] },
+      { x: UNIT_X + 24, text: 'of', width: 10, observation_id: 'h:of' as PdfToken['observation_id'] },
+      { x: UNIT_X + 38, text: 'Measure', width: 40, observation_id: 'h:measure' as PdfToken['observation_id'] },
+      { x: CURRENCY_X, text: 'Cost', width: 30, observation_id: 'h:cost' as PdfToken['observation_id'] },
+    ]),
+    line(7, 680, [{ x: 10, text: 'A1', width: 12 }, { x: DESCRIPTION_X, text: 'Alpha', width: 60 }, { x: UNIT_X, text: 'Ton', width: 20 },
+      { x: CURRENCY_X, text: '$', width: 8 }, { x: AMOUNT_X, text: '12.00', width: 40 }]),
+    line(7, 660, [{ x: 10, text: 'B2', width: 12 }, { x: DESCRIPTION_X, text: 'Beta', width: 60 }, { x: UNIT_X, text: 'Ton', width: 20 },
+      { x: CURRENCY_X, text: '$', width: 8 }, { x: AMOUNT_X, text: '3.50', width: 40 }])];
+    const result = reconstructSinglePage(lines)!;
+    expect(result.columns.map((column) => [column.header_text, column.role,
+      (column.header_source_refs ?? []).map((ref) => [ref.observation_id, ref.text])])).toEqual([
+      ['Code', null, [['h:code', 'Code']]],
+      ['Description', 'description', [['h:desc', 'Description']]],
+      ['Unit of Measure', 'unit', [['h:unit', 'Unit'], ['h:of', 'of'], ['h:measure', 'Measure']]],
+      ['Cost', 'rate', [['h:cost', 'Cost']]],
+    ]);
+    // Header words are never row content.
+    const bodyRefs = result.rows.flatMap((row) => [...row.cells, ...(row.unresolved_role_cells ?? [])]
+      .flatMap((cell) => cell.source_refs.map((ref) => ref.observation_id)));
+    expect(bodyRefs.filter((id) => id?.startsWith('h:'))).toEqual([]);
+  });
+
+  // ---------------------------------------------------------------------------
+  // R8: source-backed lines immediately outside proven row-start boundaries
+  // remain table-edge structure. They are not body cells and have no semantic
+  // or pricing authority.
+  // ---------------------------------------------------------------------------
+
+  const edgeRows: AnchorRow[] = [
+    { anchor: '0001', description: 'Alpha service' },
+    { anchor: '0002', description: 'Beta service' },
+    { anchor: '0003', description: 'Gamma service' },
+  ];
+  const tableWithEdges = () => {
+    const lines = anchoredTable(edgeRows);
+    lines.splice(1, 0, line(7, 690, [
+      { x: 130, text: 'ROADWAY', width: 50, observation_id: 'edge:section:a' as PdfToken['observation_id'] },
+      { x: 184, text: 'ITEMS', width: 35, observation_id: 'edge:section:b' as PdfToken['observation_id'] },
+    ]));
+    lines.push(line(7, 644, [
+      { x: 240, text: 'Project', width: 50, observation_id: 'edge:total:a' as PdfToken['observation_id'] },
+      { x: 294, text: 'subtotal:', width: 60, observation_id: 'edge:total:b' as PdfToken['observation_id'] },
+      { x: CURRENCY_X, text: '$', width: 8, observation_id: 'edge:total:c' as PdfToken['observation_id'] },
+      { x: AMOUNT_X, text: '99.00', width: 40, observation_id: 'edge:total:d' as PdfToken['observation_id'] },
+    ]));
+    return lines;
+  };
+
+  it('R8-1: lines just above and below proven body rows remain separate table-edge structure', () => {
+    const result = reconstructSinglePage(tableWithEdges())!;
+    expect(result.table_edge_lines?.map((entry) => [entry.position, entry.raw_text])).toEqual([
+      ['before_body', 'ROADWAY ITEMS'], ['after_body', 'Project subtotal: $ 99.00'],
+    ]);
+    expect(result.table_edge_lines?.[0]!.cells).toEqual([
+      expect.objectContaining({ column_index: null, raw_text: 'ROADWAY ITEMS' }),
+    ]);
+    expect(result.table_edge_lines?.[1]!.cells).toEqual([
+      expect.objectContaining({ column_index: null, raw_text: 'Project subtotal:' }),
+      expect.objectContaining({ column_index: 4, raw_text: '$ 99.00' }),
+    ]);
+    expect(result.rows.map((row) => cellText(row, 'description'))).toEqual([
+      'Alpha service', 'Beta service', 'Gamma service',
+    ]);
+    expect(result.rows[0]!.raw_text).not.toMatch(/ROADWAY|ITEMS/);
+    expect(result.rows.at(-1)!.raw_text).not.toMatch(/Project|subtotal|99\.00/);
+  });
+
+  it('R8-2: edge cells retain exact source refs and boxes, and every body token lands exactly once', () => {
+    const lines = tableWithEdges();
+    const result = reconstructSinglePage(lines)!;
+    const section = result.table_edge_lines![0]!;
+    expect(section.source_refs.map((ref) => [ref.observation_id, ref.text, ref.x_min, ref.x_max, ref.y_min, ref.y_max])).toEqual([
+      ['edge:section:a', 'ROADWAY', 130, 180, 690, 700],
+      ['edge:section:b', 'ITEMS', 184, 219, 690, 700],
+    ]);
+    expect([section.x_min, section.x_max, section.y_min, section.y_max]).toEqual([130, 219, 690, 700]);
+    const seen = [
+      ...result.rows.flatMap((row) => row.cells.flatMap((cell) => cell.source_refs)),
+      ...result.rows.flatMap((row) => (row.unresolved_role_cells ?? []).flatMap((cell) => cell.source_refs)),
+      ...(result.table_edge_lines ?? []).flatMap((entry) => entry.source_refs),
+      ...result.unassigned_lines.flatMap((entry) => entry.source_refs),
+      ...(result.unattached_role_less_tokens ?? []),
+    ].map((ref) => ref.observation_id).filter(Boolean);
+    const body = lines.slice(1).flatMap((entry) => entry.tokens.map((token) => token.observation_id)).filter(Boolean);
+    expect([...seen].sort()).toEqual([...body].sort());
+  });
+
+  it('R8-3: edge structure never changes authoritative pricing', () => {
+    const priced = (lines: readonly PdfLayoutLine[]) => buildContractRateScheduleRows({
+      rateTable: null,
+      pricedScheduleReconstruction: buildPagePricedScheduleReconstruction({ layout: layoutOf([page(7, lines)]) }),
+    });
+    expect(priced(tableWithEdges())).toEqual(priced(anchoredTable(edgeRows)));
+  });
+
+  it('R8-4: an ambiguous footer shape and distant prose remain unresolved', () => {
+    const ambiguous = anchoredTable(edgeRows);
+    ambiguous.push(line(7, 644, [
+      { x: ORIGIN_X, text: 'Note', width: 30 },
+      { x: CURRENCY_X, text: '$', width: 8 }, { x: AMOUNT_X, text: '99.00', width: 40 },
+    ]));
+    ambiguous.push(line(7, 600, [{ x: DESCRIPTION_X, text: 'Payment terms continue elsewhere', width: 150 }]));
+    const result = reconstructSinglePage(ambiguous)!;
+    expect(result).not.toHaveProperty('table_edge_lines');
+    // An ambiguous shape abstains from edge structure and keeps the body rules'
+    // own fail-closed outcome: never a row, always retained as evidence.
+    expect(result.rows.map((row) => cellText(row, 'description'))).toEqual([
+      'Alpha service', 'Beta service', 'Gamma service',
+    ]);
+    expect(result.rows.some((row) => row.raw_text.includes('99.00'))).toBe(false);
+    expect([...result.rejected_spines, ...result.unassigned_lines].map((entry) => entry.raw_text))
+      .toEqual(expect.arrayContaining(['Note $ 99.00', 'Payment terms continue elsewhere']));
+  });
+
+  it('R8-5: spacing-only recovery behavior remains frozen', () => {
+    const result = buildPagePricedScheduleReconstruction({
+      layout: layoutOf([page(7, tableWithEdges())]), continuationEvidence: 'spacing_only',
+    }).pages[0]!;
+    expect(result).not.toHaveProperty('table_edge_lines');
+  });
+
+  it('R8-6: a structured-rate final row is established before footer classification', () => {
+    const lines = structuredTable([
+      { anchor: '0001', description: 'Alpha service' },
+      { anchor: '0002', description: 'Beta service' },
+      { anchor: '0003', description: 'Gamma service' },
+      { anchor: '0004', description: 'Delta service', rate: [{ x: AMOUNT_X, text: '45.00', width: 40 }] },
+    ]);
+    lines.push(line(7, 632, [
+      { x: 240, text: 'Project', width: 50 }, { x: 294, text: 'subtotal:', width: 60 },
+      { x: CURRENCY_X, text: '$', width: 8 }, { x: AMOUNT_X, text: '99.00', width: 40 },
+    ]));
+    const result = reconstructSinglePage(lines)!;
+    expect(result.rows.map((row) => cellText(row, 'description'))).toEqual([
+      'Alpha service', 'Beta service', 'Gamma service', 'Delta service',
+    ]);
+    expect(rateCellOf(result.rows.at(-1)!).structured_rate?.amount_text).toBe('45.00');
+    expect(result.table_edge_lines?.map((entry) => entry.raw_text)).toEqual(['Project subtotal: $ 99.00']);
+  });
+
+  // Row-start anchors mark where rows begin, not how far they extend. A line a
+  // body continuation could produce must stay with the body rules: the R7 and
+  // R8 reconstructions of these shapes must be identical.
+  const anchoredRow = (y: number, anchor: string, description: string, rateOnSecondLine = false) => {
+    const rate = [{ x: CURRENCY_X, text: '$', width: 8 }, { x: AMOUNT_X, text: '12.00', width: 40 }];
+    return [
+      line(7, y, [{ x: LINE_X, text: anchor, width: 25 }, { x: DESCRIPTION_X, text: description, width: 100 },
+        { x: UNIT_X, text: 'Widget', width: 60 }, { x: ORIGIN_X, text: 'A to B', width: 100 },
+        ...(rateOnSecondLine ? [] : rate)]),
+      line(7, y - (rateOnSecondLine ? 12 : 6), [{ x: DESCRIPTION_X, text: `${description} tail`, width: 60 },
+        ...(rateOnSecondLine ? rate : [])]),
+    ];
+  };
+  const header = () => anchoredTable([])[0]!;
+
+  it('R8-7: a final row keeps its wrapped continuation below its anchor', () => {
+    const result = reconstructSinglePage([header(), ...anchoredRow(680, '0001', 'Alpha'),
+      ...anchoredRow(640, '0002', 'Beta'), ...anchoredRow(600, '0003', 'Gamma')])!;
+    expect(result.rows.map((row) => cellText(row, 'description'))).toEqual(['Alpha Alpha tail', 'Beta Beta tail', 'Gamma Gamma tail']);
+    expect(result.unassigned_lines).toEqual([]);
+    expect(result).not.toHaveProperty('table_edge_lines');
+  });
+
+  it('R8-8: a final row priced on its second line is never stripped into edge structure', () => {
+    const lines = [header(), ...anchoredRow(680, '0001', 'Alpha', true),
+      ...anchoredRow(640, '0002', 'Beta', true), ...anchoredRow(600, '0003', 'Gamma', true)];
+    const result = reconstructSinglePage(lines)!;
+    expect(result.rows.map((row) => [cellText(row, 'description'), cellText(row, 'rate')])).toEqual([
+      ['Alpha Alpha tail', '$ 12.00'], ['Beta Beta tail', '$ 12.00'], ['Gamma Gamma tail', '$ 12.00'],
+    ]);
+    expect(result).not.toHaveProperty('table_edge_lines');
+    expect(buildContractRateScheduleRows({
+      rateTable: null,
+      pricedScheduleReconstruction: buildPagePricedScheduleReconstruction({ layout: layoutOf([page(7, lines)]) }),
+    }).map((row) => row.rate)).toEqual([12, 12, 12]);
+  });
+
+  it('R8-9: a first row wrapping above its anchor keeps that line as body content', () => {
+    const centered = (y: number, anchor: string, description: string) => [
+      line(7, y + 6, [{ x: DESCRIPTION_X, text: `${description} upper`, width: 60 }]),
+      ...anchoredRow(y, anchor, description),
+    ];
+    const result = reconstructSinglePage([header(), ...centered(660, '0001', 'Alpha'),
+      ...centered(620, '0002', 'Beta'), ...centered(580, '0003', 'Gamma')])!;
+    expect(result.rows.map((row) => cellText(row, 'description'))).toEqual([
+      'Alpha upper Alpha Alpha tail', 'Beta upper Beta Beta tail', 'Gamma upper Gamma Gamma tail',
+    ]);
+    expect(result).not.toHaveProperty('table_edge_lines');
+  });
+
+  it('R4-12: production logic names no benchmark document or value', () => {
+    const source = readFileSync(new URL('./pagePricedScheduleReconstruction.ts', import.meta.url), 'utf8');
+    expect(source).not.toMatch(/DN12189513|Hillsdale|Williamson|Goodlettsville|\bp10[67]\b|90\.00|1,000\.00/i);
   });
 
 });

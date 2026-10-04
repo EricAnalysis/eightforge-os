@@ -4,6 +4,7 @@ import {
   type BenchmarkBox,
   type BenchmarkCellLabel,
   type BenchmarkLabelBinding,
+  type BenchmarkPageLabels,
   type BenchmarkRowLabel,
   type BenchmarkWordLabel,
 } from '@/lib/evaluation/benchmark/benchmarkContract';
@@ -342,6 +343,8 @@ export type BenchmarkPageScore = Readonly<{
   authority: typeof BENCHMARK_RESULT_AUTHORITY;
   pageKey: string;
   labelsSha256: string;
+  /** Which approval path produced the truth file this score is measured against. */
+  truthAuthority: BenchmarkPageLabels['authority'];
   labelState: BenchmarkLabelBinding['state'];
   unlabeledSections: readonly string[];
   iouThreshold: number;
@@ -368,6 +371,7 @@ export function scoreBenchmarkPage(input: Readonly<{
     authority: BENCHMARK_RESULT_AUTHORITY,
     pageKey: input.binding.labels.pageKey,
     labelsSha256: input.binding.labelsSha256,
+    truthAuthority: input.binding.labels.authority,
     labelState: input.binding.state,
     unlabeledSections: input.binding.unlabeledSections,
     iouThreshold,

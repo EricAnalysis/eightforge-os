@@ -1,0 +1,42 @@
+{
+  "approvalVersion": "e3-benchmark-delegated-approval-v1",
+  "authority": "delegated_dual_ai_benchmark_approval",
+  "delegationScope": "e3_benchmark_labels_finalization",
+  "pageKey": "dn-p107",
+  "source": {
+    "documentKey": "dn",
+    "sha256": "69247bff02744276b75f2cb0d4c00610e8614bd5822d2d10ae2ad35564c3b272",
+    "byteLength": 3895497,
+    "physicalPageNumber": 107
+  },
+  "frame": {
+    "frame_version": "canonical_frame_v1",
+    "coordinate_space": "canonical_v1",
+    "view": [
+      0,
+      0,
+      612,
+      792
+    ],
+    "rotation": 0,
+    "user_unit": 1,
+    "width": 612,
+    "height": 792
+  },
+  "adjudicationSha256": "f697772e76eb515d914e20c80a671df226f09c7086c96f083c564075983f0339",
+  "comparisonSha256": "a09c7f206bb8e83cb9584e4bbba618962704935cbf337e7848d73a7719225aee",
+  "reviewerALabelSetSha256": "9a741b6c6ea579e49510cb7675b164d4f8c8ab3f6160e3e90567f8d1a0500edf",
+  "reviewerBLabelSetSha256": "511854298abfd694c1ed08e9946e112bc976f9017059832857b92e21f9f71ad8",
+  "suggestionsSha256": null,
+  "candidateSha256": "d42dc4562274cdf5fec4a38be033e0a8402a5f991d8105cd0674a02ece0641ef",
+  "candidateSummary": {
+    "words": 331,
+    "cells": 180,
+    "rows": 25,
+    "coverage": "requires_ocr"
+  },
+  "approverIdentity": "chatgpt",
+  "decision": "approve",
+  "approvedAt": "2026-09-29T15:46:00.000Z",
+  "rationale": "Approve E3 evaluation ground truth only for dn-p107. Reviewed the supplied delegated approval packet against the frozen p107 semantic decisions and geometry closure. The packet binds the pinned DN source, physical page 107, canonical_frame_v1, the geometry-attached adjudication digest f697772e76eb515d914e20c80a671df226f09c7086c96f083c564075983f0339, and candidate digest d42dc4562274cdf5fec4a38be033e0a8402a5f991d8105cd0674a02ece0641ef with 331 words, 180 cells, 25 rows and requires_ocr coverage. The frozen semantic digest d2a4280a59d217fb5808760bfeb46f8b4a71f2f3673502b5c903c348457db677 is reproduced from the geometry-attached candidate. The packet reports source-ink geometry, 314/331 OCR cross-validation, three documented overrides, zero unresolved geometry, deterministic replay, no labels.json and no prior approvals. Approval is limited to e3_benchmark_labels_finalization and grants no production, Project Truth, validator, extraction, deployment, E4 or E5 authority."
+}

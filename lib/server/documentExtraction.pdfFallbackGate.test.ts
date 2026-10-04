@@ -280,8 +280,14 @@ describe('documentExtraction pdf fallback gate', () => {
       terminate: vi.fn(async () => undefined),
     }));
     vi.doMock('@napi-rs/canvas', () => ({
+      loadImage: vi.fn(async () => ({ width: 200, height: 300 })),
       createCanvas: vi.fn(() => ({
-        getContext: vi.fn(() => ({})),
+        // These fixtures render blank synthetic rasters, with no ruling evidence.
+        getContext: vi.fn(() => ({ drawImage: vi.fn(),
+          getImageData: vi.fn((_x: number, _y: number, width: number, height: number) => ({
+            data: new Uint8ClampedArray(width * height * 4).fill(255),
+          })),
+        })),
         toBuffer: vi.fn(() => Buffer.from('png')),
       })),
     }));
@@ -369,8 +375,14 @@ describe('documentExtraction pdf fallback gate', () => {
       terminate: vi.fn(async () => undefined),
     }));
     vi.doMock('@napi-rs/canvas', () => ({
+      loadImage: vi.fn(async () => ({ width: 200, height: 300 })),
       createCanvas: vi.fn(() => ({
-        getContext: vi.fn(() => ({})),
+        // These fixtures render blank synthetic rasters, with no ruling evidence.
+        getContext: vi.fn(() => ({ drawImage: vi.fn(),
+          getImageData: vi.fn((_x: number, _y: number, width: number, height: number) => ({
+            data: new Uint8ClampedArray(width * height * 4).fill(255),
+          })),
+        })),
         toBuffer: vi.fn(() => Buffer.from('png')),
       })),
     }));
@@ -424,8 +436,14 @@ describe('documentExtraction pdf fallback gate', () => {
       getDocument: vi.fn(() => ({ promise: Promise.resolve(pdfDoc) })),
     }));
     vi.doMock('@napi-rs/canvas', () => ({
+      loadImage: vi.fn(async () => ({ width: 200, height: 300 })),
       createCanvas: vi.fn(() => ({
-        getContext: vi.fn(() => ({})),
+        // These fixtures render blank synthetic rasters, with no ruling evidence.
+        getContext: vi.fn(() => ({ drawImage: vi.fn(),
+          getImageData: vi.fn((_x: number, _y: number, width: number, height: number) => ({
+            data: new Uint8ClampedArray(width * height * 4).fill(255),
+          })),
+        })),
         toBuffer: vi.fn(() => Buffer.from('png')),
       })),
     }));
@@ -516,8 +534,14 @@ describe('documentExtraction pdf fallback gate', () => {
       getDocument: vi.fn(() => ({ promise: Promise.resolve(pdfDoc) })),
     }));
     vi.doMock('@napi-rs/canvas', () => ({
+      loadImage: vi.fn(async () => ({ width: 200, height: 300 })),
       createCanvas: vi.fn(() => ({
-        getContext: vi.fn(() => ({})),
+        // These fixtures render blank synthetic rasters, with no ruling evidence.
+        getContext: vi.fn(() => ({ drawImage: vi.fn(),
+          getImageData: vi.fn((_x: number, _y: number, width: number, height: number) => ({
+            data: new Uint8ClampedArray(width * height * 4).fill(255),
+          })),
+        })),
         toBuffer: vi.fn(() => Buffer.from('synthetic-page-png')),
       })),
     }));
@@ -600,8 +624,14 @@ describe('documentExtraction pdf fallback gate', () => {
       getDocument: vi.fn(() => ({ promise: Promise.resolve(pdfDoc) })),
     }));
     vi.doMock('@napi-rs/canvas', () => ({
+      loadImage: vi.fn(async () => ({ width: 200, height: 300 })),
       createCanvas: vi.fn(() => ({
-        getContext: vi.fn(() => ({})),
+        // These fixtures render blank synthetic rasters, with no ruling evidence.
+        getContext: vi.fn(() => ({ drawImage: vi.fn(),
+          getImageData: vi.fn((_x: number, _y: number, width: number, height: number) => ({
+            data: new Uint8ClampedArray(width * height * 4).fill(255),
+          })),
+        })),
         toBuffer: vi.fn(() => Buffer.from('png')),
       })),
     }));
@@ -735,8 +765,14 @@ describe('documentExtraction pdf fallback gate', () => {
       getDocument: vi.fn(() => ({ promise: Promise.resolve(pdfDoc) })),
     }));
     vi.doMock('@napi-rs/canvas', () => ({
+      loadImage: vi.fn(async () => ({ width: 200, height: 300 })),
       createCanvas: vi.fn(() => ({
-        getContext: vi.fn(() => ({})),
+        // These fixtures render blank synthetic rasters, with no ruling evidence.
+        getContext: vi.fn(() => ({ drawImage: vi.fn(),
+          getImageData: vi.fn((_x: number, _y: number, width: number, height: number) => ({
+            data: new Uint8ClampedArray(width * height * 4).fill(255),
+          })),
+        })),
         toBuffer: vi.fn(() => Buffer.from('png')),
       })),
     }));
@@ -829,8 +865,14 @@ describe('documentExtraction pdf fallback gate', () => {
       getDocument: vi.fn(() => ({ promise: Promise.resolve(pdfDoc) })),
     }));
     vi.doMock('@napi-rs/canvas', () => ({
+      loadImage: vi.fn(async () => ({ width: 200, height: 300 })),
       createCanvas: vi.fn(() => ({
-        getContext: vi.fn(() => ({})),
+        // These fixtures render blank synthetic rasters, with no ruling evidence.
+        getContext: vi.fn(() => ({ drawImage: vi.fn(),
+          getImageData: vi.fn((_x: number, _y: number, width: number, height: number) => ({
+            data: new Uint8ClampedArray(width * height * 4).fill(255),
+          })),
+        })),
         toBuffer: vi.fn(() => Buffer.from('png')),
       })),
     }));

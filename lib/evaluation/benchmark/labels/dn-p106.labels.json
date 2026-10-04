@@ -1,0 +1,5948 @@
+{
+  "labelSetVersion": "extraction-benchmark-labels-v1",
+  "authority": "delegated_dual_ai_evaluation_ground_truth_only",
+  "pageKey": "dn-p106",
+  "source": {
+    "documentKey": "dn",
+    "sha256": "69247bff02744276b75f2cb0d4c00610e8614bd5822d2d10ae2ad35564c3b272",
+    "byteLength": 3895497,
+    "physicalPageNumber": 106
+  },
+  "frame": {
+    "frame_version": "canonical_frame_v1",
+    "coordinate_space": "canonical_v1",
+    "view": [
+      0,
+      0,
+      612,
+      792
+    ],
+    "rotation": 0,
+    "user_unit": 1,
+    "width": 612,
+    "height": 792
+  },
+  "words": {
+    "status": "labeled",
+    "items": [
+      {
+        "labelId": "w-0001",
+        "text": "DN12189513",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 41.5,
+          "y_min": 38.75,
+          "x_max": 100.75,
+          "y_max": 46.5
+        }
+      },
+      {
+        "labelId": "w-0002",
+        "text": "T-1",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 290.5,
+          "y_min": 40.5,
+          "x_max": 315.75,
+          "y_max": 52.75
+        }
+      },
+      {
+        "labelId": "w-0003",
+        "text": "Henderson,",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 492,
+          "y_min": 39,
+          "x_max": 545.75,
+          "y_max": 48.25
+        }
+      },
+      {
+        "labelId": "w-0004",
+        "text": "Polk",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 549.25,
+          "y_min": 39,
+          "x_max": 570.5,
+          "y_max": 46.5
+        }
+      },
+      {
+        "labelId": "w-0005",
+        "text": "ITEMIZED",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 198.5,
+          "y_min": 80.75,
+          "x_max": 248.75,
+          "y_max": 87.25
+        }
+      },
+      {
+        "labelId": "w-0006",
+        "text": "PROPOSAL",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 252,
+          "y_min": 80.5,
+          "x_max": 306,
+          "y_max": 87.5
+        }
+      },
+      {
+        "labelId": "w-0007",
+        "text": "FOR",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 309,
+          "y_min": 80.5,
+          "x_max": 330,
+          "y_max": 87.5
+        }
+      },
+      {
+        "labelId": "w-0008",
+        "text": "CONTRACT",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 332.5,
+          "y_min": 80.5,
+          "x_max": 389,
+          "y_max": 87.5
+        }
+      },
+      {
+        "labelId": "w-0009",
+        "text": "NO.",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 392,
+          "y_min": 80.5,
+          "x_max": 409,
+          "y_max": 87.5
+        }
+      },
+      {
+        "labelId": "w-0010",
+        "text": "DN12189513",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 412,
+          "y_min": 80.5,
+          "x_max": 466,
+          "y_max": 87.5
+        }
+      },
+      {
+        "labelId": "w-0011",
+        "text": "Line",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 41.75,
+          "y_min": 92.5,
+          "x_max": 60.75,
+          "y_max": 99.5
+        }
+      },
+      {
+        "labelId": "w-0012",
+        "text": "#",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 63.75,
+          "y_min": 92.5,
+          "x_max": 68.25,
+          "y_max": 99.5
+        }
+      },
+      {
+        "labelId": "w-0013",
+        "text": "Item",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.25,
+          "y_min": 92.75,
+          "x_max": 100.75,
+          "y_max": 99.5
+        }
+      },
+      {
+        "labelId": "w-0014",
+        "text": "Number",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 103.75,
+          "y_min": 92.75,
+          "x_max": 139,
+          "y_max": 99.5
+        }
+      },
+      {
+        "labelId": "w-0015",
+        "text": "Sec",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 161,
+          "y_min": 92.5,
+          "x_max": 174.5,
+          "y_max": 99.5
+        }
+      },
+      {
+        "labelId": "w-0016",
+        "text": "#",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 177.5,
+          "y_min": 92.5,
+          "x_max": 182.25,
+          "y_max": 99.5
+        }
+      },
+      {
+        "labelId": "w-0017",
+        "text": "Description",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 92.5,
+          "x_max": 245,
+          "y_max": 101.25
+        }
+      },
+      {
+        "labelId": "w-0018",
+        "text": "Qty",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 366.75,
+          "y_min": 92.5,
+          "x_max": 382.5,
+          "y_max": 101.25
+        }
+      },
+      {
+        "labelId": "w-0019",
+        "text": "Units",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 399.75,
+          "y_min": 92.5,
+          "x_max": 421.75,
+          "y_max": 99.5
+        }
+      },
+      {
+        "labelId": "w-0020",
+        "text": "Unit",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 92.5,
+          "x_max": 451.75,
+          "y_max": 99.5
+        }
+      },
+      {
+        "labelId": "w-0021",
+        "text": "Cost",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 454.75,
+          "y_min": 92.5,
+          "x_max": 473.75,
+          "y_max": 99.5
+        }
+      },
+      {
+        "labelId": "w-0022",
+        "text": "Extended",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 494.75,
+          "y_min": 92.75,
+          "x_max": 534.75,
+          "y_max": 99.5
+        }
+      },
+      {
+        "labelId": "w-0023",
+        "text": "Amount",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 537.5,
+          "y_min": 92.5,
+          "x_max": 572.25,
+          "y_max": 99.5
+        }
+      },
+      {
+        "labelId": "w-0024",
+        "text": "ROADWAY",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 268.5,
+          "y_min": 104.5,
+          "x_max": 321.75,
+          "y_max": 111.5
+        }
+      },
+      {
+        "labelId": "w-0025",
+        "text": "ITEMS",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 324.75,
+          "y_min": 104.5,
+          "x_max": 356.5,
+          "y_max": 111.5
+        }
+      },
+      {
+        "labelId": "w-0026",
+        "text": "0001",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 116.5,
+          "x_max": 65.75,
+          "y_max": 124.25
+        }
+      },
+      {
+        "labelId": "w-0027",
+        "text": "6138000000-E",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 116.5,
+          "x_max": 146.25,
+          "y_max": 124.25
+        }
+      },
+      {
+        "labelId": "w-0028",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 116.5,
+          "x_max": 178.75,
+          "y_max": 124.25
+        }
+      },
+      {
+        "labelId": "w-0029",
+        "text": "Vegetative",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 116.25,
+          "x_max": 243.5,
+          "y_max": 126.25
+        }
+      },
+      {
+        "labelId": "w-0030",
+        "text": "Debris",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 246.75,
+          "y_min": 116.25,
+          "x_max": 275.5,
+          "y_max": 124.25
+        }
+      },
+      {
+        "labelId": "w-0031",
+        "text": "Removal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 278.75,
+          "y_min": 116.25,
+          "x_max": 318,
+          "y_max": 124.25
+        }
+      },
+      {
+        "labelId": "w-0032",
+        "text": "7,500",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 362.75,
+          "y_min": 116.5,
+          "x_max": 386.75,
+          "y_max": 125.75
+        }
+      },
+      {
+        "labelId": "w-0033",
+        "text": "CY",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 403.5,
+          "y_min": 116.5,
+          "x_max": 418.25,
+          "y_max": 124.25
+        }
+      },
+      {
+        "labelId": "w-0034",
+        "text": "$38.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 116,
+          "x_max": 460.5,
+          "y_max": 124.75
+        }
+      },
+      {
+        "labelId": "w-0035",
+        "text": "$285,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 116,
+          "x_max": 544.75,
+          "y_max": 125
+        }
+      },
+      {
+        "labelId": "w-0036",
+        "text": "0002",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 129.75,
+          "x_max": 66.5,
+          "y_max": 137.5
+        }
+      },
+      {
+        "labelId": "w-0037",
+        "text": "6138000000-E",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 129.75,
+          "x_max": 146.25,
+          "y_max": 137.5
+        }
+      },
+      {
+        "labelId": "w-0038",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 129.75,
+          "x_max": 178.75,
+          "y_max": 137.5
+        }
+      },
+      {
+        "labelId": "w-0039",
+        "text": "Vegetative",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 129.5,
+          "x_max": 243.5,
+          "y_max": 139.5
+        }
+      },
+      {
+        "labelId": "w-0040",
+        "text": "Debris",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 246.75,
+          "y_min": 129.5,
+          "x_max": 275.5,
+          "y_max": 137.5
+        }
+      },
+      {
+        "labelId": "w-0041",
+        "text": "Grinding",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 279,
+          "y_min": 129.5,
+          "x_max": 318.25,
+          "y_max": 139.5
+        }
+      },
+      {
+        "labelId": "w-0042",
+        "text": "7,500",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 362.75,
+          "y_min": 129.75,
+          "x_max": 386.75,
+          "y_max": 139
+        }
+      },
+      {
+        "labelId": "w-0043",
+        "text": "CY",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 403.5,
+          "y_min": 129.75,
+          "x_max": 418.25,
+          "y_max": 137.5
+        }
+      },
+      {
+        "labelId": "w-0044",
+        "text": "$24.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 129,
+          "x_max": 460.5,
+          "y_max": 137.75
+        }
+      },
+      {
+        "labelId": "w-0045",
+        "text": "$180,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 129,
+          "x_max": 544.75,
+          "y_max": 138
+        }
+      },
+      {
+        "labelId": "w-0046",
+        "text": "0003",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 143,
+          "x_max": 66.25,
+          "y_max": 150.75
+        }
+      },
+      {
+        "labelId": "w-0047",
+        "text": "6138000000-E",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 143,
+          "x_max": 146.25,
+          "y_max": 150.75
+        }
+      },
+      {
+        "labelId": "w-0048",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 143,
+          "x_max": 178.75,
+          "y_max": 150.75
+        }
+      },
+      {
+        "labelId": "w-0049",
+        "text": "Vegetative",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 142.75,
+          "x_max": 243.5,
+          "y_max": 152.5
+        }
+      },
+      {
+        "labelId": "w-0050",
+        "text": "Debris",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 246.75,
+          "y_min": 142.75,
+          "x_max": 275.5,
+          "y_max": 150.75
+        }
+      },
+      {
+        "labelId": "w-0051",
+        "text": "Disposal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 278.75,
+          "y_min": 142.75,
+          "x_max": 316.75,
+          "y_max": 152.5
+        }
+      },
+      {
+        "labelId": "w-0052",
+        "text": "2,500",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 362.5,
+          "y_min": 143,
+          "x_max": 386.75,
+          "y_max": 152.25
+        }
+      },
+      {
+        "labelId": "w-0053",
+        "text": "CY",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 403.5,
+          "y_min": 143,
+          "x_max": 418.25,
+          "y_max": 150.75
+        }
+      },
+      {
+        "labelId": "w-0054",
+        "text": "$12.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 142.25,
+          "x_max": 460.5,
+          "y_max": 151
+        }
+      },
+      {
+        "labelId": "w-0055",
+        "text": "$30,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 142.25,
+          "x_max": 539.75,
+          "y_max": 151.25
+        }
+      },
+      {
+        "labelId": "w-0056",
+        "text": "0004",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 156,
+          "x_max": 66.75,
+          "y_max": 163.75
+        }
+      },
+      {
+        "labelId": "w-0057",
+        "text": "6150000000-E",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 156,
+          "x_max": 146.25,
+          "y_max": 163.75
+        }
+      },
+      {
+        "labelId": "w-0058",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 156,
+          "x_max": 178.75,
+          "y_max": 163.75
+        }
+      },
+      {
+        "labelId": "w-0059",
+        "text": "White",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 155.75,
+          "x_max": 222.75,
+          "y_max": 163.75
+        }
+      },
+      {
+        "labelId": "w-0060",
+        "text": "Goods",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 226.25,
+          "y_min": 155.75,
+          "x_max": 254.25,
+          "y_max": 163.75
+        }
+      },
+      {
+        "labelId": "w-0061",
+        "text": "Recycle",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 257.5,
+          "y_min": 155.75,
+          "x_max": 292.25,
+          "y_max": 165.75
+        }
+      },
+      {
+        "labelId": "w-0062",
+        "text": "5",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 372.5,
+          "y_min": 156.25,
+          "x_max": 376.5,
+          "y_max": 163.75
+        }
+      },
+      {
+        "labelId": "w-0063",
+        "text": "TON",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 399.75,
+          "y_min": 156,
+          "x_max": 422,
+          "y_max": 163.75
+        }
+      },
+      {
+        "labelId": "w-0064",
+        "text": "$200.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 155.5,
+          "x_max": 465.5,
+          "y_max": 164.25
+        }
+      },
+      {
+        "labelId": "w-0065",
+        "text": "$1,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 155.5,
+          "x_max": 534.5,
+          "y_max": 164.5
+        }
+      },
+      {
+        "labelId": "w-0066",
+        "text": "0005",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 169.25,
+          "x_max": 66.25,
+          "y_max": 177
+        }
+      },
+      {
+        "labelId": "w-0067",
+        "text": "6150000000-E",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 169.25,
+          "x_max": 146.25,
+          "y_max": 177
+        }
+      },
+      {
+        "labelId": "w-0068",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 169.25,
+          "x_max": 178.75,
+          "y_max": 177
+        }
+      },
+      {
+        "labelId": "w-0069",
+        "text": "Inert",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.5,
+          "y_min": 169.5,
+          "x_max": 217,
+          "y_max": 177
+        }
+      },
+      {
+        "labelId": "w-0070",
+        "text": "Debris",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 220,
+          "y_min": 169,
+          "x_max": 248.5,
+          "y_max": 177
+        }
+      },
+      {
+        "labelId": "w-0071",
+        "text": "Removal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 252,
+          "y_min": 169,
+          "x_max": 291.25,
+          "y_max": 177
+        }
+      },
+      {
+        "labelId": "w-0072",
+        "text": "and",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 294.5,
+          "y_min": 169,
+          "x_max": 310,
+          "y_max": 177
+        }
+      },
+      {
+        "labelId": "w-0073",
+        "text": "Disposal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 181.75,
+          "x_max": 234.5,
+          "y_max": 191.5
+        }
+      },
+      {
+        "labelId": "w-0074",
+        "text": "1,100",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 363.5,
+          "y_min": 169.25,
+          "x_max": 386.75,
+          "y_max": 178.5
+        }
+      },
+      {
+        "labelId": "w-0075",
+        "text": "TON",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 399.75,
+          "y_min": 169.25,
+          "x_max": 422,
+          "y_max": 177
+        }
+      },
+      {
+        "labelId": "w-0076",
+        "text": "$90.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 168.5,
+          "x_max": 460.5,
+          "y_max": 177.25
+        }
+      },
+      {
+        "labelId": "w-0077",
+        "text": "$99,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 168.5,
+          "x_max": 539.75,
+          "y_max": 177.5
+        }
+      },
+      {
+        "labelId": "w-0078",
+        "text": "0006",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 195,
+          "x_max": 66.5,
+          "y_max": 202.75
+        }
+      },
+      {
+        "labelId": "w-0079",
+        "text": "6150000000-E",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 195,
+          "x_max": 146.25,
+          "y_max": 202.75
+        }
+      },
+      {
+        "labelId": "w-0080",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 195,
+          "x_max": 178.75,
+          "y_max": 202.75
+        }
+      },
+      {
+        "labelId": "w-0081",
+        "text": "Construction",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.5,
+          "y_min": 194.75,
+          "x_max": 253,
+          "y_max": 202.75
+        }
+      },
+      {
+        "labelId": "w-0082",
+        "text": "and",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 256,
+          "y_min": 194.75,
+          "x_max": 271.5,
+          "y_max": 202.75
+        }
+      },
+      {
+        "labelId": "w-0083",
+        "text": "Demolition",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 274.5,
+          "y_min": 194.75,
+          "x_max": 324.5,
+          "y_max": 202.75
+        }
+      },
+      {
+        "labelId": "w-0084",
+        "text": "Debris",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 207.5,
+          "x_max": 225,
+          "y_max": 215.5
+        }
+      },
+      {
+        "labelId": "w-0085",
+        "text": "Removal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 228.5,
+          "y_min": 207.5,
+          "x_max": 267.75,
+          "y_max": 215.5
+        }
+      },
+      {
+        "labelId": "w-0086",
+        "text": "and",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 271,
+          "y_min": 207.5,
+          "x_max": 286.5,
+          "y_max": 215.5
+        }
+      },
+      {
+        "labelId": "w-0087",
+        "text": "Disposal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 289.5,
+          "y_min": 207.5,
+          "x_max": 327.75,
+          "y_max": 217.25
+        }
+      },
+      {
+        "labelId": "w-0088",
+        "text": "140",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 367.5,
+          "y_min": 195,
+          "x_max": 382.5,
+          "y_max": 202.75
+        }
+      },
+      {
+        "labelId": "w-0089",
+        "text": "TON",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 399.75,
+          "y_min": 195,
+          "x_max": 422,
+          "y_max": 202.75
+        }
+      },
+      {
+        "labelId": "w-0090",
+        "text": "$120.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 194.25,
+          "x_max": 465.5,
+          "y_max": 203
+        }
+      },
+      {
+        "labelId": "w-0091",
+        "text": "$16,800.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 194.25,
+          "x_max": 539.75,
+          "y_max": 203.25
+        }
+      },
+      {
+        "labelId": "w-0092",
+        "text": "0007",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 220.75,
+          "x_max": 66.5,
+          "y_max": 228.5
+        }
+      },
+      {
+        "labelId": "w-0093",
+        "text": "6150000000-E",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 220.75,
+          "x_max": 146.25,
+          "y_max": 228.5
+        }
+      },
+      {
+        "labelId": "w-0094",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 220.75,
+          "x_max": 178.75,
+          "y_max": 228.5
+        }
+      },
+      {
+        "labelId": "w-0095",
+        "text": "Household",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 220.5,
+          "x_max": 243.75,
+          "y_max": 228.5
+        }
+      },
+      {
+        "labelId": "w-0096",
+        "text": "Hazardous",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 246.75,
+          "y_min": 220.5,
+          "x_max": 293.25,
+          "y_max": 228.5
+        }
+      },
+      {
+        "labelId": "w-0097",
+        "text": "Waste",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 296.5,
+          "y_min": 221,
+          "x_max": 323.5,
+          "y_max": 228.5
+        }
+      },
+      {
+        "labelId": "w-0098",
+        "text": "Debris",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 233.25,
+          "x_max": 225,
+          "y_max": 241.25
+        }
+      },
+      {
+        "labelId": "w-0099",
+        "text": "Removal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 228.5,
+          "y_min": 233.25,
+          "x_max": 267.75,
+          "y_max": 241.25
+        }
+      },
+      {
+        "labelId": "w-0100",
+        "text": "and",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 271,
+          "y_min": 233.25,
+          "x_max": 286.5,
+          "y_max": 241.25
+        }
+      },
+      {
+        "labelId": "w-0101",
+        "text": "Disposal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 289.5,
+          "y_min": 233.25,
+          "x_max": 327.75,
+          "y_max": 243
+        }
+      },
+      {
+        "labelId": "w-0102",
+        "text": "120",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 367.5,
+          "y_min": 220.75,
+          "x_max": 382.5,
+          "y_max": 228.5
+        }
+      },
+      {
+        "labelId": "w-0103",
+        "text": "TON",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 399.75,
+          "y_min": 220.75,
+          "x_max": 422,
+          "y_max": 228.5
+        }
+      },
+      {
+        "labelId": "w-0104",
+        "text": "$120.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 220.25,
+          "x_max": 465.5,
+          "y_max": 229
+        }
+      },
+      {
+        "labelId": "w-0105",
+        "text": "$14,400.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 220.25,
+          "x_max": 539.75,
+          "y_max": 229.25
+        }
+      },
+      {
+        "labelId": "w-0106",
+        "text": "0008",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 246.5,
+          "x_max": 66.5,
+          "y_max": 254.25
+        }
+      },
+      {
+        "labelId": "w-0107",
+        "text": "6150000000-E",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 246.5,
+          "x_max": 146.25,
+          "y_max": 254.25
+        }
+      },
+      {
+        "labelId": "w-0108",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 246.5,
+          "x_max": 178.75,
+          "y_max": 254.25
+        }
+      },
+      {
+        "labelId": "w-0109",
+        "text": "Electronic",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 246.25,
+          "x_max": 241,
+          "y_max": 254.25
+        }
+      },
+      {
+        "labelId": "w-0110",
+        "text": "Debris",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 244.25,
+          "y_min": 246.25,
+          "x_max": 273,
+          "y_max": 254.25
+        }
+      },
+      {
+        "labelId": "w-0111",
+        "text": "Removal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 276.5,
+          "y_min": 246.25,
+          "x_max": 315.5,
+          "y_max": 254.25
+        }
+      },
+      {
+        "labelId": "w-0112",
+        "text": "and",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 318.75,
+          "y_min": 246.25,
+          "x_max": 334.5,
+          "y_max": 254.25
+        }
+      },
+      {
+        "labelId": "w-0113",
+        "text": "Disposal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 259,
+          "x_max": 234.5,
+          "y_max": 269
+        }
+      },
+      {
+        "labelId": "w-0114",
+        "text": "15",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 370.5,
+          "y_min": 246.5,
+          "x_max": 379.25,
+          "y_max": 254.25
+        }
+      },
+      {
+        "labelId": "w-0115",
+        "text": "TON",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 399.75,
+          "y_min": 246.5,
+          "x_max": 422,
+          "y_max": 254.25
+        }
+      },
+      {
+        "labelId": "w-0116",
+        "text": "$100.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 246,
+          "x_max": 465.5,
+          "y_max": 254.75
+        }
+      },
+      {
+        "labelId": "w-0117",
+        "text": "$1,500.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 246,
+          "x_max": 534.5,
+          "y_max": 255
+        }
+      },
+      {
+        "labelId": "w-0118",
+        "text": "0009",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 272.5,
+          "x_max": 66.75,
+          "y_max": 280.25
+        }
+      },
+      {
+        "labelId": "w-0119",
+        "text": "0000860000-N",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 272.5,
+          "x_max": 147.75,
+          "y_max": 280.25
+        }
+      },
+      {
+        "labelId": "w-0120",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.25,
+          "y_min": 272.5,
+          "x_max": 178.75,
+          "y_max": 280.25
+        }
+      },
+      {
+        "labelId": "w-0121",
+        "text": "Landfill",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 272.25,
+          "x_max": 231.5,
+          "y_max": 280.25
+        }
+      },
+      {
+        "labelId": "w-0122",
+        "text": "Tipping",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 234.75,
+          "y_min": 272.25,
+          "x_max": 269.25,
+          "y_max": 282
+        }
+      },
+      {
+        "labelId": "w-0123",
+        "text": "Fee",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 272,
+          "y_min": 272.5,
+          "x_max": 287.75,
+          "y_max": 280.25
+        }
+      },
+      {
+        "labelId": "w-0124",
+        "text": "5000",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 364,
+          "y_min": 272.5,
+          "x_max": 385.5,
+          "y_max": 280.25
+        }
+      },
+      {
+        "labelId": "w-0125",
+        "text": "DOL",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 399.5,
+          "y_min": 272.5,
+          "x_max": 422,
+          "y_max": 280.25
+        }
+      },
+      {
+        "labelId": "w-0126",
+        "text": "$1.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 271.75,
+          "x_max": 455.5,
+          "y_max": 280.5
+        }
+      },
+      {
+        "labelId": "w-0127",
+        "text": "$5,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 271.75,
+          "x_max": 534.75,
+          "y_max": 280.75
+        }
+      },
+      {
+        "labelId": "w-0128",
+        "text": "0010",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 285.5,
+          "x_max": 66.75,
+          "y_max": 293.25
+        }
+      },
+      {
+        "labelId": "w-0129",
+        "text": "6132000000-N",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 285.5,
+          "x_max": 147.75,
+          "y_max": 293.25
+        }
+      },
+      {
+        "labelId": "w-0130",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 285.5,
+          "x_max": 178.75,
+          "y_max": 293.25
+        }
+      },
+      {
+        "labelId": "w-0131",
+        "text": "Hazardous",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 285.25,
+          "x_max": 242.75,
+          "y_max": 293.25
+        }
+      },
+      {
+        "labelId": "w-0132",
+        "text": "Tree",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 246.25,
+          "y_min": 285.75,
+          "x_max": 265.75,
+          "y_max": 293.25
+        }
+      },
+      {
+        "labelId": "w-0133",
+        "text": "Stump",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 269.5,
+          "y_min": 285.5,
+          "x_max": 297.25,
+          "y_max": 295.5
+        }
+      },
+      {
+        "labelId": "w-0134",
+        "text": "Excavation",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 300.5,
+          "y_min": 285.25,
+          "x_max": 349.75,
+          "y_max": 293.25
+        }
+      },
+      {
+        "labelId": "w-0135",
+        "text": "and",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.5,
+          "y_min": 298,
+          "x_max": 212,
+          "y_max": 306
+        }
+      },
+      {
+        "labelId": "w-0136",
+        "text": "Removal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 217.75,
+          "y_min": 298,
+          "x_max": 257,
+          "y_max": 306
+        }
+      },
+      {
+        "labelId": "w-0137",
+        "text": "<24”",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 260.25,
+          "y_min": 298.25,
+          "x_max": 281.75,
+          "y_max": 305.75
+        }
+      },
+      {
+        "labelId": "w-0138",
+        "text": "400",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 366.5,
+          "y_min": 285.5,
+          "x_max": 382.5,
+          "y_max": 293.25
+        }
+      },
+      {
+        "labelId": "w-0139",
+        "text": "EA",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 403.75,
+          "y_min": 285.5,
+          "x_max": 418,
+          "y_max": 293
+        }
+      },
+      {
+        "labelId": "w-0140",
+        "text": "$600.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 285,
+          "x_max": 465.5,
+          "y_max": 293.75
+        }
+      },
+      {
+        "labelId": "w-0141",
+        "text": "$240,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 285,
+          "x_max": 544.75,
+          "y_max": 294
+        }
+      },
+      {
+        "labelId": "w-0142",
+        "text": "0011",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 311.5,
+          "x_max": 65.75,
+          "y_max": 319.25
+        }
+      },
+      {
+        "labelId": "w-0143",
+        "text": "6132000000-N",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 311.5,
+          "x_max": 147.75,
+          "y_max": 319.25
+        }
+      },
+      {
+        "labelId": "w-0144",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 311.5,
+          "x_max": 178.75,
+          "y_max": 319.25
+        }
+      },
+      {
+        "labelId": "w-0145",
+        "text": "Hazardous",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 311.25,
+          "x_max": 242.75,
+          "y_max": 319.25
+        }
+      },
+      {
+        "labelId": "w-0146",
+        "text": "Tree",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 246.25,
+          "y_min": 311.75,
+          "x_max": 265.75,
+          "y_max": 319.25
+        }
+      },
+      {
+        "labelId": "w-0147",
+        "text": "Stump",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 269.5,
+          "y_min": 311.5,
+          "x_max": 297.25,
+          "y_max": 321.5
+        }
+      },
+      {
+        "labelId": "w-0148",
+        "text": "Excavation",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 300.5,
+          "y_min": 311.25,
+          "x_max": 349.75,
+          "y_max": 319.25
+        }
+      },
+      {
+        "labelId": "w-0149",
+        "text": "and",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.5,
+          "y_min": 323.75,
+          "x_max": 212,
+          "y_max": 331.75
+        }
+      },
+      {
+        "labelId": "w-0150",
+        "text": "Removal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 217.75,
+          "y_min": 323.75,
+          "x_max": 257,
+          "y_max": 331.75
+        }
+      },
+      {
+        "labelId": "w-0151",
+        "text": ">=24”",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 260.25,
+          "y_min": 324,
+          "x_max": 288,
+          "y_max": 331.5
+        }
+      },
+      {
+        "labelId": "w-0152",
+        "text": "-",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 291.5,
+          "y_min": 328.5,
+          "x_max": 294.5,
+          "y_max": 329.5
+        }
+      },
+      {
+        "labelId": "w-0153",
+        "text": "<48”",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 297.75,
+          "y_min": 324,
+          "x_max": 319.25,
+          "y_max": 331.75
+        }
+      },
+      {
+        "labelId": "w-0154",
+        "text": "350",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 366.75,
+          "y_min": 311.5,
+          "x_max": 382.5,
+          "y_max": 319.25
+        }
+      },
+      {
+        "labelId": "w-0155",
+        "text": "EA",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 403.75,
+          "y_min": 311.5,
+          "x_max": 418,
+          "y_max": 319
+        }
+      },
+      {
+        "labelId": "w-0156",
+        "text": "$900.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 310.75,
+          "x_max": 465.5,
+          "y_max": 319.5
+        }
+      },
+      {
+        "labelId": "w-0157",
+        "text": "$315,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 310.75,
+          "x_max": 544.75,
+          "y_max": 319.75
+        }
+      },
+      {
+        "labelId": "w-0158",
+        "text": "0012",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 337.25,
+          "x_max": 66.5,
+          "y_max": 345
+        }
+      },
+      {
+        "labelId": "w-0159",
+        "text": "6132000000-N",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 337.25,
+          "x_max": 147.75,
+          "y_max": 345
+        }
+      },
+      {
+        "labelId": "w-0160",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 337.25,
+          "x_max": 178.75,
+          "y_max": 345
+        }
+      },
+      {
+        "labelId": "w-0161",
+        "text": "Hazardous",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 337,
+          "x_max": 242.75,
+          "y_max": 345
+        }
+      },
+      {
+        "labelId": "w-0162",
+        "text": "Tree",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 246.25,
+          "y_min": 337.5,
+          "x_max": 265.75,
+          "y_max": 345
+        }
+      },
+      {
+        "labelId": "w-0163",
+        "text": "Stump",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 269.5,
+          "y_min": 337.25,
+          "x_max": 297.25,
+          "y_max": 347.25
+        }
+      },
+      {
+        "labelId": "w-0164",
+        "text": "Excavation",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 300.5,
+          "y_min": 337,
+          "x_max": 349.75,
+          "y_max": 345
+        }
+      },
+      {
+        "labelId": "w-0165",
+        "text": "and",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.5,
+          "y_min": 349.5,
+          "x_max": 212,
+          "y_max": 357.5
+        }
+      },
+      {
+        "labelId": "w-0166",
+        "text": "Removal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 217.75,
+          "y_min": 349.5,
+          "x_max": 257,
+          "y_max": 357.5
+        }
+      },
+      {
+        "labelId": "w-0167",
+        "text": "48”",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 260.25,
+          "y_min": 349.75,
+          "x_max": 275.5,
+          "y_max": 357.5
+        }
+      },
+      {
+        "labelId": "w-0168",
+        "text": "&",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 279,
+          "y_min": 349.75,
+          "x_max": 286.75,
+          "y_max": 357.5
+        }
+      },
+      {
+        "labelId": "w-0169",
+        "text": ">",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 290,
+          "y_min": 351,
+          "x_max": 296,
+          "y_max": 356.25
+        }
+      },
+      {
+        "labelId": "w-0170",
+        "text": "220",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 366.5,
+          "y_min": 337.25,
+          "x_max": 382.5,
+          "y_max": 345
+        }
+      },
+      {
+        "labelId": "w-0171",
+        "text": "EA",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 403.75,
+          "y_min": 337.25,
+          "x_max": 418,
+          "y_max": 344.75
+        }
+      },
+      {
+        "labelId": "w-0172",
+        "text": "$1,300.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 336.5,
+          "x_max": 473,
+          "y_max": 345.5
+        }
+      },
+      {
+        "labelId": "w-0173",
+        "text": "$286,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 336.5,
+          "x_max": 544.75,
+          "y_max": 345.5
+        }
+      },
+      {
+        "labelId": "w-0174",
+        "text": "0013",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 363,
+          "x_max": 66.25,
+          "y_max": 370.75
+        }
+      },
+      {
+        "labelId": "w-0175",
+        "text": "6132000000-N",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 363,
+          "x_max": 147.75,
+          "y_max": 370.75
+        }
+      },
+      {
+        "labelId": "w-0176",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 363,
+          "x_max": 178.75,
+          "y_max": 370.75
+        }
+      },
+      {
+        "labelId": "w-0177",
+        "text": "Hazardous",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 362.75,
+          "x_max": 242.75,
+          "y_max": 370.75
+        }
+      },
+      {
+        "labelId": "w-0178",
+        "text": "Tree",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 246.25,
+          "y_min": 363.25,
+          "x_max": 265.75,
+          "y_max": 370.75
+        }
+      },
+      {
+        "labelId": "w-0179",
+        "text": "Stump",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 269.5,
+          "y_min": 363,
+          "x_max": 297.25,
+          "y_max": 373
+        }
+      },
+      {
+        "labelId": "w-0180",
+        "text": "Removal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 300.5,
+          "y_min": 362.75,
+          "x_max": 339.75,
+          "y_max": 370.75
+        }
+      },
+      {
+        "labelId": "w-0181",
+        "text": ">12\"-",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 375.5,
+          "x_max": 221.25,
+          "y_max": 383
+        }
+      },
+      {
+        "labelId": "w-0182",
+        "text": "<24\"",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 224.5,
+          "y_min": 375.5,
+          "x_max": 245.25,
+          "y_max": 383
+        }
+      },
+      {
+        "labelId": "w-0183",
+        "text": "75",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 369.5,
+          "y_min": 363.25,
+          "x_max": 379.25,
+          "y_max": 370.75
+        }
+      },
+      {
+        "labelId": "w-0184",
+        "text": "EA",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 403.75,
+          "y_min": 363,
+          "x_max": 418,
+          "y_max": 370.5
+        }
+      },
+      {
+        "labelId": "w-0185",
+        "text": "$600.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 362.5,
+          "x_max": 465.5,
+          "y_max": 371.25
+        }
+      },
+      {
+        "labelId": "w-0186",
+        "text": "$45,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 362.5,
+          "x_max": 539.75,
+          "y_max": 371.5
+        }
+      },
+      {
+        "labelId": "w-0187",
+        "text": "0014",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 388.75,
+          "x_max": 66.75,
+          "y_max": 396.5
+        }
+      },
+      {
+        "labelId": "w-0188",
+        "text": "6132000000-N",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 388.75,
+          "x_max": 147.75,
+          "y_max": 396.5
+        }
+      },
+      {
+        "labelId": "w-0189",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 388.75,
+          "x_max": 178.75,
+          "y_max": 396.5
+        }
+      },
+      {
+        "labelId": "w-0190",
+        "text": "Hazardous",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 388.5,
+          "x_max": 242.75,
+          "y_max": 396.5
+        }
+      },
+      {
+        "labelId": "w-0191",
+        "text": "Tree",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 246.25,
+          "y_min": 389,
+          "x_max": 265.75,
+          "y_max": 396.5
+        }
+      },
+      {
+        "labelId": "w-0192",
+        "text": "Stump",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 269.5,
+          "y_min": 388.75,
+          "x_max": 297.25,
+          "y_max": 398.75
+        }
+      },
+      {
+        "labelId": "w-0193",
+        "text": "Removal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 300.5,
+          "y_min": 388.5,
+          "x_max": 339.75,
+          "y_max": 396.5
+        }
+      },
+      {
+        "labelId": "w-0194",
+        "text": "=>24\"-",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 401.5,
+          "x_max": 227.5,
+          "y_max": 409
+        }
+      },
+      {
+        "labelId": "w-0195",
+        "text": "<48\"",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 230.75,
+          "y_min": 401.5,
+          "x_max": 251.5,
+          "y_max": 409.25
+        }
+      },
+      {
+        "labelId": "w-0196",
+        "text": "75",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 369.5,
+          "y_min": 389,
+          "x_max": 379.25,
+          "y_max": 396.5
+        }
+      },
+      {
+        "labelId": "w-0197",
+        "text": "EA",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 403.75,
+          "y_min": 388.75,
+          "x_max": 418,
+          "y_max": 396.25
+        }
+      },
+      {
+        "labelId": "w-0198",
+        "text": "$800.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 388.25,
+          "x_max": 465.5,
+          "y_max": 397
+        }
+      },
+      {
+        "labelId": "w-0199",
+        "text": "$60,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 388.25,
+          "x_max": 539.75,
+          "y_max": 397.25
+        }
+      },
+      {
+        "labelId": "w-0200",
+        "text": "0015",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 414.5,
+          "x_max": 66.25,
+          "y_max": 422.25
+        }
+      },
+      {
+        "labelId": "w-0201",
+        "text": "6132000000-N",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 414.5,
+          "x_max": 147.75,
+          "y_max": 422.25
+        }
+      },
+      {
+        "labelId": "w-0202",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 414.5,
+          "x_max": 178.75,
+          "y_max": 422.25
+        }
+      },
+      {
+        "labelId": "w-0203",
+        "text": "Hazardous",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 414.25,
+          "x_max": 242.75,
+          "y_max": 422.25
+        }
+      },
+      {
+        "labelId": "w-0204",
+        "text": "Tree",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 246.25,
+          "y_min": 414.75,
+          "x_max": 265.75,
+          "y_max": 422.25
+        }
+      },
+      {
+        "labelId": "w-0205",
+        "text": "Stump",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 269.5,
+          "y_min": 414.5,
+          "x_max": 297.25,
+          "y_max": 424.5
+        }
+      },
+      {
+        "labelId": "w-0206",
+        "text": "Removal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 300.5,
+          "y_min": 414.25,
+          "x_max": 339.75,
+          "y_max": 422.25
+        }
+      },
+      {
+        "labelId": "w-0207",
+        "text": "=>48\"",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 427.25,
+          "x_max": 223.25,
+          "y_max": 435
+        }
+      },
+      {
+        "labelId": "w-0208",
+        "text": "75",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 369.5,
+          "y_min": 414.75,
+          "x_max": 379.25,
+          "y_max": 422.25
+        }
+      },
+      {
+        "labelId": "w-0209",
+        "text": "EA",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 403.75,
+          "y_min": 414.5,
+          "x_max": 418,
+          "y_max": 422
+        }
+      },
+      {
+        "labelId": "w-0210",
+        "text": "$1,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 414,
+          "x_max": 473,
+          "y_max": 423
+        }
+      },
+      {
+        "labelId": "w-0211",
+        "text": "$75,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 414,
+          "x_max": 539.75,
+          "y_max": 423
+        }
+      },
+      {
+        "labelId": "w-0212",
+        "text": "0016",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 440.5,
+          "x_max": 66.5,
+          "y_max": 448.25
+        }
+      },
+      {
+        "labelId": "w-0213",
+        "text": "6132000000-N",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 440.5,
+          "x_max": 147.75,
+          "y_max": 448.25
+        }
+      },
+      {
+        "labelId": "w-0214",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 440.5,
+          "x_max": 178.75,
+          "y_max": 448.25
+        }
+      },
+      {
+        "labelId": "w-0215",
+        "text": "Hazardous",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 440.25,
+          "x_max": 242.75,
+          "y_max": 448.25
+        }
+      },
+      {
+        "labelId": "w-0216",
+        "text": "Limb",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 246.25,
+          "y_min": 440.25,
+          "x_max": 269.5,
+          "y_max": 448.25
+        }
+      },
+      {
+        "labelId": "w-0217",
+        "text": "Cutting",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 272.75,
+          "y_min": 440.25,
+          "x_max": 305.5,
+          "y_max": 450
+        }
+      },
+      {
+        "labelId": "w-0218",
+        "text": "(>",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 308.75,
+          "y_min": 440.5,
+          "x_max": 318,
+          "y_max": 450
+        }
+      },
+      {
+        "labelId": "w-0219",
+        "text": "2”)",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 321,
+          "y_min": 440.25,
+          "x_max": 334.5,
+          "y_max": 450
+        }
+      },
+      {
+        "labelId": "w-0220",
+        "text": "300",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 366.75,
+          "y_min": 440.5,
+          "x_max": 382.5,
+          "y_max": 448.25
+        }
+      },
+      {
+        "labelId": "w-0221",
+        "text": "EA",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 403.75,
+          "y_min": 440.5,
+          "x_max": 418,
+          "y_max": 448
+        }
+      },
+      {
+        "labelId": "w-0222",
+        "text": "$90.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 439.75,
+          "x_max": 460.5,
+          "y_max": 448.5
+        }
+      },
+      {
+        "labelId": "w-0223",
+        "text": "$27,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 439.75,
+          "x_max": 539.75,
+          "y_max": 448.75
+        }
+      },
+      {
+        "labelId": "w-0224",
+        "text": "0017",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 453.5,
+          "x_max": 66.5,
+          "y_max": 461.25
+        }
+      },
+      {
+        "labelId": "w-0225",
+        "text": "6132000000-N",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 453.5,
+          "x_max": 147.75,
+          "y_max": 461.25
+        }
+      },
+      {
+        "labelId": "w-0226",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 453.5,
+          "x_max": 178.75,
+          "y_max": 461.25
+        }
+      },
+      {
+        "labelId": "w-0227",
+        "text": "Hazardous",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 453.25,
+          "x_max": 242.75,
+          "y_max": 461.25
+        }
+      },
+      {
+        "labelId": "w-0228",
+        "text": "Tree",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 246.25,
+          "y_min": 453.75,
+          "x_max": 265.75,
+          "y_max": 461.25
+        }
+      },
+      {
+        "labelId": "w-0229",
+        "text": "Cutting",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 269.25,
+          "y_min": 453.25,
+          "x_max": 301.75,
+          "y_max": 463.5
+        }
+      },
+      {
+        "labelId": "w-0230",
+        "text": ">=",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 304.75,
+          "y_min": 454.75,
+          "x_max": 316.75,
+          "y_max": 460
+        }
+      },
+      {
+        "labelId": "w-0231",
+        "text": "6”",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 320,
+          "y_min": 453.5,
+          "x_max": 329.75,
+          "y_max": 461.25
+        }
+      },
+      {
+        "labelId": "w-0232",
+        "text": "-",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 333.5,
+          "y_min": 458,
+          "x_max": 336.25,
+          "y_max": 459
+        }
+      },
+      {
+        "labelId": "w-0233",
+        "text": "<12”",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 466.25,
+          "x_max": 218,
+          "y_max": 473.75
+        }
+      },
+      {
+        "labelId": "w-0234",
+        "text": "600",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 366.75,
+          "y_min": 453.5,
+          "x_max": 382.5,
+          "y_max": 461.25
+        }
+      },
+      {
+        "labelId": "w-0235",
+        "text": "EA",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 403.75,
+          "y_min": 453.5,
+          "x_max": 418,
+          "y_max": 461
+        }
+      },
+      {
+        "labelId": "w-0236",
+        "text": "$150.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 453,
+          "x_max": 465.5,
+          "y_max": 461.75
+        }
+      },
+      {
+        "labelId": "w-0237",
+        "text": "$90,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 453,
+          "x_max": 539.75,
+          "y_max": 462
+        }
+      },
+      {
+        "labelId": "w-0238",
+        "text": "0018",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 479.25,
+          "x_max": 66.5,
+          "y_max": 487
+        }
+      },
+      {
+        "labelId": "w-0239",
+        "text": "6132000000-N",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 479.25,
+          "x_max": 147.75,
+          "y_max": 487
+        }
+      },
+      {
+        "labelId": "w-0240",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 479.25,
+          "x_max": 178.75,
+          "y_max": 487
+        }
+      },
+      {
+        "labelId": "w-0241",
+        "text": "Hazardous",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 479,
+          "x_max": 242.75,
+          "y_max": 487
+        }
+      },
+      {
+        "labelId": "w-0242",
+        "text": "Tree",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 246.25,
+          "y_min": 479.5,
+          "x_max": 265.75,
+          "y_max": 487
+        }
+      },
+      {
+        "labelId": "w-0243",
+        "text": "Cutting",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 269.25,
+          "y_min": 479,
+          "x_max": 301.75,
+          "y_max": 489.25
+        }
+      },
+      {
+        "labelId": "w-0244",
+        "text": "12”",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 306,
+          "y_min": 479.25,
+          "x_max": 320,
+          "y_max": 486.75
+        }
+      },
+      {
+        "labelId": "w-0245",
+        "text": "-",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 323.75,
+          "y_min": 483.75,
+          "x_max": 326.5,
+          "y_max": 484.75
+        }
+      },
+      {
+        "labelId": "w-0246",
+        "text": "<",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 329.75,
+          "y_min": 480.5,
+          "x_max": 335.75,
+          "y_max": 485.75
+        }
+      },
+      {
+        "labelId": "w-0247",
+        "text": "24”",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 492,
+          "x_max": 211.75,
+          "y_max": 499.5
+        }
+      },
+      {
+        "labelId": "w-0248",
+        "text": "500",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 366.75,
+          "y_min": 479.25,
+          "x_max": 382.5,
+          "y_max": 487
+        }
+      },
+      {
+        "labelId": "w-0249",
+        "text": "EA",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 403.75,
+          "y_min": 479.25,
+          "x_max": 418,
+          "y_max": 486.75
+        }
+      },
+      {
+        "labelId": "w-0250",
+        "text": "$200.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 478.75,
+          "x_max": 465.5,
+          "y_max": 487.5
+        }
+      },
+      {
+        "labelId": "w-0251",
+        "text": "$100,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 478.75,
+          "x_max": 544.75,
+          "y_max": 487.75
+        }
+      },
+      {
+        "labelId": "w-0252",
+        "text": "0019",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 505,
+          "x_max": 66.5,
+          "y_max": 512.75
+        }
+      },
+      {
+        "labelId": "w-0253",
+        "text": "6132000000-N",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 505,
+          "x_max": 147.75,
+          "y_max": 512.75
+        }
+      },
+      {
+        "labelId": "w-0254",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 505,
+          "x_max": 178.75,
+          "y_max": 512.75
+        }
+      },
+      {
+        "labelId": "w-0255",
+        "text": "Hazardous",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 504.75,
+          "x_max": 242.75,
+          "y_max": 512.75
+        }
+      },
+      {
+        "labelId": "w-0256",
+        "text": "Tree",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 246.25,
+          "y_min": 505.25,
+          "x_max": 265.75,
+          "y_max": 512.75
+        }
+      },
+      {
+        "labelId": "w-0257",
+        "text": "Cutting",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 269.25,
+          "y_min": 504.75,
+          "x_max": 301.75,
+          "y_max": 515
+        }
+      },
+      {
+        "labelId": "w-0258",
+        "text": "24”",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 304.75,
+          "y_min": 505,
+          "x_max": 320,
+          "y_max": 512.5
+        }
+      },
+      {
+        "labelId": "w-0259",
+        "text": "-",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 323.75,
+          "y_min": 509.5,
+          "x_max": 326.5,
+          "y_max": 510.5
+        }
+      },
+      {
+        "labelId": "w-0260",
+        "text": "<",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 329.75,
+          "y_min": 506.25,
+          "x_max": 335.75,
+          "y_max": 511.5
+        }
+      },
+      {
+        "labelId": "w-0261",
+        "text": "36”",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.5,
+          "y_min": 517.75,
+          "x_max": 211.75,
+          "y_max": 525.5
+        }
+      },
+      {
+        "labelId": "w-0262",
+        "text": "100",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 367.5,
+          "y_min": 505,
+          "x_max": 382.5,
+          "y_max": 512.75
+        }
+      },
+      {
+        "labelId": "w-0263",
+        "text": "EA",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 403.75,
+          "y_min": 505,
+          "x_max": 418,
+          "y_max": 512.5
+        }
+      },
+      {
+        "labelId": "w-0264",
+        "text": "$300.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 504.5,
+          "x_max": 465.5,
+          "y_max": 513.25
+        }
+      },
+      {
+        "labelId": "w-0265",
+        "text": "$30,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 504.5,
+          "x_max": 539.75,
+          "y_max": 513.5
+        }
+      },
+      {
+        "labelId": "w-0266",
+        "text": "0020",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 531,
+          "x_max": 66.75,
+          "y_max": 538.75
+        }
+      },
+      {
+        "labelId": "w-0267",
+        "text": "6132000000-N",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 531,
+          "x_max": 147.75,
+          "y_max": 538.75
+        }
+      },
+      {
+        "labelId": "w-0268",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 531,
+          "x_max": 178.75,
+          "y_max": 538.75
+        }
+      },
+      {
+        "labelId": "w-0269",
+        "text": "Hazardous",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 530.75,
+          "x_max": 242.75,
+          "y_max": 538.75
+        }
+      },
+      {
+        "labelId": "w-0270",
+        "text": "Tree",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 246.25,
+          "y_min": 531.25,
+          "x_max": 265.75,
+          "y_max": 538.75
+        }
+      },
+      {
+        "labelId": "w-0271",
+        "text": "Cutting",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 269.25,
+          "y_min": 530.75,
+          "x_max": 301.75,
+          "y_max": 540.5
+        }
+      },
+      {
+        "labelId": "w-0272",
+        "text": "36”",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 305,
+          "y_min": 531,
+          "x_max": 320,
+          "y_max": 538.75
+        }
+      },
+      {
+        "labelId": "w-0273",
+        "text": "&",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 323.5,
+          "y_min": 531,
+          "x_max": 331.25,
+          "y_max": 538.75
+        }
+      },
+      {
+        "labelId": "w-0274",
+        "text": ">",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 334.75,
+          "y_min": 532.25,
+          "x_max": 340.5,
+          "y_max": 537.5
+        }
+      },
+      {
+        "labelId": "w-0275",
+        "text": "50",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 369.75,
+          "y_min": 531,
+          "x_max": 379.75,
+          "y_max": 538.75
+        }
+      },
+      {
+        "labelId": "w-0276",
+        "text": "EA",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 403.75,
+          "y_min": 531,
+          "x_max": 418,
+          "y_max": 538.5
+        }
+      },
+      {
+        "labelId": "w-0277",
+        "text": "$600.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 530.25,
+          "x_max": 465.5,
+          "y_max": 539
+        }
+      },
+      {
+        "labelId": "w-0278",
+        "text": "$30,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 530.25,
+          "x_max": 539.75,
+          "y_max": 539.25
+        }
+      },
+      {
+        "labelId": "w-0279",
+        "text": "0021",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 544,
+          "x_max": 65.75,
+          "y_max": 551.75
+        }
+      },
+      {
+        "labelId": "w-0280",
+        "text": "6084000000-E",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 83,
+          "y_min": 544,
+          "x_max": 147.75,
+          "y_max": 551.75
+        }
+      },
+      {
+        "labelId": "w-0281",
+        "text": "1660",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 163.25,
+          "y_min": 544,
+          "x_max": 183.75,
+          "y_max": 551.75
+        }
+      },
+      {
+        "labelId": "w-0282",
+        "text": "Seeding",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.75,
+          "y_min": 543.75,
+          "x_max": 231.5,
+          "y_max": 554
+        }
+      },
+      {
+        "labelId": "w-0283",
+        "text": "and",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 234.75,
+          "y_min": 543.75,
+          "x_max": 250.25,
+          "y_max": 551.75
+        }
+      },
+      {
+        "labelId": "w-0284",
+        "text": "Mulching",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 253.25,
+          "y_min": 543.75,
+          "x_max": 295.5,
+          "y_max": 554
+        }
+      },
+      {
+        "labelId": "w-0285",
+        "text": "2",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 372,
+          "y_min": 544,
+          "x_max": 377,
+          "y_max": 551.5
+        }
+      },
+      {
+        "labelId": "w-0286",
+        "text": "AC",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 403.25,
+          "y_min": 544,
+          "x_max": 418,
+          "y_max": 551.75
+        }
+      },
+      {
+        "labelId": "w-0287",
+        "text": "$2,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 545.75,
+          "x_max": 473,
+          "y_max": 554.75
+        }
+      },
+      {
+        "labelId": "w-0288",
+        "text": "$4,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 543.5,
+          "x_max": 534.5,
+          "y_max": 552.5
+        }
+      },
+      {
+        "labelId": "w-0289",
+        "text": "Total",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 307.75,
+          "y_min": 561.25,
+          "x_max": 330.25,
+          "y_max": 568
+        }
+      },
+      {
+        "labelId": "w-0290",
+        "text": "Amount",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 332.75,
+          "y_min": 561,
+          "x_max": 367.5,
+          "y_max": 568
+        }
+      },
+      {
+        "labelId": "w-0291",
+        "text": "Of",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 370.5,
+          "y_min": 561,
+          "x_max": 382.25,
+          "y_max": 568
+        }
+      },
+      {
+        "labelId": "w-0292",
+        "text": "Bid",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 384,
+          "y_min": 561,
+          "x_max": 398.5,
+          "y_max": 568
+        }
+      },
+      {
+        "labelId": "w-0293",
+        "text": "For",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 401.5,
+          "y_min": 561.25,
+          "x_max": 416.75,
+          "y_max": 568
+        }
+      },
+      {
+        "labelId": "w-0294",
+        "text": "Entire",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 419.5,
+          "y_min": 561,
+          "x_max": 446.25,
+          "y_max": 568
+        }
+      },
+      {
+        "labelId": "w-0295",
+        "text": "Project:",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 449.25,
+          "y_min": 561,
+          "x_max": 482.5,
+          "y_max": 570
+        }
+      },
+      {
+        "labelId": "w-0296",
+        "text": "$1,934,700.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 494.75,
+          "y_min": 560.5,
+          "x_max": 552.75,
+          "y_max": 569.5
+        }
+      }
+    ]
+  },
+  "cells": {
+    "status": "labeled",
+    "items": [
+      {
+        "labelId": "c-0001",
+        "text": "ITEMIZED PROPOSAL FOR CONTRACT NO. DN12189513",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 198.5,
+          "y_min": 80.5,
+          "x_max": 466,
+          "y_max": 87.5
+        },
+        "isHeader": true,
+        "columnName": null
+      },
+      {
+        "labelId": "c-0002",
+        "text": "Line #",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 41.75,
+          "y_min": 92.5,
+          "x_max": 68.25,
+          "y_max": 99.5
+        },
+        "isHeader": true,
+        "columnName": "Line #"
+      },
+      {
+        "labelId": "c-0003",
+        "text": "Item Number",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.25,
+          "y_min": 92.75,
+          "x_max": 139,
+          "y_max": 99.5
+        },
+        "isHeader": true,
+        "columnName": "Item Number"
+      },
+      {
+        "labelId": "c-0004",
+        "text": "Sec #",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 161,
+          "y_min": 92.5,
+          "x_max": 182.25,
+          "y_max": 99.5
+        },
+        "isHeader": true,
+        "columnName": "Sec #"
+      },
+      {
+        "labelId": "c-0005",
+        "text": "Description",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 92.5,
+          "x_max": 245,
+          "y_max": 101.25
+        },
+        "isHeader": true,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0006",
+        "text": "Qty",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 366.75,
+          "y_min": 92.5,
+          "x_max": 382.5,
+          "y_max": 101.25
+        },
+        "isHeader": true,
+        "columnName": "Qty"
+      },
+      {
+        "labelId": "c-0007",
+        "text": "Units",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 399.75,
+          "y_min": 92.5,
+          "x_max": 421.75,
+          "y_max": 99.5
+        },
+        "isHeader": true,
+        "columnName": "Units"
+      },
+      {
+        "labelId": "c-0008",
+        "text": "Unit Cost",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 92.5,
+          "x_max": 473.75,
+          "y_max": 99.5
+        },
+        "isHeader": true,
+        "columnName": "Unit Cost"
+      },
+      {
+        "labelId": "c-0009",
+        "text": "Extended Amount",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 494.75,
+          "y_min": 92.5,
+          "x_max": 572.25,
+          "y_max": 99.5
+        },
+        "isHeader": true,
+        "columnName": "Extended Amount"
+      },
+      {
+        "labelId": "c-0010",
+        "text": "ROADWAY ITEMS",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 268.5,
+          "y_min": 104.5,
+          "x_max": 356.5,
+          "y_max": 111.5
+        },
+        "isHeader": false,
+        "columnName": null
+      },
+      {
+        "labelId": "c-0011",
+        "text": "0001",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 116.5,
+          "x_max": 65.75,
+          "y_max": 124.25
+        },
+        "isHeader": false,
+        "columnName": "Line #"
+      },
+      {
+        "labelId": "c-0012",
+        "text": "6138000000-E",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 116.5,
+          "x_max": 146.25,
+          "y_max": 124.25
+        },
+        "isHeader": false,
+        "columnName": "Item Number"
+      },
+      {
+        "labelId": "c-0013",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 116.5,
+          "x_max": 178.75,
+          "y_max": 124.25
+        },
+        "isHeader": false,
+        "columnName": "Sec #"
+      },
+      {
+        "labelId": "c-0014",
+        "text": "Vegetative Debris Removal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 116.25,
+          "x_max": 318,
+          "y_max": 126.25
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0015",
+        "text": "7,500",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 362.75,
+          "y_min": 116.5,
+          "x_max": 386.75,
+          "y_max": 125.75
+        },
+        "isHeader": false,
+        "columnName": "Qty"
+      },
+      {
+        "labelId": "c-0016",
+        "text": "CY",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 403.5,
+          "y_min": 116.5,
+          "x_max": 418.25,
+          "y_max": 124.25
+        },
+        "isHeader": false,
+        "columnName": "Units"
+      },
+      {
+        "labelId": "c-0017",
+        "text": "$38.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 116,
+          "x_max": 460.5,
+          "y_max": 124.75
+        },
+        "isHeader": false,
+        "columnName": "Unit Cost"
+      },
+      {
+        "labelId": "c-0018",
+        "text": "$285,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 116,
+          "x_max": 544.75,
+          "y_max": 125
+        },
+        "isHeader": false,
+        "columnName": "Extended Amount"
+      },
+      {
+        "labelId": "c-0019",
+        "text": "0002",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 129.75,
+          "x_max": 66.5,
+          "y_max": 137.5
+        },
+        "isHeader": false,
+        "columnName": "Line #"
+      },
+      {
+        "labelId": "c-0020",
+        "text": "6138000000-E",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 129.75,
+          "x_max": 146.25,
+          "y_max": 137.5
+        },
+        "isHeader": false,
+        "columnName": "Item Number"
+      },
+      {
+        "labelId": "c-0021",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 129.75,
+          "x_max": 178.75,
+          "y_max": 137.5
+        },
+        "isHeader": false,
+        "columnName": "Sec #"
+      },
+      {
+        "labelId": "c-0022",
+        "text": "Vegetative Debris Grinding",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 129.5,
+          "x_max": 318.25,
+          "y_max": 139.5
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0023",
+        "text": "7,500",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 362.75,
+          "y_min": 129.75,
+          "x_max": 386.75,
+          "y_max": 139
+        },
+        "isHeader": false,
+        "columnName": "Qty"
+      },
+      {
+        "labelId": "c-0024",
+        "text": "CY",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 403.5,
+          "y_min": 129.75,
+          "x_max": 418.25,
+          "y_max": 137.5
+        },
+        "isHeader": false,
+        "columnName": "Units"
+      },
+      {
+        "labelId": "c-0025",
+        "text": "$24.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 129,
+          "x_max": 460.5,
+          "y_max": 137.75
+        },
+        "isHeader": false,
+        "columnName": "Unit Cost"
+      },
+      {
+        "labelId": "c-0026",
+        "text": "$180,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 129,
+          "x_max": 544.75,
+          "y_max": 138
+        },
+        "isHeader": false,
+        "columnName": "Extended Amount"
+      },
+      {
+        "labelId": "c-0027",
+        "text": "0003",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 143,
+          "x_max": 66.25,
+          "y_max": 150.75
+        },
+        "isHeader": false,
+        "columnName": "Line #"
+      },
+      {
+        "labelId": "c-0028",
+        "text": "6138000000-E",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 143,
+          "x_max": 146.25,
+          "y_max": 150.75
+        },
+        "isHeader": false,
+        "columnName": "Item Number"
+      },
+      {
+        "labelId": "c-0029",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 143,
+          "x_max": 178.75,
+          "y_max": 150.75
+        },
+        "isHeader": false,
+        "columnName": "Sec #"
+      },
+      {
+        "labelId": "c-0030",
+        "text": "Vegetative Debris Disposal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 142.75,
+          "x_max": 316.75,
+          "y_max": 152.5
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0031",
+        "text": "2,500",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 362.5,
+          "y_min": 143,
+          "x_max": 386.75,
+          "y_max": 152.25
+        },
+        "isHeader": false,
+        "columnName": "Qty"
+      },
+      {
+        "labelId": "c-0032",
+        "text": "CY",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 403.5,
+          "y_min": 143,
+          "x_max": 418.25,
+          "y_max": 150.75
+        },
+        "isHeader": false,
+        "columnName": "Units"
+      },
+      {
+        "labelId": "c-0033",
+        "text": "$12.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 142.25,
+          "x_max": 460.5,
+          "y_max": 151
+        },
+        "isHeader": false,
+        "columnName": "Unit Cost"
+      },
+      {
+        "labelId": "c-0034",
+        "text": "$30,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 142.25,
+          "x_max": 539.75,
+          "y_max": 151.25
+        },
+        "isHeader": false,
+        "columnName": "Extended Amount"
+      },
+      {
+        "labelId": "c-0035",
+        "text": "0004",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 156,
+          "x_max": 66.75,
+          "y_max": 163.75
+        },
+        "isHeader": false,
+        "columnName": "Line #"
+      },
+      {
+        "labelId": "c-0036",
+        "text": "6150000000-E",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 156,
+          "x_max": 146.25,
+          "y_max": 163.75
+        },
+        "isHeader": false,
+        "columnName": "Item Number"
+      },
+      {
+        "labelId": "c-0037",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 156,
+          "x_max": 178.75,
+          "y_max": 163.75
+        },
+        "isHeader": false,
+        "columnName": "Sec #"
+      },
+      {
+        "labelId": "c-0038",
+        "text": "White Goods Recycle",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 155.75,
+          "x_max": 292.25,
+          "y_max": 165.75
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0039",
+        "text": "5",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 372.5,
+          "y_min": 156.25,
+          "x_max": 376.5,
+          "y_max": 163.75
+        },
+        "isHeader": false,
+        "columnName": "Qty"
+      },
+      {
+        "labelId": "c-0040",
+        "text": "TON",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 399.75,
+          "y_min": 156,
+          "x_max": 422,
+          "y_max": 163.75
+        },
+        "isHeader": false,
+        "columnName": "Units"
+      },
+      {
+        "labelId": "c-0041",
+        "text": "$200.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 155.5,
+          "x_max": 465.5,
+          "y_max": 164.25
+        },
+        "isHeader": false,
+        "columnName": "Unit Cost"
+      },
+      {
+        "labelId": "c-0042",
+        "text": "$1,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 155.5,
+          "x_max": 534.5,
+          "y_max": 164.5
+        },
+        "isHeader": false,
+        "columnName": "Extended Amount"
+      },
+      {
+        "labelId": "c-0043",
+        "text": "0005",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 169.25,
+          "x_max": 66.25,
+          "y_max": 177
+        },
+        "isHeader": false,
+        "columnName": "Line #"
+      },
+      {
+        "labelId": "c-0044",
+        "text": "6150000000-E",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 169.25,
+          "x_max": 146.25,
+          "y_max": 177
+        },
+        "isHeader": false,
+        "columnName": "Item Number"
+      },
+      {
+        "labelId": "c-0045",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 169.25,
+          "x_max": 178.75,
+          "y_max": 177
+        },
+        "isHeader": false,
+        "columnName": "Sec #"
+      },
+      {
+        "labelId": "c-0046",
+        "text": "Inert Debris Removal and Disposal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 169,
+          "x_max": 310,
+          "y_max": 191.5
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0047",
+        "text": "1,100",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 363.5,
+          "y_min": 169.25,
+          "x_max": 386.75,
+          "y_max": 178.5
+        },
+        "isHeader": false,
+        "columnName": "Qty"
+      },
+      {
+        "labelId": "c-0048",
+        "text": "TON",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 399.75,
+          "y_min": 169.25,
+          "x_max": 422,
+          "y_max": 177
+        },
+        "isHeader": false,
+        "columnName": "Units"
+      },
+      {
+        "labelId": "c-0049",
+        "text": "$90.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 168.5,
+          "x_max": 460.5,
+          "y_max": 177.25
+        },
+        "isHeader": false,
+        "columnName": "Unit Cost"
+      },
+      {
+        "labelId": "c-0050",
+        "text": "$99,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 168.5,
+          "x_max": 539.75,
+          "y_max": 177.5
+        },
+        "isHeader": false,
+        "columnName": "Extended Amount"
+      },
+      {
+        "labelId": "c-0051",
+        "text": "0006",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 195,
+          "x_max": 66.5,
+          "y_max": 202.75
+        },
+        "isHeader": false,
+        "columnName": "Line #"
+      },
+      {
+        "labelId": "c-0052",
+        "text": "6150000000-E",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 195,
+          "x_max": 146.25,
+          "y_max": 202.75
+        },
+        "isHeader": false,
+        "columnName": "Item Number"
+      },
+      {
+        "labelId": "c-0053",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 195,
+          "x_max": 178.75,
+          "y_max": 202.75
+        },
+        "isHeader": false,
+        "columnName": "Sec #"
+      },
+      {
+        "labelId": "c-0054",
+        "text": "Construction and Demolition Debris Removal and Disposal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 194.75,
+          "x_max": 327.75,
+          "y_max": 217.25
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0055",
+        "text": "140",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 367.5,
+          "y_min": 195,
+          "x_max": 382.5,
+          "y_max": 202.75
+        },
+        "isHeader": false,
+        "columnName": "Qty"
+      },
+      {
+        "labelId": "c-0056",
+        "text": "TON",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 399.75,
+          "y_min": 195,
+          "x_max": 422,
+          "y_max": 202.75
+        },
+        "isHeader": false,
+        "columnName": "Units"
+      },
+      {
+        "labelId": "c-0057",
+        "text": "$120.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 194.25,
+          "x_max": 465.5,
+          "y_max": 203
+        },
+        "isHeader": false,
+        "columnName": "Unit Cost"
+      },
+      {
+        "labelId": "c-0058",
+        "text": "$16,800.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 194.25,
+          "x_max": 539.75,
+          "y_max": 203.25
+        },
+        "isHeader": false,
+        "columnName": "Extended Amount"
+      },
+      {
+        "labelId": "c-0059",
+        "text": "0007",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 220.75,
+          "x_max": 66.5,
+          "y_max": 228.5
+        },
+        "isHeader": false,
+        "columnName": "Line #"
+      },
+      {
+        "labelId": "c-0060",
+        "text": "6150000000-E",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 220.75,
+          "x_max": 146.25,
+          "y_max": 228.5
+        },
+        "isHeader": false,
+        "columnName": "Item Number"
+      },
+      {
+        "labelId": "c-0061",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 220.75,
+          "x_max": 178.75,
+          "y_max": 228.5
+        },
+        "isHeader": false,
+        "columnName": "Sec #"
+      },
+      {
+        "labelId": "c-0062",
+        "text": "Household Hazardous Waste Debris Removal and Disposal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 220.5,
+          "x_max": 327.75,
+          "y_max": 243
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0063",
+        "text": "120",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 367.5,
+          "y_min": 220.75,
+          "x_max": 382.5,
+          "y_max": 228.5
+        },
+        "isHeader": false,
+        "columnName": "Qty"
+      },
+      {
+        "labelId": "c-0064",
+        "text": "TON",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 399.75,
+          "y_min": 220.75,
+          "x_max": 422,
+          "y_max": 228.5
+        },
+        "isHeader": false,
+        "columnName": "Units"
+      },
+      {
+        "labelId": "c-0065",
+        "text": "$120.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 220.25,
+          "x_max": 465.5,
+          "y_max": 229
+        },
+        "isHeader": false,
+        "columnName": "Unit Cost"
+      },
+      {
+        "labelId": "c-0066",
+        "text": "$14,400.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 220.25,
+          "x_max": 539.75,
+          "y_max": 229.25
+        },
+        "isHeader": false,
+        "columnName": "Extended Amount"
+      },
+      {
+        "labelId": "c-0067",
+        "text": "0008",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 246.5,
+          "x_max": 66.5,
+          "y_max": 254.25
+        },
+        "isHeader": false,
+        "columnName": "Line #"
+      },
+      {
+        "labelId": "c-0068",
+        "text": "6150000000-E",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 246.5,
+          "x_max": 146.25,
+          "y_max": 254.25
+        },
+        "isHeader": false,
+        "columnName": "Item Number"
+      },
+      {
+        "labelId": "c-0069",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 246.5,
+          "x_max": 178.75,
+          "y_max": 254.25
+        },
+        "isHeader": false,
+        "columnName": "Sec #"
+      },
+      {
+        "labelId": "c-0070",
+        "text": "Electronic Debris Removal and Disposal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 246.25,
+          "x_max": 334.5,
+          "y_max": 269
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0071",
+        "text": "15",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 370.5,
+          "y_min": 246.5,
+          "x_max": 379.25,
+          "y_max": 254.25
+        },
+        "isHeader": false,
+        "columnName": "Qty"
+      },
+      {
+        "labelId": "c-0072",
+        "text": "TON",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 399.75,
+          "y_min": 246.5,
+          "x_max": 422,
+          "y_max": 254.25
+        },
+        "isHeader": false,
+        "columnName": "Units"
+      },
+      {
+        "labelId": "c-0073",
+        "text": "$100.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 246,
+          "x_max": 465.5,
+          "y_max": 254.75
+        },
+        "isHeader": false,
+        "columnName": "Unit Cost"
+      },
+      {
+        "labelId": "c-0074",
+        "text": "$1,500.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 246,
+          "x_max": 534.5,
+          "y_max": 255
+        },
+        "isHeader": false,
+        "columnName": "Extended Amount"
+      },
+      {
+        "labelId": "c-0075",
+        "text": "0009",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 272.5,
+          "x_max": 66.75,
+          "y_max": 280.25
+        },
+        "isHeader": false,
+        "columnName": "Line #"
+      },
+      {
+        "labelId": "c-0076",
+        "text": "0000860000-N",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 272.5,
+          "x_max": 147.75,
+          "y_max": 280.25
+        },
+        "isHeader": false,
+        "columnName": "Item Number"
+      },
+      {
+        "labelId": "c-0077",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.25,
+          "y_min": 272.5,
+          "x_max": 178.75,
+          "y_max": 280.25
+        },
+        "isHeader": false,
+        "columnName": "Sec #"
+      },
+      {
+        "labelId": "c-0078",
+        "text": "Landfill Tipping Fee",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 272.25,
+          "x_max": 287.75,
+          "y_max": 282
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0079",
+        "text": "5000",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 364,
+          "y_min": 272.5,
+          "x_max": 385.5,
+          "y_max": 280.25
+        },
+        "isHeader": false,
+        "columnName": "Qty"
+      },
+      {
+        "labelId": "c-0080",
+        "text": "DOL",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 399.5,
+          "y_min": 272.5,
+          "x_max": 422,
+          "y_max": 280.25
+        },
+        "isHeader": false,
+        "columnName": "Units"
+      },
+      {
+        "labelId": "c-0081",
+        "text": "$1.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 271.75,
+          "x_max": 455.5,
+          "y_max": 280.5
+        },
+        "isHeader": false,
+        "columnName": "Unit Cost"
+      },
+      {
+        "labelId": "c-0082",
+        "text": "$5,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 271.75,
+          "x_max": 534.75,
+          "y_max": 280.75
+        },
+        "isHeader": false,
+        "columnName": "Extended Amount"
+      },
+      {
+        "labelId": "c-0083",
+        "text": "0010",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 285.5,
+          "x_max": 66.75,
+          "y_max": 293.25
+        },
+        "isHeader": false,
+        "columnName": "Line #"
+      },
+      {
+        "labelId": "c-0084",
+        "text": "6132000000-N",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 285.5,
+          "x_max": 147.75,
+          "y_max": 293.25
+        },
+        "isHeader": false,
+        "columnName": "Item Number"
+      },
+      {
+        "labelId": "c-0085",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 285.5,
+          "x_max": 178.75,
+          "y_max": 293.25
+        },
+        "isHeader": false,
+        "columnName": "Sec #"
+      },
+      {
+        "labelId": "c-0086",
+        "text": "Hazardous Tree Stump Excavation and Removal <24”",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 285.25,
+          "x_max": 349.75,
+          "y_max": 306
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0087",
+        "text": "400",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 366.5,
+          "y_min": 285.5,
+          "x_max": 382.5,
+          "y_max": 293.25
+        },
+        "isHeader": false,
+        "columnName": "Qty"
+      },
+      {
+        "labelId": "c-0088",
+        "text": "EA",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 403.75,
+          "y_min": 285.5,
+          "x_max": 418,
+          "y_max": 293
+        },
+        "isHeader": false,
+        "columnName": "Units"
+      },
+      {
+        "labelId": "c-0089",
+        "text": "$600.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 285,
+          "x_max": 465.5,
+          "y_max": 293.75
+        },
+        "isHeader": false,
+        "columnName": "Unit Cost"
+      },
+      {
+        "labelId": "c-0090",
+        "text": "$240,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 285,
+          "x_max": 544.75,
+          "y_max": 294
+        },
+        "isHeader": false,
+        "columnName": "Extended Amount"
+      },
+      {
+        "labelId": "c-0091",
+        "text": "0011",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 311.5,
+          "x_max": 65.75,
+          "y_max": 319.25
+        },
+        "isHeader": false,
+        "columnName": "Line #"
+      },
+      {
+        "labelId": "c-0092",
+        "text": "6132000000-N",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 311.5,
+          "x_max": 147.75,
+          "y_max": 319.25
+        },
+        "isHeader": false,
+        "columnName": "Item Number"
+      },
+      {
+        "labelId": "c-0093",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 311.5,
+          "x_max": 178.75,
+          "y_max": 319.25
+        },
+        "isHeader": false,
+        "columnName": "Sec #"
+      },
+      {
+        "labelId": "c-0094",
+        "text": "Hazardous Tree Stump Excavation and Removal >=24” - <48”",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 311.25,
+          "x_max": 349.75,
+          "y_max": 331.75
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0095",
+        "text": "350",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 366.75,
+          "y_min": 311.5,
+          "x_max": 382.5,
+          "y_max": 319.25
+        },
+        "isHeader": false,
+        "columnName": "Qty"
+      },
+      {
+        "labelId": "c-0096",
+        "text": "EA",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 403.75,
+          "y_min": 311.5,
+          "x_max": 418,
+          "y_max": 319
+        },
+        "isHeader": false,
+        "columnName": "Units"
+      },
+      {
+        "labelId": "c-0097",
+        "text": "$900.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 310.75,
+          "x_max": 465.5,
+          "y_max": 319.5
+        },
+        "isHeader": false,
+        "columnName": "Unit Cost"
+      },
+      {
+        "labelId": "c-0098",
+        "text": "$315,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 310.75,
+          "x_max": 544.75,
+          "y_max": 319.75
+        },
+        "isHeader": false,
+        "columnName": "Extended Amount"
+      },
+      {
+        "labelId": "c-0099",
+        "text": "0012",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 337.25,
+          "x_max": 66.5,
+          "y_max": 345
+        },
+        "isHeader": false,
+        "columnName": "Line #"
+      },
+      {
+        "labelId": "c-0100",
+        "text": "6132000000-N",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 337.25,
+          "x_max": 147.75,
+          "y_max": 345
+        },
+        "isHeader": false,
+        "columnName": "Item Number"
+      },
+      {
+        "labelId": "c-0101",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 337.25,
+          "x_max": 178.75,
+          "y_max": 345
+        },
+        "isHeader": false,
+        "columnName": "Sec #"
+      },
+      {
+        "labelId": "c-0102",
+        "text": "Hazardous Tree Stump Excavation and Removal 48” & >",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 337,
+          "x_max": 349.75,
+          "y_max": 357.5
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0103",
+        "text": "220",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 366.5,
+          "y_min": 337.25,
+          "x_max": 382.5,
+          "y_max": 345
+        },
+        "isHeader": false,
+        "columnName": "Qty"
+      },
+      {
+        "labelId": "c-0104",
+        "text": "EA",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 403.75,
+          "y_min": 337.25,
+          "x_max": 418,
+          "y_max": 344.75
+        },
+        "isHeader": false,
+        "columnName": "Units"
+      },
+      {
+        "labelId": "c-0105",
+        "text": "$1,300.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 336.5,
+          "x_max": 473,
+          "y_max": 345.5
+        },
+        "isHeader": false,
+        "columnName": "Unit Cost"
+      },
+      {
+        "labelId": "c-0106",
+        "text": "$286,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 336.5,
+          "x_max": 544.75,
+          "y_max": 345.5
+        },
+        "isHeader": false,
+        "columnName": "Extended Amount"
+      },
+      {
+        "labelId": "c-0107",
+        "text": "0013",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 363,
+          "x_max": 66.25,
+          "y_max": 370.75
+        },
+        "isHeader": false,
+        "columnName": "Line #"
+      },
+      {
+        "labelId": "c-0108",
+        "text": "6132000000-N",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 363,
+          "x_max": 147.75,
+          "y_max": 370.75
+        },
+        "isHeader": false,
+        "columnName": "Item Number"
+      },
+      {
+        "labelId": "c-0109",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 363,
+          "x_max": 178.75,
+          "y_max": 370.75
+        },
+        "isHeader": false,
+        "columnName": "Sec #"
+      },
+      {
+        "labelId": "c-0110",
+        "text": "Hazardous Tree Stump Removal >12\"- <24\"",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 362.75,
+          "x_max": 339.75,
+          "y_max": 383
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0111",
+        "text": "75",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 369.5,
+          "y_min": 363.25,
+          "x_max": 379.25,
+          "y_max": 370.75
+        },
+        "isHeader": false,
+        "columnName": "Qty"
+      },
+      {
+        "labelId": "c-0112",
+        "text": "EA",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 403.75,
+          "y_min": 363,
+          "x_max": 418,
+          "y_max": 370.5
+        },
+        "isHeader": false,
+        "columnName": "Units"
+      },
+      {
+        "labelId": "c-0113",
+        "text": "$600.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 362.5,
+          "x_max": 465.5,
+          "y_max": 371.25
+        },
+        "isHeader": false,
+        "columnName": "Unit Cost"
+      },
+      {
+        "labelId": "c-0114",
+        "text": "$45,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 362.5,
+          "x_max": 539.75,
+          "y_max": 371.5
+        },
+        "isHeader": false,
+        "columnName": "Extended Amount"
+      },
+      {
+        "labelId": "c-0115",
+        "text": "0014",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 388.75,
+          "x_max": 66.75,
+          "y_max": 396.5
+        },
+        "isHeader": false,
+        "columnName": "Line #"
+      },
+      {
+        "labelId": "c-0116",
+        "text": "6132000000-N",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 388.75,
+          "x_max": 147.75,
+          "y_max": 396.5
+        },
+        "isHeader": false,
+        "columnName": "Item Number"
+      },
+      {
+        "labelId": "c-0117",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 388.75,
+          "x_max": 178.75,
+          "y_max": 396.5
+        },
+        "isHeader": false,
+        "columnName": "Sec #"
+      },
+      {
+        "labelId": "c-0118",
+        "text": "Hazardous Tree Stump Removal =>24\"- <48\"",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 388.5,
+          "x_max": 339.75,
+          "y_max": 409.25
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0119",
+        "text": "75",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 369.5,
+          "y_min": 389,
+          "x_max": 379.25,
+          "y_max": 396.5
+        },
+        "isHeader": false,
+        "columnName": "Qty"
+      },
+      {
+        "labelId": "c-0120",
+        "text": "EA",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 403.75,
+          "y_min": 388.75,
+          "x_max": 418,
+          "y_max": 396.25
+        },
+        "isHeader": false,
+        "columnName": "Units"
+      },
+      {
+        "labelId": "c-0121",
+        "text": "$800.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 388.25,
+          "x_max": 465.5,
+          "y_max": 397
+        },
+        "isHeader": false,
+        "columnName": "Unit Cost"
+      },
+      {
+        "labelId": "c-0122",
+        "text": "$60,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 388.25,
+          "x_max": 539.75,
+          "y_max": 397.25
+        },
+        "isHeader": false,
+        "columnName": "Extended Amount"
+      },
+      {
+        "labelId": "c-0123",
+        "text": "0015",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 414.5,
+          "x_max": 66.25,
+          "y_max": 422.25
+        },
+        "isHeader": false,
+        "columnName": "Line #"
+      },
+      {
+        "labelId": "c-0124",
+        "text": "6132000000-N",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 414.5,
+          "x_max": 147.75,
+          "y_max": 422.25
+        },
+        "isHeader": false,
+        "columnName": "Item Number"
+      },
+      {
+        "labelId": "c-0125",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 414.5,
+          "x_max": 178.75,
+          "y_max": 422.25
+        },
+        "isHeader": false,
+        "columnName": "Sec #"
+      },
+      {
+        "labelId": "c-0126",
+        "text": "Hazardous Tree Stump Removal =>48\"",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 414.25,
+          "x_max": 339.75,
+          "y_max": 435
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0127",
+        "text": "75",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 369.5,
+          "y_min": 414.75,
+          "x_max": 379.25,
+          "y_max": 422.25
+        },
+        "isHeader": false,
+        "columnName": "Qty"
+      },
+      {
+        "labelId": "c-0128",
+        "text": "EA",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 403.75,
+          "y_min": 414.5,
+          "x_max": 418,
+          "y_max": 422
+        },
+        "isHeader": false,
+        "columnName": "Units"
+      },
+      {
+        "labelId": "c-0129",
+        "text": "$1,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 414,
+          "x_max": 473,
+          "y_max": 423
+        },
+        "isHeader": false,
+        "columnName": "Unit Cost"
+      },
+      {
+        "labelId": "c-0130",
+        "text": "$75,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 414,
+          "x_max": 539.75,
+          "y_max": 423
+        },
+        "isHeader": false,
+        "columnName": "Extended Amount"
+      },
+      {
+        "labelId": "c-0131",
+        "text": "0016",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 440.5,
+          "x_max": 66.5,
+          "y_max": 448.25
+        },
+        "isHeader": false,
+        "columnName": "Line #"
+      },
+      {
+        "labelId": "c-0132",
+        "text": "6132000000-N",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 440.5,
+          "x_max": 147.75,
+          "y_max": 448.25
+        },
+        "isHeader": false,
+        "columnName": "Item Number"
+      },
+      {
+        "labelId": "c-0133",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 440.5,
+          "x_max": 178.75,
+          "y_max": 448.25
+        },
+        "isHeader": false,
+        "columnName": "Sec #"
+      },
+      {
+        "labelId": "c-0134",
+        "text": "Hazardous Limb Cutting (> 2”)",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 440.25,
+          "x_max": 334.5,
+          "y_max": 450
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0135",
+        "text": "300",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 366.75,
+          "y_min": 440.5,
+          "x_max": 382.5,
+          "y_max": 448.25
+        },
+        "isHeader": false,
+        "columnName": "Qty"
+      },
+      {
+        "labelId": "c-0136",
+        "text": "EA",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 403.75,
+          "y_min": 440.5,
+          "x_max": 418,
+          "y_max": 448
+        },
+        "isHeader": false,
+        "columnName": "Units"
+      },
+      {
+        "labelId": "c-0137",
+        "text": "$90.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 439.75,
+          "x_max": 460.5,
+          "y_max": 448.5
+        },
+        "isHeader": false,
+        "columnName": "Unit Cost"
+      },
+      {
+        "labelId": "c-0138",
+        "text": "$27,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 439.75,
+          "x_max": 539.75,
+          "y_max": 448.75
+        },
+        "isHeader": false,
+        "columnName": "Extended Amount"
+      },
+      {
+        "labelId": "c-0139",
+        "text": "0017",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 453.5,
+          "x_max": 66.5,
+          "y_max": 461.25
+        },
+        "isHeader": false,
+        "columnName": "Line #"
+      },
+      {
+        "labelId": "c-0140",
+        "text": "6132000000-N",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 453.5,
+          "x_max": 147.75,
+          "y_max": 461.25
+        },
+        "isHeader": false,
+        "columnName": "Item Number"
+      },
+      {
+        "labelId": "c-0141",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 453.5,
+          "x_max": 178.75,
+          "y_max": 461.25
+        },
+        "isHeader": false,
+        "columnName": "Sec #"
+      },
+      {
+        "labelId": "c-0142",
+        "text": "Hazardous Tree Cutting >= 6” - <12”",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 453.25,
+          "x_max": 336.25,
+          "y_max": 473.75
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0143",
+        "text": "600",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 366.75,
+          "y_min": 453.5,
+          "x_max": 382.5,
+          "y_max": 461.25
+        },
+        "isHeader": false,
+        "columnName": "Qty"
+      },
+      {
+        "labelId": "c-0144",
+        "text": "EA",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 403.75,
+          "y_min": 453.5,
+          "x_max": 418,
+          "y_max": 461
+        },
+        "isHeader": false,
+        "columnName": "Units"
+      },
+      {
+        "labelId": "c-0145",
+        "text": "$150.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 453,
+          "x_max": 465.5,
+          "y_max": 461.75
+        },
+        "isHeader": false,
+        "columnName": "Unit Cost"
+      },
+      {
+        "labelId": "c-0146",
+        "text": "$90,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 453,
+          "x_max": 539.75,
+          "y_max": 462
+        },
+        "isHeader": false,
+        "columnName": "Extended Amount"
+      },
+      {
+        "labelId": "c-0147",
+        "text": "0018",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 479.25,
+          "x_max": 66.5,
+          "y_max": 487
+        },
+        "isHeader": false,
+        "columnName": "Line #"
+      },
+      {
+        "labelId": "c-0148",
+        "text": "6132000000-N",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 479.25,
+          "x_max": 147.75,
+          "y_max": 487
+        },
+        "isHeader": false,
+        "columnName": "Item Number"
+      },
+      {
+        "labelId": "c-0149",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 479.25,
+          "x_max": 178.75,
+          "y_max": 487
+        },
+        "isHeader": false,
+        "columnName": "Sec #"
+      },
+      {
+        "labelId": "c-0150",
+        "text": "Hazardous Tree Cutting 12” - < 24”",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 479,
+          "x_max": 335.75,
+          "y_max": 499.5
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0151",
+        "text": "500",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 366.75,
+          "y_min": 479.25,
+          "x_max": 382.5,
+          "y_max": 487
+        },
+        "isHeader": false,
+        "columnName": "Qty"
+      },
+      {
+        "labelId": "c-0152",
+        "text": "EA",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 403.75,
+          "y_min": 479.25,
+          "x_max": 418,
+          "y_max": 486.75
+        },
+        "isHeader": false,
+        "columnName": "Units"
+      },
+      {
+        "labelId": "c-0153",
+        "text": "$200.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 478.75,
+          "x_max": 465.5,
+          "y_max": 487.5
+        },
+        "isHeader": false,
+        "columnName": "Unit Cost"
+      },
+      {
+        "labelId": "c-0154",
+        "text": "$100,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 478.75,
+          "x_max": 544.75,
+          "y_max": 487.75
+        },
+        "isHeader": false,
+        "columnName": "Extended Amount"
+      },
+      {
+        "labelId": "c-0155",
+        "text": "0019",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 505,
+          "x_max": 66.5,
+          "y_max": 512.75
+        },
+        "isHeader": false,
+        "columnName": "Line #"
+      },
+      {
+        "labelId": "c-0156",
+        "text": "6132000000-N",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 505,
+          "x_max": 147.75,
+          "y_max": 512.75
+        },
+        "isHeader": false,
+        "columnName": "Item Number"
+      },
+      {
+        "labelId": "c-0157",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 505,
+          "x_max": 178.75,
+          "y_max": 512.75
+        },
+        "isHeader": false,
+        "columnName": "Sec #"
+      },
+      {
+        "labelId": "c-0158",
+        "text": "Hazardous Tree Cutting 24” - < 36”",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 504.75,
+          "x_max": 335.75,
+          "y_max": 525.5
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0159",
+        "text": "100",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 367.5,
+          "y_min": 505,
+          "x_max": 382.5,
+          "y_max": 512.75
+        },
+        "isHeader": false,
+        "columnName": "Qty"
+      },
+      {
+        "labelId": "c-0160",
+        "text": "EA",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 403.75,
+          "y_min": 505,
+          "x_max": 418,
+          "y_max": 512.5
+        },
+        "isHeader": false,
+        "columnName": "Units"
+      },
+      {
+        "labelId": "c-0161",
+        "text": "$300.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 504.5,
+          "x_max": 465.5,
+          "y_max": 513.25
+        },
+        "isHeader": false,
+        "columnName": "Unit Cost"
+      },
+      {
+        "labelId": "c-0162",
+        "text": "$30,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 504.5,
+          "x_max": 539.75,
+          "y_max": 513.5
+        },
+        "isHeader": false,
+        "columnName": "Extended Amount"
+      },
+      {
+        "labelId": "c-0163",
+        "text": "0020",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 531,
+          "x_max": 66.75,
+          "y_max": 538.75
+        },
+        "isHeader": false,
+        "columnName": "Line #"
+      },
+      {
+        "labelId": "c-0164",
+        "text": "6132000000-N",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 81.5,
+          "y_min": 531,
+          "x_max": 147.75,
+          "y_max": 538.75
+        },
+        "isHeader": false,
+        "columnName": "Item Number"
+      },
+      {
+        "labelId": "c-0165",
+        "text": "SP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 167.5,
+          "y_min": 531,
+          "x_max": 178.75,
+          "y_max": 538.75
+        },
+        "isHeader": false,
+        "columnName": "Sec #"
+      },
+      {
+        "labelId": "c-0166",
+        "text": "Hazardous Tree Cutting 36” & >",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 530.75,
+          "x_max": 340.5,
+          "y_max": 540.5
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0167",
+        "text": "50",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 369.75,
+          "y_min": 531,
+          "x_max": 379.75,
+          "y_max": 538.75
+        },
+        "isHeader": false,
+        "columnName": "Qty"
+      },
+      {
+        "labelId": "c-0168",
+        "text": "EA",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 403.75,
+          "y_min": 531,
+          "x_max": 418,
+          "y_max": 538.5
+        },
+        "isHeader": false,
+        "columnName": "Units"
+      },
+      {
+        "labelId": "c-0169",
+        "text": "$600.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 530.25,
+          "x_max": 465.5,
+          "y_max": 539
+        },
+        "isHeader": false,
+        "columnName": "Unit Cost"
+      },
+      {
+        "labelId": "c-0170",
+        "text": "$30,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 530.25,
+          "x_max": 539.75,
+          "y_max": 539.25
+        },
+        "isHeader": false,
+        "columnName": "Extended Amount"
+      },
+      {
+        "labelId": "c-0171",
+        "text": "0021",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 45.25,
+          "y_min": 544,
+          "x_max": 65.75,
+          "y_max": 551.75
+        },
+        "isHeader": false,
+        "columnName": "Line #"
+      },
+      {
+        "labelId": "c-0172",
+        "text": "6084000000-E",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 83,
+          "y_min": 544,
+          "x_max": 147.75,
+          "y_max": 551.75
+        },
+        "isHeader": false,
+        "columnName": "Item Number"
+      },
+      {
+        "labelId": "c-0173",
+        "text": "1660",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 163.25,
+          "y_min": 544,
+          "x_max": 183.75,
+          "y_max": 551.75
+        },
+        "isHeader": false,
+        "columnName": "Sec #"
+      },
+      {
+        "labelId": "c-0174",
+        "text": "Seeding and Mulching",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.75,
+          "y_min": 543.75,
+          "x_max": 295.5,
+          "y_max": 554
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0175",
+        "text": "2",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 372,
+          "y_min": 544,
+          "x_max": 377,
+          "y_max": 551.5
+        },
+        "isHeader": false,
+        "columnName": "Qty"
+      },
+      {
+        "labelId": "c-0176",
+        "text": "AC",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 403.25,
+          "y_min": 544,
+          "x_max": 418,
+          "y_max": 551.75
+        },
+        "isHeader": false,
+        "columnName": "Units"
+      },
+      {
+        "labelId": "c-0177",
+        "text": "$2,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 433.5,
+          "y_min": 545.75,
+          "x_max": 473,
+          "y_max": 554.75
+        },
+        "isHeader": false,
+        "columnName": "Unit Cost"
+      },
+      {
+        "labelId": "c-0178",
+        "text": "$4,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 495,
+          "y_min": 543.5,
+          "x_max": 534.5,
+          "y_max": 552.5
+        },
+        "isHeader": false,
+        "columnName": "Extended Amount"
+      },
+      {
+        "labelId": "c-0179",
+        "text": "Total Amount Of Bid For Entire Project:",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 307.75,
+          "y_min": 561,
+          "x_max": 482.5,
+          "y_max": 570
+        },
+        "isHeader": false,
+        "columnName": null
+      },
+      {
+        "labelId": "c-0180",
+        "text": "$1,934,700.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 494.75,
+          "y_min": 560.5,
+          "x_max": 552.75,
+          "y_max": 569.5
+        },
+        "isHeader": false,
+        "columnName": "Extended Amount"
+      }
+    ]
+  },
+  "rows": {
+    "status": "labeled",
+    "items": [
+      {
+        "rowKey": "r-0001",
+        "orderedCellLabelIds": [
+          "c-0001"
+        ]
+      },
+      {
+        "rowKey": "r-0002",
+        "orderedCellLabelIds": [
+          "c-0002",
+          "c-0003",
+          "c-0004",
+          "c-0005",
+          "c-0006",
+          "c-0007",
+          "c-0008",
+          "c-0009"
+        ]
+      },
+      {
+        "rowKey": "r-0003",
+        "orderedCellLabelIds": [
+          "c-0010"
+        ]
+      },
+      {
+        "rowKey": "r-0004",
+        "orderedCellLabelIds": [
+          "c-0011",
+          "c-0012",
+          "c-0013",
+          "c-0014",
+          "c-0015",
+          "c-0016",
+          "c-0017",
+          "c-0018"
+        ]
+      },
+      {
+        "rowKey": "r-0005",
+        "orderedCellLabelIds": [
+          "c-0019",
+          "c-0020",
+          "c-0021",
+          "c-0022",
+          "c-0023",
+          "c-0024",
+          "c-0025",
+          "c-0026"
+        ]
+      },
+      {
+        "rowKey": "r-0006",
+        "orderedCellLabelIds": [
+          "c-0027",
+          "c-0028",
+          "c-0029",
+          "c-0030",
+          "c-0031",
+          "c-0032",
+          "c-0033",
+          "c-0034"
+        ]
+      },
+      {
+        "rowKey": "r-0007",
+        "orderedCellLabelIds": [
+          "c-0035",
+          "c-0036",
+          "c-0037",
+          "c-0038",
+          "c-0039",
+          "c-0040",
+          "c-0041",
+          "c-0042"
+        ]
+      },
+      {
+        "rowKey": "r-0008",
+        "orderedCellLabelIds": [
+          "c-0043",
+          "c-0044",
+          "c-0045",
+          "c-0046",
+          "c-0047",
+          "c-0048",
+          "c-0049",
+          "c-0050"
+        ]
+      },
+      {
+        "rowKey": "r-0009",
+        "orderedCellLabelIds": [
+          "c-0051",
+          "c-0052",
+          "c-0053",
+          "c-0054",
+          "c-0055",
+          "c-0056",
+          "c-0057",
+          "c-0058"
+        ]
+      },
+      {
+        "rowKey": "r-0010",
+        "orderedCellLabelIds": [
+          "c-0059",
+          "c-0060",
+          "c-0061",
+          "c-0062",
+          "c-0063",
+          "c-0064",
+          "c-0065",
+          "c-0066"
+        ]
+      },
+      {
+        "rowKey": "r-0011",
+        "orderedCellLabelIds": [
+          "c-0067",
+          "c-0068",
+          "c-0069",
+          "c-0070",
+          "c-0071",
+          "c-0072",
+          "c-0073",
+          "c-0074"
+        ]
+      },
+      {
+        "rowKey": "r-0012",
+        "orderedCellLabelIds": [
+          "c-0075",
+          "c-0076",
+          "c-0077",
+          "c-0078",
+          "c-0079",
+          "c-0080",
+          "c-0081",
+          "c-0082"
+        ]
+      },
+      {
+        "rowKey": "r-0013",
+        "orderedCellLabelIds": [
+          "c-0083",
+          "c-0084",
+          "c-0085",
+          "c-0086",
+          "c-0087",
+          "c-0088",
+          "c-0089",
+          "c-0090"
+        ]
+      },
+      {
+        "rowKey": "r-0014",
+        "orderedCellLabelIds": [
+          "c-0091",
+          "c-0092",
+          "c-0093",
+          "c-0094",
+          "c-0095",
+          "c-0096",
+          "c-0097",
+          "c-0098"
+        ]
+      },
+      {
+        "rowKey": "r-0015",
+        "orderedCellLabelIds": [
+          "c-0099",
+          "c-0100",
+          "c-0101",
+          "c-0102",
+          "c-0103",
+          "c-0104",
+          "c-0105",
+          "c-0106"
+        ]
+      },
+      {
+        "rowKey": "r-0016",
+        "orderedCellLabelIds": [
+          "c-0107",
+          "c-0108",
+          "c-0109",
+          "c-0110",
+          "c-0111",
+          "c-0112",
+          "c-0113",
+          "c-0114"
+        ]
+      },
+      {
+        "rowKey": "r-0017",
+        "orderedCellLabelIds": [
+          "c-0115",
+          "c-0116",
+          "c-0117",
+          "c-0118",
+          "c-0119",
+          "c-0120",
+          "c-0121",
+          "c-0122"
+        ]
+      },
+      {
+        "rowKey": "r-0018",
+        "orderedCellLabelIds": [
+          "c-0123",
+          "c-0124",
+          "c-0125",
+          "c-0126",
+          "c-0127",
+          "c-0128",
+          "c-0129",
+          "c-0130"
+        ]
+      },
+      {
+        "rowKey": "r-0019",
+        "orderedCellLabelIds": [
+          "c-0131",
+          "c-0132",
+          "c-0133",
+          "c-0134",
+          "c-0135",
+          "c-0136",
+          "c-0137",
+          "c-0138"
+        ]
+      },
+      {
+        "rowKey": "r-0020",
+        "orderedCellLabelIds": [
+          "c-0139",
+          "c-0140",
+          "c-0141",
+          "c-0142",
+          "c-0143",
+          "c-0144",
+          "c-0145",
+          "c-0146"
+        ]
+      },
+      {
+        "rowKey": "r-0021",
+        "orderedCellLabelIds": [
+          "c-0147",
+          "c-0148",
+          "c-0149",
+          "c-0150",
+          "c-0151",
+          "c-0152",
+          "c-0153",
+          "c-0154"
+        ]
+      },
+      {
+        "rowKey": "r-0022",
+        "orderedCellLabelIds": [
+          "c-0155",
+          "c-0156",
+          "c-0157",
+          "c-0158",
+          "c-0159",
+          "c-0160",
+          "c-0161",
+          "c-0162"
+        ]
+      },
+      {
+        "rowKey": "r-0023",
+        "orderedCellLabelIds": [
+          "c-0163",
+          "c-0164",
+          "c-0165",
+          "c-0166",
+          "c-0167",
+          "c-0168",
+          "c-0169",
+          "c-0170"
+        ]
+      },
+      {
+        "rowKey": "r-0024",
+        "orderedCellLabelIds": [
+          "c-0171",
+          "c-0172",
+          "c-0173",
+          "c-0174",
+          "c-0175",
+          "c-0176",
+          "c-0177",
+          "c-0178"
+        ]
+      },
+      {
+        "rowKey": "r-0025",
+        "orderedCellLabelIds": [
+          "c-0179",
+          "c-0180"
+        ]
+      }
+    ]
+  },
+  "coverage": {
+    "status": "labeled",
+    "truth": "native_text_complete",
+    "note": null
+  },
+  "labeledBy": "delegated_dual_ai:chatgpt+claude",
+  "labeledAt": null
+}

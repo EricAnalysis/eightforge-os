@@ -1,0 +1,42 @@
+{
+  "approvalVersion": "e3-benchmark-delegated-approval-v1",
+  "authority": "delegated_dual_ai_benchmark_approval",
+  "delegationScope": "e3_benchmark_labels_finalization",
+  "pageKey": "dn-p107",
+  "source": {
+    "documentKey": "dn",
+    "sha256": "69247bff02744276b75f2cb0d4c00610e8614bd5822d2d10ae2ad35564c3b272",
+    "byteLength": 3895497,
+    "physicalPageNumber": 107
+  },
+  "frame": {
+    "frame_version": "canonical_frame_v1",
+    "coordinate_space": "canonical_v1",
+    "view": [
+      0,
+      0,
+      612,
+      792
+    ],
+    "rotation": 0,
+    "user_unit": 1,
+    "width": 612,
+    "height": 792
+  },
+  "adjudicationSha256": "f697772e76eb515d914e20c80a671df226f09c7086c96f083c564075983f0339",
+  "comparisonSha256": "a09c7f206bb8e83cb9584e4bbba618962704935cbf337e7848d73a7719225aee",
+  "reviewerALabelSetSha256": "9a741b6c6ea579e49510cb7675b164d4f8c8ab3f6160e3e90567f8d1a0500edf",
+  "reviewerBLabelSetSha256": "511854298abfd694c1ed08e9946e112bc976f9017059832857b92e21f9f71ad8",
+  "suggestionsSha256": null,
+  "candidateSha256": "d42dc4562274cdf5fec4a38be033e0a8402a5f991d8105cd0674a02ece0641ef",
+  "candidateSummary": {
+    "words": 331,
+    "cells": 180,
+    "rows": 25,
+    "coverage": "requires_ocr"
+  },
+  "approverIdentity": "claude",
+  "decision": "approve",
+  "approvedAt": "2026-09-29T15:56:17.836Z",
+  "rationale": "Approve E3 evaluation ground truth only for dn-p107 (no production, Project Truth, validator, extraction or E4/E5 authority). Candidate d42dc4562274cdf5fec4a38be033e0a8402a5f991d8105cd0674a02ece0641ef (331 words, 180 cells, 25 rows, requires_ocr) recomputed twice with the official compute-benchmark-candidate CLI from adjudication.geometry.json (canonical f697772e76eb515d): byte-identical and equal to the published preview. Fresh verifier 37/37: content rebuilt from the frozen semantic adjudication + reviewed geometry-evidence and deep-compared exactly; every packet binding equals the finalizer inputs; cell boxes are unions of their words; rows cite each cell once. Semantics equal the frozen adjudication exactly (user-ruled standalone $ tokens, U+0022/U+201D quotes, coverage requires_ocr chosen from Reviewer A over my own native_text_complete proposal). All text ink covered; 6 uncovered components are header-row ruling segments. Fresh-render ink check: source sha and frame bound; 0 empty, 0 loose, 0 overlapping boxes. Boxes are source-ink derived (OCR/native used only as cross-check evidence). Disclosure: this Claude session was Reviewer B and also derived the geometry and prepared the packet; verification was re-run with newly written checkers, but this approval is not independent of that preparation."
+}

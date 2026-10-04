@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  BENCHMARK_DELEGATED_LABELED_BY,
+  BENCHMARK_DELEGATED_LABEL_AUTHORITY,
   bindBenchmarkLabels,
   buildBenchmarkLabelTemplate,
   parseBenchmarkLabels,
@@ -198,6 +200,28 @@ describe('scoring a benchmark page', () => {
     const score = scoreBenchmarkPage({ binding: bind(labeled), prediction: perfectPrediction });
     expect(score.productionEligibilityDecision).toBe('not_in_scope');
     expect(score.authority).toBe('non_authoritative_measurement');
+  });
+
+  it('echoes the human truth authority without changing any metric', () => {
+    const score = scoreBenchmarkPage({ binding: bind(labeled), prediction: perfectPrediction });
+    expect(score.truthAuthority).toBe('human_evaluation_ground_truth_only');
+  });
+
+  it('echoes the delegated truth authority without changing any metric', () => {
+    const delegated: BenchmarkPageLabels = {
+      ...labeled,
+      authority: BENCHMARK_DELEGATED_LABEL_AUTHORITY,
+      labeledBy: BENCHMARK_DELEGATED_LABELED_BY,
+      labeledAt: null,
+    };
+    const human = scoreBenchmarkPage({ binding: bind(labeled), prediction: perfectPrediction });
+    const score = scoreBenchmarkPage({ binding: bind(delegated), prediction: perfectPrediction });
+    expect(score.truthAuthority).toBe('delegated_dual_ai_evaluation_ground_truth_only');
+    const metrics = (value: typeof score) => ({
+      words: value.words, cells: value.cells, rows: value.rows, coverage: value.coverage,
+      labelState: value.labelState, iouThreshold: value.iouThreshold,
+    });
+    expect(metrics(score)).toEqual(metrics(human));
   });
 });
 

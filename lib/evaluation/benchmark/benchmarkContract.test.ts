@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  BENCHMARK_DELEGATED_LABELED_BY,
+  BENCHMARK_DELEGATED_LABEL_AUTHORITY,
   BENCHMARK_PAGES,
+  benchmarkPage,
   bindBenchmarkLabels,
   buildBenchmarkLabelTemplate,
   parseBenchmarkLabels,
@@ -61,12 +64,35 @@ describe('benchmark label template', () => {
     expect(parsed.labelsSha256).toMatch(/^[a-f0-9]{64}$/);
   });
 
-  it('pins the three frozen benchmark pages and locates them by env var', () => {
-    expect(BENCHMARK_PAGES.map((page) => page.pageKey)).toEqual(['golden-p8', 'hillsdale-p3', 'dn-p107']);
+  it('pins the four frozen benchmark pages and locates them by env var', () => {
+    expect(BENCHMARK_PAGES.map((page) => page.pageKey))
+      .toEqual(['golden-p8', 'hillsdale-p3', 'dn-p106', 'dn-p107']);
     expect(BENCHMARK_PAGES.map((page) => page.sourceEnvVar)).toEqual([
-      'GOLDEN_CORPUS_ROOT', 'MIXED_MODE_HILLSDALE_PRICE_SHEET_PDF', 'DN_PRICED_SCHEDULE_SOURCE_PDF',
+      'GOLDEN_CORPUS_ROOT', 'MIXED_MODE_HILLSDALE_PRICE_SHEET_PDF',
+      'DN_PRICED_SCHEDULE_SOURCE_PDF', 'DN_PRICED_SCHEDULE_SOURCE_PDF',
     ]);
     expect(BENCHMARK_PAGES.every((page) => /^[a-f0-9]{64}$/.test(page.sha256))).toBe(true);
+  });
+
+  it('records the directly measured source layers for Golden and the DN control pair', () => {
+    expect(benchmarkPage('golden-p8')).toMatchObject({
+      characterization: 'ocr_price_sheet',
+      physicalPageNumber: 8,
+    });
+    expect(benchmarkPage('dn-p106')).toMatchObject({
+      documentKey: 'dn',
+      characterization: 'dense_native_priced_schedule',
+      sha256: SOURCE.sha256,
+      physicalPageNumber: 106,
+      sourceEnvVar: 'DN_PRICED_SCHEDULE_SOURCE_PDF',
+    });
+    expect(benchmarkPage('dn-p107')).toMatchObject({
+      documentKey: 'dn',
+      characterization: 'dense_scanned_ocr_priced_schedule',
+      sha256: SOURCE.sha256,
+      physicalPageNumber: 107,
+      sourceEnvVar: 'DN_PRICED_SCHEDULE_SOURCE_PDF',
+    });
   });
 });
 
@@ -100,6 +126,31 @@ describe('benchmark label schema', () => {
     expect(() => parseBenchmarkLabels(JSON.stringify({
       ...template(), coverage: { status: 'labeled', truth: null, note: null },
     }))).toThrow(/labeled coverage must state a truth/);
+  });
+
+  it('enforces delegated E3 authority metadata without changing the human path', () => {
+    const delegated = {
+      ...template(),
+      authority: BENCHMARK_DELEGATED_LABEL_AUTHORITY,
+      labeledBy: BENCHMARK_DELEGATED_LABELED_BY,
+      labeledAt: null,
+    };
+    expect(parseBenchmarkLabels(JSON.stringify(delegated)).labels).toEqual(delegated);
+    expect(() => parseBenchmarkLabels(JSON.stringify({
+      ...delegated,
+      labeledBy: 'chatgpt',
+    }))).toThrow(/delegated labels require labeledBy/);
+    expect(() => parseBenchmarkLabels(JSON.stringify({
+      ...delegated,
+      labeledAt: '2026-09-26T12:00:00.000Z',
+    }))).toThrow(/delegated labels require labeledAt null/);
+    expect(() => parseBenchmarkLabels(JSON.stringify({
+      ...delegated,
+      pageKey: 'outside-e3-scope',
+    }))).toThrow(/delegated labels require a frozen E3 benchmark page/);
+
+    const human = { ...template(), labeledBy: 'human-owner', labeledAt: '2026-09-26T12:00:00.000Z' };
+    expect(parseBenchmarkLabels(JSON.stringify(human)).labels).toEqual(human);
   });
 
   it('refuses row membership that cites an unknown cell or claims one twice', () => {

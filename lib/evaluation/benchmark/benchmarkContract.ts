@@ -9,24 +9,28 @@ import { hashCanonical } from '@/lib/extraction/domain/hash';
  * here decides production eligibility, and nothing here may be read by
  * production extraction or recovery.
  *
- * The central rule is that **no label is ever generated**. This module builds
- * an empty workspace bound to exact source bytes and validates what a human
- * later writes into it. Every human-truth field starts null or empty, a
- * section stays `unlabeled` until a person marks it otherwise, and scoring
- * refuses to run against unlabeled sections rather than scoring against a
- * machine's own output.
+ * The central rule is that machine extraction and OCR never become labels by
+ * themselves. This module builds an empty workspace bound to exact source
+ * bytes and validates either human-authored labels or the narrow E3 delegated
+ * payload produced from complete adjudication plus two digest-bound approvals.
+ * Every workspace truth field starts null or empty, and scoring refuses to run
+ * against unlabeled sections rather than scoring against a machine's own output.
  */
 
 export const BENCHMARK_LABELS_VERSION = 'extraction-benchmark-labels-v1' as const;
 export const BENCHMARK_WORKSPACE_VERSION = 'extraction-benchmark-workspace-v1' as const;
 export const BENCHMARK_SCORING_VERSION = 'extraction-benchmark-scoring-v1' as const;
-/** Labels are human ground truth for evaluation only. */
+/** Labels approved through the original human evaluation path. */
 export const BENCHMARK_LABEL_AUTHORITY = 'human_evaluation_ground_truth_only' as const;
+/** Labels approved through the narrow E3 dual-AI finalization delegation. */
+export const BENCHMARK_DELEGATED_LABEL_AUTHORITY =
+  'delegated_dual_ai_evaluation_ground_truth_only' as const;
+export const BENCHMARK_DELEGATED_LABELED_BY = 'delegated_dual_ai:chatgpt+claude' as const;
 /** Every benchmark result is measurement; it never authorizes a production change. */
 export const BENCHMARK_RESULT_AUTHORITY = 'non_authoritative_measurement' as const;
 
 /**
- * The three benchmark pages frozen for Evidence V2.
+ * The four benchmark pages frozen for Evidence V2.
  *
  * Source identity (sha256 + byte length) is pinned here and re-verified on
  * every read, so labels can never drift onto different bytes. Paths are never
@@ -37,8 +41,8 @@ export const BENCHMARK_PAGES = [
   {
     pageKey: 'golden-p8',
     documentKey: 'golden',
-    /** Mixed native/OCR page: the case E2's corrected canonical overlap can move. */
-    characterization: 'mixed_native_and_ocr',
+    /** Image-only OCR rate table: direct source measurement finds no native text items. */
+    characterization: 'ocr_price_sheet',
     sha256: '922161a533bb6b8c1afb52cb9536044c8a6836bed62401634f4f505025631e8f',
     physicalPageNumber: 8,
     sourceEnvVar: 'GOLDEN_CORPUS_ROOT',
@@ -55,9 +59,20 @@ export const BENCHMARK_PAGES = [
     sourceRelativePath: null,
   },
   {
+    pageKey: 'dn-p106',
+    documentKey: 'dn',
+    /** Native-text control for the adjacent scanned/OCR DN priced schedule. */
+    characterization: 'dense_native_priced_schedule',
+    sha256: '69247bff02744276b75f2cb0d4c00610e8614bd5822d2d10ae2ad35564c3b272',
+    physicalPageNumber: 106,
+    sourceEnvVar: 'DN_PRICED_SCHEDULE_SOURCE_PDF',
+    sourceRelativePath: null,
+  },
+  {
     pageKey: 'dn-p107',
     documentKey: 'dn',
-    characterization: 'dense_native_priced_schedule',
+    /** Scanned/OCR control paired with the adjacent native-text DN priced schedule. */
+    characterization: 'dense_scanned_ocr_priced_schedule',
     sha256: '69247bff02744276b75f2cb0d4c00610e8614bd5822d2d10ae2ad35564c3b272',
     physicalPageNumber: 107,
     sourceEnvVar: 'DN_PRICED_SCHEDULE_SOURCE_PDF',
@@ -131,7 +146,7 @@ export const BenchmarkRowLabelSchema = z.object({
 }).strict();
 
 /**
- * What the page actually contains, as a human reads it. This is the truth the
+ * What the page actually contains, as an evaluator reads it. This is the truth the
  * coverage layer's `final_state` is measured against; it is never copied from
  * that layer.
  */
@@ -163,7 +178,7 @@ function section<T extends z.ZodTypeAny>(item: T, itemsName: string) {
 
 export const BenchmarkPageLabelsSchema = z.object({
   labelSetVersion: z.literal(BENCHMARK_LABELS_VERSION),
-  authority: z.literal(BENCHMARK_LABEL_AUTHORITY),
+  authority: z.enum([BENCHMARK_LABEL_AUTHORITY, BENCHMARK_DELEGATED_LABEL_AUTHORITY]),
   pageKey: identifier,
   source: z.object({
     documentKey: identifier,
@@ -200,10 +215,33 @@ export const BenchmarkPageLabelsSchema = z.object({
       ctx.addIssue({ code: 'custom', message: 'labeled coverage must state a truth' });
     }
   }),
-  /** Who labeled it and when; free-form, filled in by the human. */
+  /** Human attribution/timestamp, or fixed delegated attribution with a null timestamp. */
   labeledBy: z.string().max(200).nullable(),
   labeledAt: z.string().max(40).nullable(),
 }).strict().superRefine((labels, ctx) => {
+  if (labels.authority === BENCHMARK_DELEGATED_LABEL_AUTHORITY) {
+    if (!BENCHMARK_PAGES.some((page) => page.pageKey === labels.pageKey)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['pageKey'],
+        message: 'delegated labels require a frozen E3 benchmark page',
+      });
+    }
+    if (labels.labeledBy !== BENCHMARK_DELEGATED_LABELED_BY) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['labeledBy'],
+        message: `delegated labels require labeledBy ${BENCHMARK_DELEGATED_LABELED_BY}`,
+      });
+    }
+    if (labels.labeledAt !== null) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['labeledAt'],
+        message: 'delegated labels require labeledAt null',
+      });
+    }
+  }
   const wordIds = labels.words.items.map((item) => item.labelId);
   if (new Set(wordIds).size !== wordIds.length) {
     ctx.addIssue({ code: 'custom', message: 'duplicate word label id' });
@@ -245,7 +283,7 @@ export type BenchmarkRowLabel = z.infer<typeof BenchmarkRowLabelSchema>;
 
 export type BenchmarkLabelSection = 'words' | 'cells' | 'rows' | 'coverage';
 
-/** Content digest of the human labels; end-of-line translation must not change it. */
+/** Content digest of the complete labels payload; end-of-line translation must not change it. */
 export function benchmarkLabelsDigest(labels: BenchmarkPageLabels): string {
   return hashCanonical(labels);
 }
@@ -253,7 +291,7 @@ export function benchmarkLabelsDigest(labels: BenchmarkPageLabels): string {
 /**
  * An empty workspace template for one page.
  *
- * Every human-truth field is empty by construction: no word, no cell, no row,
+ * Every truth field is empty by construction: no word, no cell, no row,
  * no coverage truth. The only machine-supplied values are source identity and
  * the page's canonical frame, which are measurements of the bytes, not claims
  * about their content.

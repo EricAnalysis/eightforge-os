@@ -1,4 +1,11 @@
+import { z } from 'zod';
+import { hashCanonical } from '@/lib/extraction/domain/hash';
 import type { PdfLayout, PdfLayoutPage, PdfToken } from '@/lib/extraction/pdf/extractText';
+import type { RulingLineEvidence, RulingLineInput } from '@/lib/extraction/pdf/rulingLineEvidence';
+import { resolveRulingLineOwnership } from '@/lib/extraction/pdf/rulingLineOwnership';
+import { LEGACY_PRICED_SCHEDULE_RECONSTRUCTION_VERSION, PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION,
+  type PricedScheduleReconstructionVersion } from '@/lib/extraction/pdf/pricedScheduleVersion';
+export { PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION } from '@/lib/extraction/pdf/pricedScheduleVersion';
 import {
   buildRecoveryCandidateV2,
   RecoveryCandidateV2Schema,
@@ -20,8 +27,6 @@ import {
  * row count, description, unit, or price. Every decision below is derived from
  * the page's own header line and its own token geometry.
  */
-
-export const PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION = 'priced_schedule_reconstruction_v1';
 
 export type PricedScheduleColumnRole =
   | 'description'
@@ -61,6 +66,13 @@ const CURRENCY_SPINE_PATTERN = /^[$£€¥]$/;
 const CURRENCY_LED_AMOUNT_PATTERN = /^[$£€¥]\s*\S/;
 const RATE_NUMBER_PATTERN = /^\(?-?[\d,]+(?:\.\d+)?\)?$/;
 const RATE_MARKER_PATTERN = /^-$/;
+/**
+ * A well-formed authored monetary amount: a number with exactly two decimal
+ * places, optionally thousands-grouped, with no leading zero. Used only to
+ * recognize a rate whose currency marker was not read; a number that is not
+ * well-formed is never repaired or reinterpreted.
+ */
+const MONETARY_AMOUNT_PATTERN = /^(?:0|[1-9]\d{0,2}(?:,\d{3})+|[1-9]\d*)\.\d{2}$/;
 
 /** Roles that must be present before a page is treated as a priced schedule. */
 const REQUIRED_ROLES: readonly PricedScheduleColumnRole[] = ['description', 'rate'];
@@ -124,6 +136,8 @@ export type PricedScheduleColumnBand = {
   readonly x_max: number | null;
   /** Raw authored header text that established this column. */
   readonly header_text: string;
+  /** The header-line tokens that established this column, left to right. */
+  readonly header_source_refs?: readonly PricedScheduleCellSourceRef[];
 };
 
 export type PricedScheduleCellSourceRef = {
@@ -152,14 +166,90 @@ export type PricedScheduleCell = {
   readonly x_max: number;
   readonly y_min: number;
   readonly y_max: number;
+  /**
+   * Rate cells only, and only when the row was priced without a recognized
+   * currency marker: which of the cell's own tokens is the amount. The cell's
+   * raw text and source refs stay exactly as read; nothing is rewritten.
+   */
+  readonly structured_rate?: PricedScheduleStructuredRate;
+};
+
+/**
+ * How a rate cell without a recognized currency marker was proven to be a rate:
+ * the row is established by the page's row-start anchors, the table's header
+ * semantics are resolved, and the row's rate column holds exactly one
+ * well-formed amount -- optionally beside one glyph standing where the page's
+ * recognized currency markers stand, which is kept verbatim and never read.
+ */
+export type PricedScheduleStructuredRate = {
+  readonly derivation: 'structured_numeric_rate';
+  /** The amount token's text, verbatim. */
+  readonly amount_text: string;
+  readonly amount_source_ref: PricedScheduleCellSourceRef;
+  /** The glyph in the currency-marker position, verbatim, when OCR read one. */
+  readonly marker_source_ref?: PricedScheduleCellSourceRef;
+};
+
+/**
+ * A source-backed cell in a column the header defines but whose semantic role is
+ * unresolved. Structure only: it carries the column's authored header text and
+ * its own source tokens, never a role. It is kept apart from `cells`, so nothing
+ * that reads resolved-role cells (pricing, evidence anchoring) can consume it.
+ */
+export type PricedScheduleUnresolvedRoleCell = {
+  readonly role: null;
+  /** Index into the page's `columns`. */
+  readonly column_index: number;
+  /** The column's raw authored header text. Never a canonical role name. */
+  readonly header_text: string;
+  readonly raw_text: string;
+  readonly source_refs: readonly PricedScheduleCellSourceRef[];
+  readonly x_min: number;
+  readonly x_max: number;
+  readonly y_min: number;
+  readonly y_max: number;
 };
 
 export type PricedScheduleRow = {
+  readonly header_semantics?: HeaderSemanticsSelection;
   readonly row_index: number;
   readonly physical_page_number: number;
+  /** Cells whose column has a resolved semantic role. */
   readonly cells: readonly PricedScheduleCell[];
+  /**
+   * Source-backed cells in columns whose role is unresolved, in column order.
+   * Present only when the row has any. Never pricing evidence.
+   */
+  readonly unresolved_role_cells?: readonly PricedScheduleUnresolvedRoleCell[];
   /** Authored text of the whole reconstructed row, in column order. */
   readonly raw_text: string;
+  readonly x_min: number;
+  readonly x_max: number;
+  readonly y_min: number;
+  readonly y_max: number;
+};
+
+/**
+ * One source-backed cell on a line that geometry places at a table edge rather
+ * than inside a body row. `column_index` is present only when every member is
+ * contained by the same authored header column; a spanning cell stays null.
+ * Edge cells are structure only and are deliberately outside `rows`.
+ */
+export type PricedScheduleTableEdgeCell = {
+  readonly column_index: number | null;
+  readonly raw_text: string;
+  readonly source_refs: readonly PricedScheduleCellSourceRef[];
+  readonly x_min: number;
+  readonly x_max: number;
+  readonly y_min: number;
+  readonly y_max: number;
+};
+
+export type PricedScheduleTableEdgeLine = {
+  readonly position: 'before_body' | 'after_body';
+  readonly cells: readonly PricedScheduleTableEdgeCell[];
+  readonly raw_text: string;
+  readonly source_refs: readonly PricedScheduleCellSourceRef[];
   readonly x_min: number;
   readonly x_max: number;
   readonly y_min: number;
@@ -205,7 +295,13 @@ export type PricedScheduleUnassignedLineReason =
   /** Sat between two rows without being meaningfully nearer to either. */
   | 'ambiguous_row_assignment'
   /** Sat past the table's established continuation spacing at an edge. */
-  | 'unsupported_trailing_line';
+  | 'unsupported_trailing_line'
+  /**
+   * Belongs, by the page's row-start anchors, to an authored row that carries no
+   * authored price marker. Reported instead of being attached to a neighbouring
+   * priced row, which would credit that row with another row's text.
+   */
+  | 'unpriced_row';
 
 export type PricedScheduleUnassignedLine = {
   readonly reason: PricedScheduleUnassignedLineReason;
@@ -225,7 +321,13 @@ export type PricedScheduleRejectedSpine = {
   readonly y: number;
 };
 
+export type HeaderSemanticsSelection = Readonly<{
+  status: 'human_selected'; candidate_id: string; review_id: string;
+}>;
+export type ConfirmedHeaderSelection = Readonly<{ candidate: RecoveryCandidateV2; reviewId: string }>;
+
 export type PricedSchedulePage = {
+  readonly header_semantics?: HeaderSemanticsSelection;
   /** Whether this qualifying page yielded usable rows or retained a failed-closed audit result. */
   readonly status?: 'reconstructed' | 'failed_closed';
   readonly physical_page_number: number;
@@ -233,6 +335,8 @@ export type PricedSchedulePage = {
   readonly header_y: number;
   readonly columns: readonly PricedScheduleColumnBand[];
   readonly rows: readonly PricedScheduleRow[];
+  /** Source-backed table-edge structure; never a body row or pricing fact. */
+  readonly table_edge_lines?: readonly PricedScheduleTableEdgeLine[];
   /** Rate markers on this page that did not qualify as rows, and why. */
   readonly rejected_spines: readonly PricedScheduleRejectedSpine[];
   /**
@@ -242,6 +346,37 @@ export type PricedSchedulePage = {
    * row's authored text.
    */
   readonly unassigned_lines: readonly PricedScheduleUnassignedLine[];
+  /**
+   * How the header was read, when it was not read token-by-token: a header
+   * resolved by grouping words (with the tokens each label came from), or an
+   * unresolved header (status failed_closed, no columns, no rows) with its
+   * evidence and deterministic options. Absent otherwise, so pages resolved
+   * token-by-token are byte-identical to before header interpretation existed.
+   */
+  readonly header_interpretation?: PricedScheduleHeaderInterpretation;
+  /**
+   * 'unresolved' when the table structure was reconstructed from deterministic
+   * geometry but a required semantic role is not recognized (the header's
+   * interpretation is unresolved). Rows are structure only: no pricing fact may
+   * be built from such a page. Absent means semantics are resolved.
+   */
+  readonly semantic_status?: 'unresolved';
+  /**
+   * Tokens in role-unresolved columns that could not be attached to exactly one
+   * published row. Reported rather than dropped or guessed. Present only when
+   * there are any.
+   */
+  readonly unattached_role_less_tokens?: readonly (PricedScheduleCellSourceRef & { readonly column_index: number })[];
+  /** Separate source/raster identity; never part of OCR observation or recovery identity. */
+  readonly ruling_line_evidence?: RulingLineEvidence;
+  /** v2 completeness check; separate from raw observation and ruling evidence identities. */
+  readonly ruling_line_resolution_digest?: string;
+  readonly ruling_line_resolutions?: readonly {
+    readonly source_ref: PricedScheduleCellSourceRef;
+    readonly row_index: number;
+    readonly column_index: number;
+    readonly rule_ids: readonly string[];
+  }[];
 };
 
 /**
@@ -296,7 +431,9 @@ export type PricedScheduleRecoveryDiagnosticReason =
   /** The resolver supplied the same confirmation identity more than once. */
   | 'duplicate_recovery_confirmation'
   /** Bound to a token, but no priced row was admitted through it. */
-  | 'confirmed_recovery_not_applied';
+  | 'confirmed_recovery_not_applied'
+  | 'ambiguous_recovery_confirmation'
+  | 'confirmed_header_option_not_offered';
 
 export type PricedScheduleRecoveryDiagnostic = {
   readonly reason: PricedScheduleRecoveryDiagnosticReason;
@@ -309,7 +446,7 @@ export type PricedScheduleRecoveryDiagnostic = {
 };
 
 export type PagePricedScheduleReconstruction = {
-  readonly parser_version: typeof PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION;
+  readonly parser_version: PricedScheduleReconstructionVersion;
   readonly pages: readonly PricedSchedulePage[];
   /**
    * Present only when confirmations were supplied. Absent otherwise, so the
@@ -374,12 +511,15 @@ type HeaderColumn = {
   x: number;
   xEnd: number;
   text: string;
+  tokens: readonly PdfToken[];
 };
 
 type DetectedHeader = {
   y: number;
   rawText: string;
   columns: PricedScheduleColumnBand[];
+  /** Present only when the header was not read token-by-token. */
+  interpretation?: PricedScheduleHeaderInterpretation;
 };
 
 /**
@@ -398,64 +538,658 @@ function detectHeaders(page: PdfLayoutPage): DetectedHeader[] {
   const headers: DetectedHeader[] = [];
 
   for (const line of orderedLines) {
-    // Every compact cell on the line is a column, whether or not its label is
-    // recognized. Non-compact cells are prose and are ignored entirely.
-    const headerColumns: HeaderColumn[] = [];
-    for (const token of line.tokens) {
-      const label = normalizeHeaderLabel(token.text);
-      if (!isCompactHeaderLabel(label)) continue;
-      headerColumns.push({
-        role: roleForHeaderLabel(label),
-        x: token.x,
-        xEnd: token.x + token.width,
-        text: token.text.trim(),
-      });
+    // A line whose own tokens already read as a header is used as-is.
+    const columns = headerColumnsFromCells(line.tokens.map((token) => headerCellOf([token])));
+    if (columns) {
+      headers.push({ y: line.y, rawText: line.text, columns });
+      continue;
     }
-
-    const roles = headerColumns
-      .map((column) => column.role)
-      .filter((role): role is PricedScheduleColumnRole => role != null);
-    const distinctRoles = new Set(roles);
-    if (distinctRoles.size < MINIMUM_DISTINCT_ROLES) continue;
-    if (!REQUIRED_ROLES.every((role) => distinctRoles.has(role))) continue;
-    // A repeated role means the header is ambiguous; fail closed rather than guess.
-    if (roles.length !== distinctRoles.size) continue;
-
-    const sorted = [...headerColumns].sort((left, right) => left.x - right.x);
-    const columns: PricedScheduleColumnBand[] = sorted.map((column, index) => ({
-      role: column.role,
-      x_min: index === 0 ? null : (sorted[index - 1]!.xEnd + column.x) / 2,
-      x_max: index === sorted.length - 1 ? null : (column.xEnd + sorted[index + 1]!.x) / 2,
-      header_text: column.text,
-    }));
-
+    // Only a line that does not is re-read with its words grouped into labels --
+    // how a word-level token source (OCR) presents a label such as "Unit Price" --
+    // and only when the line's own geometry separates word spaces from column gaps.
+    const reading = groupedHeaderReading(line.tokens);
+    if (!reading.basis.clear || reading.cells.length === line.tokens.length) continue;
+    const grouped = headerColumnsFromCells(reading.cells);
+    if (!grouped) continue;
     headers.push({
       y: line.y,
       rawText: line.text,
-      columns,
+      columns: grouped,
+      interpretation: headerInterpretation('resolved_deterministically', line.tokens, reading),
     });
   }
 
   return headers;
 }
 
+type HeaderCell = { text: string; x: number; xEnd: number; tokens: readonly PdfToken[] };
+
+function headerCellOf(tokens: readonly PdfToken[]): HeaderCell {
+  return {
+    text: tokens.map((token) => token.text.trim()).join(' '),
+    x: Math.min(...tokens.map((token) => token.x)),
+    xEnd: Math.max(...tokens.map((token) => token.x + token.width)),
+    tokens,
+  };
+}
+
 /**
- * Assigns a token to the column whose horizontal band contains it. A token
- * landing in an unrecognized column resolves to null and is dropped: its value
- * belongs to a column this module cannot name, and must never be folded into a
- * neighbouring column's authored text.
+ * Reads one line's cells as a priced-schedule header, or null when they do not
+ * qualify. Every compact cell is a column, whether or not its label is
+ * recognized; non-compact cells are prose and are ignored entirely.
  */
-function bandForToken(
-  token: PdfToken,
-  columns: readonly PricedScheduleColumnBand[],
-): PricedScheduleColumnRole | null {
-  const center = tokenCenterX(token);
-  for (const column of columns) {
-    const aboveMin = column.x_min == null || center >= column.x_min;
-    const belowMax = column.x_max == null || center < column.x_max;
-    if (aboveMin && belowMax) return column.role;
+function headerColumnsFromCells(cells: readonly HeaderCell[]): PricedScheduleColumnBand[] | null {
+  const headerColumns = compactHeaderColumns(cells);
+  if (!headerRolesQualify(headerColumns.map((column) => column.role))) return null;
+  return columnBands(headerColumns);
+}
+
+/** Every compact cell on the line is a column, recognized or not; prose cells are ignored. */
+function compactHeaderColumns(cells: readonly HeaderCell[]): HeaderColumn[] {
+  const headerColumns: HeaderColumn[] = [];
+  for (const cell of cells) {
+    const label = normalizeHeaderLabel(cell.text);
+    if (!isCompactHeaderLabel(label)) continue;
+    headerColumns.push({
+      role: roleForHeaderLabel(label),
+      x: cell.x,
+      xEnd: cell.xEnd,
+      text: cell.text.trim(),
+      tokens: cell.tokens,
+    });
   }
-  return null;
+  return headerColumns;
+}
+
+/** Column bands from the midpoints between adjacent header cells. */
+function columnBands(headerColumns: readonly HeaderColumn[]): PricedScheduleColumnBand[] {
+  const sorted = [...headerColumns].sort((left, right) => left.x - right.x);
+  return sorted.map((column, index) => ({
+    role: column.role,
+    x_min: index === 0 ? null : (sorted[index - 1]!.xEnd + column.x) / 2,
+    x_max: index === sorted.length - 1 ? null : (column.xEnd + sorted[index + 1]!.x) / 2,
+    header_text: column.text,
+    header_source_refs: [...column.tokens].sort(compareTokens).map((token) => sourceRefForToken(token)),
+  }));
+}
+
+function headerRolesQualify(labelRoles: readonly (PricedScheduleColumnRole | null)[]): boolean {
+  const roles = labelRoles.filter((role): role is PricedScheduleColumnRole => role != null);
+  const distinctRoles = new Set(roles);
+  if (distinctRoles.size < MINIMUM_DISTINCT_ROLES) return false;
+  if (!REQUIRED_ROLES.every((role) => distinctRoles.has(role))) return false;
+  // A repeated role means the header is ambiguous; fail closed rather than guess.
+  return roles.length === distinctRoles.size;
+}
+
+// -----------------------------------------------------------------------------
+// Header interpretation: word grouping, provenance, and auditable abstention.
+// -----------------------------------------------------------------------------
+
+export const PRICED_SCHEDULE_HEADER_INTERPRETATION_VERSION =
+  'priced_schedule_header_interpretation_v1' as const;
+
+/**
+ * A gap wider than this fraction of the taller neighbour's glyph height is never
+ * a space inside one label. A typographic shape limit, not a document value.
+ */
+const HEADER_WORD_GAP_CEILING = 0.75;
+/**
+ * A body word cluster may cross one header-midpoint boundary while still being
+ * authored in its starting column. Override token-by-token membership only
+ * when that starting column owns at least twice the neighbouring overlap.
+ */
+const COLUMN_CLUSTER_OVERLAP_SEPARATION_FACTOR = 2;
+/**
+ * Words are grouped only when the line separates its two kinds of gap clearly:
+ * every column gap must be at least this many times the widest word gap.
+ * Anything less is ambiguous and is abstained on, never guessed.
+ */
+const HEADER_LABEL_SEPARATION_FACTOR = 2;
+/** Upper bound on enumerated recovery options; beyond it none are offered. */
+const MAXIMUM_HEADER_OPTIONS = 16;
+
+export type PricedScheduleHeaderLabel = {
+  /** Derived label text: its source tokens' texts joined by one space. */
+  readonly text: string;
+  /** Role from the generic vocabulary; null when the label is not recognized. */
+  readonly role: PricedScheduleColumnRole | null;
+  /** The source tokens the label was derived from, left to right. */
+  readonly source_refs: readonly PricedScheduleCellSourceRef[];
+};
+
+export type PricedScheduleHeaderGroupingBasis = {
+  readonly word_gap_ceiling: number;
+  readonly separation_factor: number;
+  /** Widest gap read as a word space, as a fraction of glyph height; null if none. */
+  readonly max_intra_label_gap_ratio: number | null;
+  /** Narrowest gap read as a column gap, as a fraction of glyph height; null if none. */
+  readonly min_column_gap_ratio: number | null;
+  readonly clear: boolean;
+};
+
+export type PricedScheduleHeaderUnresolvedReason =
+  /** Word spaces and column gaps are not clearly separated on the line. */
+  | 'ambiguous_label_grouping'
+  /** One role names more than one column. */
+  | 'duplicate_role'
+  /** A role every priced schedule needs (description, rate) is not recognized. */
+  | 'required_role_missing'
+  /** Too few distinct recognized roles to establish a priced schedule. */
+  | 'insufficient_distinct_roles';
+
+/**
+ * One deterministic reading of an unresolved header, built only from the line's
+ * own tokens and the generic role vocabulary. No free text; no winner chosen.
+ */
+export type PricedScheduleHeaderOption = {
+  readonly option_id: string;
+  /** label_grouping: another way to group the words; role_assignment: another role map. */
+  readonly kind: 'label_grouping' | 'role_assignment';
+  readonly labels: readonly PricedScheduleHeaderLabel[];
+  /** Whether this reading would satisfy the header rules if a reviewer chose it. */
+  readonly qualifies: boolean;
+};
+
+/**
+ * How a header was read. Absent on a page whose header qualified token-by-token.
+ * Derived structure only: the source tokens stay the evidence.
+ */
+export type PricedScheduleHeaderInterpretation = {
+  readonly version: typeof PRICED_SCHEDULE_HEADER_INTERPRETATION_VERSION;
+  readonly status: 'resolved_deterministically' | 'unresolved';
+  readonly method: 'word_grouped_labels' | 'token_labels';
+  /** Every token on the header line, left to right. */
+  readonly source_refs: readonly PricedScheduleCellSourceRef[];
+  /** The reading that was evaluated. */
+  readonly labels: readonly PricedScheduleHeaderLabel[];
+  readonly grouping_basis: PricedScheduleHeaderGroupingBasis;
+  readonly reason?: PricedScheduleHeaderUnresolvedReason;
+  readonly options?: readonly PricedScheduleHeaderOption[];
+  /** True when more readings exist than MAXIMUM_HEADER_OPTIONS; none are offered then. */
+  readonly options_limit_exceeded?: boolean;
+};
+
+type GroupedHeaderReading = {
+  cells: HeaderCell[];
+  /** Gap ratio between each pair of adjacent sorted tokens. */
+  ratios: number[];
+  sorted: PdfToken[];
+  basis: PricedScheduleHeaderGroupingBasis;
+};
+
+const roundRatio = (value: number) => Math.round(value * 10_000) / 10_000;
+
+function groupedHeaderReading(tokens: readonly PdfToken[]): GroupedHeaderReading {
+  const { sorted, ratios } = tokenGapReading(tokens);
+  const intra = ratios.filter((ratio) => ratio <= HEADER_WORD_GAP_CEILING);
+  const inter = ratios.filter((ratio) => ratio > HEADER_WORD_GAP_CEILING);
+  const maxIntra = intra.length > 0 ? Math.max(...intra) : null;
+  const minInter = inter.length > 0 ? Math.min(...inter) : null;
+  const clear = maxIntra == null || minInter == null
+    || minInter >= HEADER_LABEL_SEPARATION_FACTOR * Math.max(maxIntra, 0);
+  return {
+    cells: groupTokens(sorted, ratios.map((ratio) => ratio <= HEADER_WORD_GAP_CEILING)),
+    ratios,
+    sorted,
+    basis: {
+      word_gap_ceiling: HEADER_WORD_GAP_CEILING,
+      separation_factor: HEADER_LABEL_SEPARATION_FACTOR,
+      max_intra_label_gap_ratio: maxIntra == null ? null : roundRatio(maxIntra),
+      min_column_gap_ratio: minInter == null ? null : roundRatio(minInter),
+      clear,
+    },
+  };
+}
+
+/** Same-line gaps in glyph-height units, shared by header and body grouping. */
+function tokenGapReading(tokens: readonly PdfToken[]): { sorted: PdfToken[]; ratios: number[] } {
+  const sorted = [...tokens].sort(compareTokens);
+  const ratios = sorted.slice(1).map((token, index) => {
+    const previous = sorted[index]!;
+    const height = Math.max(previous.height, token.height, Number.EPSILON);
+    return (token.x - (previous.x + previous.width)) / height;
+  });
+  return { sorted, ratios };
+}
+
+/** Groups sorted tokens; joins[i] says whether token i+1 continues token i's label. */
+function groupTokens(sorted: readonly PdfToken[], joins: readonly boolean[]): HeaderCell[] {
+  const groups: PdfToken[][] = [];
+  sorted.forEach((token, index) => {
+    if (index > 0 && joins[index - 1]) groups.at(-1)!.push(token);
+    else groups.push([token]);
+  });
+  return groups.map((group) => headerCellOf(group));
+}
+
+function headerLabelOf(cell: HeaderCell, role?: PricedScheduleColumnRole | null): PricedScheduleHeaderLabel {
+  const label = normalizeHeaderLabel(cell.text);
+  return {
+    text: cell.text,
+    role: role !== undefined ? role
+      : isCompactHeaderLabel(label) ? roleForHeaderLabel(label) : null,
+    source_refs: cell.tokens.map((token) => sourceRefForToken(token)),
+  };
+}
+
+function headerInterpretation(
+  status: PricedScheduleHeaderInterpretation['status'],
+  lineTokens: readonly PdfToken[],
+  reading: GroupedHeaderReading,
+  cells: readonly HeaderCell[] = reading.cells,
+): PricedScheduleHeaderInterpretation {
+  return {
+    version: PRICED_SCHEDULE_HEADER_INTERPRETATION_VERSION,
+    status,
+    method: cells.length < lineTokens.length ? 'word_grouped_labels' : 'token_labels',
+    source_refs: reading.sorted.map((token) => sourceRefForToken(token)),
+    labels: cells.map((cell) => headerLabelOf(cell)),
+    grouping_basis: reading.basis,
+  };
+}
+
+function headerOption(
+  kind: PricedScheduleHeaderOption['kind'],
+  labels: readonly PricedScheduleHeaderLabel[],
+): PricedScheduleHeaderOption {
+  const compactRoles = labels
+    .filter((label) => isCompactHeaderLabel(normalizeHeaderLabel(label.text)))
+    .map((label) => label.role);
+  return {
+    option_id: `header-option-${hashCanonical({ kind, labels })}`,
+    kind,
+    labels,
+    qualifies: headerRolesQualify(compactRoles),
+  };
+}
+
+/**
+ * Deterministic alternative readings of an unresolved header. Grouping options
+ * vary only the gaps the line leaves uncertain; role options move only roles
+ * the vocabulary already recognized on this line onto labels that carry none, or
+ * keep one of a duplicated role. Every option cites the line's exact tokens.
+ */
+function headerOptions(
+  reason: PricedScheduleHeaderUnresolvedReason,
+  reading: GroupedHeaderReading,
+  labels: readonly PricedScheduleHeaderLabel[],
+): { options: PricedScheduleHeaderOption[]; limitExceeded: boolean } {
+  const options: PricedScheduleHeaderOption[] = [];
+  if (reason === 'ambiguous_label_grouping') {
+    const low = HEADER_WORD_GAP_CEILING / HEADER_LABEL_SEPARATION_FACTOR;
+    const high = HEADER_WORD_GAP_CEILING * HEADER_LABEL_SEPARATION_FACTOR;
+    const uncertain = reading.ratios.flatMap((ratio, index) => (ratio > low && ratio <= high ? [index] : []));
+    if (2 ** uncertain.length > MAXIMUM_HEADER_OPTIONS) return { options: [], limitExceeded: true };
+    for (let mask = 0; mask < 2 ** uncertain.length; mask += 1) {
+      const joins = reading.ratios.map((ratio, index) => {
+        const position = uncertain.indexOf(index);
+        return position >= 0 ? Boolean(mask & (1 << position)) : ratio <= low;
+      });
+      options.push(headerOption('label_grouping',
+        groupTokens(reading.sorted, joins).map((cell) => headerLabelOf(cell))));
+    }
+    return { options, limitExceeded: false };
+  }
+
+  const compact = labels.map((label) => isCompactHeaderLabel(normalizeHeaderLabel(label.text)));
+  const withRoles = (assign: (label: PricedScheduleHeaderLabel, index: number) => PricedScheduleColumnRole | null) =>
+    labels.map((label, index) => ({ ...label, role: assign(label, index) }));
+  if (reason === 'duplicate_role') {
+    const counts = new Map<PricedScheduleColumnRole, number[]>();
+    labels.forEach((label, index) => {
+      if (label.role && compact[index]) counts.set(label.role, [...(counts.get(label.role) ?? []), index]);
+    });
+    for (const [role, indexes] of counts) {
+      if (indexes.length < 2) continue;
+      for (const keep of indexes) {
+        options.push(headerOption('role_assignment', withRoles((label, index) =>
+          (label.role === role && index !== keep ? null : label.role))));
+      }
+    }
+  } else if (reason === 'required_role_missing') {
+    const present = new Set(labels.flatMap((label, index) => (label.role && compact[index] ? [label.role] : [])));
+    for (const role of REQUIRED_ROLES.filter((entry) => !present.has(entry))) {
+      labels.forEach((label, target) => {
+        if (label.role != null || !compact[target]) return;
+        options.push(headerOption('role_assignment', withRoles((entry, index) =>
+          (index === target ? role : entry.role))));
+      });
+    }
+  }
+  if (options.length > MAXIMUM_HEADER_OPTIONS) return { options: [], limitExceeded: true };
+  return { options, limitExceeded: false };
+}
+
+/**
+ * A page with no qualifying header but one line that plainly reads as a table
+ * header -- every non-punctuation cell a compact label, a recognized rate label,
+ * at least one other recognized role -- above at least MINIMUM_PRICED_ROWS priced
+ * lines. Such a page is reported as failed closed with its header evidence and
+ * deterministic options, instead of disappearing. More than one such line is
+ * not guessed between.
+ */
+function unresolvedHeaderCandidate(page: PdfLayoutPage): {
+  y: number;
+  rawText: string;
+  interpretation: PricedScheduleHeaderInterpretation;
+  /**
+   * Column bands when the table's structure is deterministic even though its
+   * semantics are not: the line's grouping is clear, exactly one column is the
+   * rate column (the row spine), no recognized role repeats, and the only gap is
+   * a required role that an existing unrecognized column could hold. Null
+   * otherwise: then structure itself is unresolved.
+   */
+  structuralColumns: PricedScheduleColumnBand[] | null;
+} | null {
+  const spineYs = page.lines
+    .filter((line) => line.tokens.some((token) => isRowSpineToken(token)))
+    .map((line) => line.y);
+  const candidates: Array<{
+    y: number; rawText: string; tokens: readonly PdfToken[]; reading: GroupedHeaderReading;
+    cells: HeaderCell[]; labels: PricedScheduleHeaderLabel[];
+    reason: PricedScheduleHeaderUnresolvedReason;
+  }> = [];
+  for (const line of page.lines) {
+    if (line.tokens.length === 0) continue;
+    if (spineYs.filter((y) => y < line.y).length < MINIMUM_PRICED_ROWS) continue;
+    const reading = groupedHeaderReading(line.tokens);
+    const cells = reading.basis.clear
+      ? reading.cells
+      : reading.sorted.map((token) => headerCellOf([token]));
+    const meaningful = cells.filter((cell) => normalizeHeaderLabel(cell.text).length > 0);
+    if (meaningful.length === 0
+        || meaningful.some((cell) => !isCompactHeaderLabel(normalizeHeaderLabel(cell.text)))) continue;
+    const labels = cells.map((cell) => headerLabelOf(cell));
+    const roles = labels.flatMap((label) => (label.role ? [label.role] : []));
+    const distinct = new Set(roles);
+    if (!distinct.has('rate') || distinct.size < 2) continue;
+    const reason: PricedScheduleHeaderUnresolvedReason = !reading.basis.clear
+      ? 'ambiguous_label_grouping'
+      : roles.length !== distinct.size ? 'duplicate_role'
+        : !REQUIRED_ROLES.every((role) => distinct.has(role)) ? 'required_role_missing'
+          : 'insufficient_distinct_roles';
+    candidates.push({ y: line.y, rawText: line.text, tokens: line.tokens, reading, cells, labels, reason });
+  }
+  if (candidates.length !== 1) return null;
+  const candidate = candidates[0]!;
+  const { options, limitExceeded } = headerOptions(candidate.reason, candidate.reading, candidate.labels);
+  const structuralRoles = compactHeaderColumns(candidate.cells).flatMap((column) => (column.role ? [column.role] : []));
+  // The header must account for the table: every missing required role has to
+  // be mappable onto a column the header itself defines. A header that lacks
+  // such a column (for example one line of a header split across two) does not
+  // bound the table's columns, so its structure is unresolved too.
+  const structureDeterministic = candidate.reading.basis.clear
+    && candidate.reason === 'required_role_missing'
+    && structuralRoles.filter((role) => role === 'rate').length === 1
+    && new Set(structuralRoles).size === structuralRoles.length
+    && options.some((option) => option.kind === 'role_assignment' && option.qualifies);
+  return {
+    y: candidate.y,
+    rawText: candidate.rawText,
+    structuralColumns: structureDeterministic ? columnBands(compactHeaderColumns(candidate.cells)) : null,
+    interpretation: {
+      ...headerInterpretation('unresolved', candidate.tokens, candidate.reading, candidate.cells),
+      reason: candidate.reason,
+      options,
+      ...(limitExceeded ? { options_limit_exceeded: true } : {}),
+    },
+  };
+}
+
+/**
+ * How continuation lines are attributed to rows. 'row_start_anchors' (the
+ * default) also uses row-start anchors when the page proves them; 'spacing_only'
+ * is the behaviour before anchors existed, kept only so pinned evaluation
+ * fixtures can reproduce the evidence they were recorded against. For the same
+ * reason 'spacing_only' also keeps center-band token-to-column membership.
+ */
+export type PricedScheduleContinuationEvidence = 'row_start_anchors' | 'spacing_only';
+
+type RowStartModel = {
+  /** Which anchor band a y falls in, or null outside the anchors' span. */
+  bandOf: (y: number) => number | null;
+  /** The single priced (spine) line in each band that has one. */
+  spineOfBand: ReadonlyMap<number, SourceLine>;
+};
+
+function candidateRowStarts(
+  roleLess: ReadonlyArray<{ token: PdfToken; columnIndex: number }>,
+  tolerance: number,
+): { starts: readonly number[]; pitch: number } | null {
+  const byColumn = new Map<number, PdfToken[]>();
+  for (const { token, columnIndex } of roleLess) {
+    byColumn.set(columnIndex, [...(byColumn.get(columnIndex) ?? []), token]);
+  }
+  const candidateStarts: number[][] = [];
+  for (const [, tokens] of [...byColumn.entries()].sort(([left], [right]) => left - right)) {
+    const lines: { y: number; count: number }[] = [];
+    for (const token of [...tokens].sort((left, right) => right.y - left.y || compareTokens(left, right))) {
+      const last = lines.at(-1);
+      if (last && last.y - token.y <= tolerance) last.count += 1;
+      else lines.push({ y: token.y, count: 1 });
+    }
+    if (lines.length < MINIMUM_PRICED_ROWS || lines.some((line) => line.count !== 1)) continue;
+    candidateStarts.push(lines.map((line) => line.y));
+  }
+  if (candidateStarts.length === 0) return null;
+  const [first, ...rest] = candidateStarts;
+  const starts = first!.filter((y) => rest.every((ys) => ys.some((other) => Math.abs(other - y) <= tolerance)));
+  if (starts.length < MINIMUM_PRICED_ROWS) return null;
+  const pitch = medianOf(starts.slice(1).map((y, index) => starts[index]! - y));
+  return pitch != null && pitch > tolerance ? { starts, pitch } : null;
+}
+
+/**
+ * Row-start anchors: the lines of role-unresolved columns that mark where each
+ * authored row begins. A column qualifies only when every one of its body lines
+ * is a single token (an identifier-like column: a line number, an item code), and
+ * a row start is kept only where every qualifying column has a line. The anchors
+ * are then usable only when the page's own priced lines agree with them: every
+ * priced line falls inside exactly one anchor band and no band holds two. A band
+ * runs from its anchor down to the next anchor; the last band ends at the lowest
+ * priced line, and a priced line more than one anchor pitch below the last
+ * anchor means the anchors do not reach the table's end, so they are not used.
+ */
+function buildRowStartModel(
+  roleLess: ReadonlyArray<{ token: PdfToken; columnIndex: number }>,
+  spineLines: readonly SourceLine[],
+  tolerance: number,
+): RowStartModel | null {
+  const geometry = candidateRowStarts(roleLess, tolerance);
+  if (!geometry) return null;
+  const { starts, pitch } = geometry;
+  // The last band ends at the lowest priced line: below it nothing proves which
+  // row a line belongs to (a trailing total, a note), so edge rules decide.
+  const lowestSpine = Math.min(...spineLines.map((line) => line.y));
+  if (lowestSpine < starts.at(-1)! - pitch) return null;
+  const lastFloor = Math.min(starts.at(-1)!, lowestSpine) - tolerance;
+  const bandOf = (y: number): number | null => {
+    if (y > starts[0]! + tolerance) return null;
+    for (let index = 0; index < starts.length - 1; index += 1) {
+      if (y > starts[index + 1]! + tolerance) return index;
+    }
+    return y > lastFloor ? starts.length - 1 : null;
+  };
+  const spineOfBand = new Map<number, SourceLine>();
+  for (const spine of spineLines) {
+    const band = bandOf(spine.y);
+    if (band == null || spineOfBand.has(band)) return null;
+    spineOfBand.set(band, spine);
+  }
+  return { bandOf, spineOfBand };
+}
+
+type StructuredRateEvidence = { readonly amount: PdfToken; readonly marker: PdfToken | null };
+
+/**
+ * Rows the page's structure proves are priced although no currency marker was
+ * read on them. Considered only inside proven row-start bands that hold no
+ * priced line. A band qualifies when its rate-column tokens are exactly one
+ * well-formed amount, or that amount plus one single glyph on the same line, to
+ * its left, standing where the page's own recognized currency markers stand. Any
+ * other rate-column content -- a second amount, a malformed number, a glyph
+ * elsewhere -- leaves the band unpriced. Returns the amount's line per band.
+ */
+function structuredRateLines(
+  rowStart: RowStartModel,
+  sourceLines: readonly SourceLine[],
+  currencySpineLines: readonly SourceLine[],
+  tolerance: number,
+): Map<SourceLine, StructuredRateEvidence> {
+  const markerLefts = currencySpineLines.flatMap((line) => line.banded
+    .filter((entry) => entry.role === 'rate' && isRowSpineToken(entry.token))
+    .map((entry) => entry.token.x));
+  const found = new Map<SourceLine, StructuredRateEvidence>();
+  if (markerLefts.length === 0) return found;
+  const slotLow = Math.min(...markerLefts) - tolerance;
+  const slotHigh = Math.max(...markerLefts) + tolerance;
+  const spineSet = new Set(currencySpineLines);
+  const linesOfBand = new Map<number, SourceLine[]>();
+  for (const line of sourceLines) {
+    if (spineSet.has(line)) continue;
+    const band = rowStart.bandOf(line.y);
+    if (band == null || rowStart.spineOfBand.has(band)) continue;
+    linesOfBand.set(band, [...(linesOfBand.get(band) ?? []), line]);
+  }
+  for (const lines of linesOfBand.values()) {
+    const rateEntries = lines.flatMap((line) => line.banded
+      .filter((entry) => entry.role === 'rate')
+      .map((entry) => ({ token: entry.token, line })));
+    const amounts = rateEntries.filter((entry) => MONETARY_AMOUNT_PATTERN.test(entry.token.text.trim()));
+    if (amounts.length !== 1 || rateEntries.length > 2) continue;
+    const amount = amounts[0]!;
+    const other = rateEntries.find((entry) => entry !== amount);
+    if (other) {
+      const glyph = other.token.text.trim();
+      const isMarkerGlyph = [...glyph].length === 1
+        && other.line === amount.line
+        && other.token.x + other.token.width <= amount.token.x
+        && other.token.x >= slotLow && other.token.x <= slotHigh;
+      if (!isMarkerGlyph) continue;
+    }
+    found.set(amount.line, { amount: amount.token, marker: other?.token ?? null });
+  }
+  return found;
+}
+
+/** Original center-band membership, retained only as frozen row-start evidence. */
+function centerColumnIndexForToken(token: PdfToken, columns: readonly PricedScheduleColumnBand[]): number {
+  const center = tokenCenterX(token);
+  return columns.findIndex((column) => (column.x_min == null || center >= column.x_min)
+    && (column.x_max == null || center < column.x_max));
+}
+
+function horizontalOverlap(
+  left: number,
+  right: number,
+  column: PricedScheduleColumnBand,
+): number {
+  return Math.max(0, Math.min(right, column.x_max ?? right) - Math.max(left, column.x_min ?? left));
+}
+
+/**
+ * A primitive token belongs to the one column containing a strict majority of
+ * its canonical width. Exact boundary ties abstain instead of using a center
+ * tie-break. For ordinary one-boundary tokens this preserves center membership.
+ */
+function columnIndexForToken(token: PdfToken, columns: readonly PricedScheduleColumnBand[]): number {
+  if (!(token.width > 0)) return -1;
+  const right = token.x + token.width;
+  const overlaps = columns.map((column, index) => ({
+    index,
+    overlap: horizontalOverlap(token.x, right, column),
+  })).sort((left, rightEntry) => rightEntry.overlap - left.overlap || left.index - rightEntry.index);
+  const best = overlaps[0];
+  return best && best.overlap > token.width / 2 ? best.index : -1;
+}
+
+/**
+ * Refines membership for authored same-line word clusters. A cluster may stay
+ * in its starting column when it spans only that column and its immediate right
+ * neighbour, at least one of the two is role-less, and its starting column owns
+ * a clear overlap majority. This keeps authored text together (a wrapped
+ * description overhanging Qty, a category overhanging Description) without
+ * inspecting text or values.
+ */
+function columnAssignmentsForLine(
+  tokens: readonly PdfToken[],
+  columns: readonly PricedScheduleColumnBand[],
+): ReadonlyMap<PdfToken, number> {
+  const assignments = new Map(tokens.map((token) => [token, columnIndexForToken(token, columns)]));
+  const { sorted, ratios } = tokenGapReading(tokens);
+  const clusters = groupTokens(sorted, ratios.map((ratio) => ratio <= HEADER_WORD_GAP_CEILING));
+  for (const cluster of clusters) {
+    if (cluster.tokens.length < 2) continue;
+    const baseline = cluster.tokens.map((token) => centerColumnIndexForToken(token, columns));
+    const firstColumn = baseline[0]!;
+    const spanned = [...new Set(baseline)].sort((left, right) => left - right);
+    if (firstColumn < 0 || spanned.length !== 2
+      || spanned[0] !== firstColumn || spanned[1] !== firstColumn + 1) continue;
+    // A cluster keeps its authored starting column across a boundary with an
+    // unresolved (role-less) column on either side. It never moves ink between
+    // two recognized columns: that boundary keeps primitive-token membership,
+    // so no token passes from one semantic (pricing) cell into another.
+    if (columns[firstColumn]!.role != null && columns[firstColumn + 1]!.role != null) continue;
+    const left = Math.min(...cluster.tokens.map((token) => token.x));
+    const right = Math.max(...cluster.tokens.map((token) => token.x + token.width));
+    if (!(right > left)) continue;
+    const firstOverlap = horizontalOverlap(left, right, columns[firstColumn]!);
+    const nextOverlap = horizontalOverlap(left, right, columns[firstColumn + 1]!);
+    if (!(firstOverlap > nextOverlap
+      && firstOverlap >= nextOverlap * COLUMN_CLUSTER_OVERLAP_SEPARATION_FACTOR)) continue;
+    for (const token of cluster.tokens) assignments.set(token, firstColumn);
+  }
+  return assignments;
+}
+
+/**
+ * Attaches tokens of role-unresolved columns to published rows by geometry only.
+ * A token joins a row when its vertical center lies within exactly one row's
+ * vertical extent (its admitted source lines), widened by the same fraction of
+ * glyph height that already defines "one visual line". A token within no row or
+ * within more than one is reported, never guessed. Row admission is untouched:
+ * these tokens are considered only after rows are final.
+ */
+function attachRoleLessTokens<T extends { lines: readonly SourceLine[] }>(
+  rows: readonly T[],
+  roleLess: ReadonlyArray<{ token: PdfToken; columnIndex: number }>,
+  columns: readonly PricedScheduleColumnBand[],
+  banded: readonly BandedToken[],
+  unattached: (PricedScheduleCellSourceRef & { column_index: number })[],
+): Map<T, PricedScheduleUnresolvedRoleCell[]> {
+  const result = new Map<T, PricedScheduleUnresolvedRoleCell[]>();
+  if (roleLess.length === 0) return result;
+  const typicalHeight = medianOf(banded.map((entry) => entry.token.height).filter((height) => height > 0)) ?? 0;
+  const tolerance = typicalHeight * LINE_MERGE_FRACTION;
+  const extents = rows.map((row) => {
+    const tokens = row.lines.flatMap((line) => line.tokens);
+    return {
+      row,
+      low: Math.min(...tokens.map((token) => token.y)) - tolerance,
+      high: Math.max(...tokens.map((token) => token.y + token.height)) + tolerance,
+    };
+  });
+  const byRow = new Map<T, Map<number, PdfToken[]>>();
+  for (const { token, columnIndex } of roleLess) {
+    const center = token.y + token.height / 2;
+    const hits = extents.filter((extent) => center >= extent.low && center <= extent.high);
+    if (hits.length !== 1) {
+      unattached.push({ ...sourceRefForToken(token), column_index: columnIndex });
+      continue;
+    }
+    const columnsOfRow = byRow.get(hits[0]!.row) ?? new Map<number, PdfToken[]>();
+    columnsOfRow.set(columnIndex, [...(columnsOfRow.get(columnIndex) ?? []), token]);
+    byRow.set(hits[0]!.row, columnsOfRow);
+  }
+  for (const [row, columnsOfRow] of byRow) {
+    const cells = [...columnsOfRow.entries()].sort(([left], [right]) => left - right).flatMap(([columnIndex, tokens]) => {
+      const cell = buildCellFromTokens(tokens);
+      return cell ? [{ role: null, column_index: columnIndex, header_text: columns[columnIndex]!.header_text, ...cell }] : [];
+    });
+    if (cells.length > 0) result.set(row, cells);
+  }
+  return result;
 }
 
 type BandedToken = {
@@ -496,18 +1230,23 @@ function buildCell(
   role: PricedScheduleColumnRole,
   banded: readonly BandedToken[],
 ): PricedScheduleCell | null {
-  if (banded.length === 0) return null;
+  const cell = buildCellFromTokens(banded.map((entry) => entry.token));
+  return cell ? { role, ...cell } : null;
+}
+
+/** Authored text and source refs of one cell, in visual reading order. */
+function buildCellFromTokens(tokens: readonly PdfToken[]): Omit<PricedScheduleCell, 'role'> | null {
+  if (tokens.length === 0) return null;
   // Visual reading order within a wrapped cell is top-to-bottom, then left-to-right.
-  const ordered = [...banded].sort((left, right) => {
+  const ordered = [...tokens].sort((left, right) => {
     if (right.y !== left.y) return right.y - left.y;
-    return compareTokens(left.token, right.token);
+    return compareTokens(left, right);
   });
-  const sourceRefs = ordered.map((entry) => sourceRefForToken(entry.token));
-  const rawText = ordered.map((entry) => entry.token.text.trim()).filter((text) => text.length > 0).join(' ');
+  const sourceRefs = ordered.map((token) => sourceRefForToken(token));
+  const rawText = ordered.map((token) => token.text.trim()).filter((text) => text.length > 0).join(' ');
   if (rawText.length === 0) return null;
 
   return {
-    role,
     raw_text: rawText,
     source_refs: sourceRefs,
     x_min: Math.min(...sourceRefs.map((ref) => ref.x_min)),
@@ -521,6 +1260,12 @@ type SourceLine = {
   /** Visual baseline of the line, as the maximum y of its member tokens. */
   y: number;
   banded: BandedToken[];
+  tokens: PdfToken[];
+};
+
+type RawSourceLine = {
+  /** Visual baseline of the line, as the maximum y of its member tokens. */
+  y: number;
   tokens: PdfToken[];
 };
 
@@ -700,6 +1445,91 @@ function buildSourceLines(banded: readonly BandedToken[]): SourceLine[] {
   return merged;
 }
 
+/** The same visual-line grouping as `buildSourceLines`, without assigning roles. */
+function buildRawSourceLines(tokens: readonly PdfToken[]): RawSourceLine[] {
+  const byY = new Map<number, PdfToken[]>();
+  for (const token of tokens) {
+    const bucket = byY.get(token.y);
+    if (bucket) bucket.push(token);
+    else byY.set(token.y, [token]);
+  }
+  const rawLines = [...byY.entries()]
+    .map(([y, members]) => ({ y, tokens: [...members] }))
+    .sort((left, right) => right.y - left.y);
+  if (rawLines.length === 0) return [];
+  const typicalHeight = medianOf(tokens.map((token) => token.height).filter((height) => height > 0));
+  const mergeWithin = typicalHeight == null ? 0 : typicalHeight * LINE_MERGE_FRACTION;
+  const merged: RawSourceLine[] = [];
+  for (const line of rawLines) {
+    const previous = merged.at(-1);
+    if (previous && previous.y - line.y <= mergeWithin) {
+      previous.tokens.push(...line.tokens);
+      continue;
+    }
+    merged.push({ y: line.y, tokens: [...line.tokens] });
+  }
+  for (const line of merged) line.tokens.sort(compareTokens);
+  return merged;
+}
+
+function tableEdgeLine(
+  line: RawSourceLine,
+  position: PricedScheduleTableEdgeLine['position'],
+  columns: readonly PricedScheduleColumnBand[],
+): PricedScheduleTableEdgeLine | null {
+  const { sorted, ratios } = tokenGapReading(line.tokens);
+  const initialGroups = groupTokens(sorted, ratios.map((ratio) => ratio <= HEADER_WORD_GAP_CEILING));
+  // OCR can leave a wider-than-word gap between a marker glyph and amount in
+  // the same authored column. Merge such groups only when every token is
+  // contained by that exact column; never bridge two columns this way.
+  const groups: HeaderCell[] = [];
+  for (const group of initialGroups) {
+    const previous = groups.at(-1);
+    const containedColumn = (tokens: readonly PdfToken[]) => {
+      const indexes = tokens.map((token) => columnIndexForToken(token, columns));
+      return indexes[0] != null && indexes[0] >= 0 && indexes.every((index) => index === indexes[0])
+        ? indexes[0] : null;
+    };
+    const column = containedColumn(group.tokens);
+    if (previous && column != null && containedColumn(previous.tokens) === column) {
+      previous.tokens = [...previous.tokens, ...group.tokens];
+      previous.text = previous.tokens.map((token) => token.text.trim()).filter(Boolean).join(' ');
+      previous.xEnd = Math.max(...previous.tokens.map((token) => token.x + token.width));
+      continue;
+    }
+    groups.push({ ...group, tokens: [...group.tokens] });
+  }
+  const cells = groups.flatMap((group): PricedScheduleTableEdgeCell[] => {
+    const sourceRefs = group.tokens.map((token) => sourceRefForToken(token));
+    const rawText = group.tokens.map((token) => token.text.trim()).filter(Boolean).join(' ');
+    if (!rawText || sourceRefs.length === 0) return [];
+    const memberships = group.tokens.map((token) => columnIndexForToken(token, columns));
+    const first = memberships[0] ?? -1;
+    const columnIndex = first >= 0 && memberships.every((index) => index === first) ? first : null;
+    return [{
+      column_index: columnIndex,
+      raw_text: rawText,
+      source_refs: sourceRefs,
+      x_min: Math.min(...sourceRefs.map((ref) => ref.x_min)),
+      x_max: Math.max(...sourceRefs.map((ref) => ref.x_max)),
+      y_min: Math.min(...sourceRefs.map((ref) => ref.y_min)),
+      y_max: Math.max(...sourceRefs.map((ref) => ref.y_max)),
+    }];
+  });
+  if (cells.length === 0) return null;
+  const sourceRefs = cells.flatMap((cell) => cell.source_refs);
+  return {
+    position,
+    cells,
+    raw_text: cells.map((cell) => cell.raw_text).join(' '),
+    source_refs: sourceRefs,
+    x_min: Math.min(...sourceRefs.map((ref) => ref.x_min)),
+    x_max: Math.max(...sourceRefs.map((ref) => ref.x_max)),
+    y_min: Math.min(...sourceRefs.map((ref) => ref.y_min)),
+    y_max: Math.max(...sourceRefs.map((ref) => ref.y_max)),
+  };
+}
+
 function lineRawText(line: SourceLine): string {
   return line.tokens.map((token) => token.text.trim()).filter((text) => text.length > 0).join(' ');
 }
@@ -769,6 +1599,45 @@ function buildPageRecoveryCandidate(
   });
 }
 
+/** Build options from the current v2 unresolved reconstruction; no semantic winner is chosen. */
+export function buildHeaderRoleSelectionCandidates(
+  reconstruction: PagePricedScheduleReconstruction,
+  context: RecoveryCandidateBuildContext,
+): RecoveryCandidateV2[] {
+  if (reconstruction.parser_version !== PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION
+    || (context.allowedRecoveryTypes && !context.allowedRecoveryTypes.includes('priced_schedule_header_role_selection'))) return [];
+  return reconstruction.pages.flatMap(page => {
+    const interpretation = page.header_interpretation;
+    if (page.semantic_status !== 'unresolved' || !page.columns.length
+      || !interpretation || interpretation.status !== 'unresolved' || interpretation.options_limit_exceeded) return [];
+    const refs = interpretation.source_refs;
+    const digest = context.pageRepresentationDigestByPage[page.physical_page_number];
+    if (!digest || refs.some(ref => !ref.observation_id)) return [];
+    return (interpretation.options ?? []).flatMap(option => {
+      if (option.kind !== 'role_assignment' || !option.qualifies) return [];
+      const candidate = buildRecoveryCandidateV2({
+        recoveryType: 'priced_schedule_header_role_selection',
+        sourceDocumentId: context.sourceDocumentId, sourceArtifactId: context.sourceArtifactId,
+        physicalPageNumber: page.physical_page_number, pageRepresentationDigest: digest,
+        targetRowIdentity: `page_priced_schedule:p${page.physical_page_number}:header`,
+        orderedObservationIds: refs.map(ref => ref.observation_id!),
+        rawTexts: refs.map(ref => ref.text), composedRawText: page.header_raw_text,
+        evidence: refs.map(ref => ({ observationId: ref.observation_id!,
+          sourceLayer: ref.source === 'ocr_fallback' ? 'ocr' : 'pdf_native_text', rawText: ref.text,
+          boundingBox: { xMin: ref.x_min, xMax: ref.x_max, yMin: ref.y_min, yMax: ref.y_max } })),
+        headerRoleSelection: {
+          parserVersion: PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION,
+          headerInterpretationVersion: interpretation.version, optionId: option.option_id,
+          labels: option.labels.map(label => ({ text: label.text, role: label.role,
+            orderedObservationIds: label.source_refs.flatMap(ref => ref.observation_id ? [ref.observation_id] : []) })),
+          structuralRowCount: page.rows.length,
+        },
+      });
+      return candidate ? [candidate] : [];
+    });
+  });
+}
+
 function reconstructPage(
   page: PdfLayoutPage,
   confirmed: ReadonlyMap<string, ConfirmedRateObservation>,
@@ -777,29 +1646,203 @@ function reconstructPage(
   appliedCandidates: Set<string>,
   candidateBuildContext?: RecoveryCandidateBuildContext,
   generatedCandidates: RecoveryCandidateV2[] = [],
+  continuationEvidence: PricedScheduleContinuationEvidence = 'row_start_anchors',
+  headerSelection?: ConfirmedHeaderSelection,
 ): PricedSchedulePage | null {
   const headers = detectHeaders(page);
-  // A page presenting more than one priced-table header holds more than one
-  // table. Reconstructing it as a single table would let the second header and
-  // its rows be read through the first table's columns, so fail closed instead.
-  if (headers.length !== 1) return null;
-  const header = headers[0]!;
+  let header: DetectedHeader;
+  // Semantics resolved: every role admission needs is recognized. When false the
+  // structure is reconstructed from geometry alone and published as structure only.
+  let semanticsResolved = true;
+  if (headers.length === 0) {
+    // A plausible table whose header cannot be resolved is reported with its
+    // header evidence rather than disappearing.
+    const unresolved = unresolvedHeaderCandidate(page);
+    if (!unresolved) return null;
+    if (!unresolved.structuralColumns) {
+      // Structure itself is unresolved: no columns, roles or rows are claimed.
+      return {
+        status: 'failed_closed',
+        physical_page_number: page.page_number,
+        header_raw_text: unresolved.rawText,
+        header_y: unresolved.y,
+        columns: [],
+        rows: [],
+        rejected_spines: [],
+        unassigned_lines: [],
+        header_interpretation: unresolved.interpretation,
+      };
+    }
+    // Structure is deterministic; only a semantic role is unresolved. Rebuild the
+    // table from geometry, never from a guessed role, and never through recovery.
+    header = {
+      y: unresolved.y,
+      rawText: unresolved.rawText,
+      columns: unresolved.structuralColumns,
+      interpretation: unresolved.interpretation,
+    };
+    semanticsResolved = false;
+    if (headerSelection && continuationEvidence !== 'spacing_only') {
+      const labels = headerSelection.candidate.headerRoleSelection!.labels;
+      const selectedColumns = header.columns.map(column => {
+        const ids = (column.header_source_refs ?? []).map(ref => ref.observation_id);
+        const label = labels.find(entry => entry.text === column.header_text
+          && entry.orderedObservationIds.length === ids.length
+          && entry.orderedObservationIds.every((id, index) => id === ids[index]));
+        return label ? { ...column, role: label.role } : null;
+      });
+      if (selectedColumns.every(column => column != null)
+        && headerRolesQualify(selectedColumns.map(column => column!.role))) {
+        header = { ...header, columns: selectedColumns as PricedScheduleColumnBand[] };
+        semanticsResolved = true;
+      }
+    }
+    confirmed = new Map();
+    confirmedCandidates = [];
+    candidateBuildContext = undefined;
+  } else {
+    // A page presenting more than one priced-table header holds more than one
+    // table. Reconstructing it as a single table would let the second header and
+    // its rows be read through the first table's columns, so fail closed instead.
+    if (headers.length !== 1) return null;
+    header = headers[0]!;
+  }
 
   const banded: BandedToken[] = [];
+  const bodyTokens: PdfToken[] = [];
+  // Primitive tokens whose geometry does not give any column a strict width
+  // majority remain diagnostic evidence. They must not silently disappear or
+  // participate in row admission through the older center-band tie-break.
+  const ambiguousColumnBanded: BandedToken[] = [];
+  const ambiguousColumnRoleLess: Array<{ token: PdfToken; columnIndex: number }> = [];
+  // Tokens in columns whose role is unresolved. They take no part in any row
+  // admission decision; they are attached to published rows afterwards.
+  const roleLess: Array<{ token: PdfToken; columnIndex: number }> = [];
+  // R5 refines published cell membership only. Preserve the pre-R5 center-band
+  // role-less evidence that row-start attribution was already proven against.
+  const rowStartRoleLess: Array<{ token: PdfToken; columnIndex: number }> = [];
   for (const line of page.lines) {
+    // Pinned evaluation fixtures ('spacing_only') keep the pre-R5 center-band
+    // membership their recorded evidence and candidate identities were built on.
+    const assignments = continuationEvidence === 'row_start_anchors'
+      ? columnAssignmentsForLine(line.tokens, header.columns)
+      : new Map(line.tokens.map((token) => [token, centerColumnIndexForToken(token, header.columns)]));
     for (const token of line.tokens) {
       // Only content below the header belongs to the schedule body.
       if (token.y >= header.y) continue;
       if (token.text.trim().length === 0) continue;
-      const role = bandForToken(token, header.columns);
-      if (!role) continue;
+      bodyTokens.push(token);
+      const baselineColumnIndex = centerColumnIndexForToken(token, header.columns);
+      if (baselineColumnIndex >= 0 && !header.columns[baselineColumnIndex]!.role) {
+        rowStartRoleLess.push({ token, columnIndex: baselineColumnIndex });
+      }
+      const columnIndex = assignments.get(token) ?? -1;
+      if (columnIndex < 0) {
+        if (baselineColumnIndex >= 0) {
+          const baselineRole = header.columns[baselineColumnIndex]!.role;
+          if (baselineRole) {
+            ambiguousColumnBanded.push({ token, role: baselineRole, y: token.y });
+          } else {
+            ambiguousColumnRoleLess.push({ token, columnIndex: baselineColumnIndex });
+          }
+        }
+        continue;
+      }
+      const role = header.columns[columnIndex]!.role;
+      if (!role) {
+        roleLess.push({ token, columnIndex });
+        continue;
+      }
       banded.push({ token, role, y: token.y });
     }
   }
 
-  const sourceLines = buildSourceLines(banded);
+  let sourceLines = buildSourceLines(banded);
+  let ambiguousColumnLines = buildSourceLines(ambiguousColumnBanded);
+  const rawSourceLines = buildRawSourceLines(bodyTokens);
+  const tableEdgeLines: PricedScheduleTableEdgeLine[] = [];
+  const glyphHeight = medianOf(banded.map((entry) => entry.token.height).filter((height) => height > 0));
+  const lineTolerance = glyphHeight == null ? 0 : glyphHeight * LINE_MERGE_FRACTION;
+
+  // Row-start geometry establishes the authored body boundary independently of
+  // price recognition. This is intentionally earlier than spine selection: an
+  // edge total can itself carry a currency token, while a valid final body row
+  // can acquire its rate only during structured-rate interpretation.
+  const edgeGeometry = continuationEvidence === 'row_start_anchors'
+    ? candidateRowStarts(rowStartRoleLess, lineTolerance)
+    : null;
+  if (edgeGeometry) {
+    const highestStartY = edgeGeometry.starts[0]!;
+    const lowestStartY = edgeGeometry.starts.at(-1)!;
+    const bodyCurrencySpines = sourceLines.filter((line) => line.y <= highestStartY + lineTolerance
+      && line.y >= lowestStartY - lineTolerance
+      && line.banded.some((entry) => entry.role === 'rate' && isRowSpineToken(entry.token)));
+    if (bodyCurrencySpines.length >= MINIMUM_PRICED_ROWS) {
+      const maximumEdgeDistance = edgeGeometry.pitch * EDGE_CONTINUATION_TOLERANCE;
+      for (const line of rawSourceLines) {
+        const lineRoles = new Set(sourceLines
+          .filter((sourceLine) => sourceLine.tokens.some((token) => line.tokens.includes(token)))
+          .flatMap((sourceLine) => sourceLine.banded.map((entry) => entry.role)));
+        const beforeBody = line.y > highestStartY + lineTolerance
+          && line.y < header.y
+          && line.y - highestStartY <= maximumEdgeDistance
+          && !lineRoles.has('rate');
+        const afterBody = line.y < lowestStartY - lineTolerance
+          && lowestStartY - line.y <= maximumEdgeDistance;
+        if (!beforeBody && !afterBody) continue;
+        const edge = tableEdgeLine(line, beforeBody ? 'before_body' : 'after_body', header.columns);
+        if (!edge) continue;
+        // Row-start anchors are not row extents: an authored row can wrap above
+        // or below its anchor. A line whose shape a body continuation could have
+        // is therefore never claimed as edge structure; it abstains and stays
+        // with the unchanged body rules, which attach it or report it.
+        if (beforeBody) {
+          // A cell wholly inside a role-resolved column reads as body content.
+          if (edge.cells.some((cell) => cell.column_index != null
+            && header.columns[cell.column_index]!.role != null)) continue;
+        } else {
+          const lastColumn = header.columns.length - 1;
+          // A footer line must contain a spanning leading cell plus a separate
+          // terminal-column cell. Ordinary single-cell continuations abstain.
+          if (edge.cells.length < 2
+            || edge.cells[0]!.column_index !== null
+            || edge.cells.at(-1)!.column_index !== lastColumn) continue;
+        }
+        tableEdgeLines.push(edge);
+      }
+    }
+  }
+  if (tableEdgeLines.length > 0) {
+    // Discovery follows canonical page order. Sort only by structural side so
+    // native bottom-left and OCR top-left source boxes cannot reverse output.
+    tableEdgeLines.sort((left, right) => (left.position === right.position
+      ? 0
+      : left.position === 'before_body' ? -1 : 1));
+    const edgeKeys = new Set(tableEdgeLines.flatMap((line) => line.source_refs)
+      .map((ref) => `${ref.observation_id ?? ''}|${ref.text}|${ref.x_min}|${ref.y_min}`));
+    const isEdgeToken = (token: PdfToken) => {
+      const ref = sourceRefForToken(token);
+      return edgeKeys.has(`${ref.observation_id ?? ''}|${ref.text}|${ref.x_min}|${ref.y_min}`);
+    };
+    const withoutEdgeTokens = (lines: readonly SourceLine[]) => lines.flatMap((line) => {
+      const kept = line.banded.filter((entry) => !isEdgeToken(entry.token));
+      if (kept.length === line.banded.length) return [line];
+      return kept.length === 0 ? [] : [{
+        y: Math.max(...kept.map((entry) => entry.y)),
+        banded: kept,
+        tokens: kept.map((entry) => entry.token).sort(compareTokens),
+      }];
+    });
+    sourceLines = withoutEdgeTokens(sourceLines);
+    ambiguousColumnLines = withoutEdgeTokens(ambiguousColumnLines);
+    for (const collection of [roleLess, rowStartRoleLess, ambiguousColumnRoleLess]) {
+      for (let index = collection.length - 1; index >= 0; index -= 1) {
+        if (isEdgeToken(collection[index]!.token)) collection.splice(index, 1);
+      }
+    }
+  }
   // A source line is atomic: it names one row, and is never split across rows.
-  const spineLines = sourceLines.filter((line) =>
+  const currencySpineLines = sourceLines.filter((line) =>
     line.banded.some((entry) => entry.role === 'rate' && isRowSpineToken(entry.token)));
 
   const unassignedLines: PricedScheduleUnassignedLine[] = [];
@@ -816,6 +1859,10 @@ function reconstructPage(
   };
 
   const rejectedSpines: PricedScheduleRejectedSpine[] = [];
+  const unattachedRoleLess: (PricedScheduleCellSourceRef & { column_index: number })[] = [];
+  for (const { token, columnIndex } of ambiguousColumnRoleLess) {
+    unattachedRoleLess.push({ ...sourceRefForToken(token), column_index: columnIndex });
+  }
   const rejectLines = (
     spine: SourceLine,
     lines: readonly SourceLine[],
@@ -835,23 +1882,31 @@ function reconstructPage(
     rows: readonly PricedScheduleRow[],
   ): PricedSchedulePage => ({
     status,
+    ...(semanticsResolved && headerSelection ? { header_semantics: {
+      status: 'human_selected' as const, candidate_id: headerSelection.candidate.candidateId,
+      review_id: headerSelection.reviewId,
+    } } : {}),
     physical_page_number: page.page_number,
     header_raw_text: header.rawText,
     header_y: header.y,
     columns: header.columns,
     rows,
+    ...(tableEdgeLines.length > 0 ? { table_edge_lines: tableEdgeLines } : {}),
     rejected_spines: rejectedSpines,
     unassigned_lines: unassignedLines,
+    ...(header.interpretation ? { header_interpretation: header.interpretation } : {}),
+    ...(semanticsResolved ? {} : { semantic_status: 'unresolved' as const }),
+    ...(unattachedRoleLess.length > 0 ? { unattached_role_less_tokens: unattachedRoleLess } : {}),
   });
 
   // A qualifying header with no usable row sequence is distinct from a page
   // that was never a reconstruction candidate. Preserve its authored evidence.
-  if (spineLines.length === 0) {
+  if (currencySpineLines.length === 0) {
     for (const line of sourceLines) reportLine(line, 'unsupported_trailing_line');
     return pageResult('failed_closed', []);
   }
-  if (spineLines.length < MINIMUM_PRICED_ROWS) {
-    const spine = spineLines[0]!;
+  if (currencySpineLines.length < MINIMUM_PRICED_ROWS) {
+    const spine = currencySpineLines[0]!;
     rejectLines(spine, [spine], 'insufficient_priced_rows');
     for (const line of sourceLines) {
       if (line !== spine) reportLine(line, 'unsupported_trailing_line');
@@ -862,22 +1917,95 @@ function reconstructPage(
   // Pitch eligibility is established from raw spines before any candidate can
   // become body authority. Each edge excludes its own adjacent gap, requires at
   // least two independent comparison gaps, and abstains on a discordant baseline.
-  const spineGaps = spineLines.slice(1).map((line, index) => spineLines[index]!.y - line.y);
-  const pitchOutliers = new Set<number>();
-  const evaluateEdge = (edgeIndex: number, ownGapIndex: number) => {
-    const baseline = spineGaps.filter((_, index) => index !== ownGapIndex);
-    if (!isCoherentPitchBaseline(baseline)) return;
-    const expected = medianOf(baseline);
-    if (expected == null || expected <= 0) return;
-    const ownGap = spineGaps[ownGapIndex]!;
-    const withinEnvelope = ownGap <= expected * ROW_PITCH_ENVELOPE_FACTOR
-      && ownGap >= expected / ROW_PITCH_ENVELOPE_FACTOR;
-    if (!withinEnvelope) pitchOutliers.add(edgeIndex);
+  const pitchOutliersOf = (spines: readonly SourceLine[]): Set<number> => {
+    const spineGaps = spines.slice(1).map((line, index) => spines[index]!.y - line.y);
+    const outliers = new Set<number>();
+    const evaluateEdge = (edgeIndex: number, ownGapIndex: number) => {
+      const baseline = spineGaps.filter((_, index) => index !== ownGapIndex);
+      if (!isCoherentPitchBaseline(baseline)) return;
+      const expected = medianOf(baseline);
+      if (expected == null || expected <= 0) return;
+      const ownGap = spineGaps[ownGapIndex]!;
+      const withinEnvelope = ownGap <= expected * ROW_PITCH_ENVELOPE_FACTOR
+        && ownGap >= expected / ROW_PITCH_ENVELOPE_FACTOR;
+      if (!withinEnvelope) outliers.add(edgeIndex);
+    };
+    evaluateEdge(0, 0);
+    evaluateEdge(spines.length - 1, spineGaps.length - 1);
+    return outliers;
   };
-  evaluateEdge(0, 0);
-  evaluateEdge(spineLines.length - 1, spineGaps.length - 1);
+
+  // How spacing alone attributes a continuation line: to the clearly nearer of
+  // its two neighbouring priced lines, or ambiguous, or an edge line.
+  const spacingDecisionAmong = (eligible: readonly SourceLine[]) => (line: SourceLine):
+    | { kind: 'edge' }
+    | { kind: 'ambiguous' }
+    | { kind: 'attach'; spine: SourceLine; distance: number } => {
+    let above: SourceLine | null = null;
+    let below: SourceLine | null = null;
+    for (const spine of eligible) {
+      if (spine.y > line.y && (!above || spine.y < above.y)) above = spine;
+      if (spine.y < line.y && (!below || spine.y > below.y)) below = spine;
+    }
+    if (!above || !below) return { kind: 'edge' };
+    const distanceAbove = above.y - line.y;
+    const distanceBelow = line.y - below.y;
+    const nearerDistance = Math.min(distanceAbove, distanceBelow);
+    const fartherDistance = Math.max(distanceAbove, distanceBelow);
+    if (fartherDistance > 0 && nearerDistance / fartherDistance > CONTINUATION_AMBIGUITY_RATIO) return { kind: 'ambiguous' };
+    return { kind: 'attach', spine: distanceAbove <= distanceBelow ? above : below, distance: nearerDistance };
+  };
+
+  // Row-start anchors resolve what spacing cannot -- which row a wrapped line
+  // belongs to -- but only on a page whose anchors are proven: no pitch outliers,
+  // the anchors agree with every priced line, and they contradict no attribution
+  // spacing already makes with certainty. Any contradiction disables them.
+  const provenRowStarts = (spines: readonly SourceLine[]): RowStartModel | null => {
+    if (continuationEvidence !== 'row_start_anchors' || glyphHeight == null) return null;
+    if (pitchOutliersOf(spines).size !== 0) return null;
+    const model = buildRowStartModel(rowStartRoleLess, spines, lineTolerance);
+    if (!model) return null;
+    const spineSet = new Set(spines);
+    const decide = spacingDecisionAmong(spines);
+    for (const line of sourceLines) {
+      if (spineSet.has(line)) continue;
+      const band = model.bandOf(line.y);
+      const spine = band == null ? undefined : model.spineOfBand.get(band);
+      if (!spine) continue;
+      const decision = decide(line);
+      if (decision.kind === 'attach' && decision.spine !== spine) return null;
+    }
+    return model;
+  };
+
+  // A row whose currency marker was not read is priced only on a page whose
+  // header semantics are resolved and whose row-start anchors are proven by the
+  // recognized spines. The added rows must then still satisfy the anchors'
+  // structure (no pitch outlier, one priced line per band, the table's end).
+  // Spacing is not re-tested against them: they were placed by the anchors, and
+  // a row priced on its last line is no evidence about its neighbours' lines.
+  // Otherwise the page keeps its recognized spines alone.
+  let spineLines: readonly SourceLine[] = currencySpineLines;
+  let rowStart = provenRowStarts(currencySpineLines);
+  let structuredRates = new Map<SourceLine, StructuredRateEvidence>();
+  if (rowStart && semanticsResolved) {
+    const found = structuredRateLines(rowStart, sourceLines, currencySpineLines, lineTolerance);
+    if (found.size > 0) {
+      const augmented = [...currencySpineLines, ...found.keys()].sort((left, right) => right.y - left.y);
+      const augmentedRowStart = pitchOutliersOf(augmented).size === 0
+        ? buildRowStartModel(rowStartRoleLess, augmented, lineTolerance)
+        : null;
+      if (augmentedRowStart) {
+        spineLines = augmented;
+        rowStart = augmentedRowStart;
+        structuredRates = found;
+      }
+    }
+  }
+  const pitchOutliers = pitchOutliersOf(spineLines);
   const spineIndex = new Map(spineLines.map((line, index) => [line, index]));
   const eligibleSpineLines = spineLines.filter((_, index) => !pitchOutliers.has(index));
+  const spacingDecision = spacingDecisionAmong(eligibleSpineLines);
 
   // Attach each continuation line to a row by vertical proximity, not by a
   // midpoint threshold. A line joins a row only when that row is clearly the
@@ -982,6 +2110,20 @@ function reconstructPage(
   }
 
   for (const line of activeContinuationLines) {
+    const band = rowStart ? rowStart.bandOf(line.y) : null;
+    if (rowStart && band != null) {
+      const anchoredSpine = rowStart.spineOfBand.get(band);
+      if (!anchoredSpine) {
+        reportLine(line, 'unpriced_row');
+        continue;
+      }
+      attached.get(anchoredSpine)!.push(line);
+      // Only a line spacing itself attributes to this row informs the page's
+      // established spacing; anchor-resolved lines never move that median.
+      const decision = spacingDecision(line);
+      if (decision.kind === 'attach' && decision.spine === anchoredSpine) interiorGaps.push(decision.distance);
+      continue;
+    }
     let above: SourceLine | null = null;
     let below: SourceLine | null = null;
     for (const spine of eligibleSpineLines) {
@@ -1049,6 +2191,12 @@ function reconstructPage(
   const recognizedRoles = header.columns
     .map((column) => column.role)
     .filter((role): role is PricedScheduleColumnRole => role != null);
+  // A row must carry the evidence a priced row is made of. With unresolved
+  // semantics only the recognized structural roles (the rate spine) can be
+  // required; the unrecognized column's cells stay role-less.
+  const admissionRoles = semanticsResolved
+    ? REQUIRED_ROLES
+    : REQUIRED_ROLES.filter((role) => recognizedRoles.includes(role));
 
   // Pitch-rejected candidates are diagnosed with every source line attributed
   // to them before body candidates or body bounds are constructed.
@@ -1061,7 +2209,14 @@ function reconstructPage(
     const index = spineIndex.get(spine)!;
     const lines = [spine, ...attached.get(spine)!].sort((left, right) => right.y - left.y);
     const contributed = lines.flatMap((line) => line.banded);
-    const ambiguous = lines.reduce((count, line) => count + rateLikeClusterCount(line), 0) > 1;
+    // A structured rate is unambiguous only while the row's rate column holds
+    // exactly the tokens that proved it.
+    const structured = structuredRates.get(spine) ?? null;
+    const rateTokens = contributed.filter((entry) => entry.role === 'rate').map((entry) => entry.token);
+    const ambiguous = structured
+      ? rateTokens.length !== (structured.marker ? 2 : 1) || !rateTokens.includes(structured.amount)
+        || (structured.marker != null && !rateTokens.includes(structured.marker))
+      : lines.reduce((count, line) => count + rateLikeClusterCount(line), 0) > 1;
     const targetRowIdentity = `page_priced_schedule:p${page.page_number}:r${index}`;
     if (ambiguous) {
       for (const cluster of lines.flatMap((line) => rateLikeClusters(line))) {
@@ -1091,6 +2246,18 @@ function reconstructPage(
         ? banded.filter((entry) => entry.token.observation_id
           && confirmation.observation_ids.includes(entry.token.observation_id))
         : banded);
+      if (cell && role === 'rate' && structured && !ambiguous) {
+        cells.push({
+          ...cell,
+          structured_rate: {
+            derivation: 'structured_numeric_rate',
+            amount_text: structured.amount.text.trim(),
+            amount_source_ref: sourceRefForToken(structured.amount),
+            ...(structured.marker ? { marker_source_ref: sourceRefForToken(structured.marker) } : {}),
+          },
+        });
+        continue;
+      }
       if (cell) cells.push(cell);
     }
     const populatedRoles = new Set(cells.map((cell) => cell.role));
@@ -1159,7 +2326,7 @@ function reconstructPage(
     // A row must carry the evidence a priced row is made of: something it is
     // for, and what it costs. Unit and route stay optional, because real
     // schedules leave them blank on individual rows.
-    if (!REQUIRED_ROLES.every((role) => entry.populatedRoles.has(role))) {
+    if (!admissionRoles.every((role) => entry.populatedRoles.has(role))) {
       rejectLines(entry.spine, entry.lines, 'insufficient_row_structure');
       continue;
     }
@@ -1188,16 +2355,35 @@ function reconstructPage(
     for (const candidateId of entry.continuationCandidateIds) appliedCandidates.add(candidateId);
   }
 
-  const rows: PricedScheduleRow[] = accepted.map((entry) => ({
+  const roleLessByRow = attachRoleLessTokens(accepted, roleLess, header.columns, banded, unattachedRoleLess);
+  const highestSpineY = Math.max(...spineLines.map((line) => line.y));
+  const lowestSpineY = Math.min(...spineLines.map((line) => line.y));
+  for (const line of ambiguousColumnLines) {
+    reportLine(
+      line,
+      line.y > highestSpineY || line.y < lowestSpineY
+        ? 'unsupported_trailing_line'
+        : 'ambiguous_row_assignment',
+    );
+  }
+  const rows: PricedScheduleRow[] = accepted.map((entry) => {
+    const unresolvedRoleCells = roleLessByRow.get(entry) ?? [];
+    return {
+      ...(semanticsResolved && headerSelection ? { header_semantics: {
+        status: 'human_selected' as const, candidate_id: headerSelection.candidate.candidateId,
+        review_id: headerSelection.reviewId,
+      } } : {}),
       row_index: entry.index,
       physical_page_number: page.page_number,
       cells: entry.cells,
+      ...(unresolvedRoleCells.length > 0 ? { unresolved_role_cells: unresolvedRoleCells } : {}),
       raw_text: entry.cells.map((cell) => cell.raw_text).join(' | '),
       x_min: Math.min(...entry.cells.map((cell) => cell.x_min)),
       x_max: Math.max(...entry.cells.map((cell) => cell.x_max)),
       y_min: Math.min(...entry.cells.map((cell) => cell.y_min)),
       y_max: Math.max(...entry.cells.map((cell) => cell.y_max)),
-    }));
+    };
+  });
 
   return pageResult('reconstructed', rows);
 }
@@ -1219,8 +2405,10 @@ function reconstructPage(
  *   - Description-like and rate-like roles are both among them.
  *   - Column bands come from the geometry of every compact header cell, including
  *     cells whose label is not recognized. Unrecognized cells claim their own
- *     band and their body tokens are dropped, so an unnamed column's values can
- *     never be presented as a neighbouring column's authored text.
+ *     band, so an unnamed column's values can never be presented as a
+ *     neighbouring column's authored text. Their body tokens take no part in row
+ *     admission; after rows are final they are attached, by vertical extent
+ *     only, as role-less `unresolved_role_cells` -- structure, never pricing.
  *   - At least one row populates every recognized column and anchors the table
  *     body. At least two priced rows must survive before the page is published;
  *     a page without that evidence fails closed.
@@ -1290,6 +2478,7 @@ export function buildPagePricedScheduleReconstruction(params: {
   confirmedRateObservations?: readonly ConfirmedRateObservation[];
   /** Exact persisted V2 candidates selected by a human; never browser-supplied. */
   confirmedRecoveryCandidates?: readonly RecoveryCandidateV2[];
+  confirmedHeaderSelections?: readonly ConfirmedHeaderSelection[];
   /**
    * Current effective evidence per physical page. Consulted only for supplied
    * confirmations: a page absent here cannot prove its evidence is unchanged.
@@ -1297,6 +2486,11 @@ export function buildPagePricedScheduleReconstruction(params: {
   currentPageEvidence?: Readonly<Record<number, CurrentPageEvidence>>;
   /** Enables a deterministic candidate-generation pass before Forgewing. */
   recoveryCandidateBuildContext?: RecoveryCandidateBuildContext;
+  /** Defaults to 'row_start_anchors'. 'spacing_only' exists for pinned evaluation fixtures. */
+  continuationEvidence?: PricedScheduleContinuationEvidence;
+  /** Trusted source-render evidence only. Entire path bypassed for frozen spacing_only. */
+  rulingLineInputs?: readonly RulingLineInput[];
+  rulingLineSourceSha256?: string;
 }): PagePricedScheduleReconstruction {
   const supplied = params.confirmedRateObservations ?? [];
   const confirmationCounts = new Map<string, number>();
@@ -1389,26 +2583,86 @@ export function buildPagePricedScheduleReconstruction(params: {
   const appliedCandidates = new Set<string>();
   const generatedCandidates: RecoveryCandidateV2[] = [];
   const pages: PricedSchedulePage[] = [];
+  const headerDiagnostics: PricedScheduleRecoveryDiagnostic[] = [];
   // Deterministic page order regardless of input ordering.
   const orderedPages = [...params.layout.pages].sort(
     (left, right) => left.page_number - right.page_number,
   );
   for (const page of orderedPages) {
-    const reconstructed = reconstructPage(
+    let reconstructed = reconstructPage(
       page, confirmed, confirmedCandidates, appliedConfirmations, appliedCandidates,
       params.recoveryCandidateBuildContext, generatedCandidates,
+      params.continuationEvidence ?? 'row_start_anchors',
     );
-    if (reconstructed) pages.push(reconstructed);
+    const headerSelections = (params.confirmedHeaderSelections ?? []).filter(selection =>
+      selection.candidate.physicalPageNumber === page.page_number);
+    const version = params.continuationEvidence === 'spacing_only'
+      ? LEGACY_PRICED_SCHEDULE_RECONSTRUCTION_VERSION : PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION;
+    if (reconstructed && params.recoveryCandidateBuildContext) {
+      generatedCandidates.push(...buildHeaderRoleSelectionCandidates({ parser_version: version, pages: [reconstructed] },
+        params.recoveryCandidateBuildContext));
+    }
+    const conflicting = new Set(headerSelections.map(selection => selection.candidate.candidateId)).size > 1;
+    for (const selection of headerSelections) {
+      const candidate = selection.candidate;
+      const parsed = RecoveryCandidateV2Schema.safeParse(candidate);
+      let reason: PricedScheduleRecoveryDiagnosticReason | undefined;
+      let blocked_by: 'coverage_not_trusted' | undefined;
+      const gate = evidenceGate(candidate.pageRepresentationDigest, page.page_number);
+      if (!parsed.success || !z.string().uuid().safeParse(selection.reviewId).success || candidate.recoveryType !== 'priced_schedule_header_role_selection') {
+        reason = 'confirmed_recovery_not_applied';
+      } else if (gate) { reason = gate.reason; blocked_by = gate.blocked_by; }
+      else if (conflicting || headerSelections.length > 1) reason = 'ambiguous_recovery_confirmation';
+      else {
+        const currentCandidates = reconstructed ? buildHeaderRoleSelectionCandidates(
+          { parser_version: version, pages: [reconstructed] }, {
+            sourceDocumentId: candidate.sourceDocumentId, sourceArtifactId: candidate.sourceArtifactId,
+            pageRepresentationDigestByPage: { [page.page_number]: params.currentPageEvidence![page.page_number]!.pageRepresentationDigest! },
+          }) : [];
+        if (!currentCandidates.some(current => {
+          const closure = (entry: RecoveryCandidateV2) => ({ ...entry,
+            headerRoleSelection: entry.headerRoleSelection ? {
+              ...entry.headerRoleSelection, structuralRowCount: 0,
+            } : undefined });
+          return current.candidateId === candidate.candidateId && hashCanonical(closure(current)) === hashCanonical(closure(candidate));
+        })) {
+          reason = 'confirmed_header_option_not_offered';
+        } else {
+          reconstructed = reconstructPage(page, new Map(), [], appliedConfirmations, appliedCandidates,
+            undefined, [], params.continuationEvidence ?? 'row_start_anchors', selection);
+          if (!reconstructed?.header_semantics) reason = 'confirmed_recovery_not_applied';
+        }
+      }
+      if (reason) headerDiagnostics.push({ reason, ...(blocked_by ? { blocked_by } : {}),
+        observation_id: candidate.orderedObservationIds[0] as NonNullable<PdfToken['observation_id']>,
+        candidate_id: candidate.candidateId, physical_page_number: page.page_number, recovery_applied: false });
+    }
+    if (reconstructed) {
+      const inputs = params.continuationEvidence === 'spacing_only' ? []
+        : (params.rulingLineInputs ?? []).filter((input) => input.evidence.physical_page_number === page.page_number
+          && input.evidence.source_sha256 === params.rulingLineSourceSha256);
+      pages.push(inputs.length === 1 ? resolveRulingLineOwnership(reconstructed, page, inputs[0]!) : reconstructed);
+    }
+  }
+  for (const selection of params.confirmedHeaderSelections ?? []) {
+    const candidate = selection.candidate;
+    if (!orderedPages.some(page => page.page_number === candidate.physicalPageNumber)) {
+      headerDiagnostics.push({ reason: 'confirmed_recovery_unbound',
+        observation_id: candidate.orderedObservationIds[0] as NonNullable<PdfToken['observation_id']>,
+        candidate_id: candidate.candidateId, physical_page_number: null, recovery_applied: false });
+    }
   }
   const base: PagePricedScheduleReconstruction = {
-    parser_version: PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION,
+    parser_version: params.continuationEvidence === 'spacing_only'
+      ? LEGACY_PRICED_SCHEDULE_RECONSTRUCTION_VERSION : PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION,
     pages,
     ...(params.recoveryCandidateBuildContext
       ? { recovery_candidates: generatedCandidates.sort((left, right) =>
           left.candidateId.localeCompare(right.candidateId, 'en-US')) }
       : {}),
   };
-  if (supplied.length === 0 && parsedConfirmedCandidates.length === 0) return base;
+  if (supplied.length === 0 && parsedConfirmedCandidates.length === 0
+    && (params.confirmedHeaderSelections?.length ?? 0) === 0) return base;
 
   const recovery_diagnostics: PricedScheduleRecoveryDiagnostic[] = [...new Set([
     ...confirmed.keys(),
@@ -1426,7 +2680,7 @@ export function buildPagePricedScheduleReconstruction(params: {
       physical_page_number: pageByObservation.get(observationId) ?? null,
       recovery_applied: false,
     }));
-  recovery_diagnostics.push(...evidenceHeld);
+  recovery_diagnostics.push(...evidenceHeld, ...headerDiagnostics);
   for (const candidate of confirmedCandidates) {
     if (appliedCandidates.has(candidate.candidateId)) continue;
     const expectedIds = [

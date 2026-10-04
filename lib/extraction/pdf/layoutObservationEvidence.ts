@@ -5,6 +5,8 @@ import {
   rehydratePhysicalPageCoordinate,
 } from '@/lib/extraction/provenance/physicalPageCoordinate';
 import type { PdfLayout, PdfToken } from '@/lib/extraction/pdf/extractText';
+import { pricingAuthoritativePage, pricingAuthorityDiagnostics } from '@/lib/extraction/pdf/pricedScheduleAuthority';
+import { isSupportedPricedScheduleVersion } from '@/lib/extraction/pdf/pricedScheduleVersion';
 import {
   CANONICAL_FRAME_VERSION,
   type CanonicalBox,
@@ -117,7 +119,7 @@ type LocatedRef = Readonly<{
 }>;
 
 function acceptedRefs(reconstruction: PagePricedScheduleReconstruction): LocatedRef[] {
-  return reconstruction.pages.flatMap((page) => page.rows.flatMap((row) =>
+  return reconstruction.pages.flatMap((page) => (pricingAuthoritativePage(page, reconstruction.parser_version)?.rows ?? []).flatMap((row) =>
     row.cells.flatMap((cell) => cell.source_refs.map((ref) => ({
       page: page.physical_page_number,
       ref,
@@ -126,6 +128,8 @@ function acceptedRefs(reconstruction: PagePricedScheduleReconstruction): Located
 
 function diagnosticRefs(reconstruction: PagePricedScheduleReconstruction): LocatedRef[] {
   return reconstruction.pages.flatMap((page) => [
+    ...(page.header_interpretation?.status === 'unresolved' ? page.header_interpretation.source_refs : [])
+      .map(ref => ({ page: page.physical_page_number, ref })),
     ...page.rejected_spines.flatMap((entry) => entry.source_refs.map((ref) => ({
       page: page.physical_page_number,
       ref,
@@ -134,6 +138,18 @@ function diagnosticRefs(reconstruction: PagePricedScheduleReconstruction): Locat
       page: page.physical_page_number,
       ref,
     }))),
+  ]);
+}
+
+/** Durable observations remain inspectable without becoming pricing anchors. */
+function structuralRefs(reconstruction: PagePricedScheduleReconstruction): LocatedRef[] {
+  return reconstruction.pages.flatMap((page) => [
+    ...(page.table_edge_lines ?? []).flatMap((line) => line.source_refs.map((ref) => ({
+      page: page.physical_page_number,
+      ref,
+    }))),
+    ...(Array.isArray(page.ruling_line_resolutions) ? page.ruling_line_resolutions : []).flatMap((resolution) =>
+      resolution?.source_ref ? [{ page: page.physical_page_number, ref: resolution.source_ref }] : []),
   ]);
 }
 
@@ -408,6 +424,8 @@ export function resolvePdfLayoutObservationEvidence(params: {
   persistedLayer: unknown;
   context: PdfLayoutObservationBindingContext | null;
 }): readonly PdfLayoutTokenObservation[] | null {
+  if (!isSupportedPricedScheduleVersion(params.reconstruction.parser_version)
+    || pricingAuthorityDiagnostics(params.reconstruction).length) return null;
   if (params.reconstruction.pages.some((page) =>
     page.rows.some((row) => row.physical_page_number !== page.physical_page_number))) {
     return null;
@@ -463,7 +481,9 @@ export function resolvePdfLayoutObservationEvidenceByRow(params: {
   context: PdfLayoutObservationBindingContext | null;
 }): readonly PdfLayoutTokenObservation[] {
   const byId = new Map<string, PdfLayoutTokenObservation>();
-  for (const page of params.reconstruction.pages) {
+  for (const structuralPage of params.reconstruction.pages) {
+    const page = pricingAuthoritativePage(structuralPage, params.reconstruction.parser_version);
+    if (!page) continue;
     for (const row of page.rows) {
       const resolved = resolvePdfLayoutObservationEvidence({
         reconstruction: {
@@ -495,7 +515,7 @@ export function resolvePdfLayoutDiagnosticEvidence(params: {
   if (!params.context || !isRecord(params.persistedLayer)) return [];
   const layer = params.persistedLayer;
   if (
-    params.reconstruction.parser_version !== 'priced_schedule_reconstruction_v1'
+    !isSupportedPricedScheduleVersion(params.reconstruction.parser_version)
     || layer.parser_version !== PDF_LAYOUT_OBSERVATIONS_LAYER_VERSION
     || layer.observation_version !== PDF_LAYOUT_OBSERVATION_VERSION
     || layer.source_kind !== 'pdf'
@@ -693,6 +713,7 @@ export function buildPdfLayoutObservationsLayer(params: {
   const durableIds = new Set([
     ...acceptedRefs(params.reconstruction),
     ...diagnosticRefs(params.reconstruction),
+    ...structuralRefs(params.reconstruction),
   ].flatMap((entry) => entry.ref.observation_id ? [entry.ref.observation_id] : []));
   const definitions = new Map<string, PdfLayoutTokenObservation[]>();
   if (params.context) {

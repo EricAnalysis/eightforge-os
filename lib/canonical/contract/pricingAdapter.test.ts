@@ -27,6 +27,18 @@ import { parseAuthoredPricingDimensions } from '@/lib/contracts/pricingDimension
 
 const GOLDEN_DOCUMENT_ID = 'golden-contract-document';
 
+describe('header semantics audit provenance', () => {
+  it('preserves the human selection receipt through canonical resolution', () => {
+    const receipt = { status: 'human_selected' as const,
+      candidate_id: `recovery-candidate-v2-${'c'.repeat(64)}`,
+      review_id: '55555555-5555-4555-8555-555555555555' };
+    const candidate = adaptAssembledPricingRow(goldenVegetativeRow({ headerSemantics: receipt }), 0, ADAPTER_CONTEXT);
+    assert.deepEqual(candidate.sourceFamily.headerSemantics, receipt);
+    const resolved = resolveCanonicalPricingRow(candidate);
+    assert.deepEqual(resolved.sourceFamily.headerSemantics, receipt);
+  });
+});
+
 const GOLDEN_GOVERNING_DOCUMENT = {
   documentId: GOLDEN_DOCUMENT_ID,
   family: 'contract',

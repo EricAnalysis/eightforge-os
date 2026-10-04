@@ -1,4 +1,5 @@
 import { CLAUSE_PATTERN_LIBRARY_V1_BY_ID } from '@/lib/contracts/clausePatternLibrary.v1';
+import { isSupportedPricedScheduleVersion, LEGACY_PRICED_SCHEDULE_RECONSTRUCTION_VERSION } from '@/lib/extraction/pdf/pricedScheduleVersion';
 import {
   RATE_BASED_CEILING_EVIDENCE_REGEXES,
   classifyContractCeiling,
@@ -13,14 +14,14 @@ import {
   type ContractPricingSourceRowIdentity,
 } from '@/lib/contracts/contractPricingAssembly';
 import {
-  buildContractRateScheduleRows,
+  buildContractRateScheduleRowsWithDiagnostics,
   type ContractRateScheduleSourceEntry,
 } from '@/lib/contracts/contractRateScheduleRows';
 import {
-  PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION,
   type PagePricedScheduleReconstruction,
   type PricedSchedulePage,
 } from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
+import type { PricingAuthorityDiagnostic } from '@/lib/extraction/pdf/pricedScheduleAuthority';
 import {
   resolvePdfLayoutObservationEvidenceByRow,
 } from '@/lib/extraction/pdf/layoutObservationEvidence';
@@ -72,11 +73,13 @@ export type ContractIntelligencePricingAssemblyContext = {
     readonly ContractPricingAssemblyRow[]
   >;
   readonly pricingSourceEligibility?: PricingSourceEligibilityDiagnostics;
+  readonly pricingAuthorityDiagnostics?: readonly PricingAuthorityDiagnostic[];
 };
 
 export type ContractIntelligencePricingSourcePreparation = Readonly<{
   rows: readonly ContractRateScheduleRow[];
   eligibility: PricingSourceEligibilityDiagnostics;
+  pricingAuthorityDiagnostics?: readonly PricingAuthorityDiagnostic[];
 }>;
 
 export class ContractPricingCandidateIdentityMissError extends Error {
@@ -1310,11 +1313,13 @@ export function buildContractIntelligencePricingSourcePreparation(
   const rawPricedScheduleReconstruction = asRecord(
     asRecord(input.primaryDocument.content_layers?.pdf)?.priced_schedule_reconstruction_v1,
   );
-  const bindingVersionAccepted = rawPricedScheduleReconstruction?.parser_version
-    === PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION;
+  const bindingVersionAccepted = isSupportedPricedScheduleVersion(rawPricedScheduleReconstruction?.parser_version);
   const allPricedSchedulePages = asArray<PricedSchedulePage>(rawPricedScheduleReconstruction?.pages);
   const scopedPricedScheduleReconstruction: PagePricedScheduleReconstruction = {
-    parser_version: PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION,
+    // Preserve supported history; unknown/unversioned legacy rows retain only
+    // the existing synthetic compatibility anchors, never modern binding.
+    parser_version: isSupportedPricedScheduleVersion(rawPricedScheduleReconstruction?.parser_version)
+      ? rawPricedScheduleReconstruction.parser_version : LEGACY_PRICED_SCHEDULE_RECONSTRUCTION_VERSION,
     pages: unscopedCompatibility
       ? allPricedSchedulePages
       : allPricedSchedulePages.filter((page) =>
@@ -1368,7 +1373,7 @@ export function buildContractIntelligencePricingSourcePreparation(
   const effectiveRateSchedulePages = unscopedCompatibility
     ? rateSchedulePages
     : scope.authoritativePages;
-  const rows = buildContractRateScheduleRows({
+  const pricingResult = buildContractRateScheduleRowsWithDiagnostics({
     documentType: input.primaryDocument.document_type,
     rateTable: unscopedCompatibility
       ? input.primaryDocument.typed_fields.rate_table
@@ -1384,6 +1389,8 @@ export function buildContractIntelligencePricingSourcePreparation(
     pricedScheduleReconstruction: scopedPricedScheduleReconstruction,
     pricedScheduleLayoutObservations: bindingVersionAccepted ? persistedLayoutObservations : null,
     pricedScheduleObservationContext: bindingVersionAccepted ? observationBindingContext : null,
+    pricedScheduleDiagnosticContext: { sourceDocumentId: input.primaryDocument.document_id,
+      ...(sourceArtifactId ? { sourceArtifactId } : {}) },
     rateSchedulePages: effectiveRateSchedulePages,
     rateSchedulePagePreferencePages: operatorRateSchedulePageHints,
     sourceEntries: canonicalEntries,
@@ -1392,7 +1399,8 @@ export function buildContractIntelligencePricingSourcePreparation(
       ...(input.primaryDocument.fact_map.rate_schedule_pages?.evidence_refs ?? []),
     ]),
     allowUnscopedCompatibility: unscopedCompatibility,
-  }).filter((row) => unscopedCompatibility
+  });
+  const rows = pricingResult.rows.filter((row) => unscopedCompatibility
     || row.source_anchor_ids.some((anchorId) => eligibleAnchorIds.has(anchorId))
     // Page-priced rows deliberately retain temporary synthetic row anchors
     // until anchor-identity remediation. Admit only rows produced by the known
@@ -1423,7 +1431,8 @@ export function buildContractIntelligencePricingSourcePreparation(
     legacyCompatibilityCount: observations.filter((entry) => entry.reason === 'legacy_compatibility').length,
     observations: Object.freeze(observations),
   });
-  return Object.freeze({ rows: Object.freeze(rows), eligibility });
+  return Object.freeze({ rows: Object.freeze(rows), eligibility,
+    ...(pricingResult.diagnostics.length ? { pricingAuthorityDiagnostics: pricingResult.diagnostics } : {}) });
 }
 
 /**
@@ -1453,8 +1462,9 @@ export function analyzeContractIntelligence(
     patterns,
     profile,
   );
-  const structuralRateScheduleRows = input.pricingAssembly?.structuralRateScheduleRows
-    ?? buildContractIntelligenceRateScheduleRows(input);
+  const ownPreparation = input.pricingAssembly ? null : buildContractIntelligencePricingSourcePreparation(input);
+  const authorityDiagnostics = input.pricingAssembly?.pricingAuthorityDiagnostics ?? ownPreparation?.pricingAuthorityDiagnostics;
+  const structuralRateScheduleRows = input.pricingAssembly?.structuralRateScheduleRows ?? ownPreparation!.rows;
   const rateScheduleRows = enrichRateScheduleRowsForPersistence(
     structuralRateScheduleRows,
     input.pricingAssembly,
@@ -1476,6 +1486,7 @@ export function analyzeContractIntelligence(
     compliance_model: families.compliance_model,
     payment_model: families.payment_model,
     rate_schedule_rows: rateScheduleRows,
+    ...(authorityDiagnostics?.length ? { pricing_authority_diagnostics: authorityDiagnostics } : {}),
     ...(input.pricingAssembly?.pricingSourceEligibility
       ? { pricing_source_eligibility: input.pricingAssembly.pricingSourceEligibility }
       : {}),

@@ -222,3 +222,65 @@ describe('candidate-based recovery V2 persistence', () => {
         p_recovery_candidates: [candidate] }));
   });
 });
+
+function headerCandidateForPersistence() {
+  const texts = ['Equipment Description', 'Unit', 'Unit Price'];
+  const ids = ['obs:header:description', 'obs:header:unit', 'obs:header:rate'];
+  return buildRecoveryCandidateV2({
+    recoveryType: 'priced_schedule_header_role_selection',
+    sourceDocumentId: DOC, sourceArtifactId: ART, physicalPageNumber: 3,
+    pageRepresentationDigest: 'a'.repeat(64), targetRowIdentity: 'page_priced_schedule:p3:header',
+    orderedObservationIds: ids, rawTexts: texts, composedRawText: texts.join(' '),
+    evidence: texts.map((rawText, i) => ({ observationId: ids[i]!, rawText,
+      sourceLayer: 'pdf_native_text' as const,
+      boundingBox: { xMin: i * 100, xMax: i * 100 + 80, yMin: 100, yMax: 112 } })),
+    headerRoleSelection: {
+      parserVersion: 'priced_schedule_reconstruction_v2',
+      headerInterpretationVersion: 'priced_schedule_header_interpretation_v1',
+      optionId: 'header-option-fixture', structuralRowCount: 39,
+      labels: texts.map((text, i) => ({ text,
+        role: (['description', 'unit', 'rate'] as const)[i]!, orderedObservationIds: [ids[i]!] })),
+    },
+  })!;
+}
+
+describe('preserved header option proposal persistence', () => {
+  const runtime = { certainty: 0, reasonCategory: 'preserved_single_header_option',
+    providerModel: 'deterministic_header_options', promptTemplateId: 'preserved_header_options',
+    promptTemplateVersion: '1' };
+  it('persists a reviewable singleton with no invented provider recommendation', async () => {
+    const candidate = headerCandidateForPersistence();
+    const proposal = buildDurableRecoveryProposalV2({ organizationId: ORG,
+      extractionSnapshotId: 'header-snapshot', candidates: [candidate],
+      selectedCandidateId: candidate.candidateId, ...runtime });
+    expect(proposal).toMatchObject({ recoveryType: 'priced_schedule_header_role_selection',
+      authority: 'non_authoritative', certainty: 0, providerModel: 'deterministic_header_options' });
+    const rpc = vi.fn(async () => ({ data: [{ proposal_row_id: DOC, inserted: true }], error: null }));
+    expect(await persistForgewingRecoveryProposalV2(proposal!, { admin: { rpc } }))
+      .toMatchObject({ status: 'persisted' });
+    expect(rpc).toHaveBeenCalledWith(RECOVERY_PROPOSAL_V2_WRITE_FUNCTION,
+      expect.objectContaining({ p_recovery_candidates: [candidate],
+        p_selected_candidate_id: candidate.candidateId, p_certainty: 0,
+        p_provider_model: 'deterministic_header_options' }));
+  });
+  it('refuses a deterministic envelope claiming confidence or multiple options', () => {
+    const candidate = headerCandidateForPersistence();
+    const alternate = buildRecoveryCandidateV2({ ...candidate,
+      headerRoleSelection: { ...candidate.headerRoleSelection!, optionId: 'header-option-other' } })!;
+    const base = { organizationId: ORG, extractionSnapshotId: 'header-snapshot',
+      candidates: [candidate], selectedCandidateId: candidate.candidateId, ...runtime };
+    expect(buildDurableRecoveryProposalV2({ ...base, certainty: 0.8 })).toBeNull();
+    expect(buildDurableRecoveryProposalV2({ ...base, candidates: [candidate, alternate] })).toBeNull();
+  });
+  it('rejects a malformed header candidate before any database write', async () => {
+    const candidate = headerCandidateForPersistence();
+    const proposal = buildDurableRecoveryProposalV2({ organizationId: ORG,
+      extractionSnapshotId: 'header-snapshot', candidates: [candidate],
+      selectedCandidateId: candidate.candidateId, ...runtime })!;
+    const rpc = vi.fn();
+    const altered = { ...proposal, candidates: [{ ...candidate, headerRoleSelection: undefined }] };
+    expect(await persistForgewingRecoveryProposalV2(altered as never, { admin: { rpc } }))
+      .toEqual({ status: 'failed', reason: 'invalid_proposal' });
+    expect(rpc).not.toHaveBeenCalled();
+  });
+});

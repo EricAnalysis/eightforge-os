@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -11,7 +12,15 @@ import {
   type BenchmarkPageLabels,
 } from '@/lib/evaluation/benchmark/benchmarkContract';
 import {
+  BENCHMARK_NATIVE_TEXT_EVIDENCE_AUTHORITY,
+  BENCHMARK_NATIVE_TEXT_EVIDENCE_VERSION,
   BENCHMARK_REVIEW_PACK_FILES,
+  BENCHMARK_REVIEW_PACK_VERSION,
+  BENCHMARK_SOURCE_BOUND_REVIEW_PACK_AUTHORITY,
+  BENCHMARK_SOURCE_BOUND_REVIEW_PACK_VERSION,
+  buildBenchmarkSourceBoundReviewPack,
+  parseBenchmarkNativeTextEvidence,
+  parseBenchmarkSourceBoundReviewPack,
   prepareBenchmarkReviewPack,
 } from '@/lib/evaluation/benchmark/benchmarkReviewPack';
 import {
@@ -39,7 +48,7 @@ const FRAME: BenchmarkPageLabels['frame'] = {
 const PAGE: BenchmarkWorkspacePage = {
   pageKey: 'golden-p8',
   documentKey: 'golden',
-  characterization: 'mixed_native_and_ocr',
+  characterization: 'ocr_price_sheet',
   sha256: '922161a533bb6b8c1afb52cb9536044c8a6836bed62401634f4f505025631e8f',
   byteLength: 2_481_310,
   physicalPageNumber: 8,
@@ -116,6 +125,157 @@ async function fixture(labelsBytes: Buffer): Promise<Readonly<{
 }
 
 describe('E3 independent review pack', () => {
+  it('validates deterministic native-text evidence and a digest-bound shared reviewer input', () => {
+    const text = 'DN12189513';
+    const transcription = `${text}\n`;
+    const transcriptionSha256 = createHash('sha256').update(transcription).digest('hex');
+    const source = {
+      documentKey: 'dn',
+      sha256: '6'.repeat(64),
+      byteLength: 3_895_497,
+      physicalPageNumber: 106,
+    };
+    const frame = { ...FRAME, view: [0, 0, 612, 792] as [number, number, number, number], width: 612 };
+    const evidence = parseBenchmarkNativeTextEvidence({
+      nativeTextEvidenceVersion: BENCHMARK_NATIVE_TEXT_EVIDENCE_VERSION,
+      authority: BENCHMARK_NATIVE_TEXT_EVIDENCE_AUTHORITY,
+      pageKey: 'dn-p106',
+      source,
+      frame,
+      extractor: {
+        name: 'pdfjs-dist getTextContent/getOperatorList',
+        version: '5.5.207',
+        disableWorker: true,
+        disableNormalization: true,
+      },
+      measurement: {
+        passes: 2,
+        repeatedMeasurementsExactMatch: true,
+        contentItemCount: 1,
+        nonEmptyTextItemCount: 1,
+        pageImageXObjectCount: 0,
+        imageMaskPaintCount: 0,
+        nativeTextLayerPresent: true,
+      },
+      transcription: {
+        encoding: 'pdfjs_text_content_items_with_eol_v1',
+        sha256: transcriptionSha256,
+        utf8ByteLength: Buffer.byteLength(transcription, 'utf8'),
+        nonEmptyItemSequenceJoinDelimiter: 'U+001F',
+        nonEmptyItemSequenceSha256: createHash('sha256').update(text).digest('hex'),
+        items: [{
+          sourceContentItemIndex: 0,
+          text,
+          hasEOL: true,
+          nonEmpty: true,
+          nonEmptyReadingOrder: 0,
+        }],
+      },
+      sourceDerivedTextBoxesIncluded: false,
+      sourceDerivedTextBoxesReason: 'Geometry remains separately reviewed.',
+    });
+    const jsonBinding = {
+      path: 'evidence.json', fileSha256: 'a'.repeat(64), canonicalSha256: 'b'.repeat(64),
+    };
+    const pack = buildBenchmarkSourceBoundReviewPack({
+      sourceBoundReviewPackVersion: BENCHMARK_SOURCE_BOUND_REVIEW_PACK_VERSION,
+      reviewPackVersion: BENCHMARK_REVIEW_PACK_VERSION,
+      authority: BENCHMARK_SOURCE_BOUND_REVIEW_PACK_AUTHORITY,
+      pageKey: 'dn-p106',
+      source,
+      frame,
+      characterization: 'dense_native_priced_schedule',
+      reviewerSchema: {
+        name: 'BenchmarkReviewerLabelSetSchema',
+        version: 'extraction-benchmark-reviewer-labels-v1',
+        authority: 'non_authoritative_reviewer_proposal',
+        requiredIndependence: {
+          inputMode: 'clean_source_page_only',
+          sawMachineSuggestions: false,
+          sawOtherReviewerLabels: false,
+        },
+      },
+      files: {
+        cleanRender: {
+          path: 'page.png', sha256: 'c'.repeat(64), pixelWidth: 1224, pixelHeight: 1584,
+        },
+        reviewSummary: jsonBinding,
+        sourceLayerMeasurement: { ...jsonBinding, path: 'measurement.json' },
+        nativeTextEvidence: { ...jsonBinding, path: 'native-text.json' },
+        reviewerContext: { ...jsonBinding, path: 'context.json' },
+      },
+      sharedReviewerInstruction: 'Review p106 independently from its supplied source evidence.',
+      semanticScope: { words: true, cells: true, rows: true, coverage: true, geometry: false },
+      sameFrozenInputForBothReviewers: true,
+      expectedOutputs: { reviewerA: 'reviewer-a.labels.json', reviewerB: 'reviewer-b.labels.json' },
+      contaminationBoundary: {
+        p107SemanticPayloadIncluded: false,
+        productionExtractionIncluded: false,
+        historicalP106ExtractionIncluded: false,
+        ambiguousRowDiagnosticsIncluded: false,
+        baselineMachinePredictionsIncluded: false,
+        benchmarkTruthIncluded: false,
+        machineSuggestionsIncluded: false,
+        ocrOutputIncluded: false,
+        geometryAuthorityIncluded: false,
+      },
+    });
+
+    expect(evidence.transcription.items).toHaveLength(1);
+    expect(parseBenchmarkSourceBoundReviewPack(pack)).toEqual(pack);
+    expect(() => parseBenchmarkSourceBoundReviewPack({
+      ...pack,
+      characterization: 'changed_after_digest',
+    })).toThrow(/source-bound review pack digest differs/);
+  });
+
+  it('rejects native-text evidence with changed sequence or non-contiguous reading order', () => {
+    const base = {
+      nativeTextEvidenceVersion: BENCHMARK_NATIVE_TEXT_EVIDENCE_VERSION,
+      authority: BENCHMARK_NATIVE_TEXT_EVIDENCE_AUTHORITY,
+      pageKey: 'dn-p106',
+      source: {
+        documentKey: 'dn', sha256: '6'.repeat(64), byteLength: 1, physicalPageNumber: 106,
+      },
+      frame: { ...FRAME, view: [0, 0, 612, 792], width: 612 },
+      extractor: {
+        name: 'pdfjs-dist getTextContent/getOperatorList',
+        version: '5.5.207',
+        disableWorker: true,
+        disableNormalization: true,
+      },
+      measurement: {
+        passes: 2,
+        repeatedMeasurementsExactMatch: true,
+        contentItemCount: 1,
+        nonEmptyTextItemCount: 1,
+        pageImageXObjectCount: 0,
+        imageMaskPaintCount: 0,
+        nativeTextLayerPresent: true,
+      },
+      transcription: {
+        encoding: 'pdfjs_text_content_items_with_eol_v1',
+        sha256: createHash('sha256').update('A').digest('hex'),
+        utf8ByteLength: 1,
+        nonEmptyItemSequenceJoinDelimiter: 'U+001F',
+        nonEmptyItemSequenceSha256: createHash('sha256').update('A').digest('hex'),
+        items: [{
+          sourceContentItemIndex: 1,
+          text: 'B',
+          hasEOL: true,
+          nonEmpty: true,
+          nonEmptyReadingOrder: 1,
+        }],
+      },
+      sourceDerivedTextBoxesIncluded: false,
+      sourceDerivedTextBoxesReason: 'Geometry remains separately reviewed.',
+    };
+
+    expect(() => parseBenchmarkNativeTextEvidence(base)).toThrow(
+      /source item indexes are not contiguous|non-empty reading order differs|transcription digest differs/,
+    );
+  });
+
   it('copies the exact workspace render and omits an unlabeled label template', async () => {
     const sourceLabels = Buffer.from(`${JSON.stringify(template(), null, 2)}\n`);
     const { workspace, out } = await fixture(sourceLabels);

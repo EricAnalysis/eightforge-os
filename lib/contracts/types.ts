@@ -201,6 +201,7 @@ export interface ContractAnalysisTrace {
 }
 
 export interface ContractRateScheduleRow {
+  header_semantics?: Readonly<{ status: 'human_selected'; candidate_id: string; review_id: string }>;
   row_id: string;
   description: string | null;
   unit: string | null;
@@ -317,6 +318,8 @@ export interface ContractAnalysisResult {
   compliance_model: ContractFieldAnalysisMap;
   payment_model: ContractFieldAnalysisMap;
   rate_schedule_rows?: ContractRateScheduleRow[];
+  /** Non-authoritative, page/source-bound reasons pricing was withheld. */
+  pricing_authority_diagnostics?: readonly import('@/lib/extraction/pdf/pricedScheduleAuthority').PricingAuthorityDiagnostic[];
   /** Deterministic Phase 3A pricing-source scope and observation classifications. */
   pricing_source_eligibility?: PricingSourceEligibilityDiagnostics;
   /** Non-blocking comparison when persisted and independently reconstructed modern rows coexist. */

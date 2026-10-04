@@ -37,6 +37,18 @@ function row(overrides: Partial<ContractRateScheduleRow> = {}): ContractRateSche
 }
 
 describe('assembleContractPricingRows', () => {
+  it('preserves the header selection receipt without changing admission or pricing', () => {
+    const receipt = { status: 'human_selected' as const,
+      candidate_id: `recovery-candidate-v2-${'c'.repeat(64)}`,
+      review_id: '55555555-5555-4555-8555-555555555555' };
+    const plain = assembleContractPricingRows([row()]);
+    const reviewed = assembleContractPricingRows([row({ header_semantics: receipt })]);
+    assert.equal(reviewed.length, plain.length);
+    assert.deepEqual(reviewed[0]?.headerSemantics, receipt);
+    const { headerSemantics: _receipt, ...pricing } = reviewed[0]!;
+    assert.deepEqual(pricing, plain[0]);
+    assert.notEqual(reviewed[0]?.headerSemantics, receipt);
+  });
   it('preserves explicit pre-refactor wrapper output and returns isolated mutable copies', () => {
     const rows = [
       row(),

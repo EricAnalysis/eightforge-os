@@ -1,0 +1,5554 @@
+{
+  "labelSetVersion": "extraction-benchmark-labels-v1",
+  "authority": "delegated_dual_ai_evaluation_ground_truth_only",
+  "pageKey": "golden-p8",
+  "source": {
+    "documentKey": "golden",
+    "sha256": "922161a533bb6b8c1afb52cb9536044c8a6836bed62401634f4f505025631e8f",
+    "byteLength": 2481310,
+    "physicalPageNumber": 8
+  },
+  "frame": {
+    "frame_version": "canonical_frame_v1",
+    "coordinate_space": "canonical_v1",
+    "view": [
+      0,
+      0,
+      612.48,
+      792
+    ],
+    "rotation": 0,
+    "user_unit": 1,
+    "width": 612.48,
+    "height": 792
+  },
+  "words": {
+    "status": "labeled",
+    "items": [
+      {
+        "labelId": "w-0001",
+        "text": "EXHIBIT",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 283.222,
+          "y_min": 83,
+          "x_max": 320.251,
+          "y_max": 90
+        }
+      },
+      {
+        "labelId": "w-0002",
+        "text": "A",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 322.753,
+          "y_min": 83,
+          "x_max": 328.758,
+          "y_max": 90
+        }
+      },
+      {
+        "labelId": "w-0003",
+        "text": "EMERGENCY",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 134.105,
+          "y_min": 103,
+          "x_max": 187.647,
+          "y_max": 111
+        }
+      },
+      {
+        "labelId": "w-0004",
+        "text": "DEBRIS",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 190.149,
+          "y_min": 103.5,
+          "x_max": 222.675,
+          "y_max": 110.5
+        }
+      },
+      {
+        "labelId": "w-0005",
+        "text": "REMOVAL",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 226.177,
+          "y_min": 103,
+          "x_max": 268.711,
+          "y_max": 111
+        }
+      },
+      {
+        "labelId": "w-0006",
+        "text": "UNIT",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 271.713,
+          "y_min": 103.5,
+          "x_max": 293.23,
+          "y_max": 110.5
+        }
+      },
+      {
+        "labelId": "w-0007",
+        "text": "RATES",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 296.232,
+          "y_min": 103.5,
+          "x_max": 324.254,
+          "y_max": 110.5
+        }
+      },
+      {
+        "labelId": "w-0008",
+        "text": "AND",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 326.756,
+          "y_min": 103.5,
+          "x_max": 345.771,
+          "y_max": 111
+        }
+      },
+      {
+        "labelId": "w-0009",
+        "text": "TIME-AND-MATERIALS",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 348.273,
+          "y_min": 103.5,
+          "x_max": 447.851,
+          "y_max": 111
+        }
+      },
+      {
+        "labelId": "w-0010",
+        "text": "RATES",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 450.853,
+          "y_min": 103.5,
+          "x_max": 478.375,
+          "y_max": 110.5
+        }
+      },
+      {
+        "labelId": "w-0011",
+        "text": "Category",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 78.061,
+          "y_min": 125,
+          "x_max": 118.093,
+          "y_max": 134.5
+        }
+      },
+      {
+        "labelId": "w-0012",
+        "text": "Description",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 249.195,
+          "y_min": 125.5,
+          "x_max": 309.743,
+          "y_max": 135
+        }
+      },
+      {
+        "labelId": "w-0013",
+        "text": "Unit",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 419.329,
+          "y_min": 125.5,
+          "x_max": 436.842,
+          "y_max": 132
+        }
+      },
+      {
+        "labelId": "w-0014",
+        "text": "Rate",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 481.377,
+          "y_min": 124,
+          "x_max": 503.395,
+          "y_max": 134
+        }
+      },
+      {
+        "labelId": "w-0015",
+        "text": "Vegetative",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 77.561,
+          "y_min": 138,
+          "x_max": 122.096,
+          "y_max": 148
+        }
+      },
+      {
+        "labelId": "w-0016",
+        "text": "Collect,",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 124.598,
+          "y_min": 139,
+          "x_max": 157.123,
+          "y_max": 147
+        }
+      },
+      {
+        "labelId": "w-0017",
+        "text": "Remove",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 160.626,
+          "y_min": 139,
+          "x_max": 194.152,
+          "y_max": 146
+        }
+      },
+      {
+        "labelId": "w-0018",
+        "text": "&",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 197.155,
+          "y_min": 138.5,
+          "x_max": 203.159,
+          "y_max": 147
+        }
+      },
+      {
+        "labelId": "w-0019",
+        "text": "Haul",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 206.162,
+          "y_min": 138.5,
+          "x_max": 226.177,
+          "y_max": 146.5
+        }
+      },
+      {
+        "labelId": "w-0020",
+        "text": "from",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 78.061,
+          "y_min": 151.5,
+          "x_max": 97.076,
+          "y_max": 159.5
+        }
+      },
+      {
+        "labelId": "w-0021",
+        "text": "Unincorporated",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 100.078,
+          "y_min": 151.5,
+          "x_max": 165.63,
+          "y_max": 160.5
+        }
+      },
+      {
+        "labelId": "w-0022",
+        "text": "Neighborhoods",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 170.133,
+          "y_min": 151.5,
+          "x_max": 233.683,
+          "y_max": 161.5
+        }
+      },
+      {
+        "labelId": "w-0023",
+        "text": "0–15",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 249.696,
+          "y_min": 139,
+          "x_max": 270.212,
+          "y_max": 146
+        }
+      },
+      {
+        "labelId": "w-0024",
+        "text": "Miles",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 273.715,
+          "y_min": 139,
+          "x_max": 295.732,
+          "y_max": 146
+        }
+      },
+      {
+        "labelId": "w-0025",
+        "text": "from",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 298.734,
+          "y_min": 139,
+          "x_max": 317.749,
+          "y_max": 146
+        }
+      },
+      {
+        "labelId": "w-0026",
+        "text": "ROW",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 321.252,
+          "y_min": 139,
+          "x_max": 343.269,
+          "y_max": 146
+        }
+      },
+      {
+        "labelId": "w-0027",
+        "text": "to",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 346.271,
+          "y_min": 139.5,
+          "x_max": 353.277,
+          "y_max": 146
+        }
+      },
+      {
+        "labelId": "w-0028",
+        "text": "DMS",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 357.28,
+          "y_min": 139,
+          "x_max": 376.295,
+          "y_max": 146
+        }
+      },
+      {
+        "labelId": "w-0029",
+        "text": "Cubic",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 419.329,
+          "y_min": 138,
+          "x_max": 443.848,
+          "y_max": 146
+        }
+      },
+      {
+        "labelId": "w-0030",
+        "text": "Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 446.35,
+          "y_min": 138.5,
+          "x_max": 465.365,
+          "y_max": 145.5
+        }
+      },
+      {
+        "labelId": "w-0031",
+        "text": "$6.90",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 479.876,
+          "y_min": 136.5,
+          "x_max": 506.897,
+          "y_max": 146.5
+        }
+      },
+      {
+        "labelId": "w-0032",
+        "text": "Vegetative",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 77.561,
+          "y_min": 164.5,
+          "x_max": 121.595,
+          "y_max": 175.5
+        }
+      },
+      {
+        "labelId": "w-0033",
+        "text": "Collect,",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 124.097,
+          "y_min": 164.5,
+          "x_max": 157.123,
+          "y_max": 174
+        }
+      },
+      {
+        "labelId": "w-0034",
+        "text": "Remove",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 160.125,
+          "y_min": 163.5,
+          "x_max": 194.152,
+          "y_max": 173
+        }
+      },
+      {
+        "labelId": "w-0035",
+        "text": "&",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 197.155,
+          "y_min": 164.5,
+          "x_max": 203.159,
+          "y_max": 173
+        }
+      },
+      {
+        "labelId": "w-0036",
+        "text": "Haul",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 206.162,
+          "y_min": 165,
+          "x_max": 225.176,
+          "y_max": 173
+        }
+      },
+      {
+        "labelId": "w-0037",
+        "text": "from",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 78.061,
+          "y_min": 178,
+          "x_max": 97.076,
+          "y_max": 186
+        }
+      },
+      {
+        "labelId": "w-0038",
+        "text": "Unincorporated",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 100.579,
+          "y_min": 178,
+          "x_max": 165.63,
+          "y_max": 187
+        }
+      },
+      {
+        "labelId": "w-0039",
+        "text": "Neighborhoods",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 168.632,
+          "y_min": 178,
+          "x_max": 233.683,
+          "y_max": 187
+        }
+      },
+      {
+        "labelId": "w-0040",
+        "text": "16–30",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 250.196,
+          "y_min": 164.5,
+          "x_max": 276.216,
+          "y_max": 173
+        }
+      },
+      {
+        "labelId": "w-0041",
+        "text": "Miles",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 279.719,
+          "y_min": 164,
+          "x_max": 301.736,
+          "y_max": 172.5
+        }
+      },
+      {
+        "labelId": "w-0042",
+        "text": "from",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 303.738,
+          "y_min": 164,
+          "x_max": 323.754,
+          "y_max": 173
+        }
+      },
+      {
+        "labelId": "w-0043",
+        "text": "ROW",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 327.256,
+          "y_min": 165,
+          "x_max": 348.773,
+          "y_max": 172.5
+        }
+      },
+      {
+        "labelId": "w-0044",
+        "text": "to",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 351.776,
+          "y_min": 166,
+          "x_max": 359.782,
+          "y_max": 172.5
+        }
+      },
+      {
+        "labelId": "w-0045",
+        "text": "DMS",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 362.784,
+          "y_min": 163,
+          "x_max": 381.799,
+          "y_max": 172.5
+        }
+      },
+      {
+        "labelId": "w-0046",
+        "text": "Cubic",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 419.329,
+          "y_min": 165,
+          "x_max": 443.848,
+          "y_max": 172
+        }
+      },
+      {
+        "labelId": "w-0047",
+        "text": "Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 445.849,
+          "y_min": 163.5,
+          "x_max": 465.865,
+          "y_max": 172.5
+        }
+      },
+      {
+        "labelId": "w-0048",
+        "text": "$7.90",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 482.878,
+          "y_min": 164.5,
+          "x_max": 506.897,
+          "y_max": 172.5
+        }
+      },
+      {
+        "labelId": "w-0049",
+        "text": "Vegetative",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 77.561,
+          "y_min": 191,
+          "x_max": 122.096,
+          "y_max": 201.5
+        }
+      },
+      {
+        "labelId": "w-0050",
+        "text": "Collect,",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 124.598,
+          "y_min": 191.5,
+          "x_max": 157.123,
+          "y_max": 200.5
+        }
+      },
+      {
+        "labelId": "w-0051",
+        "text": "Remove",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 160.125,
+          "y_min": 189.5,
+          "x_max": 194.653,
+          "y_max": 200
+        }
+      },
+      {
+        "labelId": "w-0052",
+        "text": "&",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 197.155,
+          "y_min": 191,
+          "x_max": 203.159,
+          "y_max": 199.5
+        }
+      },
+      {
+        "labelId": "w-0053",
+        "text": "Haul",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 206.162,
+          "y_min": 191,
+          "x_max": 225.677,
+          "y_max": 200
+        }
+      },
+      {
+        "labelId": "w-0054",
+        "text": "from",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 78.061,
+          "y_min": 204.5,
+          "x_max": 97.076,
+          "y_max": 212
+        }
+      },
+      {
+        "labelId": "w-0055",
+        "text": "Unincorporated",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 100.078,
+          "y_min": 204,
+          "x_max": 166.13,
+          "y_max": 216
+        }
+      },
+      {
+        "labelId": "w-0056",
+        "text": "Neighborhoods",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 169.133,
+          "y_min": 204,
+          "x_max": 235.184,
+          "y_max": 214.5
+        }
+      },
+      {
+        "labelId": "w-0057",
+        "text": "31–60",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 249.696,
+          "y_min": 191.5,
+          "x_max": 276.216,
+          "y_max": 199
+        }
+      },
+      {
+        "labelId": "w-0058",
+        "text": "Miles",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 279.219,
+          "y_min": 190,
+          "x_max": 301.736,
+          "y_max": 199
+        }
+      },
+      {
+        "labelId": "w-0059",
+        "text": "from",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 304.739,
+          "y_min": 191.5,
+          "x_max": 323.754,
+          "y_max": 199
+        }
+      },
+      {
+        "labelId": "w-0060",
+        "text": "ROW",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 327.256,
+          "y_min": 191.5,
+          "x_max": 349.274,
+          "y_max": 198.5
+        }
+      },
+      {
+        "labelId": "w-0061",
+        "text": "to",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 351.275,
+          "y_min": 192.5,
+          "x_max": 359.782,
+          "y_max": 199
+        }
+      },
+      {
+        "labelId": "w-0062",
+        "text": "DMS",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 362.784,
+          "y_min": 191.5,
+          "x_max": 382.8,
+          "y_max": 199
+        }
+      },
+      {
+        "labelId": "w-0063",
+        "text": "Cubic",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 419.329,
+          "y_min": 191.5,
+          "x_max": 443.848,
+          "y_max": 198.5
+        }
+      },
+      {
+        "labelId": "w-0064",
+        "text": "Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 446.85,
+          "y_min": 191,
+          "x_max": 465.865,
+          "y_max": 199
+        }
+      },
+      {
+        "labelId": "w-0065",
+        "text": "$8.90",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 482.878,
+          "y_min": 190,
+          "x_max": 507.398,
+          "y_max": 201
+        }
+      },
+      {
+        "labelId": "w-0066",
+        "text": "Vegetative",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 77.561,
+          "y_min": 217.5,
+          "x_max": 122.096,
+          "y_max": 227.5
+        }
+      },
+      {
+        "labelId": "w-0067",
+        "text": "Collect,",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 124.598,
+          "y_min": 216,
+          "x_max": 157.624,
+          "y_max": 227
+        }
+      },
+      {
+        "labelId": "w-0068",
+        "text": "Remove",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 160.626,
+          "y_min": 218,
+          "x_max": 195.153,
+          "y_max": 226
+        }
+      },
+      {
+        "labelId": "w-0069",
+        "text": "&",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 197.655,
+          "y_min": 217,
+          "x_max": 203.66,
+          "y_max": 225.5
+        }
+      },
+      {
+        "labelId": "w-0070",
+        "text": "Haul",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 206.662,
+          "y_min": 217,
+          "x_max": 225.677,
+          "y_max": 225.5
+        }
+      },
+      {
+        "labelId": "w-0071",
+        "text": "from",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 78.562,
+          "y_min": 231,
+          "x_max": 98.077,
+          "y_max": 239.5
+        }
+      },
+      {
+        "labelId": "w-0072",
+        "text": "Unincorporated",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 100.579,
+          "y_min": 230.5,
+          "x_max": 165.63,
+          "y_max": 240
+        }
+      },
+      {
+        "labelId": "w-0073",
+        "text": "Neighborhoods",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 169.133,
+          "y_min": 230.5,
+          "x_max": 233.683,
+          "y_max": 240
+        }
+      },
+      {
+        "labelId": "w-0074",
+        "text": "60+",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 250.196,
+          "y_min": 218.5,
+          "x_max": 263.707,
+          "y_max": 225
+        }
+      },
+      {
+        "labelId": "w-0075",
+        "text": "Miles",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 269.211,
+          "y_min": 217,
+          "x_max": 291.228,
+          "y_max": 225.5
+        }
+      },
+      {
+        "labelId": "w-0076",
+        "text": "from",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 293.73,
+          "y_min": 218,
+          "x_max": 313.245,
+          "y_max": 225.5
+        }
+      },
+      {
+        "labelId": "w-0077",
+        "text": "ROW",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 316.248,
+          "y_min": 217,
+          "x_max": 339.266,
+          "y_max": 225.5
+        }
+      },
+      {
+        "labelId": "w-0078",
+        "text": "to",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 341.768,
+          "y_min": 218.5,
+          "x_max": 349.774,
+          "y_max": 225.5
+        }
+      },
+      {
+        "labelId": "w-0079",
+        "text": "DMS",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 352.776,
+          "y_min": 217,
+          "x_max": 372.292,
+          "y_max": 225.5
+        }
+      },
+      {
+        "labelId": "w-0080",
+        "text": "Cubic",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 419.829,
+          "y_min": 216,
+          "x_max": 444.348,
+          "y_max": 225
+        }
+      },
+      {
+        "labelId": "w-0081",
+        "text": "Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 446.85,
+          "y_min": 216.5,
+          "x_max": 466.365,
+          "y_max": 225
+        }
+      },
+      {
+        "labelId": "w-0082",
+        "text": "$10.90",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 482.878,
+          "y_min": 215.5,
+          "x_max": 512.902,
+          "y_max": 225.5
+        }
+      },
+      {
+        "labelId": "w-0083",
+        "text": "Vegetative",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 75.059,
+          "y_min": 244,
+          "x_max": 121.595,
+          "y_max": 253.5
+        }
+      },
+      {
+        "labelId": "w-0084",
+        "text": "Collect,",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 125.098,
+          "y_min": 244.5,
+          "x_max": 157.123,
+          "y_max": 253
+        }
+      },
+      {
+        "labelId": "w-0085",
+        "text": "Remove",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 160.626,
+          "y_min": 245,
+          "x_max": 194.653,
+          "y_max": 252
+        }
+      },
+      {
+        "labelId": "w-0086",
+        "text": "&",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 197.655,
+          "y_min": 244,
+          "x_max": 203.159,
+          "y_max": 252
+        }
+      },
+      {
+        "labelId": "w-0087",
+        "text": "Haul",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 206.662,
+          "y_min": 244.5,
+          "x_max": 225.677,
+          "y_max": 253
+        }
+      },
+      {
+        "labelId": "w-0088",
+        "text": "from",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 78.562,
+          "y_min": 257,
+          "x_max": 98.077,
+          "y_max": 265.5
+        }
+      },
+      {
+        "labelId": "w-0089",
+        "text": "Rural",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 100.579,
+          "y_min": 258,
+          "x_max": 122.096,
+          "y_max": 265
+        }
+      },
+      {
+        "labelId": "w-0090",
+        "text": "Areas",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 124.598,
+          "y_min": 257.5,
+          "x_max": 148.616,
+          "y_max": 265
+        }
+      },
+      {
+        "labelId": "w-0091",
+        "text": "0–15",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 250.196,
+          "y_min": 244.5,
+          "x_max": 270.712,
+          "y_max": 252
+        }
+      },
+      {
+        "labelId": "w-0092",
+        "text": "Miles",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 274.215,
+          "y_min": 244,
+          "x_max": 296.733,
+          "y_max": 252
+        }
+      },
+      {
+        "labelId": "w-0093",
+        "text": "from",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 299.735,
+          "y_min": 244,
+          "x_max": 318.249,
+          "y_max": 252
+        }
+      },
+      {
+        "labelId": "w-0094",
+        "text": "ROW",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 321.752,
+          "y_min": 244,
+          "x_max": 343.769,
+          "y_max": 252
+        }
+      },
+      {
+        "labelId": "w-0095",
+        "text": "to",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 346.772,
+          "y_min": 244.5,
+          "x_max": 354.278,
+          "y_max": 252
+        }
+      },
+      {
+        "labelId": "w-0096",
+        "text": "DMS",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 357.78,
+          "y_min": 244.5,
+          "x_max": 376.795,
+          "y_max": 251.5
+        }
+      },
+      {
+        "labelId": "w-0097",
+        "text": "Cubic",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 420.329,
+          "y_min": 243.5,
+          "x_max": 444.348,
+          "y_max": 252.5
+        }
+      },
+      {
+        "labelId": "w-0098",
+        "text": "Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 447.351,
+          "y_min": 244,
+          "x_max": 465.865,
+          "y_max": 251.5
+        }
+      },
+      {
+        "labelId": "w-0099",
+        "text": "$13.50",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 483.379,
+          "y_min": 244,
+          "x_max": 512.902,
+          "y_max": 252
+        }
+      },
+      {
+        "labelId": "w-0100",
+        "text": "Vegetative",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 78.061,
+          "y_min": 270.5,
+          "x_max": 121.595,
+          "y_max": 280
+        }
+      },
+      {
+        "labelId": "w-0101",
+        "text": "Collect,",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 124.598,
+          "y_min": 270.5,
+          "x_max": 157.123,
+          "y_max": 279.5
+        }
+      },
+      {
+        "labelId": "w-0102",
+        "text": "Remove",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 160.626,
+          "y_min": 271,
+          "x_max": 194.653,
+          "y_max": 278.5
+        }
+      },
+      {
+        "labelId": "w-0103",
+        "text": "&",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 197.655,
+          "y_min": 271,
+          "x_max": 203.159,
+          "y_max": 278.5
+        }
+      },
+      {
+        "labelId": "w-0104",
+        "text": "Haul",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 206.662,
+          "y_min": 271,
+          "x_max": 225.677,
+          "y_max": 278
+        }
+      },
+      {
+        "labelId": "w-0105",
+        "text": "from",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 79.062,
+          "y_min": 284,
+          "x_max": 97.576,
+          "y_max": 291.5
+        }
+      },
+      {
+        "labelId": "w-0106",
+        "text": "Rural",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 100.579,
+          "y_min": 284,
+          "x_max": 122.096,
+          "y_max": 291.5
+        }
+      },
+      {
+        "labelId": "w-0107",
+        "text": "Areas",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 125.098,
+          "y_min": 284,
+          "x_max": 148.616,
+          "y_max": 291.5
+        }
+      },
+      {
+        "labelId": "w-0108",
+        "text": "16–30",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 250.696,
+          "y_min": 270.5,
+          "x_max": 276.717,
+          "y_max": 278.5
+        }
+      },
+      {
+        "labelId": "w-0109",
+        "text": "Miles",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 279.719,
+          "y_min": 270.5,
+          "x_max": 302.237,
+          "y_max": 278.5
+        }
+      },
+      {
+        "labelId": "w-0110",
+        "text": "from",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 304.739,
+          "y_min": 270.5,
+          "x_max": 324.254,
+          "y_max": 278.5
+        }
+      },
+      {
+        "labelId": "w-0111",
+        "text": "ROW",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 327.256,
+          "y_min": 269,
+          "x_max": 349.774,
+          "y_max": 279.5
+        }
+      },
+      {
+        "labelId": "w-0112",
+        "text": "to",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 352.276,
+          "y_min": 271.5,
+          "x_max": 360.282,
+          "y_max": 278
+        }
+      },
+      {
+        "labelId": "w-0113",
+        "text": "DMS",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 363.285,
+          "y_min": 269.5,
+          "x_max": 382.8,
+          "y_max": 278
+        }
+      },
+      {
+        "labelId": "w-0114",
+        "text": "Cubic",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 419.829,
+          "y_min": 270,
+          "x_max": 444.348,
+          "y_max": 278
+        }
+      },
+      {
+        "labelId": "w-0115",
+        "text": "Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 447.351,
+          "y_min": 270,
+          "x_max": 466.365,
+          "y_max": 278
+        }
+      },
+      {
+        "labelId": "w-0116",
+        "text": "$14.50",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 483.379,
+          "y_min": 269.5,
+          "x_max": 512.902,
+          "y_max": 278
+        }
+      },
+      {
+        "labelId": "w-0117",
+        "text": "Vegetative",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 78.562,
+          "y_min": 297,
+          "x_max": 121.595,
+          "y_max": 306.5
+        }
+      },
+      {
+        "labelId": "w-0118",
+        "text": "Collect,",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 125.098,
+          "y_min": 296.5,
+          "x_max": 157.123,
+          "y_max": 306.5
+        }
+      },
+      {
+        "labelId": "w-0119",
+        "text": "Remove",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 161.126,
+          "y_min": 297.5,
+          "x_max": 194.653,
+          "y_max": 305
+        }
+      },
+      {
+        "labelId": "w-0120",
+        "text": "&",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 197.655,
+          "y_min": 297.5,
+          "x_max": 203.159,
+          "y_max": 305
+        }
+      },
+      {
+        "labelId": "w-0121",
+        "text": "Haul",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 206.662,
+          "y_min": 297.5,
+          "x_max": 225.677,
+          "y_max": 305
+        }
+      },
+      {
+        "labelId": "w-0122",
+        "text": "from",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 78.562,
+          "y_min": 310,
+          "x_max": 99.078,
+          "y_max": 318
+        }
+      },
+      {
+        "labelId": "w-0123",
+        "text": "Rural",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 100.579,
+          "y_min": 310,
+          "x_max": 122.596,
+          "y_max": 318.5
+        }
+      },
+      {
+        "labelId": "w-0124",
+        "text": "Areas",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 126.599,
+          "y_min": 310.5,
+          "x_max": 149.117,
+          "y_max": 318
+        }
+      },
+      {
+        "labelId": "w-0125",
+        "text": "31–60",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 250.196,
+          "y_min": 297.5,
+          "x_max": 276.717,
+          "y_max": 306
+        }
+      },
+      {
+        "labelId": "w-0126",
+        "text": "Miles",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 279.719,
+          "y_min": 297,
+          "x_max": 302.237,
+          "y_max": 305.5
+        }
+      },
+      {
+        "labelId": "w-0127",
+        "text": "from",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 304.739,
+          "y_min": 297.5,
+          "x_max": 324.254,
+          "y_max": 305.5
+        }
+      },
+      {
+        "labelId": "w-0128",
+        "text": "ROW",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 327.757,
+          "y_min": 297.5,
+          "x_max": 349.274,
+          "y_max": 305
+        }
+      },
+      {
+        "labelId": "w-0129",
+        "text": "to",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 351.776,
+          "y_min": 297.5,
+          "x_max": 360.783,
+          "y_max": 305.5
+        }
+      },
+      {
+        "labelId": "w-0130",
+        "text": "DMS",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 363.285,
+          "y_min": 297.5,
+          "x_max": 382.8,
+          "y_max": 305
+        }
+      },
+      {
+        "labelId": "w-0131",
+        "text": "Cubic",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 419.829,
+          "y_min": 296.5,
+          "x_max": 444.849,
+          "y_max": 305.5
+        }
+      },
+      {
+        "labelId": "w-0132",
+        "text": "Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 447.351,
+          "y_min": 297,
+          "x_max": 466.365,
+          "y_max": 305
+        }
+      },
+      {
+        "labelId": "w-0133",
+        "text": "$15.50",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 483.379,
+          "y_min": 297,
+          "x_max": 512.902,
+          "y_max": 304.5
+        }
+      },
+      {
+        "labelId": "w-0134",
+        "text": "Vegetative",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 77.561,
+          "y_min": 323,
+          "x_max": 122.596,
+          "y_max": 333.5
+        }
+      },
+      {
+        "labelId": "w-0135",
+        "text": "Collect,",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 125.098,
+          "y_min": 324,
+          "x_max": 157.624,
+          "y_max": 332.5
+        }
+      },
+      {
+        "labelId": "w-0136",
+        "text": "Remove",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 161.126,
+          "y_min": 324,
+          "x_max": 195.153,
+          "y_max": 331.5
+        }
+      },
+      {
+        "labelId": "w-0137",
+        "text": "&",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 197.655,
+          "y_min": 324,
+          "x_max": 203.66,
+          "y_max": 331.5
+        }
+      },
+      {
+        "labelId": "w-0138",
+        "text": "Haul",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 206.662,
+          "y_min": 324,
+          "x_max": 226.177,
+          "y_max": 332
+        }
+      },
+      {
+        "labelId": "w-0139",
+        "text": "from",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 78.562,
+          "y_min": 336.5,
+          "x_max": 97.576,
+          "y_max": 344.5
+        }
+      },
+      {
+        "labelId": "w-0140",
+        "text": "Rural",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 100.579,
+          "y_min": 337,
+          "x_max": 122.096,
+          "y_max": 344.5
+        }
+      },
+      {
+        "labelId": "w-0141",
+        "text": "Areas",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 124.097,
+          "y_min": 337,
+          "x_max": 149.117,
+          "y_max": 344.5
+        }
+      },
+      {
+        "labelId": "w-0142",
+        "text": "60+",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 250.696,
+          "y_min": 324,
+          "x_max": 264.207,
+          "y_max": 331
+        }
+      },
+      {
+        "labelId": "w-0143",
+        "text": "Miles",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 269.711,
+          "y_min": 323.5,
+          "x_max": 291.729,
+          "y_max": 331
+        }
+      },
+      {
+        "labelId": "w-0144",
+        "text": "from",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 293.73,
+          "y_min": 323.5,
+          "x_max": 314.246,
+          "y_max": 331.5
+        }
+      },
+      {
+        "labelId": "w-0145",
+        "text": "ROW",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 317.249,
+          "y_min": 322.5,
+          "x_max": 339.766,
+          "y_max": 331
+        }
+      },
+      {
+        "labelId": "w-0146",
+        "text": "to",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 341.768,
+          "y_min": 324,
+          "x_max": 349.774,
+          "y_max": 331
+        }
+      },
+      {
+        "labelId": "w-0147",
+        "text": "DMS",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 352.776,
+          "y_min": 323.5,
+          "x_max": 373.293,
+          "y_max": 331.5
+        }
+      },
+      {
+        "labelId": "w-0148",
+        "text": "Cubic",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 420.329,
+          "y_min": 323.5,
+          "x_max": 444.849,
+          "y_max": 330.5
+        }
+      },
+      {
+        "labelId": "w-0149",
+        "text": "Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 447.851,
+          "y_min": 323,
+          "x_max": 466.365,
+          "y_max": 330.5
+        }
+      },
+      {
+        "labelId": "w-0150",
+        "text": "$17.50",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 483.379,
+          "y_min": 320.5,
+          "x_max": 513.402,
+          "y_max": 331.5
+        }
+      },
+      {
+        "labelId": "w-0151",
+        "text": "Vegetative",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 78.562,
+          "y_min": 348,
+          "x_max": 122.596,
+          "y_max": 359
+        }
+      },
+      {
+        "labelId": "w-0152",
+        "text": "Collect,",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 125.098,
+          "y_min": 350,
+          "x_max": 157.624,
+          "y_max": 359
+        }
+      },
+      {
+        "labelId": "w-0153",
+        "text": "Remove",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 161.126,
+          "y_min": 350,
+          "x_max": 195.153,
+          "y_max": 357.5
+        }
+      },
+      {
+        "labelId": "w-0154",
+        "text": "&",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 197.655,
+          "y_min": 350,
+          "x_max": 203.66,
+          "y_max": 357.5
+        }
+      },
+      {
+        "labelId": "w-0155",
+        "text": "Haul",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 206.162,
+          "y_min": 350,
+          "x_max": 226.177,
+          "y_max": 357.5
+        }
+      },
+      {
+        "labelId": "w-0156",
+        "text": "Single",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 250.696,
+          "y_min": 349.5,
+          "x_max": 275.716,
+          "y_max": 359
+        }
+      },
+      {
+        "labelId": "w-0157",
+        "text": "Cost",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 278.718,
+          "y_min": 349,
+          "x_max": 298.734,
+          "y_max": 358
+        }
+      },
+      {
+        "labelId": "w-0158",
+        "text": "from",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 301.736,
+          "y_min": 350,
+          "x_max": 320.751,
+          "y_max": 358
+        }
+      },
+      {
+        "labelId": "w-0159",
+        "text": "ROW",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 324.254,
+          "y_min": 350,
+          "x_max": 346.271,
+          "y_max": 357.5
+        }
+      },
+      {
+        "labelId": "w-0160",
+        "text": "to",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 349.274,
+          "y_min": 348.5,
+          "x_max": 355.779,
+          "y_max": 357.5
+        }
+      },
+      {
+        "labelId": "w-0161",
+        "text": "DMS",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 359.282,
+          "y_min": 350,
+          "x_max": 378.296,
+          "y_max": 357
+        }
+      },
+      {
+        "labelId": "w-0162",
+        "text": "-Any",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 381.299,
+          "y_min": 349.5,
+          "x_max": 400.814,
+          "y_max": 359
+        }
+      },
+      {
+        "labelId": "w-0163",
+        "text": "Distance",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 250.696,
+          "y_min": 363,
+          "x_max": 289.227,
+          "y_max": 371
+        }
+      },
+      {
+        "labelId": "w-0164",
+        "text": "Cubic",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 420.329,
+          "y_min": 348.5,
+          "x_max": 444.849,
+          "y_max": 357.5
+        }
+      },
+      {
+        "labelId": "w-0165",
+        "text": "Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 447.851,
+          "y_min": 350,
+          "x_max": 466.866,
+          "y_max": 357.5
+        }
+      },
+      {
+        "labelId": "w-0166",
+        "text": "$10.90",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 483.379,
+          "y_min": 348,
+          "x_max": 513.903,
+          "y_max": 358
+        }
+      },
+      {
+        "labelId": "w-0167",
+        "text": "Management",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 78.562,
+          "y_min": 376,
+          "x_max": 142.111,
+          "y_max": 386.5
+        }
+      },
+      {
+        "labelId": "w-0168",
+        "text": "&",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 136.607,
+          "y_min": 376,
+          "x_max": 142.111,
+          "y_max": 384
+        }
+      },
+      {
+        "labelId": "w-0169",
+        "text": "Reduction",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 145.114,
+          "y_min": 376.5,
+          "x_max": 188.147,
+          "y_max": 385
+        }
+      },
+      {
+        "labelId": "w-0170",
+        "text": "Grinding",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 250.696,
+          "y_min": 374,
+          "x_max": 286.224,
+          "y_max": 385.5
+        }
+      },
+      {
+        "labelId": "w-0171",
+        "text": "and",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 288.726,
+          "y_min": 376.5,
+          "x_max": 304.238,
+          "y_max": 384
+        }
+      },
+      {
+        "labelId": "w-0172",
+        "text": "Chipping",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 306.24,
+          "y_min": 375.5,
+          "x_max": 344.77,
+          "y_max": 386
+        }
+      },
+      {
+        "labelId": "w-0173",
+        "text": "Vegetative",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 346.772,
+          "y_min": 376,
+          "x_max": 390.806,
+          "y_max": 385.5
+        }
+      },
+      {
+        "labelId": "w-0174",
+        "text": "Debris",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 250.696,
+          "y_min": 389,
+          "x_max": 279.719,
+          "y_max": 398.5
+        }
+      },
+      {
+        "labelId": "w-0175",
+        "text": "Cubic",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 420.83,
+          "y_min": 376.5,
+          "x_max": 445.349,
+          "y_max": 383.5
+        }
+      },
+      {
+        "labelId": "w-0176",
+        "text": "Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 448.351,
+          "y_min": 375.5,
+          "x_max": 468.367,
+          "y_max": 383.5
+        }
+      },
+      {
+        "labelId": "w-0177",
+        "text": "$2.25",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 483.879,
+          "y_min": 375,
+          "x_max": 508.899,
+          "y_max": 384.5
+        }
+      },
+      {
+        "labelId": "w-0178",
+        "text": "Management",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 79.562,
+          "y_min": 403,
+          "x_max": 133.605,
+          "y_max": 412
+        }
+      },
+      {
+        "labelId": "w-0179",
+        "text": "&",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 136.607,
+          "y_min": 403,
+          "x_max": 142.111,
+          "y_max": 410.5
+        }
+      },
+      {
+        "labelId": "w-0180",
+        "text": "Reduction",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 145.114,
+          "y_min": 403,
+          "x_max": 187.647,
+          "y_max": 410.5
+        }
+      },
+      {
+        "labelId": "w-0181",
+        "text": "Air",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 247.694,
+          "y_min": 402.5,
+          "x_max": 262.205,
+          "y_max": 411.5
+        }
+      },
+      {
+        "labelId": "w-0182",
+        "text": "Curtain",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 264.207,
+          "y_min": 402.5,
+          "x_max": 295.732,
+          "y_max": 411
+        }
+      },
+      {
+        "labelId": "w-0183",
+        "text": "Burning",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 298.734,
+          "y_min": 401,
+          "x_max": 331.26,
+          "y_max": 412.5
+        }
+      },
+      {
+        "labelId": "w-0184",
+        "text": "of",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 333.261,
+          "y_min": 402.5,
+          "x_max": 341.267,
+          "y_max": 410.5
+        }
+      },
+      {
+        "labelId": "w-0185",
+        "text": "Vegetative",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 343.269,
+          "y_min": 400.5,
+          "x_max": 387.804,
+          "y_max": 412
+        }
+      },
+      {
+        "labelId": "w-0186",
+        "text": "Debris",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 251.197,
+          "y_min": 416,
+          "x_max": 278.218,
+          "y_max": 424
+        }
+      },
+      {
+        "labelId": "w-0187",
+        "text": "(if",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 281.22,
+          "y_min": 415.5,
+          "x_max": 290.227,
+          "y_max": 424.5
+        }
+      },
+      {
+        "labelId": "w-0188",
+        "text": "applicable/allowed)",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 291.729,
+          "y_min": 415.5,
+          "x_max": 376.795,
+          "y_max": 424.5
+        }
+      },
+      {
+        "labelId": "w-0189",
+        "text": "Cubic",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 420.83,
+          "y_min": 402,
+          "x_max": 445.849,
+          "y_max": 410.5
+        }
+      },
+      {
+        "labelId": "w-0190",
+        "text": "Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 448.351,
+          "y_min": 402,
+          "x_max": 467.366,
+          "y_max": 410
+        }
+      },
+      {
+        "labelId": "w-0191",
+        "text": "$1.50",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 484.38,
+          "y_min": 401.5,
+          "x_max": 508.899,
+          "y_max": 411
+        }
+      },
+      {
+        "labelId": "w-0192",
+        "text": "Management",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 79.062,
+          "y_min": 429,
+          "x_max": 134.105,
+          "y_max": 438.5
+        }
+      },
+      {
+        "labelId": "w-0193",
+        "text": "&",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 136.607,
+          "y_min": 429,
+          "x_max": 142.111,
+          "y_max": 437
+        }
+      },
+      {
+        "labelId": "w-0194",
+        "text": "Reduction",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 145.114,
+          "y_min": 429.5,
+          "x_max": 188.147,
+          "y_max": 437.5
+        }
+      },
+      {
+        "labelId": "w-0195",
+        "text": "Open",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 252.698,
+          "y_min": 429,
+          "x_max": 273.214,
+          "y_max": 438.5
+        }
+      },
+      {
+        "labelId": "w-0196",
+        "text": "Burning",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 276.717,
+          "y_min": 428.5,
+          "x_max": 309.242,
+          "y_max": 439
+        }
+      },
+      {
+        "labelId": "w-0197",
+        "text": "of",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 311.744,
+          "y_min": 429,
+          "x_max": 319.25,
+          "y_max": 436.5
+        }
+      },
+      {
+        "labelId": "w-0198",
+        "text": "Vegetative",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 321.252,
+          "y_min": 429.5,
+          "x_max": 366.287,
+          "y_max": 438.5
+        }
+      },
+      {
+        "labelId": "w-0199",
+        "text": "Debris",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 369.289,
+          "y_min": 427.5,
+          "x_max": 395.81,
+          "y_max": 437
+        }
+      },
+      {
+        "labelId": "w-0200",
+        "text": "(if",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 399.313,
+          "y_min": 428.5,
+          "x_max": 406.819,
+          "y_max": 438.5
+        }
+      },
+      {
+        "labelId": "w-0201",
+        "text": "applicable/allowed)",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 251.197,
+          "y_min": 441.5,
+          "x_max": 336.264,
+          "y_max": 451
+        }
+      },
+      {
+        "labelId": "w-0202",
+        "text": "Cubic",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 420.83,
+          "y_min": 427.5,
+          "x_max": 445.849,
+          "y_max": 436.5
+        }
+      },
+      {
+        "labelId": "w-0203",
+        "text": "Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 448.351,
+          "y_min": 427,
+          "x_max": 467.366,
+          "y_max": 436.5
+        }
+      },
+      {
+        "labelId": "w-0204",
+        "text": "$1.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 483.879,
+          "y_min": 427.5,
+          "x_max": 508.899,
+          "y_max": 438.5
+        }
+      },
+      {
+        "labelId": "w-0205",
+        "text": "Management",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 79.062,
+          "y_min": 455.5,
+          "x_max": 133.605,
+          "y_max": 464.5
+        }
+      },
+      {
+        "labelId": "w-0206",
+        "text": "&",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 137.107,
+          "y_min": 456,
+          "x_max": 142.111,
+          "y_max": 463
+        }
+      },
+      {
+        "labelId": "w-0207",
+        "text": "Reduction",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 145.614,
+          "y_min": 455.5,
+          "x_max": 187.647,
+          "y_max": 464.5
+        }
+      },
+      {
+        "labelId": "w-0208",
+        "text": "Compacting",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 254.199,
+          "y_min": 453,
+          "x_max": 303.738,
+          "y_max": 469
+        }
+      },
+      {
+        "labelId": "w-0209",
+        "text": "Vegetative",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 305.239,
+          "y_min": 455.5,
+          "x_max": 350.275,
+          "y_max": 464.5
+        }
+      },
+      {
+        "labelId": "w-0210",
+        "text": "Debris",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 353.277,
+          "y_min": 455.5,
+          "x_max": 380.298,
+          "y_max": 463.5
+        }
+      },
+      {
+        "labelId": "w-0211",
+        "text": "Cubic",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 421.33,
+          "y_min": 455.5,
+          "x_max": 445.849,
+          "y_max": 462.5
+        }
+      },
+      {
+        "labelId": "w-0212",
+        "text": "Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 448.351,
+          "y_min": 455,
+          "x_max": 467.867,
+          "y_max": 463.5
+        }
+      },
+      {
+        "labelId": "w-0213",
+        "text": "$1.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 484.38,
+          "y_min": 454,
+          "x_max": 509.399,
+          "y_max": 463.5
+        }
+      },
+      {
+        "labelId": "w-0214",
+        "text": "Management",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 79.062,
+          "y_min": 469,
+          "x_max": 134.605,
+          "y_max": 478.5
+        }
+      },
+      {
+        "labelId": "w-0215",
+        "text": "&",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 138.609,
+          "y_min": 467,
+          "x_max": 143.112,
+          "y_max": 477
+        }
+      },
+      {
+        "labelId": "w-0216",
+        "text": "Reduction",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 145.614,
+          "y_min": 467,
+          "x_max": 188.147,
+          "y_max": 477.5
+        }
+      },
+      {
+        "labelId": "w-0217",
+        "text": "Preparation,",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 250.696,
+          "y_min": 469,
+          "x_max": 303.238,
+          "y_max": 478
+        }
+      },
+      {
+        "labelId": "w-0218",
+        "text": "Management,",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 310.243,
+          "y_min": 467,
+          "x_max": 363.785,
+          "y_max": 478.5
+        }
+      },
+      {
+        "labelId": "w-0219",
+        "text": "and",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 367.288,
+          "y_min": 469,
+          "x_max": 381.799,
+          "y_max": 476.5
+        }
+      },
+      {
+        "labelId": "w-0220",
+        "text": "segregating",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 251.197,
+          "y_min": 481.5,
+          "x_max": 299.735,
+          "y_max": 491.5
+        }
+      },
+      {
+        "labelId": "w-0221",
+        "text": "materials",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 302.237,
+          "y_min": 481.5,
+          "x_max": 342.268,
+          "y_max": 490.5
+        }
+      },
+      {
+        "labelId": "w-0222",
+        "text": "from",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 344.77,
+          "y_min": 482,
+          "x_max": 364.285,
+          "y_max": 490.5
+        }
+      },
+      {
+        "labelId": "w-0223",
+        "text": "recovery",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 367.288,
+          "y_min": 483.5,
+          "x_max": 403.316,
+          "y_max": 491
+        }
+      },
+      {
+        "labelId": "w-0224",
+        "text": "at",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 251.197,
+          "y_min": 496,
+          "x_max": 258.703,
+          "y_max": 502
+        }
+      },
+      {
+        "labelId": "w-0225",
+        "text": "DMS",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 261.205,
+          "y_min": 494.5,
+          "x_max": 281.721,
+          "y_max": 502.5
+        }
+      },
+      {
+        "labelId": "w-0226",
+        "text": "Cubic",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 421.33,
+          "y_min": 468.5,
+          "x_max": 445.849,
+          "y_max": 476
+        }
+      },
+      {
+        "labelId": "w-0227",
+        "text": "Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 448.852,
+          "y_min": 468,
+          "x_max": 467.867,
+          "y_max": 476
+        }
+      },
+      {
+        "labelId": "w-0228",
+        "text": "$1.50",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 484.88,
+          "y_min": 468,
+          "x_max": 508.398,
+          "y_max": 476.5
+        }
+      },
+      {
+        "labelId": "w-0229",
+        "text": "C&D",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 79.062,
+          "y_min": 508.5,
+          "x_max": 98.077,
+          "y_max": 517
+        }
+      },
+      {
+        "labelId": "w-0230",
+        "text": "Collect,",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 100.078,
+          "y_min": 508,
+          "x_max": 134.605,
+          "y_max": 517.5
+        }
+      },
+      {
+        "labelId": "w-0231",
+        "text": "Remove",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 137.107,
+          "y_min": 508.5,
+          "x_max": 172.635,
+          "y_max": 520
+        }
+      },
+      {
+        "labelId": "w-0232",
+        "text": "&",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 174.637,
+          "y_min": 508,
+          "x_max": 180.141,
+          "y_max": 516.5
+        }
+      },
+      {
+        "labelId": "w-0233",
+        "text": "Haul",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 182.643,
+          "y_min": 508,
+          "x_max": 202.659,
+          "y_max": 517
+        }
+      },
+      {
+        "labelId": "w-0234",
+        "text": "0–15",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 251.197,
+          "y_min": 509,
+          "x_max": 271.713,
+          "y_max": 516
+        }
+      },
+      {
+        "labelId": "w-0235",
+        "text": "Miles",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 275.216,
+          "y_min": 508.5,
+          "x_max": 297.233,
+          "y_max": 516
+        }
+      },
+      {
+        "labelId": "w-0236",
+        "text": "from",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 300.235,
+          "y_min": 508,
+          "x_max": 319.751,
+          "y_max": 517.5
+        }
+      },
+      {
+        "labelId": "w-0237",
+        "text": "ROW",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 322.753,
+          "y_min": 508.5,
+          "x_max": 345.271,
+          "y_max": 516.5
+        }
+      },
+      {
+        "labelId": "w-0238",
+        "text": "to",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 347.773,
+          "y_min": 508.5,
+          "x_max": 355.779,
+          "y_max": 516
+        }
+      },
+      {
+        "labelId": "w-0239",
+        "text": "DMS",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 359.282,
+          "y_min": 508.5,
+          "x_max": 378.797,
+          "y_max": 516.5
+        }
+      },
+      {
+        "labelId": "w-0240",
+        "text": "Cubic",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 421.33,
+          "y_min": 508,
+          "x_max": 445.849,
+          "y_max": 517
+        }
+      },
+      {
+        "labelId": "w-0241",
+        "text": "Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 448.852,
+          "y_min": 508,
+          "x_max": 467.867,
+          "y_max": 516.5
+        }
+      },
+      {
+        "labelId": "w-0242",
+        "text": "$6.90",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 484.38,
+          "y_min": 507,
+          "x_max": 509.399,
+          "y_max": 516.5
+        }
+      },
+      {
+        "labelId": "w-0243",
+        "text": "C&D",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 79.062,
+          "y_min": 522,
+          "x_max": 98.577,
+          "y_max": 530
+        }
+      },
+      {
+        "labelId": "w-0244",
+        "text": "Collect,",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 100.579,
+          "y_min": 522.5,
+          "x_max": 134.105,
+          "y_max": 530.5
+        }
+      },
+      {
+        "labelId": "w-0245",
+        "text": "Remove",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 137.107,
+          "y_min": 522,
+          "x_max": 171.134,
+          "y_max": 530.5
+        }
+      },
+      {
+        "labelId": "w-0246",
+        "text": "&",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 174.136,
+          "y_min": 522,
+          "x_max": 180.141,
+          "y_max": 529.5
+        }
+      },
+      {
+        "labelId": "w-0247",
+        "text": "Haul",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 183.144,
+          "y_min": 522,
+          "x_max": 202.659,
+          "y_max": 530.5
+        }
+      },
+      {
+        "labelId": "w-0248",
+        "text": "16–30",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 251.697,
+          "y_min": 522,
+          "x_max": 277.718,
+          "y_max": 531
+        }
+      },
+      {
+        "labelId": "w-0249",
+        "text": "Miles",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 281.22,
+          "y_min": 519.5,
+          "x_max": 302.737,
+          "y_max": 533
+        }
+      },
+      {
+        "labelId": "w-0250",
+        "text": "from",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 305.74,
+          "y_min": 521.5,
+          "x_max": 325.255,
+          "y_max": 529.5
+        }
+      },
+      {
+        "labelId": "w-0251",
+        "text": "ROW",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 328.758,
+          "y_min": 521.5,
+          "x_max": 350.775,
+          "y_max": 531
+        }
+      },
+      {
+        "labelId": "w-0252",
+        "text": "to",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 353.777,
+          "y_min": 522.5,
+          "x_max": 361.283,
+          "y_max": 529
+        }
+      },
+      {
+        "labelId": "w-0253",
+        "text": "DMS",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 364.786,
+          "y_min": 521.5,
+          "x_max": 383.801,
+          "y_max": 529.5
+        }
+      },
+      {
+        "labelId": "w-0254",
+        "text": "Cubic",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 421.33,
+          "y_min": 521,
+          "x_max": 446.35,
+          "y_max": 529.5
+        }
+      },
+      {
+        "labelId": "w-0255",
+        "text": "Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 448.852,
+          "y_min": 521.5,
+          "x_max": 467.867,
+          "y_max": 529
+        }
+      },
+      {
+        "labelId": "w-0256",
+        "text": "$7.90",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 484.88,
+          "y_min": 520.5,
+          "x_max": 509.399,
+          "y_max": 530
+        }
+      },
+      {
+        "labelId": "w-0257",
+        "text": "C&D",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 79.062,
+          "y_min": 535,
+          "x_max": 98.077,
+          "y_max": 544.5
+        }
+      },
+      {
+        "labelId": "w-0258",
+        "text": "Collect,",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 101.079,
+          "y_min": 535.5,
+          "x_max": 133.605,
+          "y_max": 544
+        }
+      },
+      {
+        "labelId": "w-0259",
+        "text": "Remove",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 137.608,
+          "y_min": 535.5,
+          "x_max": 171.134,
+          "y_max": 542.5
+        }
+      },
+      {
+        "labelId": "w-0260",
+        "text": "&",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 174.136,
+          "y_min": 535.5,
+          "x_max": 181.142,
+          "y_max": 543.5
+        }
+      },
+      {
+        "labelId": "w-0261",
+        "text": "Haul",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 182.143,
+          "y_min": 534.5,
+          "x_max": 199.156,
+          "y_max": 544
+        }
+      },
+      {
+        "labelId": "w-0262",
+        "text": "31–60",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 251.197,
+          "y_min": 535.5,
+          "x_max": 277.217,
+          "y_max": 542.5
+        }
+      },
+      {
+        "labelId": "w-0263",
+        "text": "Miles",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 277.718,
+          "y_min": 534,
+          "x_max": 303.238,
+          "y_max": 544.5
+        }
+      },
+      {
+        "labelId": "w-0264",
+        "text": "from",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 306.24,
+          "y_min": 535,
+          "x_max": 325.255,
+          "y_max": 542.5
+        }
+      },
+      {
+        "labelId": "w-0265",
+        "text": "ROW",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 328.758,
+          "y_min": 535,
+          "x_max": 350.775,
+          "y_max": 544.5
+        }
+      },
+      {
+        "labelId": "w-0266",
+        "text": "to",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 353.777,
+          "y_min": 536,
+          "x_max": 361.283,
+          "y_max": 542.5
+        }
+      },
+      {
+        "labelId": "w-0267",
+        "text": "DMS",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 364.786,
+          "y_min": 535,
+          "x_max": 386.303,
+          "y_max": 544
+        }
+      },
+      {
+        "labelId": "w-0268",
+        "text": "Cubic",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 421.831,
+          "y_min": 534.5,
+          "x_max": 446.35,
+          "y_max": 543
+        }
+      },
+      {
+        "labelId": "w-0269",
+        "text": "Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 448.852,
+          "y_min": 533.5,
+          "x_max": 467.867,
+          "y_max": 543
+        }
+      },
+      {
+        "labelId": "w-0270",
+        "text": "$8.90",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 484.88,
+          "y_min": 533.5,
+          "x_max": 509.399,
+          "y_max": 544.5
+        }
+      },
+      {
+        "labelId": "w-0271",
+        "text": "C&D",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 79.562,
+          "y_min": 549,
+          "x_max": 97.576,
+          "y_max": 556
+        }
+      },
+      {
+        "labelId": "w-0272",
+        "text": "Collect,",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 101.079,
+          "y_min": 548,
+          "x_max": 134.105,
+          "y_max": 558
+        }
+      },
+      {
+        "labelId": "w-0273",
+        "text": "Remove",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 137.608,
+          "y_min": 549,
+          "x_max": 171.134,
+          "y_max": 558
+        }
+      },
+      {
+        "labelId": "w-0274",
+        "text": "&",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 174.136,
+          "y_min": 549,
+          "x_max": 180.141,
+          "y_max": 556.5
+        }
+      },
+      {
+        "labelId": "w-0275",
+        "text": "Haul",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 183.644,
+          "y_min": 548.5,
+          "x_max": 202.659,
+          "y_max": 557.5
+        }
+      },
+      {
+        "labelId": "w-0276",
+        "text": "60+",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 251.197,
+          "y_min": 548.5,
+          "x_max": 267.209,
+          "y_max": 556
+        }
+      },
+      {
+        "labelId": "w-0277",
+        "text": "Miles",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 270.712,
+          "y_min": 549,
+          "x_max": 292.729,
+          "y_max": 556
+        }
+      },
+      {
+        "labelId": "w-0278",
+        "text": "from",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 295.231,
+          "y_min": 548,
+          "x_max": 315.247,
+          "y_max": 556
+        }
+      },
+      {
+        "labelId": "w-0279",
+        "text": "ROW",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 318.249,
+          "y_min": 548.5,
+          "x_max": 340.767,
+          "y_max": 556
+        }
+      },
+      {
+        "labelId": "w-0280",
+        "text": "to",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 342.769,
+          "y_min": 549,
+          "x_max": 350.775,
+          "y_max": 556
+        }
+      },
+      {
+        "labelId": "w-0281",
+        "text": "DMS",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 354.278,
+          "y_min": 548.5,
+          "x_max": 374.293,
+          "y_max": 557.5
+        }
+      },
+      {
+        "labelId": "w-0282",
+        "text": "Cubic",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 421.831,
+          "y_min": 546.5,
+          "x_max": 446.35,
+          "y_max": 557.5
+        }
+      },
+      {
+        "labelId": "w-0283",
+        "text": "Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 448.852,
+          "y_min": 548,
+          "x_max": 467.867,
+          "y_max": 555.5
+        }
+      },
+      {
+        "labelId": "w-0284",
+        "text": "$10.90",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 484.88,
+          "y_min": 547,
+          "x_max": 514.904,
+          "y_max": 557
+        }
+      },
+      {
+        "labelId": "w-0285",
+        "text": "C&D",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 79.062,
+          "y_min": 562.5,
+          "x_max": 98.077,
+          "y_max": 571
+        }
+      },
+      {
+        "labelId": "w-0286",
+        "text": "Collect,",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 101.079,
+          "y_min": 562.5,
+          "x_max": 134.105,
+          "y_max": 572
+        }
+      },
+      {
+        "labelId": "w-0287",
+        "text": "Remove",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 137.608,
+          "y_min": 560.5,
+          "x_max": 171.134,
+          "y_max": 570.5
+        }
+      },
+      {
+        "labelId": "w-0288",
+        "text": "&",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 174.136,
+          "y_min": 562.5,
+          "x_max": 180.642,
+          "y_max": 570.5
+        }
+      },
+      {
+        "labelId": "w-0289",
+        "text": "Haul",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 183.644,
+          "y_min": 560.5,
+          "x_max": 202.659,
+          "y_max": 570.5
+        }
+      },
+      {
+        "labelId": "w-0290",
+        "text": "Single",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 251.197,
+          "y_min": 562,
+          "x_max": 276.216,
+          "y_max": 571.5
+        }
+      },
+      {
+        "labelId": "w-0291",
+        "text": "Cost",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 279.219,
+          "y_min": 562,
+          "x_max": 299.735,
+          "y_max": 569.5
+        }
+      },
+      {
+        "labelId": "w-0292",
+        "text": "from",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 302.237,
+          "y_min": 562,
+          "x_max": 321.752,
+          "y_max": 569.5
+        }
+      },
+      {
+        "labelId": "w-0293",
+        "text": "ROW",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 325.255,
+          "y_min": 561,
+          "x_max": 347.272,
+          "y_max": 569.5
+        }
+      },
+      {
+        "labelId": "w-0294",
+        "text": "to",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 349.774,
+          "y_min": 562.5,
+          "x_max": 357.78,
+          "y_max": 569.5
+        }
+      },
+      {
+        "labelId": "w-0295",
+        "text": "DMS",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 361.283,
+          "y_min": 561.5,
+          "x_max": 380.798,
+          "y_max": 569.5
+        }
+      },
+      {
+        "labelId": "w-0296",
+        "text": "-Any",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 383.3,
+          "y_min": 562,
+          "x_max": 402.816,
+          "y_max": 572
+        }
+      },
+      {
+        "labelId": "w-0297",
+        "text": "Distance",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 251.697,
+          "y_min": 575.5,
+          "x_max": 288.726,
+          "y_max": 582.5
+        }
+      },
+      {
+        "labelId": "w-0298",
+        "text": "Cubic",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 421.831,
+          "y_min": 560.5,
+          "x_max": 446.35,
+          "y_max": 569.5
+        }
+      },
+      {
+        "labelId": "w-0299",
+        "text": "Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 448.852,
+          "y_min": 561.5,
+          "x_max": 468.367,
+          "y_max": 569.5
+        }
+      },
+      {
+        "labelId": "w-0300",
+        "text": "$10.90",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 484.88,
+          "y_min": 560,
+          "x_max": 514.904,
+          "y_max": 570
+        }
+      },
+      {
+        "labelId": "w-0301",
+        "text": "Final",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 79.562,
+          "y_min": 588.5,
+          "x_max": 99.078,
+          "y_max": 596.5
+        }
+      },
+      {
+        "labelId": "w-0302",
+        "text": "Disposal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 101.58,
+          "y_min": 588.5,
+          "x_max": 138.609,
+          "y_max": 598
+        }
+      },
+      {
+        "labelId": "w-0303",
+        "text": "0–15",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 251.697,
+          "y_min": 589,
+          "x_max": 272.213,
+          "y_max": 595.5
+        }
+      },
+      {
+        "labelId": "w-0304",
+        "text": "Miles",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 275.216,
+          "y_min": 588.5,
+          "x_max": 297.733,
+          "y_max": 597.5
+        }
+      },
+      {
+        "labelId": "w-0305",
+        "text": "from",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 300.736,
+          "y_min": 588.5,
+          "x_max": 319.751,
+          "y_max": 598
+        }
+      },
+      {
+        "labelId": "w-0306",
+        "text": "DMS",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 323.253,
+          "y_min": 587,
+          "x_max": 343.269,
+          "y_max": 596.5
+        }
+      },
+      {
+        "labelId": "w-0307",
+        "text": "to",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 345.771,
+          "y_min": 589,
+          "x_max": 353.777,
+          "y_max": 596
+        }
+      },
+      {
+        "labelId": "w-0308",
+        "text": "Final",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 356.78,
+          "y_min": 586.5,
+          "x_max": 376.795,
+          "y_max": 596
+        }
+      },
+      {
+        "labelId": "w-0309",
+        "text": "Disposal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 251.197,
+          "y_min": 601.5,
+          "x_max": 288.726,
+          "y_max": 610.5
+        }
+      },
+      {
+        "labelId": "w-0310",
+        "text": "Cubic",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 421.831,
+          "y_min": 588,
+          "x_max": 446.35,
+          "y_max": 596
+        }
+      },
+      {
+        "labelId": "w-0311",
+        "text": "Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 448.852,
+          "y_min": 588,
+          "x_max": 468.367,
+          "y_max": 596
+        }
+      },
+      {
+        "labelId": "w-0312",
+        "text": "$3.25",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 485.38,
+          "y_min": 587.5,
+          "x_max": 509.399,
+          "y_max": 596.5
+        }
+      },
+      {
+        "labelId": "w-0313",
+        "text": "Final",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 79.562,
+          "y_min": 614.5,
+          "x_max": 99.078,
+          "y_max": 623.5
+        }
+      },
+      {
+        "labelId": "w-0314",
+        "text": "Disposal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 101.58,
+          "y_min": 615,
+          "x_max": 139.109,
+          "y_max": 624.5
+        }
+      },
+      {
+        "labelId": "w-0315",
+        "text": "16–30",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 253.198,
+          "y_min": 615.5,
+          "x_max": 277.718,
+          "y_max": 622
+        }
+      },
+      {
+        "labelId": "w-0316",
+        "text": "Miles",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 281.22,
+          "y_min": 613.5,
+          "x_max": 303.238,
+          "y_max": 622.5
+        }
+      },
+      {
+        "labelId": "w-0317",
+        "text": "from",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 306.24,
+          "y_min": 615,
+          "x_max": 325.755,
+          "y_max": 622.5
+        }
+      },
+      {
+        "labelId": "w-0318",
+        "text": "DMS",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 329.258,
+          "y_min": 615,
+          "x_max": 348.773,
+          "y_max": 622.5
+        }
+      },
+      {
+        "labelId": "w-0319",
+        "text": "to",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 351.776,
+          "y_min": 615.5,
+          "x_max": 359.782,
+          "y_max": 622.5
+        }
+      },
+      {
+        "labelId": "w-0320",
+        "text": "Final",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 362.284,
+          "y_min": 612.5,
+          "x_max": 382.3,
+          "y_max": 622.5
+        }
+      },
+      {
+        "labelId": "w-0321",
+        "text": "Disposal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 251.697,
+          "y_min": 628.5,
+          "x_max": 288.726,
+          "y_max": 636.5
+        }
+      },
+      {
+        "labelId": "w-0322",
+        "text": "Cubic",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 421.831,
+          "y_min": 614.5,
+          "x_max": 446.35,
+          "y_max": 622
+        }
+      },
+      {
+        "labelId": "w-0323",
+        "text": "Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 448.852,
+          "y_min": 614.5,
+          "x_max": 468.367,
+          "y_max": 622
+        }
+      },
+      {
+        "labelId": "w-0324",
+        "text": "$3.75",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 485.38,
+          "y_min": 613.5,
+          "x_max": 509.9,
+          "y_max": 623
+        }
+      },
+      {
+        "labelId": "w-0325",
+        "text": "Final",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 79.562,
+          "y_min": 641,
+          "x_max": 99.078,
+          "y_max": 650
+        }
+      },
+      {
+        "labelId": "w-0326",
+        "text": "Disposal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 101.58,
+          "y_min": 641,
+          "x_max": 139.109,
+          "y_max": 651
+        }
+      },
+      {
+        "labelId": "w-0327",
+        "text": "31–60",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 251.197,
+          "y_min": 641.5,
+          "x_max": 277.718,
+          "y_max": 648.5
+        }
+      },
+      {
+        "labelId": "w-0328",
+        "text": "Miles",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 281.22,
+          "y_min": 641,
+          "x_max": 303.738,
+          "y_max": 649
+        }
+      },
+      {
+        "labelId": "w-0329",
+        "text": "from",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 306.24,
+          "y_min": 641,
+          "x_max": 325.755,
+          "y_max": 649
+        }
+      },
+      {
+        "labelId": "w-0330",
+        "text": "DMS",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 329.258,
+          "y_min": 641,
+          "x_max": 349.274,
+          "y_max": 649
+        }
+      },
+      {
+        "labelId": "w-0331",
+        "text": "to",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 352.776,
+          "y_min": 643,
+          "x_max": 359.782,
+          "y_max": 648.5
+        }
+      },
+      {
+        "labelId": "w-0332",
+        "text": "Final",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 363.285,
+          "y_min": 641.5,
+          "x_max": 382.3,
+          "y_max": 648.5
+        }
+      },
+      {
+        "labelId": "w-0333",
+        "text": "Disposal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 251.697,
+          "y_min": 654,
+          "x_max": 288.726,
+          "y_max": 663
+        }
+      },
+      {
+        "labelId": "w-0334",
+        "text": "Cubic",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 422.331,
+          "y_min": 641,
+          "x_max": 446.35,
+          "y_max": 648.5
+        }
+      },
+      {
+        "labelId": "w-0335",
+        "text": "Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 448.852,
+          "y_min": 640.5,
+          "x_max": 468.367,
+          "y_max": 648.5
+        }
+      },
+      {
+        "labelId": "w-0336",
+        "text": "$4.25",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 485.38,
+          "y_min": 640,
+          "x_max": 509.9,
+          "y_max": 649.5
+        }
+      },
+      {
+        "labelId": "w-0337",
+        "text": "Final",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 79.062,
+          "y_min": 667.5,
+          "x_max": 98.577,
+          "y_max": 675.5
+        }
+      },
+      {
+        "labelId": "w-0338",
+        "text": "Disposal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 101.58,
+          "y_min": 667,
+          "x_max": 139.109,
+          "y_max": 677.5
+        }
+      },
+      {
+        "labelId": "w-0339",
+        "text": "60+",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 251.697,
+          "y_min": 668,
+          "x_max": 267.209,
+          "y_max": 675
+        }
+      },
+      {
+        "labelId": "w-0340",
+        "text": "Miles",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 270.712,
+          "y_min": 668,
+          "x_max": 292.729,
+          "y_max": 675
+        }
+      },
+      {
+        "labelId": "w-0341",
+        "text": "from",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 296.232,
+          "y_min": 668,
+          "x_max": 314.747,
+          "y_max": 675
+        }
+      },
+      {
+        "labelId": "w-0342",
+        "text": "DMS",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 318.75,
+          "y_min": 668,
+          "x_max": 338.765,
+          "y_max": 675
+        }
+      },
+      {
+        "labelId": "w-0343",
+        "text": "to",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 341.768,
+          "y_min": 668,
+          "x_max": 349.274,
+          "y_max": 675
+        }
+      },
+      {
+        "labelId": "w-0344",
+        "text": "Final",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 352.276,
+          "y_min": 667,
+          "x_max": 372.292,
+          "y_max": 675.5
+        }
+      },
+      {
+        "labelId": "w-0345",
+        "text": "Disposal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 251.197,
+          "y_min": 680.5,
+          "x_max": 288.726,
+          "y_max": 690.5
+        }
+      },
+      {
+        "labelId": "w-0346",
+        "text": "Cubic",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 422.331,
+          "y_min": 667,
+          "x_max": 446.35,
+          "y_max": 674.5
+        }
+      },
+      {
+        "labelId": "w-0347",
+        "text": "Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 449.853,
+          "y_min": 667,
+          "x_max": 468.367,
+          "y_max": 675
+        }
+      },
+      {
+        "labelId": "w-0348",
+        "text": "$5.40",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 485.38,
+          "y_min": 666.5,
+          "x_max": 509.9,
+          "y_max": 676
+        }
+      },
+      {
+        "labelId": "w-0349",
+        "text": "Final",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 79.562,
+          "y_min": 694,
+          "x_max": 95.575,
+          "y_max": 702
+        }
+      },
+      {
+        "labelId": "w-0350",
+        "text": "Disposal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 101.079,
+          "y_min": 693,
+          "x_max": 138.609,
+          "y_max": 702.5
+        }
+      },
+      {
+        "labelId": "w-0351",
+        "text": "Single",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 251.197,
+          "y_min": 694,
+          "x_max": 276.717,
+          "y_max": 704.5
+        }
+      },
+      {
+        "labelId": "w-0352",
+        "text": "Cost",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 279.719,
+          "y_min": 694,
+          "x_max": 300.235,
+          "y_max": 703
+        }
+      },
+      {
+        "labelId": "w-0353",
+        "text": "–",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 302.237,
+          "y_min": 698,
+          "x_max": 306.74,
+          "y_max": 699
+        }
+      },
+      {
+        "labelId": "w-0354",
+        "text": "Any",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 309.242,
+          "y_min": 694,
+          "x_max": 325.255,
+          "y_max": 703.5
+        }
+      },
+      {
+        "labelId": "w-0355",
+        "text": "Distance",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 328.257,
+          "y_min": 692.5,
+          "x_max": 365.787,
+          "y_max": 704
+        }
+      },
+      {
+        "labelId": "w-0356",
+        "text": "Cubic",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 422.331,
+          "y_min": 694,
+          "x_max": 446.35,
+          "y_max": 701.5
+        }
+      },
+      {
+        "labelId": "w-0357",
+        "text": "Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 449.352,
+          "y_min": 693.5,
+          "x_max": 468.367,
+          "y_max": 701
+        }
+      },
+      {
+        "labelId": "w-0358",
+        "text": "$5.40",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 485.881,
+          "y_min": 693.5,
+          "x_max": 509.9,
+          "y_max": 702
+        }
+      },
+      {
+        "labelId": "w-0359",
+        "text": "Page",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 283.222,
+          "y_min": 731.5,
+          "x_max": 302.237,
+          "y_max": 740.5
+        }
+      },
+      {
+        "labelId": "w-0360",
+        "text": "8",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 305.239,
+          "y_min": 732,
+          "x_max": 309.743,
+          "y_max": 738.5
+        }
+      },
+      {
+        "labelId": "w-0361",
+        "text": "of",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 313.245,
+          "y_min": 731,
+          "x_max": 321.252,
+          "y_max": 739
+        }
+      },
+      {
+        "labelId": "w-0362",
+        "text": "15",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 323.754,
+          "y_min": 731.5,
+          "x_max": 333.762,
+          "y_max": 739
+        }
+      }
+    ]
+  },
+  "cells": {
+    "status": "labeled",
+    "items": [
+      {
+        "labelId": "c-0001",
+        "text": "Category",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 78.562,
+          "y_min": 125.5,
+          "x_max": 118.093,
+          "y_max": 134
+        },
+        "isHeader": true,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0002",
+        "text": "Description",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 249.696,
+          "y_min": 125.5,
+          "x_max": 304.238,
+          "y_max": 134.5
+        },
+        "isHeader": true,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0003",
+        "text": "Unit",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 419.329,
+          "y_min": 125.5,
+          "x_max": 436.842,
+          "y_max": 132
+        },
+        "isHeader": true,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0004",
+        "text": "Rate",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 482.878,
+          "y_min": 125,
+          "x_max": 502.394,
+          "y_max": 132
+        },
+        "isHeader": true,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0005",
+        "text": "Vegetative Collect, Remove & Haul from Unincorporated Neighborhoods",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 77.561,
+          "y_min": 138,
+          "x_max": 233.683,
+          "y_max": 160.5
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0006",
+        "text": "0–15 Miles from ROW to DMS",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 249.696,
+          "y_min": 139,
+          "x_max": 376.295,
+          "y_max": 146
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0007",
+        "text": "Cubic Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 419.329,
+          "y_min": 138,
+          "x_max": 465.365,
+          "y_max": 146
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0008",
+        "text": "$6.90",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 482.378,
+          "y_min": 138,
+          "x_max": 506.397,
+          "y_max": 146
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0009",
+        "text": "Vegetative Collect, Remove & Haul from Unincorporated Neighborhoods",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 77.561,
+          "y_min": 164.5,
+          "x_max": 233.683,
+          "y_max": 187
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0010",
+        "text": "16–30 Miles from ROW to DMS",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 250.696,
+          "y_min": 165,
+          "x_max": 381.799,
+          "y_max": 172.5
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0011",
+        "text": "Cubic Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 419.329,
+          "y_min": 165,
+          "x_max": 465.365,
+          "y_max": 172
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0012",
+        "text": "$7.90",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 482.878,
+          "y_min": 164.5,
+          "x_max": 506.897,
+          "y_max": 172.5
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0013",
+        "text": "Vegetative Collect, Remove & Haul from Unincorporated Neighborhoods",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 77.561,
+          "y_min": 191,
+          "x_max": 234.684,
+          "y_max": 213.5
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0014",
+        "text": "31–60 Miles from ROW to DMS",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 250.196,
+          "y_min": 191.5,
+          "x_max": 381.799,
+          "y_max": 199
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0015",
+        "text": "Cubic Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 419.329,
+          "y_min": 191,
+          "x_max": 465.865,
+          "y_max": 198.5
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0016",
+        "text": "$8.90",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 483.379,
+          "y_min": 190.5,
+          "x_max": 506.897,
+          "y_max": 199
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0017",
+        "text": "Vegetative Collect, Remove & Haul from Unincorporated Neighborhoods",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 78.061,
+          "y_min": 218,
+          "x_max": 233.183,
+          "y_max": 239
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0018",
+        "text": "60+ Miles from ROW to DMS",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 250.196,
+          "y_min": 217.5,
+          "x_max": 372.292,
+          "y_max": 225.5
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0019",
+        "text": "Cubic Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 419.829,
+          "y_min": 216.5,
+          "x_max": 465.865,
+          "y_max": 225
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0020",
+        "text": "$10.90",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 483.379,
+          "y_min": 216.5,
+          "x_max": 512.402,
+          "y_max": 225.5
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0021",
+        "text": "Vegetative Collect, Remove & Haul from Rural Areas",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 78.562,
+          "y_min": 244.5,
+          "x_max": 225.677,
+          "y_max": 265
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0022",
+        "text": "0–15 Miles from ROW to DMS",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 250.196,
+          "y_min": 244.5,
+          "x_max": 376.795,
+          "y_max": 251.5
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0023",
+        "text": "Cubic Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 420.329,
+          "y_min": 243.5,
+          "x_max": 465.865,
+          "y_max": 251.5
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0024",
+        "text": "$13.50",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 483.379,
+          "y_min": 244,
+          "x_max": 512.902,
+          "y_max": 252
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0025",
+        "text": "Vegetative Collect, Remove & Haul from Rural Areas",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 78.061,
+          "y_min": 270.5,
+          "x_max": 225.677,
+          "y_max": 291.5
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0026",
+        "text": "16–30 Miles from ROW to DMS",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 250.696,
+          "y_min": 271,
+          "x_max": 382.3,
+          "y_max": 278
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0027",
+        "text": "Cubic Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 419.829,
+          "y_min": 270.5,
+          "x_max": 466.365,
+          "y_max": 278
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0028",
+        "text": "$14.50",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 483.379,
+          "y_min": 269.5,
+          "x_max": 512.902,
+          "y_max": 278
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0029",
+        "text": "Vegetative Collect, Remove & Haul from Rural Areas",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 78.562,
+          "y_min": 297,
+          "x_max": 225.677,
+          "y_max": 318
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0030",
+        "text": "31–60 Miles from ROW to DMS",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 250.196,
+          "y_min": 297,
+          "x_max": 382.3,
+          "y_max": 305
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0031",
+        "text": "Cubic Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 420.329,
+          "y_min": 297,
+          "x_max": 466.365,
+          "y_max": 304.5
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0032",
+        "text": "$15.50",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 483.379,
+          "y_min": 297,
+          "x_max": 512.902,
+          "y_max": 304.5
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0033",
+        "text": "Vegetative Collect, Remove & Haul from Rural Areas",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 78.061,
+          "y_min": 323.5,
+          "x_max": 226.177,
+          "y_max": 344.5
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0034",
+        "text": "60+ Miles from ROW to DMS",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 250.696,
+          "y_min": 323.5,
+          "x_max": 372.792,
+          "y_max": 331.5
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0035",
+        "text": "Cubic Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 420.329,
+          "y_min": 323,
+          "x_max": 466.365,
+          "y_max": 330.5
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0036",
+        "text": "$17.50",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 483.879,
+          "y_min": 322.5,
+          "x_max": 513.402,
+          "y_max": 331.5
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0037",
+        "text": "Vegetative Collect, Remove & Haul",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 79.062,
+          "y_min": 350,
+          "x_max": 226.177,
+          "y_max": 359
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0038",
+        "text": "Single Cost from ROW to DMS -Any Distance",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 250.696,
+          "y_min": 348.5,
+          "x_max": 400.314,
+          "y_max": 370.5
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0039",
+        "text": "Cubic Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 420.329,
+          "y_min": 350,
+          "x_max": 466.866,
+          "y_max": 357.5
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0040",
+        "text": "$10.90",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 483.879,
+          "y_min": 349,
+          "x_max": 513.903,
+          "y_max": 358
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0041",
+        "text": "Management & Reduction",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 79.062,
+          "y_min": 376.5,
+          "x_max": 187.647,
+          "y_max": 385.5
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0042",
+        "text": "Grinding and Chipping Vegetative Debris",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 250.696,
+          "y_min": 376.5,
+          "x_max": 390.306,
+          "y_max": 397
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0043",
+        "text": "Cubic Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 420.83,
+          "y_min": 376,
+          "x_max": 467.366,
+          "y_max": 383.5
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0044",
+        "text": "$2.25",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 484.38,
+          "y_min": 375.5,
+          "x_max": 508.398,
+          "y_max": 384
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0045",
+        "text": "Management & Reduction",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 79.562,
+          "y_min": 403,
+          "x_max": 187.647,
+          "y_max": 412
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0046",
+        "text": "Air Curtain Burning of Vegetative Debris (if applicable/allowed)",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 250.696,
+          "y_min": 403,
+          "x_max": 387.304,
+          "y_max": 424
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0047",
+        "text": "Cubic Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 421.33,
+          "y_min": 402.5,
+          "x_max": 467.366,
+          "y_max": 410
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0048",
+        "text": "$1.50",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 484.38,
+          "y_min": 402,
+          "x_max": 508.398,
+          "y_max": 410.5
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0049",
+        "text": "Management & Reduction",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 79.062,
+          "y_min": 429.5,
+          "x_max": 187.647,
+          "y_max": 438
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0050",
+        "text": "Open Burning of Vegetative Debris (if applicable/allowed)",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 250.696,
+          "y_min": 429,
+          "x_max": 406.318,
+          "y_max": 450.5
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0051",
+        "text": "Cubic Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 421.33,
+          "y_min": 428.5,
+          "x_max": 467.366,
+          "y_max": 436.5
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0052",
+        "text": "$1.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 484.88,
+          "y_min": 428.5,
+          "x_max": 508.899,
+          "y_max": 436
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0053",
+        "text": "Management & Reduction",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 79.062,
+          "y_min": 455.5,
+          "x_max": 187.647,
+          "y_max": 464.5
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0054",
+        "text": "Compacting Vegetative Debris",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 250.696,
+          "y_min": 455.5,
+          "x_max": 380.298,
+          "y_max": 464.5
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0055",
+        "text": "Cubic Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 420.83,
+          "y_min": 455,
+          "x_max": 467.867,
+          "y_max": 463.5
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0056",
+        "text": "$1.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 484.88,
+          "y_min": 455,
+          "x_max": 508.899,
+          "y_max": 463
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0057",
+        "text": "Management & Reduction",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 79.062,
+          "y_min": 469.5,
+          "x_max": 187.647,
+          "y_max": 478
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0058",
+        "text": "Preparation, Management, and segregating materials from recovery at DMS",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 250.696,
+          "y_min": 469,
+          "x_max": 402.816,
+          "y_max": 502
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0059",
+        "text": "Cubic Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 421.33,
+          "y_min": 468.5,
+          "x_max": 467.366,
+          "y_max": 476
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0060",
+        "text": "$1.50",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 484.88,
+          "y_min": 468,
+          "x_max": 508.398,
+          "y_max": 476.5
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0061",
+        "text": "C&D Collect, Remove & Haul",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 79.562,
+          "y_min": 509,
+          "x_max": 199.156,
+          "y_max": 516.5
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0062",
+        "text": "0–15 Miles from ROW to DMS",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 251.197,
+          "y_min": 508.5,
+          "x_max": 378.296,
+          "y_max": 516
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0063",
+        "text": "Cubic Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 421.33,
+          "y_min": 508.5,
+          "x_max": 467.867,
+          "y_max": 516.5
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0064",
+        "text": "$6.90",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 484.88,
+          "y_min": 508.5,
+          "x_max": 508.899,
+          "y_max": 516
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0065",
+        "text": "C&D Collect, Remove & Haul",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 79.562,
+          "y_min": 522,
+          "x_max": 199.156,
+          "y_max": 530.5
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0066",
+        "text": "16–30 Miles from ROW to DMS",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 256.701,
+          "y_min": 522,
+          "x_max": 383.801,
+          "y_max": 530.5
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0067",
+        "text": "Cubic Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 421.33,
+          "y_min": 521,
+          "x_max": 467.867,
+          "y_max": 529
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0068",
+        "text": "$7.90",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 485.38,
+          "y_min": 521,
+          "x_max": 509.399,
+          "y_max": 529.5
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0069",
+        "text": "C&D Collect, Remove & Haul",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 79.562,
+          "y_min": 535.5,
+          "x_max": 199.156,
+          "y_max": 544
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0070",
+        "text": "31–60 Miles from ROW to DMS",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 251.197,
+          "y_min": 535,
+          "x_max": 383.801,
+          "y_max": 542.5
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0071",
+        "text": "Cubic Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 421.831,
+          "y_min": 535,
+          "x_max": 465.865,
+          "y_max": 542
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0072",
+        "text": "$8.90",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 485.38,
+          "y_min": 534.5,
+          "x_max": 508.899,
+          "y_max": 543
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0073",
+        "text": "C&D Collect, Remove & Haul",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 79.562,
+          "y_min": 549,
+          "x_max": 199.656,
+          "y_max": 556.5
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0074",
+        "text": "60+ Miles from ROW to DMS",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 251.197,
+          "y_min": 548.5,
+          "x_max": 373.793,
+          "y_max": 556
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0075",
+        "text": "Cubic Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 421.831,
+          "y_min": 548,
+          "x_max": 467.366,
+          "y_max": 555.5
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0076",
+        "text": "$10.90",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 484.88,
+          "y_min": 547,
+          "x_max": 514.904,
+          "y_max": 556.5
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0077",
+        "text": "C&D Collect, Remove & Haul",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 79.562,
+          "y_min": 562.5,
+          "x_max": 202.158,
+          "y_max": 571
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0078",
+        "text": "Single Cost from ROW to DMS -Any Distance",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 251.197,
+          "y_min": 562,
+          "x_max": 402.315,
+          "y_max": 582.5
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0079",
+        "text": "Cubic Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 421.831,
+          "y_min": 561.5,
+          "x_max": 467.867,
+          "y_max": 569
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0080",
+        "text": "$10.90",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 484.88,
+          "y_min": 560,
+          "x_max": 514.904,
+          "y_max": 570
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0081",
+        "text": "Final Disposal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 79.562,
+          "y_min": 588.5,
+          "x_max": 138.609,
+          "y_max": 598
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0082",
+        "text": "0–15 Miles from DMS to Final Disposal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 251.197,
+          "y_min": 586.5,
+          "x_max": 376.795,
+          "y_max": 610.5
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0083",
+        "text": "Cubic Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 421.831,
+          "y_min": 588,
+          "x_max": 467.867,
+          "y_max": 595.5
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0084",
+        "text": "$3.25",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 485.38,
+          "y_min": 587.5,
+          "x_max": 509.399,
+          "y_max": 596.5
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0085",
+        "text": "Final Disposal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 79.562,
+          "y_min": 615.5,
+          "x_max": 138.609,
+          "y_max": 624
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0086",
+        "text": "16–30 Miles from DMS to Final Disposal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 251.697,
+          "y_min": 614.5,
+          "x_max": 382.3,
+          "y_max": 636.5
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0087",
+        "text": "Cubic Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 421.831,
+          "y_min": 614.5,
+          "x_max": 467.867,
+          "y_max": 622
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0088",
+        "text": "$3.75",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 485.881,
+          "y_min": 614,
+          "x_max": 509.9,
+          "y_max": 623
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0089",
+        "text": "Final Disposal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 79.562,
+          "y_min": 641.5,
+          "x_max": 138.609,
+          "y_max": 650.5
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0090",
+        "text": "31–60 Miles from DMS to Final Disposal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 251.197,
+          "y_min": 641,
+          "x_max": 382.3,
+          "y_max": 663
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0091",
+        "text": "Cubic Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 422.331,
+          "y_min": 641,
+          "x_max": 468.367,
+          "y_max": 648.5
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0092",
+        "text": "$4.25",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 485.881,
+          "y_min": 640.5,
+          "x_max": 509.9,
+          "y_max": 648.5
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0093",
+        "text": "Final Disposal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 79.562,
+          "y_min": 668,
+          "x_max": 138.609,
+          "y_max": 677
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0094",
+        "text": "60+ Miles from DMS to Final Disposal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 251.197,
+          "y_min": 667.5,
+          "x_max": 372.292,
+          "y_max": 689.5
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0095",
+        "text": "Cubic Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 422.331,
+          "y_min": 667,
+          "x_max": 468.367,
+          "y_max": 674.5
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0096",
+        "text": "$5.40",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 485.881,
+          "y_min": 667,
+          "x_max": 509.9,
+          "y_max": 675
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0097",
+        "text": "Final Disposal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 79.062,
+          "y_min": 693.5,
+          "x_max": 135.606,
+          "y_max": 703.5
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0098",
+        "text": "Single Cost – Any Distance",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 251.697,
+          "y_min": 694.5,
+          "x_max": 365.286,
+          "y_max": 703
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0099",
+        "text": "Cubic Yard",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 422.331,
+          "y_min": 693.5,
+          "x_max": 468.367,
+          "y_max": 701.5
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0100",
+        "text": "$5.40",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 485.881,
+          "y_min": 693.5,
+          "x_max": 509.9,
+          "y_max": 702
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      }
+    ]
+  },
+  "rows": {
+    "status": "labeled",
+    "items": [
+      {
+        "rowKey": "r-0001",
+        "orderedCellLabelIds": [
+          "c-0001",
+          "c-0002",
+          "c-0003",
+          "c-0004"
+        ]
+      },
+      {
+        "rowKey": "r-0002",
+        "orderedCellLabelIds": [
+          "c-0005",
+          "c-0006",
+          "c-0007",
+          "c-0008"
+        ]
+      },
+      {
+        "rowKey": "r-0003",
+        "orderedCellLabelIds": [
+          "c-0009",
+          "c-0010",
+          "c-0011",
+          "c-0012"
+        ]
+      },
+      {
+        "rowKey": "r-0004",
+        "orderedCellLabelIds": [
+          "c-0013",
+          "c-0014",
+          "c-0015",
+          "c-0016"
+        ]
+      },
+      {
+        "rowKey": "r-0005",
+        "orderedCellLabelIds": [
+          "c-0017",
+          "c-0018",
+          "c-0019",
+          "c-0020"
+        ]
+      },
+      {
+        "rowKey": "r-0006",
+        "orderedCellLabelIds": [
+          "c-0021",
+          "c-0022",
+          "c-0023",
+          "c-0024"
+        ]
+      },
+      {
+        "rowKey": "r-0007",
+        "orderedCellLabelIds": [
+          "c-0025",
+          "c-0026",
+          "c-0027",
+          "c-0028"
+        ]
+      },
+      {
+        "rowKey": "r-0008",
+        "orderedCellLabelIds": [
+          "c-0029",
+          "c-0030",
+          "c-0031",
+          "c-0032"
+        ]
+      },
+      {
+        "rowKey": "r-0009",
+        "orderedCellLabelIds": [
+          "c-0033",
+          "c-0034",
+          "c-0035",
+          "c-0036"
+        ]
+      },
+      {
+        "rowKey": "r-0010",
+        "orderedCellLabelIds": [
+          "c-0037",
+          "c-0038",
+          "c-0039",
+          "c-0040"
+        ]
+      },
+      {
+        "rowKey": "r-0011",
+        "orderedCellLabelIds": [
+          "c-0041",
+          "c-0042",
+          "c-0043",
+          "c-0044"
+        ]
+      },
+      {
+        "rowKey": "r-0012",
+        "orderedCellLabelIds": [
+          "c-0045",
+          "c-0046",
+          "c-0047",
+          "c-0048"
+        ]
+      },
+      {
+        "rowKey": "r-0013",
+        "orderedCellLabelIds": [
+          "c-0049",
+          "c-0050",
+          "c-0051",
+          "c-0052"
+        ]
+      },
+      {
+        "rowKey": "r-0014",
+        "orderedCellLabelIds": [
+          "c-0053",
+          "c-0054",
+          "c-0055",
+          "c-0056"
+        ]
+      },
+      {
+        "rowKey": "r-0015",
+        "orderedCellLabelIds": [
+          "c-0057",
+          "c-0058",
+          "c-0059",
+          "c-0060"
+        ]
+      },
+      {
+        "rowKey": "r-0016",
+        "orderedCellLabelIds": [
+          "c-0061",
+          "c-0062",
+          "c-0063",
+          "c-0064"
+        ]
+      },
+      {
+        "rowKey": "r-0017",
+        "orderedCellLabelIds": [
+          "c-0065",
+          "c-0066",
+          "c-0067",
+          "c-0068"
+        ]
+      },
+      {
+        "rowKey": "r-0018",
+        "orderedCellLabelIds": [
+          "c-0069",
+          "c-0070",
+          "c-0071",
+          "c-0072"
+        ]
+      },
+      {
+        "rowKey": "r-0019",
+        "orderedCellLabelIds": [
+          "c-0073",
+          "c-0074",
+          "c-0075",
+          "c-0076"
+        ]
+      },
+      {
+        "rowKey": "r-0020",
+        "orderedCellLabelIds": [
+          "c-0077",
+          "c-0078",
+          "c-0079",
+          "c-0080"
+        ]
+      },
+      {
+        "rowKey": "r-0021",
+        "orderedCellLabelIds": [
+          "c-0081",
+          "c-0082",
+          "c-0083",
+          "c-0084"
+        ]
+      },
+      {
+        "rowKey": "r-0022",
+        "orderedCellLabelIds": [
+          "c-0085",
+          "c-0086",
+          "c-0087",
+          "c-0088"
+        ]
+      },
+      {
+        "rowKey": "r-0023",
+        "orderedCellLabelIds": [
+          "c-0089",
+          "c-0090",
+          "c-0091",
+          "c-0092"
+        ]
+      },
+      {
+        "rowKey": "r-0024",
+        "orderedCellLabelIds": [
+          "c-0093",
+          "c-0094",
+          "c-0095",
+          "c-0096"
+        ]
+      },
+      {
+        "rowKey": "r-0025",
+        "orderedCellLabelIds": [
+          "c-0097",
+          "c-0098",
+          "c-0099",
+          "c-0100"
+        ]
+      }
+    ]
+  },
+  "coverage": {
+    "status": "labeled",
+    "truth": "requires_ocr",
+    "note": null
+  },
+  "labeledBy": "delegated_dual_ai:chatgpt+claude",
+  "labeledAt": null
+}

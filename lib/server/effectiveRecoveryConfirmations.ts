@@ -291,6 +291,7 @@ export async function loadConfirmedRecoverySelections(
 ): Promise<Readonly<{
   confirmedRateObservations: readonly ConfirmedRateObservation[];
   confirmedRecoveryCandidates: readonly RecoveryCandidateV2[];
+  confirmedHeaderSelections?: readonly Readonly<{ candidate: RecoveryCandidateV2; reviewId: string }>[];
 }>> {
   const resolved = await (dependencies.resolve ?? resolveEffectiveRecoveryConfirmations)(
     query, { admin: dependencies.admin },
@@ -318,7 +319,15 @@ export async function loadConfirmedRecoverySelections(
         page_representation_digest: confirmation.pageRepresentationDigest ?? null,
       }))),
     confirmedRecoveryCandidates: Object.freeze(
-      (resolved.candidateConfirmations ?? []).map((confirmation) => confirmation.confirmedCandidate)),
+      (resolved.candidateConfirmations ?? [])
+        .filter((confirmation) => confirmation.confirmedCandidate.recoveryType !== 'priced_schedule_header_role_selection')
+        .map((confirmation) => confirmation.confirmedCandidate)),
+    ...((resolved.candidateConfirmations ?? []).some((confirmation) =>
+      confirmation.confirmedCandidate.recoveryType === 'priced_schedule_header_role_selection') ? {
+      confirmedHeaderSelections: Object.freeze((resolved.candidateConfirmations ?? [])
+        .filter((confirmation) => confirmation.confirmedCandidate.recoveryType === 'priced_schedule_header_role_selection')
+        .map((confirmation) => Object.freeze({ candidate: confirmation.confirmedCandidate, reviewId: confirmation.reviewId }))),
+    } : {}),
   };
 }
 
@@ -326,9 +335,11 @@ export function hasConfirmedRecoverySelections(
   selections: Readonly<{
     confirmedRateObservations: readonly unknown[];
     confirmedRecoveryCandidates: readonly unknown[];
+    confirmedHeaderSelections?: readonly unknown[];
   }> | null | undefined,
 ): boolean {
   return Boolean(selections
     && (selections.confirmedRateObservations.length > 0
-      || selections.confirmedRecoveryCandidates.length > 0));
+      || selections.confirmedRecoveryCandidates.length > 0
+      || (selections.confirmedHeaderSelections?.length ?? 0) > 0));
 }

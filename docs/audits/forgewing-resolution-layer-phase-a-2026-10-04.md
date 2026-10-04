@@ -95,12 +95,41 @@ This audit maps that design onto the code as it stands on `main` (`40f7224`) plu
 
 ## 6. Proposed design decisions (to confirm before Phase B)
 
+- **D0 Human reviewed input is final, and visible upstream and downstream. This is a hard invariant set by the user on 2026-10-04.**
+  - Forgewing may propose, extract, reconcile, explain and link. Whenever AI is involved, the operator's reviewed input is the authority.
+  - It applies equally to:
+    - scalar values;
+    - document relationships (Forgewing proposes `Invoice → Amendment 3`; once confirmed, the relationship is `human_reviewed`);
+    - Validator resolutions (Forgewing explains a mismatch; the operator's chosen resolution is final and `human_reviewed`).
+  - **Upstream.** Reprocessing and reconciliation must know that a human already reviewed a source region and established its value. A later machine or AI reading of the same evidence never silently replaces it. It may only raise a contradiction for re-review. This matches the digest-bound `needs_review` rule in D2.
+  - **Downstream.** Every consumer must keep the provenance chain, never only the final number:
+    - Project Truth;
+    - the Validator;
+    - decisions;
+    - reports and exports;
+    - downstream reconciliation.
+  - The chain to keep:
+    1. original extraction (e.g. `[$320.00`, or "none");
+    2. Forgewing suggestion, if any;
+    3. operator decision: approved, modified, manually entered or rejected;
+    4. final reviewed value, with its source document, page and evidence link.
+  - If the operator changes an AI suggestion, both are shown: "Forgewing suggested $320.00; operator entered $325.00; final $325.00". The AI suggestion stays as historical evidence; the operator's value is the authority.
+
 - **D1 Authority classes.**
   - Classes: `deterministic`, `ai_proposed`, `reviewed`.
   - `reviewed` carries an origin of `operator_entered`, `operator_selected` (types 1–3) or `ai_proposed_operator_approved`.
   - The Validator consumes `deterministic` and `reviewed` only. An `ai_proposed` value surfaces as a quarantined proposal, never as a fact (the precedent in §1).
 - **D2 Reviewed values reuse `human_fact_assertions`; no new ledger.**
-  - Extend it additively with an optional region binding. Columns: source artifact, physical page, page-representation digest, canonical box, target cell or field identity, and the original source text.
+  - Extend it additively with an optional region binding. Columns:
+    - value type or field;
+    - source artifact and physical page;
+    - source region and boxes;
+    - page-representation digest;
+    - target cell or field identity;
+    - the original source text;
+    - an optional Forgewing proposal ID;
+    - the operator review ID and disposition (`approved`, `modified`, `manually_entered`);
+    - `authority = human_reviewed`.
   - Allow a third `source_binding` value, `region_bound`, so a value extraction never produced can be asserted.
   - Fix the binding to the page-representation digest. If the digest changes, set status `needs_review`; never carry the value over silently.
   - Keep "latest active wins" with append-only supersession, as the table already has.

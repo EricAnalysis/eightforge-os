@@ -7,6 +7,7 @@ import type { CanonicalBox } from '@/lib/extraction/geometry/canonicalPageFrame'
 import { resolveCanonicalObservationBoxes } from '@/lib/extraction/pdf/layoutObservationEvidence';
 import { RecoveryCandidateV2Schema, type RecoveryCandidateV2 } from '@/lib/extraction/recovery/recoveryCandidateV2';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
+import { isValueReadingProposalRow } from '@/lib/server/valueReadingProposals';
 
 /**
  * Read seam for the operator recovery review surface.
@@ -313,7 +314,9 @@ export async function readRecoveryReviewQueue(
   if (proposalRead.error) {
     return { status: 'read_failed', reason: proposalRead.error.message ?? 'proposal_read_failed' };
   }
-  const proposals = (Array.isArray(proposalRead.data) ? proposalRead.data : []).filter(isRecord);
+  // Value readings (version 3) are never recovery review candidates.
+  const proposals = (Array.isArray(proposalRead.data) ? proposalRead.data : []).filter(isRecord)
+    .filter((row) => !isValueReadingProposalRow(row));
   if (proposals.length === 0) return { status: 'ok', candidates: [] };
 
   const extractionIds = [...new Set(proposals.flatMap((row) =>

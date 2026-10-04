@@ -66,6 +66,8 @@ const RECOVERY_PERSISTENCE_MODULES = new Set([
   'lib/server/effectiveRecoveryConfirmations.ts',
   'lib/server/forgewingRecoveryReviewRead.ts',
   'lib/server/recoveryEvaluationPriorState.ts',
+  // B4.2 value readings: version 3 rows, stored and read only here.
+  'lib/server/valueReadingProposals.ts',
 ]);
 
 /**

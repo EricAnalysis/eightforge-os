@@ -46,6 +46,22 @@ function client(
 }
 
 describe('recovery evaluation prior state', () => {
+  it('is not an evaluation unit and never invalidates prior state: a value reading (B4.2)', async () => {
+    const result = await loadRecoveryEvaluationPriorState({
+      organizationId: '33333333-3333-4333-8333-333333333333',
+      sourceDocumentId: recoveryCandidate.sourceDocumentId,
+      sourceArtifactId: recoveryCandidate.sourceArtifactId,
+    }, { admin: client({
+      forgewing_recovery_proposals: [{
+        proposal_version: 3, recovery_type: 'priced_value_reading',
+        page_representation_digest: 'a'.repeat(64), recovery_candidates: null,
+      }],
+    }) as never });
+    expect(result).toEqual({ status: 'ok', state: {
+      proposedUnitIdentities: [], confirmedCandidateIds: [], providerInvokedUnitIdentities: [],
+    } });
+  });
+
   it('derives proposal suppression and invoked retry state from existing rows', async () => {
     const calls: Array<readonly [string, unknown]> = [];
     const expected = recoveryEvaluationUnitIdentity({

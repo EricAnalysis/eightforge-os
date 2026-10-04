@@ -79,12 +79,20 @@ export type RecordRegionAssertionInput = Readonly<{
   supersedesAssertionId: string | null;
   /** Client-supplied idempotency key, scoped to this actor. */
   idempotencyKey: string;
+  /**
+   * The value-reading proposal the operator used, if any. The record function
+   * verifies its binding and decides whether the value was used unchanged or
+   * edited; this adapter never chooses an AI origin.
+   */
+  forgewingProposalId?: string | null;
 }>;
 
 export type RecordRegionAssertionResult =
   | Readonly<{ status: 'recorded'; assertionId: string; inserted: boolean }>
   /** Someone else reviewed this target first; reload and supersede the new head. */
   | Readonly<{ status: 'stale_chain_head' }>
+  /** The cited proposal does not bind to this exact, current target. Nothing was written. */
+  | Readonly<{ status: 'proposal_not_bound'; reason: string }>
   | Readonly<{ status: 'rejected'; reason: string }>
   | Readonly<{ status: 'unavailable' }>;
 
@@ -115,15 +123,19 @@ export async function recordRegionBoundAssertion(
     p_source_observation_ids: [...input.sourceObservationIds],
     p_original_source_text: input.originalSourceText,
     p_anchor_key: input.anchorKey,
-    // Manual entry. AI provenance arrives with Forgewing value proposals (B4).
-    p_review_origin: 'operator_entered',
-    p_forgewing_proposal_id: null,
+    // An input token, not the stored origin: with a cited proposal the
+    // database verifies it and derives approved or modified itself.
+    p_review_origin: input.forgewingProposalId ? 'ai_proposed' : 'operator_entered',
+    p_forgewing_proposal_id: input.forgewingProposalId ?? null,
     p_supersedes_assertion_id: input.supersedesAssertionId,
     p_request_digest_sha256: regionAssertionRequestDigest(input),
   });
   if (error) {
     if (isSchemaUnavailable(error) || error.code === '42883') return { status: 'unavailable' };
     if (error.code === '40001') return { status: 'stale_chain_head' };
+    if (input.forgewingProposalId && error.code === '23514') {
+      return { status: 'proposal_not_bound', reason: error.message ?? 'proposal does not bind' };
+    }
     return { status: 'rejected', reason: error.message ?? 'region assertion rejected' };
   }
   const row = Array.isArray(data) ? data[0] as { assertion_id?: unknown; inserted?: unknown } | undefined : undefined;

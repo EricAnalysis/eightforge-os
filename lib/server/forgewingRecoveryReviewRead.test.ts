@@ -127,6 +127,15 @@ describe('recovery review queue read', () => {
       .toBe('obs:unit');
   });
 
+  it('never offers a value reading as a recovery review candidate (B4.2)', async () => {
+    const reading = { ...proposal, id: '77777777-7777-4777-8777-777777777777', proposal_version: 3,
+      recovery_type: 'priced_value_reading', selected_observation_id: null,
+      proposal_id: `forgewing-proposal-value-reading-${'7'.repeat(64)}` };
+    const result = await readRecoveryReviewQueue(query, { admin: client([reading, proposal], []) });
+    expect(result.status === 'ok' && result.candidates.map((entry) => entry.proposalId))
+      .toEqual([proposal.proposal_id]);
+  });
+
   it('reads pending review when nothing has been decided', async () => {
     const result = await readRecoveryReviewQueue(query, { admin: client([proposal], []) });
     expect(result.status === 'ok' && result.candidates[0]!.reviewState).toBe('pending_review');

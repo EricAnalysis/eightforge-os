@@ -542,3 +542,27 @@ DROP TRIGGER IF EXISTS trg_workflow_trigger_rules_set_updated_at ON public.workf
 CREATE TRIGGER trg_workflow_trigger_rules_set_updated_at
   BEFORE UPDATE ON public.workflow_trigger_rules
   FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- Privileges and comments (production is narrower than the repo build)
+-- ---------------------------------------------------------------------------
+
+-- Trigger functions: production does not grant EXECUTE to anon or authenticated.
+-- Triggers fire regardless of the caller's EXECUTE privilege.
+REVOKE EXECUTE ON FUNCTION public.check_extraction_table_cell_reconstruction() FROM anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.enforce_extraction_provenance_integrity() FROM anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.enforce_extraction_source_document_org() FROM anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.enforce_extraction_table_cell_dependency_edge() FROM anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.enforce_shadow_assignment_monotonic() FROM anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.verify_extraction_candidate_content() FROM anon, authenticated;
+
+-- Overrides are superseded, never deleted, by authenticated users.
+REVOKE DELETE ON TABLE public.document_fact_overrides FROM authenticated;
+
+-- Shadow mismatches are append-only diagnostics: the server inserts and reads
+-- nothing back (lib/stateProjectionShadow.ts, shadow-mismatches route).
+REVOKE ALL ON TABLE public.state_projection_shadow_mismatches FROM service_role;
+GRANT INSERT ON TABLE public.state_projection_shadow_mismatches TO service_role;
+
+COMMENT ON TABLE public.decision_feedback IS NULL;
+COMMENT ON TABLE public.workflow_trigger_rules IS NULL;

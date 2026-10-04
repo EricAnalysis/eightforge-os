@@ -20,7 +20,7 @@ A page whose table structure reconstructs but whose header semantics are unresol
   - When applied, the page reconstructs with the selected role map and every normal admission rule runs unchanged, including ruling ownership, the R13.1 pricing-authority view and the `261ebc1` withheld-authority diagnostics. Other recovery types stay disabled on that page in the same pass.
 - **Provenance.** `header_semantics: { status: 'human_selected', candidate_id, review_id }` is set on the page and every resulting row. It survives the pricing-authoritative view, the rate-schedule rows, contract pricing assembly and the canonical pricing adapter (as audit metadata, never read by a resolution rule). The original `header_interpretation` is preserved unchanged.
 - **Forgewing.** Forgewing may only rank and explain the preserved options. A page with a single qualifying option gets a deterministic review envelope with no provider call (`provider_model: 'deterministic_header_options'`, certainty 0), so review never depends on AI.
-- **Persistence.** One additive migration, `20261002190502_recovery_header_role_selection.sql`.
+- **Persistence.** One additive migration, `20261004120000_recovery_header_role_selection.sql`.
   - It widens the proposal and generation-outcome type checks.
   - It adds `is_valid_header_role_recovery_candidate` closure validation.
   - It replaces `record_forgewing_recovery_proposal_v2` with a body identical to Phase 14 apart from the new-type branches and the deterministic-envelope check.
@@ -34,7 +34,7 @@ A page whose table structure reconstructs but whose header semantics are unresol
 - Human review remains mandatory, and `enabled` stays reserved for `production_qualified`.
 - With both gates off (the default), nothing changes.
 
-**Deployment order matters.** Apply `20261002190502_recovery_header_role_selection.sql` (the corrected version from `be629b1`) to the target database **before** turning the gates on. Otherwise the proposal RPC rejects the new type: each attempt is recorded as a failed generation outcome, nothing is persisted, and pricing is unaffected.
+**Deployment order matters.** Apply `20261004120000_recovery_header_role_selection.sql` (the corrected version from `be629b1`) to the target database **before** turning the gates on. Otherwise the proposal RPC rejects the new type: each attempt is recorded as a failed generation outcome, nothing is persisted, and pricing is unaffected.
 
 **Pricing still needs the document's pricing scope to be authoritative.** Selecting a header resolves semantics only. Rows price once operator rate-schedule pages make the pricing source scope authoritative (see the UI gate below).
 

@@ -153,6 +153,28 @@ function structuralRefs(reconstruction: PagePricedScheduleReconstruction): Locat
   ]);
 }
 
+/**
+ * Evidence deterministic reconstruction could not resolve: role-less cells,
+ * role-less tokens no row could take, rows of pages whose pricing authority was
+ * withheld, and pages that produced no table at all. Materialized so a later
+ * review can bind to exact observations. Never pricing anchors, and never part
+ * of closure, which accounts only for accepted and diagnostic refs.
+ */
+function unresolvedEvidenceRefs(reconstruction: PagePricedScheduleReconstruction): LocatedRef[] {
+  const located = (page: number) => (ref: PricedScheduleCellSourceRef): LocatedRef => ({ page, ref });
+  return [
+    ...reconstruction.pages.flatMap((page) => [
+      ...page.rows.flatMap((row) => [...row.cells, ...(row.unresolved_role_cells ?? [])]
+        .flatMap((cell) => cell.source_refs)),
+      ...(page.unattached_role_less_tokens ?? []),
+    ].map(located(page.physical_page_number))),
+    ...(reconstruction.unresolved_pages ?? []).flatMap((page) =>
+      [...page.header_lines, ...page.priced_lines]
+        .flatMap((line) => line.source_refs)
+        .map(located(page.physical_page_number))),
+  ];
+}
+
 function tokenObservation(params: {
   token: PdfToken;
   page: number;
@@ -714,6 +736,7 @@ export function buildPdfLayoutObservationsLayer(params: {
     ...acceptedRefs(params.reconstruction),
     ...diagnosticRefs(params.reconstruction),
     ...structuralRefs(params.reconstruction),
+    ...unresolvedEvidenceRefs(params.reconstruction),
   ].flatMap((entry) => entry.ref.observation_id ? [entry.ref.observation_id] : []));
   const definitions = new Map<string, PdfLayoutTokenObservation[]>();
   if (params.context) {

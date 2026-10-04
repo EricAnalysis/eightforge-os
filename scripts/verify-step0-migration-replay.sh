@@ -2851,6 +2851,13 @@ WSLENV="${WSLENV:+${WSLENV}:}PHASE15_DATABASE_URL" \
   npx --no-install vite-node --config vitest.config.ts \
     scripts/verify-phase15-diagnostics-from-postgres.ts
 
+# B3 persists region-bound human-reviewed values on the existing assertion ledger.
+"${psql[@]}" --file scripts/sql/verify-region-bound-human-fact-assertions.sql
+B3_DATABASE_URL="${replay_database_url}" \
+WSLENV="${WSLENV:+${WSLENV}:}B3_DATABASE_URL" \
+  npx --no-install vite-node --config vitest.config.ts \
+    scripts/verify-region-bound-assertions-from-postgres.ts
+
 echo "FRESH REPLAY: PASS (${#migrations[@]} migrations)"
 echo "PHASE 1B MIGRATION LEDGER / OBJECT REPLAY: PASS"
 echo "PHASE 1B PAGE / FRAGMENT PROVENANCE INSERT / UPDATE MATRIX: PASS"
@@ -2873,3 +2880,5 @@ echo "DATABASE STEP3 CONCURRENT DIVERGENCE / PARTIAL-ROW REJECTION: PASS"
 echo "PHASE 12 RECOVERY DATABASE AUTHORITY / IDEMPOTENCY / ACL: PASS"
 echo "PHASE 12 EFFECTIVE CONFIRMATION / CONCURRENCY: PASS"
 echo "PHASE 15 RECOVERY GENERATION OUTCOME / ACL / IMMUTABILITY: PASS"
+echo "B3 REGION-BOUND HUMAN ASSERTION ACL / IDEMPOTENCY / CHAIN / IMMUTABILITY: PASS"
+echo "B3 REGION-BOUND ASSERTION TYPESCRIPT ADAPTER ROUND TRIP: PASS"

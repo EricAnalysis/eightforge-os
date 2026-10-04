@@ -23,6 +23,7 @@ import {
   type ValidationEvidenceTarget,
 } from '@/lib/validator/evidenceNavigation';
 import { normalizeValidationFinding } from '@/lib/validator/findingSemantics';
+import { isHumanReviewedEvidenceNote } from '@/lib/validator/humanReviewedEvidence';
 import type {
   ValidationEvidence,
   ValidationFinding,
@@ -422,6 +423,31 @@ function DetailBlock(props: {
       >
         {value && value.trim().length > 0 ? value : NOT_CAPTURED}
       </p>
+    </ForgeSectionCard>
+  );
+}
+
+/**
+ * Human-reviewed authority is shown explicitly, never inferred from the value:
+ * the badge plus the provenance note (operator value, what extraction read,
+ * assertion id).
+ */
+function HumanReviewedAuthorityNotice(props: { entries: readonly EvidenceEntry[] }) {
+  const notes = [...new Set(props.entries
+    .map((entry) => entry.item.note)
+    .filter((note): note is string => isHumanReviewedEvidenceNote(note)))];
+  if (notes.length === 0) return null;
+  return (
+    <ForgeSectionCard as="div" surface="primary" radius="sm" padding="md" className="mb-2">
+      <p
+        data-testid="human-reviewed-authority"
+        className="inline-block rounded-sm border border-[var(--ef-success-a30)] bg-[var(--ef-success-bg)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-success-soft)]"
+      >
+        Human reviewed
+      </p>
+      {notes.map((note) => (
+        <p key={note} className="mt-2 break-words text-sm leading-6 text-[var(--ef-text-primary)]">{note}</p>
+      ))}
     </ForgeSectionCard>
   );
 }
@@ -828,6 +854,7 @@ export function ValidatorEvidenceDrawer({
               );
               return (
                 <div key={group.key} data-testid="evidence-record-block">
+                  <HumanReviewedAuthorityNotice entries={group.entries} />
                   {populatedFields.length >= 2 && distinctFieldNames.size >= 2 ? (
                     <BusinessRecordBlock
                       group={group}

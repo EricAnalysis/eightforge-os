@@ -37,7 +37,7 @@ export type EffectiveInvoiceLineCodeResolution = {
 };
 
 function isOperatorFactSource(source: EffectiveFactSource): boolean {
-  return source === 'human_override' || source === 'human_review';
+  return source === 'human_override' || source === 'human_assertion' || source === 'human_review';
 }
 
 function codeResolutionForCompletedLine(params: {

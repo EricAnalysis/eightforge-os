@@ -25,6 +25,7 @@ import type {
   CanonicalPrecedenceRef,
   TruthEnvelope,
 } from '@/lib/canonical/truth/envelope';
+import type { HumanReviewReceipt } from '@/lib/humanFactAssertions/humanReviewReceipt';
 import type {
   CanonicalRouteKind,
   ParsedDistanceBand,
@@ -57,6 +58,8 @@ export type CanonicalRateScheduleRef = {
 export type CanonicalPricingSourceFamily = {
   /** Preserved human selection receipt for source header semantics. Audit metadata only. */
   readonly headerSemantics?: Readonly<{ status: 'human_selected'; candidate_id: string; review_id: string }>;
+  /** Human-reviewed assertion receipt for an operator-entered row. Audit metadata only. */
+  readonly humanReview?: HumanReviewReceipt;
   /** Identifier of the adapter that produced the candidate. */
   readonly adapterId: string;
   /** Upstream `sourceKind`, opaque. Never branched on. */

@@ -118,6 +118,11 @@ import {
   PACK_AUTHORED_RATE_ROW_QUARANTINE,
   runAuthoredRateRowQuarantineRules,
 } from '@/lib/validator/rulePacks/authoredRateRowQuarantine';
+import { HUMAN_REVIEWED_EVIDENCE_PREFIX } from '@/lib/validator/humanReviewedEvidence';
+import {
+  PACK_HUMAN_REVIEW_INTEGRITY,
+  runHumanReviewIntegrityRules,
+} from '@/lib/validator/rulePacks/humanReviewIntegrity';
 import {
   PACK_TRANSACTION_GRAIN_CONFLICT,
   runTransactionGrainConflictRules,
@@ -157,6 +162,25 @@ import type {
 } from '@/types/validator';
 import { isBlockingFinding } from '@/lib/validator/findingSemantics';
 import { completeEffectiveInvoiceLineCanonicalFields } from '@/lib/validator/effectiveInvoiceLineCompletion';
+import {
+  currentDocumentEvidenceFromExtractionData,
+  describeHumanReviewedValue,
+  resolveRegionBoundAssertions,
+  reviewedDocumentFieldAssertions,
+  type CurrentDocumentEvidence,
+  type EffectiveRegionAssertion,
+  type HeldRegionAssertion,
+  type HumanFactAssertionRow,
+} from '@/lib/humanFactAssertions/regionBoundAssertions';
+import { loadRegionBoundAssertionRows, type RegionAssertionClient } from '@/lib/server/regionBoundHumanAssertions';
+import {
+  applyHumanReviewedPricing,
+  NO_HUMAN_REVIEW_GATE,
+  summaryOfLegacyRecord,
+  type HumanReviewPricingGate,
+  type HumanReviewWithheldRow,
+} from '@/lib/humanFactAssertions/humanReviewSupersession';
+import type { SupersededMachineRow } from '@/lib/humanFactAssertions/humanReviewReceipt';
 
 const PACK_REQUIRED_SOURCES = 'required_sources';
 const PACK_IDENTITY_CONSISTENCY = 'identity_consistency';
@@ -1245,6 +1269,12 @@ async function loadLegacyExtractionRows(
   return rowsByDocumentId;
 }
 
+async function loadRegionAssertionRows(documentIds: readonly string[]) {
+  const admin = getSupabaseAdmin();
+  if (!admin) throw new Error('Server validation client is not configured.');
+  return loadRegionBoundAssertionRows(admin as unknown as RegionAssertionClient, documentIds);
+}
+
 async function loadDocumentFactOverrides(
   documentIds: readonly string[],
 ): Promise<DocumentFactOverrideRow[]> {
@@ -1591,6 +1621,8 @@ export function buildFactsByDocumentId(params: {
   legacyRowsByDocumentId: Map<string, ValidatorLegacyExtractionRow>;
   overrideRows: readonly DocumentFactOverrideRow[];
   reviewRows: readonly DocumentFactReviewRow[];
+  /** Effective region-bound human assertions (B3) for document fields. */
+  regionAssertions?: readonly EffectiveRegionAssertion[];
 }): {
   factsByDocumentId: Map<string, ValidatorFactRecord[]>;
   allFacts: ValidatorFactRecord[];
@@ -1762,6 +1794,27 @@ export function buildFactsByDocumentId(params: {
       );
     }
 
+    for (const assertion of reviewedDocumentFieldAssertions(params.regionAssertions ?? [])) {
+      if (assertion.documentId !== document.id) continue;
+      const record = factRecord({
+        documentId: document.id,
+        key: assertion.factKey,
+        value: assertion.value,
+        source: 'human_assertion',
+        fieldType: null,
+        note: describeHumanReviewedValue({ value: assertion.value, provenance: assertion.provenance }),
+      });
+      // The value is bound to an exact page; evidence points there.
+      facts.push({
+        ...record,
+        evidence: record.evidence.map((entry) => ({
+          ...entry,
+          source_page: assertion.provenance.physicalPageNumber,
+          record_id: `human_fact_assertion:${assertion.provenance.assertionId}`,
+        })),
+      });
+    }
+
     factsByDocumentId.set(document.id, collapseEffectiveFactRecords(facts));
   }
 
@@ -1916,12 +1969,46 @@ function normalizeRateScheduleItem(
   };
 }
 
-export function buildRateScheduleItems(params: {
+type RateScheduleItemsParams = {
   factsByDocumentId: Map<string, ValidatorFactRecord[]>;
   rateDocumentIds: readonly string[];
   contractValidationContext: ValidatorContractAnalysisContext | null;
   assembledContractPricingRows: readonly ContractPricingAssemblyRow[];
-}): RateScheduleItem[] {
+  /**
+   * Human-reviewed authority for the legacy-only fallback rows (B3.1). The
+   * assembled rows were already decided at the shared assembly seam by the same
+   * matcher; this applies it where legacy reads rows that never entered assembly.
+   */
+  humanReviewGate?: HumanReviewPricingGate;
+};
+
+export function buildRateScheduleItems(params: RateScheduleItemsParams): RateScheduleItem[] {
+  return buildRateScheduleItemsWithHumanReview(params).items;
+}
+
+export function buildRateScheduleItemsWithHumanReview(params: RateScheduleItemsParams): {
+  items: RateScheduleItem[];
+  /** Legacy fallback rows withheld because they cannot be proven distinct from a human-reviewed row. */
+  withheld: HumanReviewWithheldRow[];
+} {
+  const gate = params.humanReviewGate ?? NO_HUMAN_REVIEW_GATE;
+  const withheld: HumanReviewWithheldRow[] = [];
+  const fallbackSupersededBy = new Map<string, SupersededMachineRow[]>();
+  /** True when a fallback record may be priced; records what human review superseded or withheld. */
+  const admitFallback = (record: unknown, documentId: string): boolean => {
+    if (gate.targets.length === 0 || record == null || typeof record !== 'object' || Array.isArray(record)) return true;
+    const { decision, identity } = gate.decideLegacyRecord(record as Record<string, unknown>, documentId);
+    if (decision.kind === 'distinct') return true;
+    const summary = summaryOfLegacyRecord(record as Record<string, unknown>, identity);
+    if (decision.kind === 'superseded') {
+      for (const assertionId of decision.assertionIds) {
+        fallbackSupersededBy.set(assertionId, [...(fallbackSupersededBy.get(assertionId) ?? []), summary]);
+      }
+    } else {
+      withheld.push({ ...summary, documentId, seam: 'legacy_fallback', assertionIds: decision.assertionIds });
+    }
+    return false;
+  };
   const items: RateScheduleItem[] = [];
   const seen = new Set<string>();
 
@@ -1964,8 +2051,13 @@ export function buildRateScheduleItems(params: {
     authoredValueCorrection: row.authoredValueCorrection,
     rate_raw: row.rawText,
     raw_text: row.rawText,
+    human_review: row.humanReview ?? null,
   }));
-  const categorylessPersistedCompatibilityRows = assembledRateRows.length > 0
+  // Human-reviewed rows (B3) are additive truth for regions extraction did not
+  // price. They never stand in for deterministic coverage, so they cannot
+  // suppress a document's fallback rows.
+  const deterministicAssembledRowCount = assembledRateRows.filter((row) => row.human_review == null).length;
+  const categorylessPersistedCompatibilityRows = deterministicAssembledRowCount > 0
     ? []
     : (params.contractValidationContext?.analysis.rate_schedule_rows ?? [])
       .filter((row) => {
@@ -2009,16 +2101,22 @@ export function buildRateScheduleItems(params: {
       (row as { source_document_id?: string | null }).source_document_id
       ?? params.contractValidationContext?.document_id
       ?? 'contract_summary';
-    const item = normalizeRateScheduleItem(
+    // Rows past the assembled ones are the persisted compatibility fallback.
+    if (index >= assembledRateRows.length && !admitFallback(row, sourceDocumentId)) continue;
+    const normalized = normalizeRateScheduleItem(
       row,
       sourceDocumentId,
       row.row_id ?? `contract_rate_row:${index + 1}`,
     );
+    // A human-reviewed row keeps its receipt, so every downstream consumer can
+    // show it as human-reviewed and trace it to its assertion.
+    const humanReview = (row as { human_review?: RateScheduleItem['human_review'] }).human_review ?? null;
+    const item = normalized && humanReview ? { ...normalized, human_review: humanReview } : normalized;
     // A document counts as covered only once it has actually contributed an
     // item. Deriving coverage from the raw input instead would let a document
     // whose rows all normalized away suppress its own fact rows and lose the
     // pricing entirely — silence rather than double-counting, but still a loss.
-    if (item != null) assembledSourceDocumentIds.add(sourceDocumentId);
+    if (item != null && humanReview == null) assembledSourceDocumentIds.add(sourceDocumentId);
     pushItem(item);
   }
 
@@ -2050,6 +2148,7 @@ export function buildRateScheduleItems(params: {
     const rawValue = fact.value;
     if (Array.isArray(rawValue)) {
       rawValue.forEach((entry, index) => {
+        if (!admitFallback(entry, fact.document_id)) return;
         pushItem(
           normalizeRateScheduleItem(
             entry,
@@ -2061,10 +2160,23 @@ export function buildRateScheduleItems(params: {
       continue;
     }
 
+    if (!admitFallback(rawValue, fact.document_id)) continue;
     pushItem(normalizeRateScheduleItem(rawValue, fact.document_id, fact.id));
   }
 
-  return items;
+  // A reviewed row also carries the fallback rows it superseded, as provenance.
+  const enriched = fallbackSupersededBy.size === 0 ? items : items.map((item) => {
+    const receipt = item.human_review;
+    const superseded = receipt ? fallbackSupersededBy.get(receipt.assertion_id) : undefined;
+    return receipt && superseded ? {
+      ...item,
+      human_review: {
+        ...receipt,
+        superseded_machine_rows: [...(receipt.superseded_machine_rows ?? []), ...superseded],
+      },
+    } : item;
+  });
+  return { items: enriched, withheld };
 }
 
 function uniqueDocumentIds(values: readonly string[]): string[] {
@@ -2399,7 +2511,8 @@ function prepareContractValidationContext(
       facts.some(
         (fact) =>
           fact.key === key
-          && (fact.source === 'human_override' || fact.source === 'human_review'),
+          && (fact.source === 'human_override' || fact.source === 'human_assertion'
+            || fact.source === 'human_review'),
       ),
     );
 
@@ -2515,6 +2628,9 @@ function prepareContractValidationContext(
     const document = params.documents.find((candidate) => candidate.id === contractDocumentId) ?? null;
     if (document) {
       const contractFacts = params.factsByDocumentId.get(contractDocumentId) ?? [];
+      // Region-bound assertions (B3) are deliberately not counted here: they
+      // price regions through assembled rows and must not switch the contract
+      // context onto the low-fidelity synthetic re-derivation below.
       const hasHumanOverrides = contractFacts.some(
         (fact) => fact.source === 'human_override' || fact.source === 'human_review',
       );
@@ -2812,6 +2928,7 @@ function buildFactLookups(params: {
   governingDocumentIds: ValidatorDocumentIdsByFamily;
   truthCategoryDocumentIds: ProjectValidatorInput['truthCategoryDocumentIds'];
   assembledContractPricingRows: readonly ContractPricingAssemblyRow[];
+  humanReviewGate?: HumanReviewPricingGate;
 }): ValidatorFactLookups {
   const contractIdentityDocumentIds = uniqueDocumentIds([
     ...params.truthCategoryDocumentIds.contract_identity,
@@ -2884,11 +3001,12 @@ function buildFactLookups(params: {
     rateFactDocumentIds,
     TIME_AND_MATERIALS_FACT_KEYS,
   );
-  const rateScheduleItems = buildRateScheduleItems({
+  const { items: rateScheduleItems, withheld: humanReviewFallbackWithheldRows } = buildRateScheduleItemsWithHumanReview({
     factsByDocumentId: params.factsByDocumentId,
     rateDocumentIds: rateFactDocumentIds,
     contractValidationContext: params.contractValidationContext,
     assembledContractPricingRows: params.assembledContractPricingRows,
+    humanReviewGate: params.humanReviewGate,
   });
   const contractAnalysisRateSchedulePresent =
     params.contractValidationContext?.analysis.pricing_model?.rate_schedule_present?.value === true;
@@ -2949,6 +3067,7 @@ function buildFactLookups(params: {
     rateScheduleFacts,
     rateScheduleItems,
     hasRateScheduleFacts,
+    ...(humanReviewFallbackWithheldRows.length > 0 ? { humanReviewFallbackWithheldRows } : {}),
   };
 }
 
@@ -3316,6 +3435,10 @@ export type ValidatorSourceSnapshot = {
   readonly contractUploadGuidanceRateScheduleIncluded: ContractUploadGuidanceRateScheduleIncluded | null;
   readonly invoiceLineRateLinkRows: readonly InvoiceLineRateLinkRow[];
   readonly sourceArtifactSnapshotDigest: string | null;
+  /** Reviewed values withheld fail-closed (stale page, ambiguity); surfaced, never applied. */
+  readonly heldRegionAssertions?: readonly HeldRegionAssertion[];
+  /** Assembled machine rows withheld at the human-review seam (B3.1). */
+  readonly humanReviewWithheldRows?: readonly HumanReviewWithheldRow[];
 };
 
 /**
@@ -3338,6 +3461,7 @@ export async function loadValidatorSourceSnapshot(
     loadTickets,
     transactionData,
     sourceArtifactSnapshotResult,
+    regionAssertionRead,
   ] =
     await Promise.all([
       loadExtractionFactRows(documentIds),
@@ -3352,7 +3476,12 @@ export async function loadValidatorSourceSnapshot(
         documentIds,
       }),
       loadSourceArtifactSnapshot({ project, documents }),
+      loadRegionAssertionRows(documentIds),
     ]);
+  const regionAssertionResolution = resolveRegionAssertionsForSnapshot({
+    rows: regionAssertionRead.rows,
+    legacyRowsByDocumentId,
+  });
 
   const sourceArtifactSnapshot = sourceArtifactSnapshotResult.entries;
 
@@ -3402,6 +3531,7 @@ export async function loadValidatorSourceSnapshot(
     legacyRowsByDocumentId,
     overrideRows,
     reviewRows,
+    regionAssertions: regionAssertionResolution.effective,
   });
   const scopedInvoiceTruth = resolveValidationInvoiceScope({
     invoices: baseInvoices,
@@ -3443,9 +3573,22 @@ export async function loadValidatorSourceSnapshot(
     preparedContractValidationContext,
   );
   const contractValidationContext = contractPricingExecution.contractValidationContext;
-  const assembledContractPricingRows = retainAssembledContractPricingRows(
-    contractPricingExecution.assembly.selectedRows,
-  );
+  // Human-reviewed rate rows (B3) join the one assembled-row list that both the
+  // legacy projection and canonical truth consume. Only documents that are rate
+  // sources in this execution contribute, exactly as for extracted rows.
+  const reviewedRateDocumentIds = new Set(uniqueDocumentIds([
+    ...truthCategoryDocumentIds.contract_identity,
+    ...truthCategoryDocumentIds.pricing,
+  ]).filter((documentId) => !excludedValidationDocumentIds.has(documentId)));
+  // The single seam before legacy and canonical projection: an effective
+  // human-reviewed row supersedes the machine rows for its physical target.
+  const humanReviewedPricing = applyHumanReviewedPricing({
+    machineRows: contractPricingExecution.assembly.selectedRows,
+    effective: regionAssertionResolution.effective,
+    rateDocumentIds: reviewedRateDocumentIds,
+    currentEvidenceByDocumentId: regionAssertionResolution.currentEvidenceByDocumentId,
+  });
+  const assembledContractPricingRows = retainAssembledContractPricingRows(humanReviewedPricing.rows);
   const baseFactLookups = buildFactLookups({
     factsByDocumentId,
     contractValidationContext,
@@ -3453,6 +3596,7 @@ export async function loadValidatorSourceSnapshot(
     governingDocumentIds,
     truthCategoryDocumentIds,
     assembledContractPricingRows,
+    humanReviewGate: humanReviewedPricing.gate,
   });
 
   return {
@@ -3483,7 +3627,30 @@ export async function loadValidatorSourceSnapshot(
     contractUploadGuidanceRateScheduleIncluded: contractUploadGuidance?.rate_schedule_included ?? null,
     invoiceLineRateLinkRows,
     sourceArtifactSnapshotDigest: buildSourceArtifactSnapshotDigest(sourceArtifactSnapshot),
+    heldRegionAssertions: regionAssertionResolution.held,
+    humanReviewWithheldRows: humanReviewedPricing.withheld,
   };
+}
+
+/**
+ * Region-bound human assertions against each document's current extraction.
+ * Pure over loaded rows: the current page digests and priced observations come
+ * from the extraction blob this snapshot already loaded, never a second read.
+ */
+export function resolveRegionAssertionsForSnapshot(params: {
+  rows: readonly HumanFactAssertionRow[];
+  legacyRowsByDocumentId: ReadonlyMap<string, ValidatorLegacyExtractionRow>;
+}): {
+  effective: readonly EffectiveRegionAssertion[];
+  held: readonly HeldRegionAssertion[];
+  currentEvidenceByDocumentId: ReadonlyMap<string, CurrentDocumentEvidence>;
+} {
+  const currentEvidenceByDocumentId = new Map<string, CurrentDocumentEvidence>();
+  if (params.rows.length === 0) return { effective: [], held: [], currentEvidenceByDocumentId };
+  for (const [documentId, row] of params.legacyRowsByDocumentId) {
+    currentEvidenceByDocumentId.set(documentId, currentDocumentEvidenceFromExtractionData(row.data ?? null));
+  }
+  return { ...resolveRegionBoundAssertions({ rows: params.rows, currentEvidenceByDocumentId }), currentEvidenceByDocumentId };
 }
 
 /**
@@ -3586,6 +3753,17 @@ export function buildValidatorInputFromSourceSnapshot(
       ? []
       : [...baseFactLookups.rateScheduleItems];
 
+  // Legacy fallback rows are priced only when legacy pricing governs, so only
+  // then can withholding them matter to this run.
+  const legacyPricingGoverns = !isCanonicalAuthorityEstablished(projectTruthAuthority)
+    && !isCanonicalAuthorityUnavailable(projectTruthAuthority);
+  const humanReviewDiagnostics = {
+    withheldRows: [
+      ...(snapshot.humanReviewWithheldRows ?? []),
+      ...(legacyPricingGoverns ? baseFactLookups.humanReviewFallbackWithheldRows ?? [] : []),
+    ],
+    heldAssertions: snapshot.heldRegionAssertions ?? [],
+  };
   const factLookups = {
     ...baseFactLookups,
     rateScheduleItems: authoritativeRateScheduleItems,
@@ -3667,6 +3845,7 @@ export function buildValidatorInputFromSourceSnapshot(
     contractValidationContext,
     transactionData: validatorTransactionData,
     projectTruthAuthority,
+    humanReviewDiagnostics,
   } satisfies ProjectValidatorInput;
   const reconciliationContext = buildValidatorReconciliationContext(baseInput);
 
@@ -3674,6 +3853,40 @@ export function buildValidatorInputFromSourceSnapshot(
     ...baseInput,
     reconciliationContext,
   };
+}
+
+/**
+ * Labels every piece of rate evidence that rests on a human-reviewed rate row
+ * (B3), in every rule pack, so no rendered consumer can show the value as a
+ * machine reading. Adds the page when the pack did not record one. Changes
+ * nothing for rows without a review receipt.
+ */
+export function labelHumanReviewedRateEvidence(
+  findings: readonly ValidatorFindingResult[],
+  rateScheduleItems: readonly RateScheduleItem[],
+): ValidatorFindingResult[] {
+  const receipts = new Map(rateScheduleItems.flatMap((item) =>
+    item.human_review ? [[item.record_id, item.human_review] as const] : []));
+  if (receipts.size === 0) return [...findings];
+  return findings.map((finding) => {
+    if (!finding.evidence.some((entry) => entry.record_id != null && receipts.has(entry.record_id))) return finding;
+    return {
+      ...finding,
+      evidence: finding.evidence.map((entry) => {
+        const receipt = entry.record_id != null ? receipts.get(entry.record_id) : undefined;
+        if (!receipt) return entry;
+        const read = receipt.original_source_text != null
+          ? `extraction read "${receipt.original_source_text}"`
+          : 'extraction produced no value';
+        return {
+          ...entry,
+          source_page: entry.source_page ?? receipt.physical_page_number,
+          note: `${HUMAN_REVIEWED_EVIDENCE_PREFIX} contract rate (operator entered on page ${receipt.physical_page_number}; ${read}; `
+            + `assertion ${receipt.assertion_id}). ${entry.note ?? ''}`.trim(),
+        };
+      }),
+    };
+  });
 }
 
 function finalizeResult(
@@ -3772,6 +3985,11 @@ export function executeProjectValidation(
   findings.push(...runAuthoredRateRowQuarantineRules(input));
   rulesApplied.push(PACK_AUTHORED_RATE_ROW_QUARANTINE);
 
+  // Human-reviewed values that could not be applied, and machine rows withheld
+  // rather than double-counted beside them. Runs in both authority modes.
+  findings.push(...runHumanReviewIntegrityRules(input));
+  rulesApplied.push(PACK_HUMAN_REVIEW_INTEGRITY);
+
   // Canonical ticket-grain conflicts run before the gating packs so a disputed
   // quantity or amount blocks rather than silently feeding downstream totals.
   // Contributes nothing in legacy mode.
@@ -3799,7 +4017,7 @@ export function executeProjectValidation(
       // and return the blocked result without running financial or ticket checks.
       return {
         input,
-        result: finalizeResult(findings, rulesApplied, {
+        result: finalizeResult(labelHumanReviewedRateEvidence(findings, input.factLookups.rateScheduleItems), rulesApplied, {
           contractInvoiceReconciliation,
           invoiceTransactionReconciliation,
           crossDocumentRateVerification,
@@ -3883,7 +4101,7 @@ export function executeProjectValidation(
 
   return {
     input,
-    result: finalizeResult(findings, rulesApplied, {
+    result: finalizeResult(labelHumanReviewedRateEvidence(findings, input.factLookups.rateScheduleItems), rulesApplied, {
       contractInvoiceReconciliation,
       invoiceTransactionReconciliation,
       crossDocumentRateVerification,

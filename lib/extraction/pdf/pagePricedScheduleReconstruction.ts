@@ -445,9 +445,53 @@ export type PricedScheduleRecoveryDiagnostic = {
   readonly recovery_applied: false;
 };
 
+/**
+ * Why a page that presents priced lines produced no reconstructed page at all.
+ * - multiple_priced_headers: more than one line qualifies as a priced-table
+ *   header, so the page holds more than one table and is never read as one.
+ * - ambiguous_header_candidates: no line qualifies, and more than one line reads
+ *   as a plausible but unresolved header. None is chosen.
+ * - header_not_found: no line reads as a header, qualifying or not.
+ */
+export type PricedScheduleUnresolvedPageReason =
+  | 'multiple_priced_headers'
+  | 'ambiguous_header_candidates'
+  | 'header_not_found';
+
+export type PricedScheduleUnresolvedPageLine = {
+  /** Authored text of the line, exactly as read. */
+  readonly raw_text: string;
+  readonly y: number;
+  readonly source_refs: readonly PricedScheduleCellSourceRef[];
+};
+
+/**
+ * A page that presents priced lines but that deterministic reconstruction could
+ * not read as a table. Diagnostic evidence only: it is never a row, a column or
+ * a pricing fact, and nothing downstream may price from it. It exists so the
+ * page is recorded as unresolved, with its source-backed lines, instead of
+ * disappearing.
+ */
+export type PricedScheduleUnresolvedPage = {
+  readonly authority: 'non_authoritative_diagnostic';
+  readonly reason: PricedScheduleUnresolvedPageReason;
+  readonly physical_page_number: number;
+  /** The header lines involved, top to bottom. Empty for header_not_found. */
+  readonly header_lines: readonly PricedScheduleUnresolvedPageLine[];
+  /** Every line carrying a rate marker, top to bottom, with all of its tokens. */
+  readonly priced_lines: readonly PricedScheduleUnresolvedPageLine[];
+};
+
 export type PagePricedScheduleReconstruction = {
   readonly parser_version: PricedScheduleReconstructionVersion;
   readonly pages: readonly PricedSchedulePage[];
+  /**
+   * Pages that present priced lines but produced no page above, and why.
+   * Present only when there are any, and never for 'spacing_only', so pinned
+   * evaluation fixtures and documents without such pages are byte-identical to
+   * before this field existed.
+   */
+  readonly unresolved_pages?: readonly PricedScheduleUnresolvedPage[];
   /**
    * Present only when confirmations were supplied. Absent otherwise, so the
    * default reconstruction is byte-identical to one built before recovery
@@ -882,35 +926,7 @@ function unresolvedHeaderCandidate(page: PdfLayoutPage): {
    */
   structuralColumns: PricedScheduleColumnBand[] | null;
 } | null {
-  const spineYs = page.lines
-    .filter((line) => line.tokens.some((token) => isRowSpineToken(token)))
-    .map((line) => line.y);
-  const candidates: Array<{
-    y: number; rawText: string; tokens: readonly PdfToken[]; reading: GroupedHeaderReading;
-    cells: HeaderCell[]; labels: PricedScheduleHeaderLabel[];
-    reason: PricedScheduleHeaderUnresolvedReason;
-  }> = [];
-  for (const line of page.lines) {
-    if (line.tokens.length === 0) continue;
-    if (spineYs.filter((y) => y < line.y).length < MINIMUM_PRICED_ROWS) continue;
-    const reading = groupedHeaderReading(line.tokens);
-    const cells = reading.basis.clear
-      ? reading.cells
-      : reading.sorted.map((token) => headerCellOf([token]));
-    const meaningful = cells.filter((cell) => normalizeHeaderLabel(cell.text).length > 0);
-    if (meaningful.length === 0
-        || meaningful.some((cell) => !isCompactHeaderLabel(normalizeHeaderLabel(cell.text)))) continue;
-    const labels = cells.map((cell) => headerLabelOf(cell));
-    const roles = labels.flatMap((label) => (label.role ? [label.role] : []));
-    const distinct = new Set(roles);
-    if (!distinct.has('rate') || distinct.size < 2) continue;
-    const reason: PricedScheduleHeaderUnresolvedReason = !reading.basis.clear
-      ? 'ambiguous_label_grouping'
-      : roles.length !== distinct.size ? 'duplicate_role'
-        : !REQUIRED_ROLES.every((role) => distinct.has(role)) ? 'required_role_missing'
-          : 'insufficient_distinct_roles';
-    candidates.push({ y: line.y, rawText: line.text, tokens: line.tokens, reading, cells, labels, reason });
-  }
+  const candidates = unresolvedHeaderCandidateLines(page);
   if (candidates.length !== 1) return null;
   const candidate = candidates[0]!;
   const { options, limitExceeded } = headerOptions(candidate.reason, candidate.reading, candidate.labels);
@@ -934,6 +950,94 @@ function unresolvedHeaderCandidate(page: PdfLayoutPage): {
       options,
       ...(limitExceeded ? { options_limit_exceeded: true } : {}),
     },
+  };
+}
+
+type UnresolvedHeaderCandidateLine = {
+  y: number; rawText: string; tokens: readonly PdfToken[]; reading: GroupedHeaderReading;
+  cells: HeaderCell[]; labels: PricedScheduleHeaderLabel[];
+  reason: PricedScheduleHeaderUnresolvedReason;
+};
+
+/** Every line that plainly reads as a table header but does not qualify as one. */
+function unresolvedHeaderCandidateLines(page: PdfLayoutPage): UnresolvedHeaderCandidateLine[] {
+  const spineYs = page.lines
+    .filter((line) => line.tokens.some((token) => isRowSpineToken(token)))
+    .map((line) => line.y);
+  const candidates: UnresolvedHeaderCandidateLine[] = [];
+  for (const line of page.lines) {
+    if (line.tokens.length === 0) continue;
+    if (spineYs.filter((y) => y < line.y).length < MINIMUM_PRICED_ROWS) continue;
+    const reading = groupedHeaderReading(line.tokens);
+    const cells = reading.basis.clear
+      ? reading.cells
+      : reading.sorted.map((token) => headerCellOf([token]));
+    const meaningful = cells.filter((cell) => normalizeHeaderLabel(cell.text).length > 0);
+    if (meaningful.length === 0
+        || meaningful.some((cell) => !isCompactHeaderLabel(normalizeHeaderLabel(cell.text)))) continue;
+    const labels = cells.map((cell) => headerLabelOf(cell));
+    const roles = labels.flatMap((label) => (label.role ? [label.role] : []));
+    const distinct = new Set(roles);
+    if (!distinct.has('rate') || distinct.size < 2) continue;
+    const reason: PricedScheduleHeaderUnresolvedReason = !reading.basis.clear
+      ? 'ambiguous_label_grouping'
+      : roles.length !== distinct.size ? 'duplicate_role'
+        : !REQUIRED_ROLES.every((role) => distinct.has(role)) ? 'required_role_missing'
+          : 'insufficient_distinct_roles';
+    candidates.push({ y: line.y, rawText: line.text, tokens: line.tokens, reading, cells, labels, reason });
+  }
+  return candidates;
+}
+
+/**
+ * A headerless page is recorded as unresolved only when at least this many of
+ * its priced lines are laid out in columns (layout kind 'table_candidate').
+ * Higher than MINIMUM_PRICED_ROWS so a page carrying only a subtotal and a total
+ * is not reported as a table, and column layout is required so prose that
+ * mentions amounts is not either.
+ */
+const UNRESOLVED_PAGE_MINIMUM_PRICED_LINES = 3;
+
+function unresolvedPageLine(line: PdfLayoutPage['lines'][number]): PricedScheduleUnresolvedPageLine {
+  return {
+    raw_text: line.text,
+    y: line.y,
+    source_refs: [...line.tokens].sort(compareTokens).map(sourceRefForToken),
+  };
+}
+
+/**
+ * Records why a page that presents priced lines produced no reconstructed page.
+ * Called only for pages reconstructPage returned null for; it never changes what
+ * reconstruction admits. Null when the page presents too few priced lines to be
+ * a table candidate at all.
+ */
+function unresolvedPricedPage(page: PdfLayoutPage): PricedScheduleUnresolvedPage | null {
+  const byVisualOrder = [...page.lines].sort((left, right) => right.y - left.y);
+  const pricedLines = byVisualOrder.filter((line) => line.tokens.some((token) => isRowSpineToken(token)));
+  // Cheap gate first: most pages carry no priced lines and need no header pass.
+  if (pricedLines.length < MINIMUM_PRICED_ROWS) return null;
+  const headerYs = new Set(detectHeaders(page).map((header) => header.y));
+  let reason: PricedScheduleUnresolvedPageReason;
+  if (headerYs.size > 1) {
+    reason = 'multiple_priced_headers';
+  } else if (headerYs.size === 1) {
+    // reconstructPage only returns null for zero or several headers.
+    return null;
+  } else {
+    for (const candidate of unresolvedHeaderCandidateLines(page)) headerYs.add(candidate.y);
+    if (headerYs.size > 1) reason = 'ambiguous_header_candidates';
+    else if (headerYs.size === 0 && pricedLines.filter((line) => line.kind === 'table_candidate').length
+      >= UNRESOLVED_PAGE_MINIMUM_PRICED_LINES) {
+      reason = 'header_not_found';
+    } else return null;
+  }
+  return {
+    authority: 'non_authoritative_diagnostic',
+    reason,
+    physical_page_number: page.page_number,
+    header_lines: byVisualOrder.filter((line) => headerYs.has(line.y)).map(unresolvedPageLine),
+    priced_lines: pricedLines.map(unresolvedPageLine),
   };
 }
 
@@ -2583,6 +2687,7 @@ export function buildPagePricedScheduleReconstruction(params: {
   const appliedCandidates = new Set<string>();
   const generatedCandidates: RecoveryCandidateV2[] = [];
   const pages: PricedSchedulePage[] = [];
+  const unresolvedPages: PricedScheduleUnresolvedPage[] = [];
   const headerDiagnostics: PricedScheduleRecoveryDiagnostic[] = [];
   // Deterministic page order regardless of input ordering.
   const orderedPages = [...params.layout.pages].sort(
@@ -2642,6 +2747,9 @@ export function buildPagePricedScheduleReconstruction(params: {
         : (params.rulingLineInputs ?? []).filter((input) => input.evidence.physical_page_number === page.page_number
           && input.evidence.source_sha256 === params.rulingLineSourceSha256);
       pages.push(inputs.length === 1 ? resolveRulingLineOwnership(reconstructed, page, inputs[0]!) : reconstructed);
+    } else if (params.continuationEvidence !== 'spacing_only') {
+      const unresolved = unresolvedPricedPage(page);
+      if (unresolved) unresolvedPages.push(unresolved);
     }
   }
   for (const selection of params.confirmedHeaderSelections ?? []) {
@@ -2656,6 +2764,7 @@ export function buildPagePricedScheduleReconstruction(params: {
     parser_version: params.continuationEvidence === 'spacing_only'
       ? LEGACY_PRICED_SCHEDULE_RECONSTRUCTION_VERSION : PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION,
     pages,
+    ...(unresolvedPages.length > 0 ? { unresolved_pages: unresolvedPages } : {}),
     ...(params.recoveryCandidateBuildContext
       ? { recovery_candidates: generatedCandidates.sort((left, right) =>
           left.candidateId.localeCompare(right.candidateId, 'en-US')) }

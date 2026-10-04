@@ -346,6 +346,7 @@ function rowsForTable(table: string, selectedColumns: string | null): unknown[] 
     case 'mobile_tickets':
     case 'load_tickets':
     case 'invoice_line_rate_links':
+    case 'human_fact_assertions':
       return [];
     default:
       throw new Error(`Unexpected fixture table query: ${table}`);

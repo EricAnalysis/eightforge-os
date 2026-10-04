@@ -1,4 +1,5 @@
 import type { ContractRateScheduleRow } from '@/lib/contracts/types';
+import type { HumanReviewReceipt } from '@/lib/humanFactAssertions/humanReviewReceipt';
 import { normalizeTableCellGeometry, type GeometryCellRef } from '@/lib/extraction/tableGeometry';
 import { collapseToAlphanumericTokens } from '@/lib/contracts/dedupeKeyNormalization';
 import { normalizeDashCharacters } from '@/lib/contracts/textCleanupPrimitives';
@@ -20,7 +21,9 @@ export type ContractPricingSourceKind =
   | 'mdot_section_905_bid_schedule'
   | 'professional_services_table'
   | 'rate_schedule'
-  | 'fallback';
+  | 'fallback'
+  /** An operator asserted this row for a source region extraction did not price (B3). */
+  | 'human_reviewed_assertion';
 export type ContractPricingSourceQuality = 'clean' | 'partial' | 'fallback' | 'junk';
 type ContractPricingDescriptionQuality = 'readable' | 'partial' | 'damaged';
 export type ContractRateDescriptionDisplayQuality = 'clean' | 'partial' | 'damaged';
@@ -77,6 +80,12 @@ export type ContractPricingRowMergeDiagnostic = {
 
 export type ContractPricingAssemblyRow = {
   headerSemantics?: ContractRateScheduleRow['header_semantics'];
+  /**
+   * Present only on a row an operator asserted for a source region extraction
+   * did not price (Forgewing resolution layer B3). Audit metadata: the row's
+   * values ARE the human-reviewed values, and this receipt says so.
+   */
+  humanReview?: HumanReviewReceipt;
   /**
    * The row's own physical identity, verbatim from extraction. NOT unique
    * across documents: two uploads of one PDF mint identical `row_id`s, so this

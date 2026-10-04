@@ -32,6 +32,7 @@ import { pickPreferredExtractionBlob } from '@/lib/blobExtractionSelection';
 import { buildDocumentIntelligenceViewModel } from '@/lib/documentIntelligenceViewModel';
 import { DocumentProjectControls } from '@/components/documents/DocumentProjectControls';
 import { RecoveryReviewPanel } from '@/components/documents/RecoveryReviewPanel';
+import { ReviewedValuesPanel } from '@/components/documents/ReviewedValuesPanel';
 import { DiagnosticsPanel } from '@/components/documents/DiagnosticsPanel';
 import { DocumentDetailExperience } from '@/components/document-intelligence/DocumentDetailExperience';
 import type {
@@ -1792,6 +1793,9 @@ export default function DocumentDetailPage({
                 which is the action immediately above it. */}
             <RecoveryReviewPanel documentId={id} onReprocessed={loadAllData} />
             <DiagnosticsPanel documentId={id} />
+            {/* Operator-entered values for priced lines extraction could not
+                read. EightForge Core: never gated by Forgewing. */}
+            <ReviewedValuesPanel documentId={id} onChanged={loadAllData} />
             <DocumentProjectControls
               documentId={id}
               documentLabel={displayTitle}

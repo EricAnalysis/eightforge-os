@@ -95,7 +95,8 @@ const reservations = () => Number((db.runSql(`SELECT json_build_object('n', coun
 const outcomes = () => db.runSql(`SELECT coalesce(json_agg(json_build_object('code', outcome_code, 'reason', sanitized_reason,
   'invoked', provider_invoked) ORDER BY observed_at, outcome_code), '[]'::json)
   FROM public.forgewing_recovery_generation_outcomes
-  WHERE organization_id = ${sqlLiteral(ORG)} AND recovery_type = 'priced_value_reading'`) as
+  WHERE organization_id = ${sqlLiteral(ORG)} AND recovery_type = 'priced_value_reading'
+    AND page_representation_digest = ${sqlLiteral(PAGE_DIGEST)}`) as
   Array<{ code: string; reason: string; invoked: boolean }>;
 
 const VALUE = JSON.stringify({ reading: 'value', description: 'Stump grinding', unit_type: 'EA', rate_amount: 45,

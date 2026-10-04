@@ -44,8 +44,19 @@ describe('B3 region-bound human review boundaries', () => {
     expect(migration).not.toMatch(/DROP TRIGGER/i);
   });
 
-  it('the Validator consumes reviewed values through the shared assembled-row seam, not a parallel list', () => {
+  it('the Validator applies human review once, at the shared assembled-row seam', () => {
     const validator = read('lib/validator/projectValidator.ts');
-    expect(validator).toMatch(/retainAssembledContractPricingRows\(\[\s*\.\.\.contractPricingExecution\.assembly\.selectedRows,\s*\.\.\.reviewedContractPricingRows\(/);
+    expect(validator).toMatch(/applyHumanReviewedPricing\(\{\s*machineRows: contractPricingExecution\.assembly\.selectedRows,/);
+    expect(validator).toMatch(/retainAssembledContractPricingRows\(humanReviewedPricing\.rows\)/);
+    // The legacy fallback seam reuses the same matcher through the gate.
+    expect(validator).toMatch(/humanReviewGate: humanReviewedPricing\.gate/);
+    expect(validator.match(/decideAgainstHumanReview\(/g) ?? []).toHaveLength(0);
+  });
+
+  it('never dedupes human review against machine rows by content', () => {
+    const matcher = read('lib/humanFactAssertions/humanReviewSupersession.ts');
+    const decide = matcher.slice(matcher.indexOf('export function decideAgainstHumanReview'),
+      matcher.indexOf('export function humanReviewTargets'));
+    expect(decide).not.toMatch(/description|rate\b|unit|raw_text|text/);
   });
 });

@@ -118,6 +118,11 @@ import {
   PACK_AUTHORED_RATE_ROW_QUARANTINE,
   runAuthoredRateRowQuarantineRules,
 } from '@/lib/validator/rulePacks/authoredRateRowQuarantine';
+import { HUMAN_REVIEWED_EVIDENCE_PREFIX } from '@/lib/validator/humanReviewedEvidence';
+import {
+  PACK_HUMAN_REVIEW_INTEGRITY,
+  runHumanReviewIntegrityRules,
+} from '@/lib/validator/rulePacks/humanReviewIntegrity';
 import {
   PACK_TRANSACTION_GRAIN_CONFLICT,
   runTransactionGrainConflictRules,
@@ -161,7 +166,6 @@ import {
   currentDocumentEvidenceFromExtractionData,
   describeHumanReviewedValue,
   resolveRegionBoundAssertions,
-  reviewedContractPricingRows,
   reviewedDocumentFieldAssertions,
   type CurrentDocumentEvidence,
   type EffectiveRegionAssertion,
@@ -169,6 +173,14 @@ import {
   type HumanFactAssertionRow,
 } from '@/lib/humanFactAssertions/regionBoundAssertions';
 import { loadRegionBoundAssertionRows, type RegionAssertionClient } from '@/lib/server/regionBoundHumanAssertions';
+import {
+  applyHumanReviewedPricing,
+  NO_HUMAN_REVIEW_GATE,
+  summaryOfLegacyRecord,
+  type HumanReviewPricingGate,
+  type HumanReviewWithheldRow,
+} from '@/lib/humanFactAssertions/humanReviewSupersession';
+import type { SupersededMachineRow } from '@/lib/humanFactAssertions/humanReviewReceipt';
 
 const PACK_REQUIRED_SOURCES = 'required_sources';
 const PACK_IDENTITY_CONSISTENCY = 'identity_consistency';
@@ -1957,12 +1969,46 @@ function normalizeRateScheduleItem(
   };
 }
 
-export function buildRateScheduleItems(params: {
+type RateScheduleItemsParams = {
   factsByDocumentId: Map<string, ValidatorFactRecord[]>;
   rateDocumentIds: readonly string[];
   contractValidationContext: ValidatorContractAnalysisContext | null;
   assembledContractPricingRows: readonly ContractPricingAssemblyRow[];
-}): RateScheduleItem[] {
+  /**
+   * Human-reviewed authority for the legacy-only fallback rows (B3.1). The
+   * assembled rows were already decided at the shared assembly seam by the same
+   * matcher; this applies it where legacy reads rows that never entered assembly.
+   */
+  humanReviewGate?: HumanReviewPricingGate;
+};
+
+export function buildRateScheduleItems(params: RateScheduleItemsParams): RateScheduleItem[] {
+  return buildRateScheduleItemsWithHumanReview(params).items;
+}
+
+export function buildRateScheduleItemsWithHumanReview(params: RateScheduleItemsParams): {
+  items: RateScheduleItem[];
+  /** Legacy fallback rows withheld because they cannot be proven distinct from a human-reviewed row. */
+  withheld: HumanReviewWithheldRow[];
+} {
+  const gate = params.humanReviewGate ?? NO_HUMAN_REVIEW_GATE;
+  const withheld: HumanReviewWithheldRow[] = [];
+  const fallbackSupersededBy = new Map<string, SupersededMachineRow[]>();
+  /** True when a fallback record may be priced; records what human review superseded or withheld. */
+  const admitFallback = (record: unknown, documentId: string): boolean => {
+    if (gate.targets.length === 0 || record == null || typeof record !== 'object' || Array.isArray(record)) return true;
+    const { decision, identity } = gate.decideLegacyRecord(record as Record<string, unknown>, documentId);
+    if (decision.kind === 'distinct') return true;
+    const summary = summaryOfLegacyRecord(record as Record<string, unknown>, identity);
+    if (decision.kind === 'superseded') {
+      for (const assertionId of decision.assertionIds) {
+        fallbackSupersededBy.set(assertionId, [...(fallbackSupersededBy.get(assertionId) ?? []), summary]);
+      }
+    } else {
+      withheld.push({ ...summary, documentId, seam: 'legacy_fallback', assertionIds: decision.assertionIds });
+    }
+    return false;
+  };
   const items: RateScheduleItem[] = [];
   const seen = new Set<string>();
 
@@ -2055,6 +2101,8 @@ export function buildRateScheduleItems(params: {
       (row as { source_document_id?: string | null }).source_document_id
       ?? params.contractValidationContext?.document_id
       ?? 'contract_summary';
+    // Rows past the assembled ones are the persisted compatibility fallback.
+    if (index >= assembledRateRows.length && !admitFallback(row, sourceDocumentId)) continue;
     const normalized = normalizeRateScheduleItem(
       row,
       sourceDocumentId,
@@ -2100,6 +2148,7 @@ export function buildRateScheduleItems(params: {
     const rawValue = fact.value;
     if (Array.isArray(rawValue)) {
       rawValue.forEach((entry, index) => {
+        if (!admitFallback(entry, fact.document_id)) return;
         pushItem(
           normalizeRateScheduleItem(
             entry,
@@ -2111,10 +2160,23 @@ export function buildRateScheduleItems(params: {
       continue;
     }
 
+    if (!admitFallback(rawValue, fact.document_id)) continue;
     pushItem(normalizeRateScheduleItem(rawValue, fact.document_id, fact.id));
   }
 
-  return items;
+  // A reviewed row also carries the fallback rows it superseded, as provenance.
+  const enriched = fallbackSupersededBy.size === 0 ? items : items.map((item) => {
+    const receipt = item.human_review;
+    const superseded = receipt ? fallbackSupersededBy.get(receipt.assertion_id) : undefined;
+    return receipt && superseded ? {
+      ...item,
+      human_review: {
+        ...receipt,
+        superseded_machine_rows: [...(receipt.superseded_machine_rows ?? []), ...superseded],
+      },
+    } : item;
+  });
+  return { items: enriched, withheld };
 }
 
 function uniqueDocumentIds(values: readonly string[]): string[] {
@@ -2866,6 +2928,7 @@ function buildFactLookups(params: {
   governingDocumentIds: ValidatorDocumentIdsByFamily;
   truthCategoryDocumentIds: ProjectValidatorInput['truthCategoryDocumentIds'];
   assembledContractPricingRows: readonly ContractPricingAssemblyRow[];
+  humanReviewGate?: HumanReviewPricingGate;
 }): ValidatorFactLookups {
   const contractIdentityDocumentIds = uniqueDocumentIds([
     ...params.truthCategoryDocumentIds.contract_identity,
@@ -2938,11 +3001,12 @@ function buildFactLookups(params: {
     rateFactDocumentIds,
     TIME_AND_MATERIALS_FACT_KEYS,
   );
-  const rateScheduleItems = buildRateScheduleItems({
+  const { items: rateScheduleItems, withheld: humanReviewFallbackWithheldRows } = buildRateScheduleItemsWithHumanReview({
     factsByDocumentId: params.factsByDocumentId,
     rateDocumentIds: rateFactDocumentIds,
     contractValidationContext: params.contractValidationContext,
     assembledContractPricingRows: params.assembledContractPricingRows,
+    humanReviewGate: params.humanReviewGate,
   });
   const contractAnalysisRateSchedulePresent =
     params.contractValidationContext?.analysis.pricing_model?.rate_schedule_present?.value === true;
@@ -3003,6 +3067,7 @@ function buildFactLookups(params: {
     rateScheduleFacts,
     rateScheduleItems,
     hasRateScheduleFacts,
+    ...(humanReviewFallbackWithheldRows.length > 0 ? { humanReviewFallbackWithheldRows } : {}),
   };
 }
 
@@ -3372,6 +3437,8 @@ export type ValidatorSourceSnapshot = {
   readonly sourceArtifactSnapshotDigest: string | null;
   /** Reviewed values withheld fail-closed (stale page, ambiguity); surfaced, never applied. */
   readonly heldRegionAssertions?: readonly HeldRegionAssertion[];
+  /** Assembled machine rows withheld at the human-review seam (B3.1). */
+  readonly humanReviewWithheldRows?: readonly HumanReviewWithheldRow[];
 };
 
 /**
@@ -3513,13 +3580,15 @@ export async function loadValidatorSourceSnapshot(
     ...truthCategoryDocumentIds.contract_identity,
     ...truthCategoryDocumentIds.pricing,
   ]).filter((documentId) => !excludedValidationDocumentIds.has(documentId)));
-  const assembledContractPricingRows = retainAssembledContractPricingRows([
-    ...contractPricingExecution.assembly.selectedRows,
-    ...reviewedContractPricingRows({
-      effective: regionAssertionResolution.effective,
-      rateDocumentIds: reviewedRateDocumentIds,
-    }),
-  ]);
+  // The single seam before legacy and canonical projection: an effective
+  // human-reviewed row supersedes the machine rows for its physical target.
+  const humanReviewedPricing = applyHumanReviewedPricing({
+    machineRows: contractPricingExecution.assembly.selectedRows,
+    effective: regionAssertionResolution.effective,
+    rateDocumentIds: reviewedRateDocumentIds,
+    currentEvidenceByDocumentId: regionAssertionResolution.currentEvidenceByDocumentId,
+  });
+  const assembledContractPricingRows = retainAssembledContractPricingRows(humanReviewedPricing.rows);
   const baseFactLookups = buildFactLookups({
     factsByDocumentId,
     contractValidationContext,
@@ -3527,6 +3596,7 @@ export async function loadValidatorSourceSnapshot(
     governingDocumentIds,
     truthCategoryDocumentIds,
     assembledContractPricingRows,
+    humanReviewGate: humanReviewedPricing.gate,
   });
 
   return {
@@ -3558,6 +3628,7 @@ export async function loadValidatorSourceSnapshot(
     invoiceLineRateLinkRows,
     sourceArtifactSnapshotDigest: buildSourceArtifactSnapshotDigest(sourceArtifactSnapshot),
     heldRegionAssertions: regionAssertionResolution.held,
+    humanReviewWithheldRows: humanReviewedPricing.withheld,
   };
 }
 
@@ -3569,13 +3640,17 @@ export async function loadValidatorSourceSnapshot(
 export function resolveRegionAssertionsForSnapshot(params: {
   rows: readonly HumanFactAssertionRow[];
   legacyRowsByDocumentId: ReadonlyMap<string, ValidatorLegacyExtractionRow>;
-}): { effective: readonly EffectiveRegionAssertion[]; held: readonly HeldRegionAssertion[] } {
-  if (params.rows.length === 0) return { effective: [], held: [] };
+}): {
+  effective: readonly EffectiveRegionAssertion[];
+  held: readonly HeldRegionAssertion[];
+  currentEvidenceByDocumentId: ReadonlyMap<string, CurrentDocumentEvidence>;
+} {
   const currentEvidenceByDocumentId = new Map<string, CurrentDocumentEvidence>();
+  if (params.rows.length === 0) return { effective: [], held: [], currentEvidenceByDocumentId };
   for (const [documentId, row] of params.legacyRowsByDocumentId) {
     currentEvidenceByDocumentId.set(documentId, currentDocumentEvidenceFromExtractionData(row.data ?? null));
   }
-  return resolveRegionBoundAssertions({ rows: params.rows, currentEvidenceByDocumentId });
+  return { ...resolveRegionBoundAssertions({ rows: params.rows, currentEvidenceByDocumentId }), currentEvidenceByDocumentId };
 }
 
 /**
@@ -3678,6 +3753,17 @@ export function buildValidatorInputFromSourceSnapshot(
       ? []
       : [...baseFactLookups.rateScheduleItems];
 
+  // Legacy fallback rows are priced only when legacy pricing governs, so only
+  // then can withholding them matter to this run.
+  const legacyPricingGoverns = !isCanonicalAuthorityEstablished(projectTruthAuthority)
+    && !isCanonicalAuthorityUnavailable(projectTruthAuthority);
+  const humanReviewDiagnostics = {
+    withheldRows: [
+      ...(snapshot.humanReviewWithheldRows ?? []),
+      ...(legacyPricingGoverns ? baseFactLookups.humanReviewFallbackWithheldRows ?? [] : []),
+    ],
+    heldAssertions: snapshot.heldRegionAssertions ?? [],
+  };
   const factLookups = {
     ...baseFactLookups,
     rateScheduleItems: authoritativeRateScheduleItems,
@@ -3759,6 +3845,7 @@ export function buildValidatorInputFromSourceSnapshot(
     contractValidationContext,
     transactionData: validatorTransactionData,
     projectTruthAuthority,
+    humanReviewDiagnostics,
   } satisfies ProjectValidatorInput;
   const reconciliationContext = buildValidatorReconciliationContext(baseInput);
 
@@ -3794,7 +3881,7 @@ export function labelHumanReviewedRateEvidence(
         return {
           ...entry,
           source_page: entry.source_page ?? receipt.physical_page_number,
-          note: `Human-reviewed contract rate (operator entered on page ${receipt.physical_page_number}; ${read}; `
+          note: `${HUMAN_REVIEWED_EVIDENCE_PREFIX} contract rate (operator entered on page ${receipt.physical_page_number}; ${read}; `
             + `assertion ${receipt.assertion_id}). ${entry.note ?? ''}`.trim(),
         };
       }),
@@ -3897,6 +3984,11 @@ export function executeProjectValidation(
 
   findings.push(...runAuthoredRateRowQuarantineRules(input));
   rulesApplied.push(PACK_AUTHORED_RATE_ROW_QUARANTINE);
+
+  // Human-reviewed values that could not be applied, and machine rows withheld
+  // rather than double-counted beside them. Runs in both authority modes.
+  findings.push(...runHumanReviewIntegrityRules(input));
+  rulesApplied.push(PACK_HUMAN_REVIEW_INTEGRITY);
 
   // Canonical ticket-grain conflicts run before the gating packs so a disputed
   // quantity or amount blocks rather than silently feeding downstream totals.

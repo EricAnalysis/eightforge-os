@@ -1,4 +1,6 @@
 import type { HumanReviewReceipt } from '@/lib/humanFactAssertions/humanReviewReceipt';
+import type { HumanReviewWithheldRow } from '@/lib/humanFactAssertions/humanReviewSupersession';
+import type { HeldRegionAssertion } from '@/lib/humanFactAssertions/regionBoundAssertions';
 import type {
   DocumentRelationshipRecord,
   ResolvedDocumentPrecedenceFamily,
@@ -355,6 +357,16 @@ export type ValidatorFactLookups = {
   rateScheduleFacts: ValidatorFactRecord[];
   rateScheduleItems: RateScheduleItem[];
   hasRateScheduleFacts: boolean;
+  /** Legacy fallback rows withheld because they cannot be proven distinct from a human-reviewed row (B3.1). */
+  humanReviewFallbackWithheldRows?: readonly HumanReviewWithheldRow[];
+};
+
+/** Human-review authority diagnostics for one execution (B3.1). */
+export type HumanReviewDiagnostics = {
+  /** Machine rows withheld from the pricing that governs this run. */
+  withheldRows: readonly HumanReviewWithheldRow[];
+  /** Reviewed values held fail-closed (stale page, ambiguity, unbound). */
+  heldAssertions: readonly HeldRegionAssertion[];
 };
 
 export type ProjectValidatorInput = {
@@ -391,6 +403,7 @@ export type ProjectValidatorInput = {
    * identify the same authority mode and the same exact registry.
    */
   projectTruthAuthority?: CanonicalProjectTruthExecutionContext;
+  humanReviewDiagnostics?: HumanReviewDiagnostics;
 };
 
 export type FindingEvidenceInput = {

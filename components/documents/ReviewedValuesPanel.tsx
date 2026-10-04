@@ -32,7 +32,7 @@ const HELD_LABEL: Record<HeldRegionAssertion['reason'], string> = {
   page_representation_changed: 'Page re-extracted differently — review again',
   page_representation_unverifiable: 'Current page cannot be verified — not applied',
   ambiguous_competing_assertions: 'Competing reviewed values — none applied',
-  anchor_overlaps_deterministic_row: 'Extraction now prices this line — reviewed value not applied',
+  source_observations_required: 'Reviewed row cites no source observation — not applied',
   invalid_asserted_value: 'Reviewed value is incomplete — not applied',
 };
 
@@ -67,21 +67,28 @@ export function ReviewedValuesPanel({ documentId, onChanged }: { documentId: str
   const [data, setData] = useState<PanelData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openAnchor, setOpenAnchor] = useState<string | null>(null);
+  const [historyAnchor, setHistoryAnchor] = useState<string | null>(null);
   const [form, setForm] = useState({ description: '', unit: '', rate: '', category: '', reason: '' });
   const [saving, setSaving] = useState(false);
 
-  const load = useCallback(async () => {
-    const response = await authorizedFetch(`/api/documents/${documentId}/facts/region-assertions`);
-    if (!response) return;
-    if (!response.ok) {
-      setError('Reviewed values could not be loaded.');
-      return;
-    }
-    setError(null);
-    setData(await response.json() as PanelData);
-  }, [documentId]);
+  const [reloadKey, setReloadKey] = useState(0);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const response = await authorizedFetch(`/api/documents/${documentId}/facts/region-assertions`);
+      if (cancelled || !response) return;
+      if (!response.ok) {
+        setError('Reviewed values could not be loaded.');
+        return;
+      }
+      const body = await response.json() as PanelData;
+      if (cancelled) return;
+      setError(null);
+      setData(body);
+    })();
+    return () => { cancelled = true; };
+  }, [documentId, reloadKey]);
 
   const headFor = useCallback((anchorKey: string): string | null => {
     if (!data) return null;
@@ -130,9 +137,9 @@ export function ReviewedValuesPanel({ documentId, onChanged }: { documentId: str
     }
     setOpenAnchor(null);
     setForm({ description: '', unit: '', rate: '', category: '', reason: '' });
-    await load();
+    setReloadKey((key) => key + 1);
     onChanged?.();
-  }, [documentId, form, headFor, load, onChanged]);
+  }, [documentId, form, headFor, onChanged]);
 
   if (!data || !data.available) return null;
   if (data.effective.length === 0 && data.held.length === 0 && data.entryTargets.length === 0) return null;
@@ -177,6 +184,34 @@ export function ReviewedValuesPanel({ documentId, onChanged }: { documentId: str
               ) : (
                 <p className="mt-1 text-xs text-[var(--ef-warning)]">No reviewed value — not priced</p>
               )}
+              {(() => {
+                const chain = data.history
+                  .filter((row) => row.anchor_key === target.anchorKey)
+                  .sort((left, right) => left.asserted_at.localeCompare(right.asserted_at));
+                if (chain.length === 0) return null;
+                return (
+                  <div className="mt-1">
+                    <button type="button" aria-expanded={historyAnchor === target.anchorKey}
+                      className="text-xs text-[var(--ef-text-muted)] underline"
+                      onClick={() => setHistoryAnchor(historyAnchor === target.anchorKey ? null : target.anchorKey)}>
+                      {historyAnchor === target.anchorKey ? 'Hide history' : `View history (${chain.length})`}
+                    </button>
+                    {historyAnchor === target.anchorKey ? (
+                      <ol data-testid="reviewed-value-history" className="mt-1 space-y-1 text-xs text-[var(--ef-text-muted)]">
+                        {chain.map((row) => (
+                          <li key={row.id}>
+                            {row.status === 'withdrawn' ? 'Withdrawn' : rateText(row.asserted_value)}
+                            {' · '}{new Date(row.asserted_at).toLocaleString()}
+                            {' · by '}{row.actor_id}
+                            {' · '}{row.reason}
+                            {row.supersedes_assertion_id ? ' · supersedes previous review' : ' · first review'}
+                          </li>
+                        ))}
+                      </ol>
+                    ) : null}
+                  </div>
+                );
+              })()}
               {openAnchor === target.anchorKey ? (
                 <div className="mt-2 grid grid-cols-2 gap-2">
                   {(['description', 'unit', 'rate', 'category'] as const).map((field) => (

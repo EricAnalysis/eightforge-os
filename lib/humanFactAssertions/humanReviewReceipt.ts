@@ -1,3 +1,14 @@
+/** A machine or fallback row a human-reviewed row superseded, kept as provenance. */
+export type SupersededMachineRow = Readonly<{
+  row_id: string;
+  source_kind: string | null;
+  physical_page_number: number | null;
+  description: string | null;
+  unit: string | null;
+  rate: number | null;
+  raw_text: string | null;
+}>;
+
 /**
  * Receipt carried by a value whose authority is a human-reviewed assertion.
  *
@@ -22,4 +33,6 @@ export type HumanReviewReceipt = Readonly<{
   source_observation_ids: readonly string[];
   /** What extraction read at the region, if anything. Never rewritten. */
   original_source_text: string | null;
+  /** Machine rows for the same physical target that this review superseded. */
+  superseded_machine_rows?: readonly SupersededMachineRow[];
 }>;

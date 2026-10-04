@@ -146,6 +146,10 @@ export async function POST(
     if (factKey === CONTRACT_RATE_ROW_FACT_KEY && !parseReviewedRateRowValue(value)) {
       return jsonError('A reviewed rate row needs description, unit_type and a numeric rate_amount', 400);
     }
+    // Final authority over machine rows needs a source-bound target.
+    if (factKey === CONTRACT_RATE_ROW_FACT_KEY && observationIds.length === 0) {
+      return jsonError('A reviewed rate row must cite the source observations it reviews', 400);
+    }
   }
 
   const context = await loadDocumentContext(admin, documentId);

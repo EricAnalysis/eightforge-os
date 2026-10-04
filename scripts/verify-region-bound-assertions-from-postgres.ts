@@ -149,7 +149,7 @@ const chain = read.rows.filter((row) => row.anchor_key === 'p9:adapter');
 check(chain.length === 2, 'history kept: both reviews persisted');
 const current = (digest: string): ReadonlyMap<string, CurrentDocumentEvidence> => new Map([[DOCUMENT, {
   pageRepresentationDigestByPage: new Map([[9, digest]]),
-  pricedRowObservationIds: new Set<string>(),
+  reconstructionRowObservationIds: new Map<string, readonly string[]>(),
 }]]);
 const resolved = resolveRegionBoundAssertions({ rows: chain, currentEvidenceByDocumentId: current('c'.repeat(64)) });
 check(resolved.effective.length === 1 && (resolved.effective[0]!.value as { rate_amount: number }).rate_amount === 47.5,

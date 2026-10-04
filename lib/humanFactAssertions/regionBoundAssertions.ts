@@ -2,6 +2,7 @@ import type { ContractPricingAssemblyRow } from '@/lib/contracts/contractPricing
 import { hashCanonical } from '@/lib/extraction/domain/hash';
 import { pricingAuthoritativePage } from '@/lib/extraction/pdf/pricedScheduleAuthority';
 import type { HumanReviewReceipt } from '@/lib/humanFactAssertions/humanReviewReceipt';
+import { HUMAN_REVIEWED_EVIDENCE_PREFIX } from '@/lib/validator/humanReviewedEvidence';
 import { isSupportedPricedScheduleVersion } from '@/lib/extraction/pdf/pricedScheduleVersion';
 import type { PricedSchedulePage } from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
 
@@ -108,8 +109,8 @@ export type HeldRegionAssertionReason =
   | 'page_representation_unverifiable'
   /** More than one active value competes for the same target. None is chosen. */
   | 'ambiguous_competing_assertions'
-  /** A reviewed rate row is anchored on a row extraction already priced. */
-  | 'anchor_overlaps_deterministic_row'
+  /** A reviewed rate row cites no source observation, so its physical target cannot be bound. */
+  | 'source_observations_required'
   /** The asserted value does not have the shape its fact key requires. */
   | 'invalid_asserted_value';
 
@@ -124,8 +125,12 @@ export type HeldRegionAssertion = Readonly<{
 /** What the current extraction of one document presents, read from its persisted layers. */
 export type CurrentDocumentEvidence = Readonly<{
   pageRepresentationDigestByPage: ReadonlyMap<number, string>;
-  /** Observation ids of rows deterministic pricing already admitted. */
-  pricedRowObservationIds: ReadonlySet<string>;
+  /**
+   * Observation ids of every reconstructed row, keyed `${page}:${rowIndex}`.
+   * Binds a machine pricing row (`page_priced_schedule:p{page}:r{rowIndex}`)
+   * to the exact source observations it was built from.
+   */
+  reconstructionRowObservationIds: ReadonlyMap<string, readonly string[]>;
 }>;
 
 export type RegionAssertionResolution = Readonly<{
@@ -281,8 +286,10 @@ export function resolveRegionBoundAssertions(params: {
         held.push(holdOf('invalid_asserted_value', head, [head.row.id]));
         continue;
       }
-      if (head.provenance.sourceObservationIds.some((id) => evidence!.pricedRowObservationIds.has(id))) {
-        held.push(holdOf('anchor_overlaps_deterministic_row', head, [head.row.id]));
+      // Human review supersedes machine rows only on source-bound proof, which
+      // needs the reviewed row's own observations.
+      if (head.provenance.sourceObservationIds.length === 0) {
+        held.push(holdOf('source_observations_required', head, [head.row.id]));
         continue;
       }
     }
@@ -376,20 +383,21 @@ export function currentDocumentEvidenceFromExtractionData(data: unknown): Curren
   }
   for (const [page, digest] of [...digests]) if (!digest) digests.delete(page);
 
-  const priced = new Set<string>();
+  const rowObservations = new Map<string, readonly string[]>();
   const reconstruction = asRecord(pdf?.priced_schedule_reconstruction_v1);
   const version = reconstruction?.parser_version;
   if (isSupportedPricedScheduleVersion(version) && Array.isArray(reconstruction?.pages)) {
     for (const page of reconstruction.pages as PricedSchedulePage[]) {
+      // The rows pricing actually consumed, exactly as contract rate rows read them.
       const authoritative = asRecord(page) ? pricingAuthoritativePage(page, version) : null;
       for (const row of authoritative?.rows ?? []) {
-        for (const cell of row.cells ?? []) {
-          for (const ref of cell.source_refs ?? []) if (ref?.observation_id) priced.add(ref.observation_id);
-        }
+        const ids = [...new Set((row.cells ?? []).flatMap((cell) =>
+          (cell.source_refs ?? []).flatMap((ref) => (ref?.observation_id ? [ref.observation_id] : []))))];
+        rowObservations.set(`${page.physical_page_number}:${row.row_index}`, ids);
       }
     }
   }
-  return { pageRepresentationDigestByPage: digests, pricedRowObservationIds: priced };
+  return { pageRepresentationDigestByPage: digests, reconstructionRowObservationIds: rowObservations };
 }
 
 function formatValue(value: unknown): string {
@@ -409,7 +417,7 @@ export function describeHumanReviewedValue(params: {
   /** The Forgewing proposal's value, resolved from its own non-authoritative record. */
   forgewingSuggestedValue?: unknown;
 }): string {
-  const parts = [`Human-reviewed value: ${formatValue(params.value)}`];
+  const parts = [`${HUMAN_REVIEWED_EVIDENCE_PREFIX} value: ${formatValue(params.value)}`];
   parts.push(params.provenance.originalSourceText != null
     ? `extraction read "${params.provenance.originalSourceText}"`
     : 'extraction produced no value');

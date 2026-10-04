@@ -180,12 +180,12 @@ describe('B3 upstream: region-bound assertions against the current extraction', 
     expect(result.held[0]!.reason).toBe('ambiguous_competing_assertions');
   });
 
-  it('refuses a reviewed rate row anchored on a row extraction already priced', () => {
+  it('holds a reviewed rate row that cites no source observation: its target cannot be bound', () => {
     const result = resolveRegionAssertionsForSnapshot({
-      rows: [assertion({ source_observation_ids: ['obs-priced'] })], legacyRowsByDocumentId: currentFor(DIGEST),
+      rows: [assertion({ source_observation_ids: [] })], legacyRowsByDocumentId: currentFor(DIGEST),
     });
     expect(result.effective).toEqual([]);
-    expect(result.held[0]!.reason).toBe('anchor_overlaps_deterministic_row');
+    expect(result.held[0]!.reason).toBe('source_observations_required');
   });
 
   it('ignores rows that are not complete region-bound assertions', () => {

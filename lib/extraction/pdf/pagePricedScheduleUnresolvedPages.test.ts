@@ -87,6 +87,9 @@ const twoTables = () => [
 describe('durable unresolved priced pages', () => {
   it('records a page holding two priced tables instead of dropping it', () => {
     const result = buildPagePricedScheduleReconstruction({ layout: layoutOf(twoTables()) });
+    // Current (v2) reconstruction semantics, stored under the historical
+    // priced_schedule_reconstruction_v1 envelope key.
+    expect(result.parser_version).toBe('priced_schedule_reconstruction_v2');
     expect(result.pages).toEqual([]);
     expect(result.unresolved_pages).toHaveLength(1);
     const unresolved = result.unresolved_pages![0]!;
@@ -176,7 +179,7 @@ describe('durable unresolved priced pages', () => {
     const result = buildPagePricedScheduleReconstruction({
       layout: layoutOf(twoTables()), continuationEvidence: 'spacing_only',
     });
-    expect('unresolved_pages' in result).toBe(false);
+    expect(result).toEqual({ parser_version: 'priced_schedule_reconstruction_v1', pages: [] });
   });
 
   it('materializes durable observations for unresolved lines without changing closure', () => {

@@ -3,10 +3,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pickPreferredExtractionBlob } from '@/lib/blobExtractionSelection';
 import {
   CONTRACT_RATE_ROW_FACT_KEY,
+  documentReviewedValueState,
   parseReviewedRateRowValue,
-  resolveRegionBoundAssertions,
-  currentDocumentEvidenceFromExtractionData,
-  regionAssertionEntryTargets,
   verifyRegionEvidence,
   type SourceRegion,
 } from '@/lib/humanFactAssertions/regionBoundAssertions';
@@ -89,19 +87,11 @@ export async function GET(
     return jsonError('Document not found', 404);
   }
   const read = await loadRegionBoundAssertionRows(admin as unknown as RegionAssertionClient, [documentId]);
-  const rows = read.rows.filter((row) => row.organization_id === ctx.actor.organizationId);
-  const resolution = resolveRegionBoundAssertions({
-    rows,
-    currentEvidenceByDocumentId: new Map([[documentId, currentDocumentEvidenceFromExtractionData(context.extractionData)]]),
+  const state = documentReviewedValueState({
+    documentId, organizationId: ctx.actor.organizationId, rows: read.rows, extractionData: context.extractionData,
   });
   // Full history, oldest first: nothing superseded or withdrawn is hidden.
-  return NextResponse.json({
-    available: read.status === 'ok',
-    history: rows,
-    effective: resolution.effective,
-    held: resolution.held,
-    entryTargets: regionAssertionEntryTargets(context.extractionData),
-  });
+  return NextResponse.json({ available: read.status === 'ok', ...state });
 }
 
 export async function POST(

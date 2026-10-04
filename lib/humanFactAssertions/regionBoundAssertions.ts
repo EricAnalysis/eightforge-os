@@ -608,3 +608,34 @@ export function regionAssertionEntryTargets(extractionData: unknown): RegionAsse
   }
   return targets;
 }
+
+/**
+ * One document's reviewed-value state against its current extraction: the
+ * full history, what is effective, what is held, and the lines still open for
+ * review. Shared by the document route and the resolution queue so both
+ * resolve identically.
+ */
+export function documentReviewedValueState(params: {
+  documentId: string;
+  organizationId: string;
+  rows: readonly HumanFactAssertionRow[];
+  extractionData: unknown;
+}): Readonly<{
+  history: readonly HumanFactAssertionRow[];
+  effective: readonly EffectiveRegionAssertion[];
+  held: readonly HeldRegionAssertion[];
+  entryTargets: readonly RegionAssertionEntryTarget[];
+}> {
+  const history = params.rows.filter((row) =>
+    row.organization_id === params.organizationId && row.source_document_id === params.documentId);
+  const resolution = resolveRegionBoundAssertions({
+    rows: history,
+    currentEvidenceByDocumentId: new Map([[params.documentId, currentDocumentEvidenceFromExtractionData(params.extractionData)]]),
+  });
+  return {
+    history,
+    effective: resolution.effective,
+    held: resolution.held,
+    entryTargets: regionAssertionEntryTargets(params.extractionData),
+  };
+}

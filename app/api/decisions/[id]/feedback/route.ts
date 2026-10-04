@@ -7,7 +7,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { getActorContext } from '@/lib/server/getActorContext';
-import { finalizeDecision, type DecisionTerminalStatus } from '@/lib/server/decisionClosure';
+import { finalizeDecision } from '@/lib/server/decisionClosure';
+import { terminalStatusForFeedback } from '@/lib/decisions/feedbackTerminalStatus';
 import { processWorkflowTriggers } from '@/lib/server/workflows/processWorkflowTriggers';
 import { requestDecisionFeedbackRevalidation } from '@/lib/validator/revalidationRequests';
 import type { ReviewErrorType } from '@/lib/types/documentIntelligence';
@@ -19,19 +20,6 @@ const VALID_OPERATOR_ACTIONS = ['approve', 'confirm', 'correct', 'override', 'ne
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
-}
-
-function terminalStatusForFeedback(params: {
-  isCorrect: boolean;
-  feedbackType: string;
-  disposition: string | null;
-}): DecisionTerminalStatus | null {
-  if (params.disposition === 'suppress') return 'dismissed';
-  if (params.isCorrect && params.feedbackType === 'correct' && params.disposition === 'accept') {
-    return 'resolved';
-  }
-
-  return null;
 }
 
 export async function POST(

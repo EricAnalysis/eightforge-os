@@ -293,7 +293,9 @@ async function suppressFindingFromOverriddenExecutionItem(params: {
     .from('project_validation_findings')
     .update({
       status: 'dismissed',
-      resolved_by_user_id: params.actorId ?? null,
+      // Carried forward from the operator's override on the execution item,
+      // which stays the authority; the run's trigger actor is not a resolver.
+      resolved_by_user_id: null,
       resolved_at: now,
       updated_at: now,
     })

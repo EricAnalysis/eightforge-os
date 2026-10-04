@@ -210,17 +210,24 @@ describe('resolution impact preview (B5-C)', () => {
     });
   });
 
-  it('previews what persistence will show: a recurrence of a cleared finding stays closed', async () => {
+  it('previews what persistence will show: only an operator-cleared recurrence stays closed', async () => {
     const withdraw: ResolutionAction = { kind: 'withdraw_reviewed_value', method: 'POST', endpoint: enterAction.endpoint,
       anchorKey: TARGET.anchorKey, supersedesAssertionId: 'head-1', target: TARGET };
     const head = { id: 'head-1', organization_id: ORG, source_document_id: DOC, fact_key: 'contract_rate_row',
       source_binding: 'region_bound', anchor_key: TARGET.anchorKey, supersedes_assertion_id: null } as HumanFactAssertionRow;
     const recurring = finding('PRICING_ROW_MISSING:line-1');
-    const cleared = [[recurring.check_key, [{ ...recurring, id: 'cleared-1', status: 'resolved', resolved_at: 'x',
-      evidenceSignature: '[]' }]]] as unknown as [string, never[]][];
-    const { result } = await preview({ cases: [baseCase({ actions: [withdraw] })], rows: [head],
+    const history = (operatorClearance: unknown) => [[recurring.check_key, [{ ...recurring, id: 'cleared-1', status: 'resolved',
+      resolved_at: 'x', evidenceSignature: '[]', operatorClearance }]]] as unknown as [string, never[]][];
+    const run = (cleared: [string, never[]][]) => preview({ cases: [baseCase({ actions: [withdraw] })], rows: [head],
       input: { kind: 'withdraw_reviewed_value', reason: '' }, cleared });
-    expect(result.status === 'ok' && result.impact).toMatchObject({ status: 'available', opensFindingIds: [], blockersAfter: 1 });
+    // An operator cleared it: an identical recurrence stays closed.
+    const operator = await run(history({ kind: 'execution_outcome', recordId: 'item-1' }));
+    expect(operator.result.status === 'ok' && operator.result.impact).toMatchObject({ status: 'available', opensFindingIds: [], blockersAfter: 1 });
+    // It was only not observed for a while: the recurrence is reported as opening.
+    const absent = await run(history(null));
+    expect(absent.result.status === 'ok' && absent.result.impact).toMatchObject({
+      status: 'available', opensFindingIds: ['PRICING_ROW_MISSING:line-1'], blockersAfter: 2,
+    });
   });
 
   it('refuses to preview what the write path would refuse', async () => {

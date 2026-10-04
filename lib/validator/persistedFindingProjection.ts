@@ -1,3 +1,6 @@
+import { EXECUTION_ITEM_OUTCOMES } from '@/lib/executionItems';
+import { terminalStatusOfFeedbackRecord, type DecisionFeedbackRecord } from '@/lib/decisions/feedbackTerminalStatus';
+import { MANUAL_RATE_LINK_RULE_IDS } from '@/lib/server/manualRateLinkRules';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { evaluateFindingRouting } from '@/lib/validator/validatorRouting';
 import type { ValidationEvidence, ValidationFinding, ValidatorResult } from '@/types/validator';
@@ -44,9 +47,81 @@ export type HistoricalResolvedFindingRow = Pick<
   | 'variance_unit'
   | 'status'
   | 'linked_decision_id'
+  | 'linked_action_id'
+  | 'resolved_at'
 > & {
   evidenceSignature: string;
+  /**
+   * The operator record that closed this finding, or null when it was closed
+   * only because a run no longer observed it. Only an operator-cleared finding
+   * can suppress an identical recurrence.
+   */
+  operatorClearance: OperatorClearance | null;
 };
+
+/**
+ * How a closed finding was closed (derived, never stored):
+ * - `operator_cleared`: an explicit, actor-attributed operator record closed it;
+ * - `not_observed`: a later run simply did not detect it.
+ * Observed absence is not operator clearance.
+ */
+export type FindingClosureKind = 'operator_cleared' | 'not_observed';
+
+export type OperatorClearance = Readonly<{
+  kind: 'execution_outcome' | 'decision_feedback' | 'manual_rate_link';
+  /** The id of the operator record that proves it. */
+  recordId: string;
+}>;
+
+/** The existing operator records, as each operator closure path writes them. Read-only. */
+export type OperatorClearanceRecords = Readonly<{
+  /** `execution_items`: an outcome is written only by the execution outcome route, an operator decision closure, or a carried-forward operator override. */
+  executionItems: readonly Readonly<{ id: string; outcome: string | null }>[];
+  /** `decisions`: the decision's current status. A reopened decision clears nothing. */
+  decisions: readonly Readonly<{ id: string; status: string | null }>[];
+  /** `decision_feedback`: written by the decision status and feedback routes, attributed to the operator. */
+  decisionFeedback: readonly (DecisionFeedbackRecord & Readonly<{ id: string }>)[];
+  /** `invoice_line_rate_links`: written by the manual rate link route, attributed to the operator. */
+  rateLinks: readonly Readonly<{ id: string; invoice_line_subject_id: string; actor_id: string | null; created_at: string | null }>[];
+}>;
+
+const OPERATOR_EXECUTION_OUTCOMES = new Set<string>(EXECUTION_ITEM_OUTCOMES);
+const MANUAL_RATE_LINK_RULES = new Set<string>(MANUAL_RATE_LINK_RULE_IDS);
+
+/**
+ * The operator record that closed a finding, from records the operator paths
+ * already write. Pure. Reads no finding status and no `resolved_by_user_id`:
+ * an automatic transition can set those, an operator record it cannot.
+ */
+export function operatorClearanceOf(
+  finding: Pick<ValidationFinding, 'rule_id' | 'subject_id' | 'linked_decision_id' | 'linked_action_id' | 'resolved_at'>,
+  records: OperatorClearanceRecords,
+): OperatorClearance | null {
+  if (finding.linked_action_id) {
+    const item = records.executionItems.find((row) => row.id === finding.linked_action_id);
+    if (item?.outcome && OPERATOR_EXECUTION_OUTCOMES.has(item.outcome)) {
+      return { kind: 'execution_outcome', recordId: item.id };
+    }
+  }
+  if (finding.linked_decision_id) {
+    const decision = records.decisions.find((row) => row.id === finding.linked_decision_id);
+    const closed = decision?.status === 'resolved' || decision?.status === 'dismissed';
+    const feedback = closed ? records.decisionFeedback.find((row) => row.decision_id === decision!.id
+      && row.created_by != null && terminalStatusOfFeedbackRecord(row) != null) : undefined;
+    if (feedback) return { kind: 'decision_feedback', recordId: feedback.id };
+  }
+  if (MANUAL_RATE_LINK_RULES.has(finding.rule_id)) {
+    const link = records.rateLinks.find((row) => row.invoice_line_subject_id === finding.subject_id
+      && row.actor_id != null
+      && (finding.resolved_at == null || row.created_at == null || row.created_at <= finding.resolved_at));
+    if (link) return { kind: 'manual_rate_link', recordId: link.id };
+  }
+  return null;
+}
+
+export function findingClosureKind(row: Pick<HistoricalResolvedFindingRow, 'operatorClearance'>): FindingClosureKind {
+  return row.operatorClearance ? 'operator_cleared' : 'not_observed';
+}
 
 export type PersistedEvidenceRow = Pick<
   ValidationEvidence,
@@ -220,7 +295,10 @@ export function clearedRecurrenceOf(params: {
   history: ReadonlyMap<string, readonly HistoricalResolvedFindingRow[]>;
 }): HistoricalResolvedFindingRow | null {
   if (params.finding.status !== 'open') return null;
-  return params.history.get(params.finding.check_key)?.find((historical) => isSameClearedFinding({
+  // Only an operator-cleared finding suppresses an identical recurrence. A
+  // finding that was merely not observed for a while reopens.
+  return params.history.get(params.finding.check_key)?.find((historical) =>
+    findingClosureKind(historical) === 'operator_cleared' && isSameClearedFinding({
     projectId: params.projectId,
     finding: params.finding,
     historical,
@@ -244,8 +322,9 @@ function isSameClearedFinding(params: {
 }
 
 /**
- * Findings operators already cleared, by check key. Read-only; used here and
- * by the B5-C impact preview so both apply the same recurrence rule.
+ * Closed findings by check key, each with the operator record that closed it
+ * (or none). Read-only; used by persistence and by the B5-C impact preview so
+ * both apply the same recurrence rule.
  */
 export async function loadHistoricalResolvedFindings(
   projectId: string,
@@ -263,7 +342,7 @@ export async function loadHistoricalResolvedFindings(
     const batch = uniqueCheckKeys.slice(index, index + EXISTING_FINDING_CHECK_KEY_BATCH_SIZE);
     const { data, error } = await admin
       .from('project_validation_findings')
-      .select('id, check_key, rule_id, subject_type, subject_id, field, expected, actual, variance, variance_unit, status, linked_decision_id, resolved_at')
+      .select('id, check_key, rule_id, subject_type, subject_id, field, expected, actual, variance, variance_unit, status, linked_decision_id, linked_action_id, resolved_at')
       .eq('project_id', projectId)
       .in('status', ['resolved', 'dismissed'])
       .in('check_key', batch)
@@ -274,8 +353,9 @@ export async function loadHistoricalResolvedFindings(
       throw new Error(`Failed to load resolved validation findings: ${error.message}`);
     }
 
-    const rows = (data ?? []) as Array<Omit<HistoricalResolvedFindingRow, 'evidenceSignature'>>;
+    const rows = (data ?? []) as Array<Omit<HistoricalResolvedFindingRow, 'evidenceSignature' | 'operatorClearance'>>;
     if (rows.length === 0) continue;
+    const records = await loadOperatorClearanceRecords(admin, projectId, rows);
 
     const { data: evidenceRows, error: evidenceError } = await admin
       .from('project_validation_evidence')
@@ -297,6 +377,7 @@ export async function loadHistoricalResolvedFindings(
       const historicalRow: HistoricalResolvedFindingRow = {
         ...row,
         evidenceSignature: evidenceSignature(evidenceByFindingId.get(row.id) ?? []),
+        operatorClearance: operatorClearanceOf(row, records),
       };
       const rowsForCheckKey = findingsByCheckKey.get(row.check_key) ?? [];
       rowsForCheckKey.push(historicalRow);
@@ -305,4 +386,44 @@ export async function loadHistoricalResolvedFindings(
   }
 
   return findingsByCheckKey;
+}
+
+function uniqueIds(values: readonly (string | null | undefined)[]): string[] {
+  return [...new Set(values.filter((value): value is string => typeof value === 'string' && value.length > 0))];
+}
+
+/** Reads the operator records that can prove these findings were cleared. Read-only. */
+async function loadOperatorClearanceRecords(
+  admin: NonNullable<ReturnType<typeof getSupabaseAdmin>>,
+  projectId: string,
+  rows: readonly Pick<ValidationFinding, 'rule_id' | 'subject_id' | 'linked_decision_id' | 'linked_action_id'>[],
+): Promise<OperatorClearanceRecords> {
+  const actionIds = uniqueIds(rows.map((row) => row.linked_action_id));
+  const decisionIds = uniqueIds(rows.map((row) => row.linked_decision_id));
+  const linkSubjects = uniqueIds(rows.filter((row) => MANUAL_RATE_LINK_RULES.has(row.rule_id)).map((row) => row.subject_id));
+  const read = async <T>(
+    label: string,
+    run: () => PromiseLike<{ data: unknown; error: { code?: string; message: string } | null }>,
+    tolerateMissingTable = false,
+  ) => {
+    const { data, error } = await run();
+    // A deployment without the manual-link table has no manual-link clearance to find.
+    if (error && tolerateMissingTable && (error.code === 'PGRST205' || error.code === '42P01')) return [] as T[];
+    if (error) throw new Error(`Failed to load ${label} for finding clearance: ${error.message}`);
+    return (data ?? []) as T[];
+  };
+  const [executionItems, decisions, decisionFeedback, rateLinks] = await Promise.all([
+    actionIds.length === 0 ? [] : read<OperatorClearanceRecords['executionItems'][number]>('execution items',
+      () => admin.from('execution_items').select('id, outcome').eq('project_id', projectId).in('id', actionIds)),
+    decisionIds.length === 0 ? [] : read<OperatorClearanceRecords['decisions'][number]>('decisions',
+      () => admin.from('decisions').select('id, status').in('id', decisionIds)),
+    decisionIds.length === 0 ? [] : read<OperatorClearanceRecords['decisionFeedback'][number]>('decision feedback',
+      () => admin.from('decision_feedback')
+        .select('id, decision_id, created_by, decision_status_at_feedback, disposition, is_correct, feedback_type')
+        .in('decision_id', decisionIds)),
+    linkSubjects.length === 0 ? [] : read<OperatorClearanceRecords['rateLinks'][number]>('manual rate links',
+      () => admin.from('invoice_line_rate_links').select('id, invoice_line_subject_id, actor_id, created_at')
+        .eq('project_id', projectId).in('invoice_line_subject_id', linkSubjects), true),
+  ]);
+  return { executionItems, decisions, decisionFeedback, rateLinks };
 }

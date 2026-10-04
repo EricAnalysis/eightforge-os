@@ -19,6 +19,8 @@ type ValidationFindingActivityContext = {
   currentFinding: ValidationFinding;
   runId?: string;
   triggerSource?: ValidationTriggerSource;
+  /** Recorded for automatic closures so the audit never reads as a human decision. */
+  closureKind?: 'not_observed';
 };
 
 function lifecycleValue(finding: ValidationFinding) {
@@ -88,6 +90,7 @@ export async function emitValidationFindingLifecycleActivity(
         ...(eventType === 'validation_finding_resolved' && context.triggerSource
           ? { trigger_source: context.triggerSource }
           : {}),
+        ...(context.closureKind ? { closure_kind: context.closureKind } : {}),
       },
     });
 

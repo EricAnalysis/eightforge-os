@@ -482,7 +482,10 @@ async function markStaleOpenFindingsResolved(params: {
     .from('project_validation_findings')
     .update({
       status: 'resolved',
-      resolved_by_user_id: params.actorId ?? null,
+      // Not observed in this run. No person resolved it, so no person is
+      // recorded: absence is not operator clearance, and the finding reopens
+      // if it is detected again.
+      resolved_by_user_id: null,
       resolved_at: now,
       updated_at: now,
     })
@@ -502,17 +505,17 @@ async function markStaleOpenFindingsResolved(params: {
       organizationId: params.project.organization_id,
       projectId: params.projectId,
       findingId: finding.id,
-      changedBy: params.actorId,
       previousFinding: finding,
       currentFinding: {
         ...finding,
         status: 'resolved',
-        resolved_by_user_id: params.actorId ?? null,
+        resolved_by_user_id: null,
         resolved_at: now,
         updated_at: now,
       },
       runId: params.runId,
       triggerSource: params.triggerSource,
+      closureKind: 'not_observed',
     });
     if (!activityResult.ok) {
       console.error('[persistValidationRun] failed to log validation finding lifecycle event', {

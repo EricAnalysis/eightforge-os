@@ -1,11 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
 import { finalizeDecision } from '@/lib/server/decisionClosure';
-
-const MANUAL_RATE_LINK_RULE_IDS = [
-  'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS',
-  'FINANCIAL_RATE_CODE_MISSING',
-] as const;
+import { MANUAL_RATE_LINK_RULE_IDS } from '@/lib/server/manualRateLinkRules';
 
 export type InsertManualRateLinkInput = {
   admin: SupabaseClient;

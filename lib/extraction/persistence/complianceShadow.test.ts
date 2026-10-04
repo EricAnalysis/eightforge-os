@@ -71,6 +71,7 @@ import {
   scheduleForgewingPricingInterpretationShadow,
   scheduleForgewingPricingRateClusterRecoveryShadow,
   scheduleExtractionComplianceShadow,
+  step3BridgeForForgewingEntitlement,
   withForgewingRegionClassificationShadow,
 } from '@/lib/extraction/persistence/complianceShadow';
 
@@ -1356,5 +1357,55 @@ describe('compliance shadow dual-write isolation', () => {
       }),
     );
     consoleError.mockRestore();
+  });
+});
+
+describe('organization Forgewing entitlement at the Step 3 bridge', () => {
+  it('returns the SAME deterministic bridge, unwrapped, for an organization that is not entitled', () => {
+    const deterministic = vi.fn();
+    expect(step3BridgeForForgewingEntitlement(deterministic as never, false, 'org-1', 'document-1'))
+      .toBe(deterministic);
+    expect(step3BridgeForForgewingEntitlement(undefined, false, 'org-1', 'document-1')).toBeUndefined();
+  });
+
+  it('wraps the deterministic bridge only for an entitled organization', () => {
+    const deterministic = vi.fn();
+    const wrapped = step3BridgeForForgewingEntitlement(deterministic as never, true, 'org-1', 'document-1');
+    expect(typeof wrapped).toBe('function');
+    expect(wrapped).not.toBe(deterministic);
+  });
+
+  it('asks the server-side entitlement for the processing organization before Step 1 publication', async () => {
+    vi.stubEnv('EIGHTFORGE_BUILD_DIGEST', 'build-digest-1');
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const admin = {
+      storage: {
+        from: vi.fn(() => ({
+          info: vi.fn(async () => ({ data: { id: 'object-1', version: 'version-1' }, error: null })),
+        })),
+      },
+      rpc: vi.fn(async () => { throw new Error('Step 1 unavailable'); }),
+    };
+    const resolveEntitlement = vi.fn(async () => ({ entitled: false as const, reason: 'no_entitlement' as const }));
+
+    await expect(scheduleExtractionComplianceShadow({
+      admin: admin as never,
+      organizationId: 'org-1',
+      sourceDocumentId: 'document-1',
+      sourceBytes: new TextEncoder().encode('source bytes').buffer,
+      storageBucket: 'documents',
+      storagePath: 'org-1/document-1.pdf',
+      storageVersionBeforeDownload: 'version-1:object-1',
+      mediaType: 'application/pdf',
+      legacyExtractionPayload: {},
+      locatedObservations: { pages: [] },
+      analysisJobId: 'job-1',
+      analysisMode: 'deterministic',
+    }, { resolveEntitlement })).resolves.toBeUndefined();
+
+    expect(resolveEntitlement).toHaveBeenCalledOnce();
+    expect(resolveEntitlement).toHaveBeenCalledWith(admin, 'org-1');
+    // Not entitled still publishes the deterministic shadow (Core behaviour).
+    expect(admin.rpc).toHaveBeenCalled();
   });
 });

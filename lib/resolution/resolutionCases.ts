@@ -206,6 +206,8 @@ export type ResolutionCase = Readonly<{
   problem: string;
   /** The Validator finding this case is, verbatim; null for other kinds. */
   finding: Readonly<{
+    /** The Validator's persisted identity for the finding. */
+    checkKey: string;
     ruleId: string;
     severity: string;
     field: string | null;
@@ -442,6 +444,7 @@ function validatorCases(params: {
       title,
       problem: title === issue.summary.trim() ? display.explanation : issue.summary,
       finding: {
+        checkKey: finding.check_key,
         ruleId: finding.rule_id,
         severity: finding.severity,
         field: finding.field,

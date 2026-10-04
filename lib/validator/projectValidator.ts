@@ -3442,12 +3442,55 @@ export type ValidatorSourceSnapshot = {
 };
 
 /**
+ * Every database read one execution needs, performed once. Deriving a
+ * snapshot from these reads touches no database, so the same reads can be
+ * derived more than once (B5-C impact preview) without a second read pass that
+ * could observe a different project state.
+ */
+export type ValidatorSourceReads = {
+  readonly project: ValidatorProjectRow;
+  readonly documents: ValidatorDocumentRow[];
+  readonly factRows: Awaited<ReturnType<typeof loadExtractionFactRows>>;
+  readonly legacyRowsByDocumentId: Awaited<ReturnType<typeof loadLegacyExtractionRows>>;
+  readonly overrideRows: DocumentFactOverrideRow[];
+  readonly reviewRows: Awaited<ReturnType<typeof loadDocumentFactReviews>>;
+  readonly ruleStateByRuleId: Map<string, ValidationRuleState>;
+  readonly mobileTickets: unknown[];
+  readonly loadTickets: unknown[];
+  readonly transactionData: ProjectTransactionData | null | undefined;
+  readonly sourceArtifactSnapshotResult: Awaited<ReturnType<typeof loadSourceArtifactSnapshot>>;
+  readonly regionAssertionRows: readonly HumanFactAssertionRow[];
+  readonly precedenceFamilies: ResolvedDocumentPrecedenceFamily[];
+  readonly documentRelationships: DocumentRelationshipRecord[];
+  readonly contractUploadGuidance: Awaited<ReturnType<typeof loadContractUploadGuidanceForDocument>> | null;
+  readonly invoiceLineRateLinkRows: InvoiceLineRateLinkRow[];
+};
+
+/**
+ * An ephemeral change to the reads, shaped exactly like what one existing
+ * authority write path would leave behind. Applied only in memory by
+ * `deriveValidatorSourceSnapshot`; never persisted. The serving path never
+ * passes one.
+ */
+export type ValidatorSourceHypothesis = {
+  /** Rows the region-bound assertion record path would append (B3). */
+  readonly additionalRegionAssertionRows?: readonly HumanFactAssertionRow[];
+  /** The active manual rate-link rows the link path would leave in place. */
+  readonly invoiceLineRateLinkRows?: readonly InvoiceLineRateLinkRow[];
+};
+
+/**
  * Performs every read and every authority-independent derivation for one
  * execution, exactly once.
  */
 export async function loadValidatorSourceSnapshot(
   projectId: string,
 ): Promise<ValidatorSourceSnapshot> {
+  return deriveValidatorSourceSnapshot(await loadValidatorSourceReads(projectId));
+}
+
+/** Every read for one execution. Reads only; derives nothing that a hypothesis could change. */
+export async function loadValidatorSourceReads(projectId: string): Promise<ValidatorSourceReads> {
   const project = await loadProject(projectId);
   const documents = await loadProjectDocuments(project);
   const documentIds = documents.map((document) => document.id);
@@ -3478,12 +3521,6 @@ export async function loadValidatorSourceSnapshot(
       loadSourceArtifactSnapshot({ project, documents }),
       loadRegionAssertionRows(documentIds),
     ]);
-  const regionAssertionResolution = resolveRegionAssertionsForSnapshot({
-    rows: regionAssertionRead.rows,
-    legacyRowsByDocumentId,
-  });
-
-  const sourceArtifactSnapshot = sourceArtifactSnapshotResult.entries;
 
   let precedenceFamilies: ResolvedDocumentPrecedenceFamily[] = [];
   let documentRelationships: DocumentRelationshipRecord[] = [];
@@ -3501,6 +3538,80 @@ export async function loadValidatorSourceSnapshot(
     precedenceFamilies = [];
     documentRelationships = [];
   }
+
+  // Which contract's upload guidance to read depends only on documents and
+  // precedence, never on a hypothesis, so it is read here once.
+  const { truthCategoryDocumentIds } = buildDocumentIdsByFamily(
+    documents,
+    precedenceFamilies,
+    documentRelationships,
+  );
+  const contractDocumentIdForGuidance = truthCategoryDocumentIds.contract_identity[0] ?? null;
+  const [contractUploadGuidance, invoiceLineRateLinkRows] = await Promise.all([
+    contractDocumentIdForGuidance
+      ? loadContractUploadGuidanceForDocument(getSupabaseAdmin()!, contractDocumentIdForGuidance).catch(
+        () => null,
+      )
+      : Promise.resolve(null),
+    loadInvoiceLineRateLinkRows(project),
+  ]);
+
+  return {
+    project,
+    documents,
+    factRows,
+    legacyRowsByDocumentId,
+    overrideRows,
+    reviewRows,
+    ruleStateByRuleId,
+    mobileTickets,
+    loadTickets,
+    transactionData,
+    sourceArtifactSnapshotResult,
+    regionAssertionRows: regionAssertionRead.rows,
+    precedenceFamilies,
+    documentRelationships,
+    contractUploadGuidance,
+    invoiceLineRateLinkRows,
+  };
+}
+
+/**
+ * Every authority-independent derivation for one execution. Pure over the
+ * reads: no database access. With no hypothesis this is exactly the serving
+ * derivation. A hypothesis is applied here, in memory, and only here.
+ */
+export function deriveValidatorSourceSnapshot(
+  reads: ValidatorSourceReads,
+  hypothesis: ValidatorSourceHypothesis = {},
+): ValidatorSourceSnapshot {
+  const {
+    project,
+    documents,
+    factRows,
+    legacyRowsByDocumentId,
+    overrideRows,
+    reviewRows,
+    ruleStateByRuleId,
+    mobileTickets,
+    loadTickets,
+    transactionData,
+    sourceArtifactSnapshotResult,
+    precedenceFamilies,
+    documentRelationships,
+    contractUploadGuidance,
+  } = reads;
+  const invoiceLineRateLinkRows = hypothesis.invoiceLineRateLinkRows
+    ? [...hypothesis.invoiceLineRateLinkRows]
+    : reads.invoiceLineRateLinkRows;
+  const regionAssertionResolution = resolveRegionAssertionsForSnapshot({
+    rows: hypothesis.additionalRegionAssertionRows
+      ? [...reads.regionAssertionRows, ...hypothesis.additionalRegionAssertionRows]
+      : reads.regionAssertionRows,
+    legacyRowsByDocumentId,
+  });
+
+  const sourceArtifactSnapshot = sourceArtifactSnapshotResult.entries;
 
   const validationPhase = resolveProjectValidationPhase(project.validation_phase);
   const { familyDocumentIds, governingDocumentIds, truthCategoryDocumentIds } = buildDocumentIdsByFamily(
@@ -3546,15 +3657,6 @@ export async function loadValidatorSourceSnapshot(
   });
   const effectiveInvoices = effectiveInvoiceTruth.invoices;
   const effectiveInvoiceLines = effectiveInvoiceTruth.invoiceLines;
-  const contractDocumentIdForGuidance = truthCategoryDocumentIds.contract_identity[0] ?? null;
-  const [contractUploadGuidance, invoiceLineRateLinkRows] = await Promise.all([
-    contractDocumentIdForGuidance
-      ? loadContractUploadGuidanceForDocument(getSupabaseAdmin()!, contractDocumentIdForGuidance).catch(
-        () => null,
-      )
-      : Promise.resolve(null),
-    loadInvoiceLineRateLinkRows(project),
-  ]);
   const preparedContractValidationContext = prepareContractValidationContext({
     projectValidationSummary: project.validation_summary_json,
     documents,

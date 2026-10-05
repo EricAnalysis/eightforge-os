@@ -196,7 +196,7 @@ async function main(): Promise<void> {
       .map((target) => [`${target.pageKey}/${target.rowKey}`, target.truth]));
     write('disagreements.json', records.filter(isValueReadingDisagreement)
       .map((record) => ({ pageKey: record.pageKey, rowKey: record.rowKey, outcome: record.outcome,
-        rateError: record.rateError, boundTo: record.boundTo, inventions: record.inventions,
+        rateError: record.rateError, boundTo: record.boundTo, inventions: record.inventions, semantic: record.semantic,
         requestDigestSha256: record.requestDigestSha256, renderDigestSha256: record.renderDigestSha256,
         outputDigestSha256: record.outputDigestSha256,
         adjudication: record.adjudication ?? null, truth: truths.get(`${record.pageKey}/${record.rowKey}`),
@@ -213,7 +213,9 @@ async function main(): Promise<void> {
     lines.push(`  DECISION: ${decision.decision}${decision.provisional ? ' (PROVISIONAL: disagreements await human adjudication)' : ''}`);
     lines.push(`  wrong source-region bindings ${decision.overall.accuracy.wrongSourceRegionBindings}; `
       + `unsupported numeric inventions ${decision.overall.accuracy.unsupportedNumericInventions}; `
-      + `unsupported value inventions ${decision.overall.accuracy.unsupportedValueInventions}`);
+      + `unsupported value inventions ${decision.overall.accuracy.unsupportedValueInventions}; `
+      + `semantic: field misbindings ${decision.overall.accuracy.semanticFieldMisbindings}, omissions ${decision.overall.accuracy.semanticOmissions}, `
+      + `unverified ${decision.overall.accuracy.semanticUnverified}`);
     for (const failure of decision.corpusSafetyFailures) lines.push(`  CORPUS SAFETY FAILURE: ${failure}`);
     for (const summary of decision.classes) {
       lines.push(`  ${summary.evidenceClass}: ${summary.status}`

@@ -69,7 +69,9 @@ function main(): void {
       + `wrong rate ${decision.overall.outcomes.wrong_rate}; field mismatch ${decision.overall.outcomes.field_mismatch}; failed ${decision.overall.outcomes.failed}`];
   lines.push(`  wrong source-region bindings ${decision.overall.accuracy.wrongSourceRegionBindings}; `
     + `unsupported numeric inventions ${decision.overall.accuracy.unsupportedNumericInventions}; `
-    + `unsupported value inventions ${decision.overall.accuracy.unsupportedValueInventions}`);
+    + `unsupported value inventions ${decision.overall.accuracy.unsupportedValueInventions}; `
+      + `semantic: field misbindings ${decision.overall.accuracy.semanticFieldMisbindings}, omissions ${decision.overall.accuracy.semanticOmissions}, `
+      + `unverified ${decision.overall.accuracy.semanticUnverified}`);
   for (const failure of decision.corpusSafetyFailures) lines.push(`  CORPUS SAFETY FAILURE: ${failure}`);
   for (const summary of decision.classes) {
     lines.push(`  ${summary.evidenceClass}: ${summary.status}; precision ${summary.accuracy.ratePrecision?.toFixed(4) ?? 'n/a'}; `

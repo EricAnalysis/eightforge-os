@@ -32,6 +32,13 @@ export const VALUE_READING_BENCHMARK_VERSION = 'value-reading-benchmark-v1' as c
  * coverage is never improved by lowering the trust bar.
  */
 export const VALUE_READING_ACTIVATION_BAR = Object.freeze({
+  /**
+   * The benchmark version this bar was pinned for, before execution. B4.6
+   * (2026-10-05) is recorded as FAIL in docs/runbooks/b46-value-reading-result.md;
+   * B4.6.1 keeps every value below unchanged, and runs scored under another
+   * version are refused.
+   */
+  benchmarkVersion: 'b4.6.1',
   /** Correct rates among non-abstained (value) readings. */
   minRatePrecision: 0.99,
   /**
@@ -277,6 +284,45 @@ export type ValueReadingOutcome = 'correct' | 'abstained' | 'wrong_rate' | 'fiel
  */
 export type ValueReadingRateError = 'wrong_source_region_binding' | 'unsupported_numeric_invention';
 
+/**
+ * Why the text of a reading with the right rate and unit is wrong. Diagnostic
+ * only: each is still an incorrect reading. "Supported" means printed in the
+ * target row or in the allowed structural context (the section heading).
+ * - semantic_field_misbinding: every target meaning is present and every
+ *   returned text is supported, but assigned to the wrong field (swapped, or
+ *   category and description merged). Not an invention.
+ * - semantic_omission: every returned text is supported, but some target
+ *   meaning is missing (for example the row's distinguishing description).
+ * - semantic_unverified: some returned text does not match the supported text
+ *   (a paraphrase, a misread, or invented wording). A person rules on it.
+ */
+export type ValueReadingSemanticError = 'semantic_field_misbinding' | 'semantic_omission' | 'semantic_unverified';
+
+/** Text support check: normalized, with repeated dashes collapsed (`0--15` reads as `0-15`). */
+const supportText = (text: string) => normalizeReadingText(text).replace(/-+/g, '-');
+
+/** Whether `text` is one supported text, part of one, or supported texts joined by separators. */
+function isSupportedText(text: string, supported: readonly string[]): boolean {
+  let rest = supportText(text);
+  if (!rest) return true;
+  if (supported.some((entry) => entry.includes(rest))) return true;
+  for (const entry of [...supported].sort((left, right) => right.length - left.length)) {
+    if (entry) rest = rest.split(entry).join(' ');
+  }
+  return /^[\s\-:,;|/–]*$/.test(rest);
+}
+
+function classifySemanticError(target: ValueReadingBenchmarkTarget,
+  read: Readonly<{ description: string; category: string | null }>): ValueReadingSemanticError {
+  const description = supportText(target.truth.description);
+  const category = target.truth.category === null ? null : supportText(target.truth.category);
+  const supported = [description, ...(category ? [category] : []), ...target.supportedCategories.map(supportText)];
+  const returned = [supportText(read.description), supportText(read.category ?? '')];
+  if (!returned.every((text) => isSupportedText(text, supported))) return 'semantic_unverified';
+  const present = (meaning: string) => returned.some((text) => text.includes(meaning));
+  return present(description) && (category === null || present(category)) ? 'semantic_field_misbinding' : 'semantic_omission';
+}
+
 export type ValueReadingScore = Readonly<{
   outcome: ValueReadingOutcome;
   fields: Readonly<{ rate: boolean; unit: boolean; description: boolean; category: boolean | null }> | null;
@@ -285,13 +331,15 @@ export type ValueReadingScore = Readonly<{
   boundTo: PageValue | null;
   /** Values the target evidence does not support: a unit other than the row's own, or an unsupported category. */
   inventions: readonly ('category' | 'unit')[];
+  /** For a right rate and unit with wrong text: how the text is wrong. */
+  semantic: ValueReadingSemanticError | null;
 }>;
 
 const sameAmount = (left: number, right: number) => Math.round(left * 1e6) === Math.round(right * 1e6);
 
 export function scoreValueReading(target: ValueReadingBenchmarkTarget, attempt: ValueReadingAttempt): ValueReadingScore {
-  if (attempt.kind === 'unreadable') return { outcome: 'abstained', fields: null, rateError: null, boundTo: null, inventions: [] };
-  if (attempt.kind === 'failed') return { outcome: 'failed', fields: null, rateError: null, boundTo: null, inventions: [] };
+  if (attempt.kind === 'unreadable') return { outcome: 'abstained', fields: null, rateError: null, boundTo: null, inventions: [], semantic: null };
+  if (attempt.kind === 'failed') return { outcome: 'failed', fields: null, rateError: null, boundTo: null, inventions: [], semantic: null };
   const { truth } = target;
   const read = attempt.rateRow;
   const fields = {
@@ -305,17 +353,22 @@ export function scoreValueReading(target: ValueReadingBenchmarkTarget, attempt: 
   // A unit is supported only by the target row's own unit cell, wherever else the same unit is printed.
   if (!fields.unit) inventions.push('unit');
   const category = (read.category ?? '').trim();
-  if (category && !target.supportedCategories.includes(normalizeReadingText(category))) inventions.push('category');
+  // A category is invented only when nothing in the target row or its section heading supports it:
+  // the row's own description in the category field is a field misbinding, not an invention.
+  const rowSupported = [target.truth.description, ...target.supportedCategories].map(supportText);
+  if (category && !target.supportedCategories.includes(normalizeReadingText(category))
+    && !isSupportedText(category, rowSupported)) inventions.push('category');
   if (!fields.rate) {
     // Prefer the trace the model most plausibly copied: a value in its crop, then a table cell, then any word.
     const matches = target.pageOtherValues.filter((value) => sameAmount(value.amount, read.rate_amount));
     const boundTo = matches.find((value) => value.inCrop && value.source === 'cell') ?? matches.find((value) => value.inCrop)
       ?? matches.find((value) => value.source === 'cell') ?? matches[0] ?? null;
     return { outcome: 'wrong_rate', fields,
-      rateError: boundTo ? 'wrong_source_region_binding' : 'unsupported_numeric_invention', boundTo, inventions };
+      rateError: boundTo ? 'wrong_source_region_binding' : 'unsupported_numeric_invention', boundTo, inventions, semantic: null };
   }
-  return { outcome: fields.unit && fields.description && fields.category !== false ? 'correct' : 'field_mismatch',
-    fields, rateError: null, boundTo: null, inventions };
+  const correct = fields.unit && fields.description && fields.category !== false;
+  return { outcome: correct ? 'correct' : 'field_mismatch', fields, rateError: null, boundTo: null, inventions,
+    semantic: correct || !fields.unit ? null : classifySemanticError(target, read) };
 }
 
 /** One measured reading. Times in milliseconds; spend in US dollars. */
@@ -328,6 +381,7 @@ export type ValueReadingBenchmarkRecord = Readonly<{
   rateError: ValueReadingRateError | null;
   boundTo: PageValue | null;
   inventions: ValueReadingScore['inventions'];
+  semantic: ValueReadingSemanticError | null;
   /** The request sent (null if none), and the SHA-256 of the provider's raw output (null if none). */
   requestDigestSha256: string | null;
   outputDigestSha256: string | null;
@@ -380,7 +434,8 @@ export function applyValueReadingAdjudications(
     // The label was wrong and the reading right: every field the reading reported is correct.
     const fields = record.fields
       ? { rate: true, unit: true, description: true, category: record.fields.category === null ? null : true } : null;
-    return { ...record, outcome: 'correct' as const, fields, rateError: null, boundTo: null, inventions: [], adjudication: verdict };
+    return { ...record, outcome: 'correct' as const, fields, rateError: null, boundTo: null, inventions: [], semantic: null,
+      adjudication: verdict };
   });
 }
 
@@ -404,6 +459,10 @@ export type ValueReadingClassSummary = Readonly<{
     wrongSourceRegionBindings: number;
     unsupportedNumericInventions: number;
     unsupportedValueInventions: number;
+    /** Diagnostic only: right rate and unit, wrong text. Each is also counted as a field mismatch. */
+    semanticFieldMisbindings: number;
+    semanticOmissions: number;
+    semanticUnverified: number;
     fieldAccuracy: Readonly<{ rate: number; unit: number; description: number; category: number | null }>;
   }>;
   usefulness: Readonly<{ readableTargets: number; confirmedUnreadable: number; resolvedShareOfReadable: number; abstainShare: number }>;
@@ -436,6 +495,7 @@ export function summarizeValueReadingClass(
   const wrongSourceRegionBindings = records.filter((record) => record.rateError === 'wrong_source_region_binding').length;
   const unsupportedNumericInventions = records.filter((record) => record.rateError === 'unsupported_numeric_invention').length;
   const unsupportedValueInventions = records.filter((record) => record.inventions.length > 0).length;
+  const semanticCount = (kind: ValueReadingSemanticError) => records.filter((record) => record.semantic === kind).length;
   const confirmedUnreadable = records.filter((record) => record.adjudication === 'target_unreadable').length;
   const readableTargets = rows - confirmedUnreadable;
   const resolvedShareOfReadable = share(outcomes.correct, readableTargets);
@@ -475,6 +535,9 @@ export function summarizeValueReadingClass(
       wrongSourceRegionBindings,
       unsupportedNumericInventions,
       unsupportedValueInventions,
+      semanticFieldMisbindings: semanticCount('semantic_field_misbinding'),
+      semanticOmissions: semanticCount('semantic_omission'),
+      semanticUnverified: semanticCount('semantic_unverified'),
       fieldAccuracy: {
         rate: share(valueRecords.filter((record) => record.fields!.rate).length, valueRecords.length),
         unit: share(valueRecords.filter((record) => record.fields!.unit).length, valueRecords.length),

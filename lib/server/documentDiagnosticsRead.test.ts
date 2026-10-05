@@ -278,6 +278,24 @@ describe('document diagnostics read model', () => {
     expect(result.status === 'ok' && result.diagnostics.map((entry) => entry.severity))
       .toEqual(['blocking', 'warning', 'info']);
   });
+  it('leaves value-reading outcomes to their resolution cases (B4.3)', async () => {
+    const persistedId = diagnosticId({ code: 'recovery_budget_exhausted', scope: {
+      organizationId: ORG, sourceDocumentId: DOC, sourceArtifactId: ARTIFACT,
+      physicalPageNumber: 7, pageRepresentationDigest: DIGEST,
+    }, evidenceRefs: [] });
+    const result = await readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {
+      admin: admin({ documents: [{ id: DOC, processing_error: null }],
+        document_extractions: [extraction], forgewing_recovery_generation_outcomes: [{
+          diagnostic_id: persistedId, source_artifact_id: ARTIFACT,
+          extraction_snapshot_id: 'snapshot-outcome', physical_page_number: 7,
+          page_representation_digest: DIGEST, recovery_type: 'priced_value_reading',
+          outcome_code: 'budget_exhausted', sanitized_reason: 'budget_exhausted',
+          provider_invoked: false, candidate_ids: [], observed_at: '2026-09-12T12:00:00Z',
+        }], document_analysis_jobs: [] }),
+      readRecoveryQueue: async () => ({ status: 'ok', candidates: [] }),
+    });
+    expect(result.status === 'ok' && result.diagnostics.map((entry) => entry.diagnosticId)).not.toContain(persistedId);
+  });
   it('derives source-bound reconstruction diagnostics and links only an existing proposal', async () => {
     const result = await readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {
       admin: admin({ documents: [{ id: DOC, processing_error: null }],

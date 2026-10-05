@@ -1,5 +1,6 @@
 import {
   formatReviewedValue,
+  openRegionAssertionEntryTargets,
   type EffectiveRegionAssertion,
   type HeldRegionAssertion,
   type HumanFactAssertionRow,
@@ -475,11 +476,8 @@ function reviewedValueCases(params: {
   const cases: ResolutionCase[] = [];
   for (const [documentId, state] of params.reviewedValuesByDocument) {
     const label = documentLabel(params.documents, documentId);
-    const effectiveAnchors = new Set(state.effective.map((entry) => entry.anchorKey));
-    const heldAnchors = new Set(state.held.flatMap((entry) => entry.anchorKey.split(',')));
 
-    for (const target of state.entryTargets) {
-      if (effectiveAnchors.has(target.anchorKey) || heldAnchors.has(target.anchorKey)) continue;
+    for (const target of openRegionAssertionEntryTargets(state)) {
       cases.push({
         caseId: `unreadable:${documentId}:${target.anchorKey}`,
         kind: 'unreadable_priced_line',

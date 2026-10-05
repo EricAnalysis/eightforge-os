@@ -100,6 +100,8 @@ export async function loadRecoveryEvaluationPriorState(
   const providerInvokedUnitIdentities: string[] = [];
   for (const row of records(outcomeRead.data)) {
     if (row.recovery_type === 'pricing_rate_single_observation') continue;
+    // Value-reading outcomes are not recovery evaluation units.
+    if (isValueReadingProposalRow(row)) continue;
     const recoveryType = RecoveryTypeV2Schema.safeParse(row.recovery_type);
     const pageRepresentationDigest = row.page_representation_digest;
     const ids = Array.isArray(row.candidate_ids)

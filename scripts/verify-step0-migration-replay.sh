@@ -2869,6 +2869,14 @@ WSLENV="${WSLENV:+${WSLENV}:}B42_DATABASE_URL" \
   npx --no-install vite-node --config vitest.config.ts \
     scripts/verify-value-reading-from-postgres.ts
 
+# B4.3 value-reading engine: typed outcomes, then the engine end to end with a
+# permitted fixture provider (no network, no model).
+"${psql[@]}" --file scripts/sql/verify-forgewing-value-reading-outcomes.sql
+B42_DATABASE_URL="${replay_database_url}" \
+WSLENV="${WSLENV:+${WSLENV}:}B42_DATABASE_URL" \
+  npx --no-install vite-node --config vitest.config.ts \
+    scripts/verify-value-reading-engine-from-postgres.ts
+
 echo "FRESH REPLAY: PASS (${#migrations[@]} migrations)"
 echo "PHASE 1B MIGRATION LEDGER / OBJECT REPLAY: PASS"
 echo "PHASE 1B PAGE / FRAGMENT PROVENANCE INSERT / UPDATE MATRIX: PASS"
@@ -2895,3 +2903,5 @@ echo "B3 REGION-BOUND HUMAN ASSERTION ACL / IDEMPOTENCY / CHAIN / IMMUTABILITY: 
 echo "B3 REGION-BOUND ASSERTION TYPESCRIPT ADAPTER ROUND TRIP: PASS"
 echo "B4.2 VALUE-READING PROPOSAL IMMUTABILITY / VERIFIED HUMAN PROMOTION / ONE ROAD TO TRUTH: PASS"
 echo "B4.2 VALUE-READING TYPESCRIPT ADAPTER ROUND TRIP: PASS"
+echo "B4.3 VALUE-READING OUTCOMES: ONE PER REQUEST / TYPED / GATE-COHERENT / SCOPED / IMMUTABLE: PASS"
+echo "B4.3 VALUE-READING ENGINE FIXTURE ROUND TRIP: PASS"

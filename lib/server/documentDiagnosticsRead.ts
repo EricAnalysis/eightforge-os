@@ -21,6 +21,7 @@ import { readRecoveryReviewQueue, type RecoveryReviewCandidate }
 import { resolveEffectiveRecoveryConfirmations }
   from '@/lib/server/effectiveRecoveryConfirmations';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
+import { isValueReadingProposalRow } from '@/lib/server/valueReadingProposals';
 import {
   recoveryOperationalState,
   type RecoveryActivation,
@@ -656,7 +657,9 @@ export async function readDocumentDiagnostics(
       .filter((id): id is string => typeof id === 'string').sort(),
   ]);
   const latestProviderInvokedAt = new Map<string, string>();
-  for (const row of records(outcomeRead.data)) {
+  // Value-reading outcomes belong to resolution cases, not document diagnostics.
+  const recoveryOutcomes = records(outcomeRead.data).filter((row) => !isValueReadingProposalRow(row));
+  for (const row of recoveryOutcomes) {
     if (row.provider_invoked !== true) continue;
     const key = outcomeUnitKey(row);
     const observedAt = iso(row.observed_at);
@@ -664,7 +667,7 @@ export async function readDocumentDiagnostics(
       latestProviderInvokedAt.set(key, observedAt);
     }
   }
-  for (const row of records(outcomeRead.data)) {
+  for (const row of recoveryOutcomes) {
     if (row.outcome_code === 'budget_exhausted'
       && (latestProviderInvokedAt.get(outcomeUnitKey(row)) ?? '') > iso(row.observed_at)) continue;
     const code = typeof row.outcome_code === 'string'

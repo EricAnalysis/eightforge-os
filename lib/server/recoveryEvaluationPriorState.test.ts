@@ -56,6 +56,11 @@ describe('recovery evaluation prior state', () => {
         proposal_version: 3, recovery_type: 'priced_value_reading',
         page_representation_digest: 'a'.repeat(64), recovery_candidates: null,
       }],
+      // B4.3: value-reading outcomes cite no candidates and are not evaluation units either.
+      forgewing_recovery_generation_outcomes: [{
+        recovery_type: 'priced_value_reading', page_representation_digest: 'a'.repeat(64),
+        provider_invoked: true, candidate_ids: [],
+      }],
     }) as never });
     expect(result).toEqual({ status: 'ok', state: {
       proposedUnitIdentities: [], confirmedCandidateIds: [], providerInvokedUnitIdentities: [],

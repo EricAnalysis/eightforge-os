@@ -1,5 +1,3 @@
-import { execFileSync } from 'node:child_process';
-
 import {
   resolveRegionBoundAssertions,
   type CurrentDocumentEvidence,
@@ -23,6 +21,8 @@ import {
   type ValueReadingProposalDraft,
 } from '@/lib/server/valueReadingProposals';
 
+import { psqlServiceRoleClient } from './lib/psqlServiceRoleClient';
+
 /**
  * B4.2 qualification through the real TypeScript adapters against a freshly
  * replayed database: build and record a value-reading proposal, replay it,
@@ -35,71 +35,7 @@ import {
 const databaseUrl = process.env.B42_DATABASE_URL;
 if (!databaseUrl) throw new Error('B42_DATABASE_URL is required');
 
-function literal(value: unknown): string {
-  if (value == null) return 'NULL';
-  return `'${String(value).replaceAll("'", "''")}'`;
-}
-
-function runSql(statement: string): unknown {
-  const output = execFileSync('psql', ['-X', '-q', '-v', 'ON_ERROR_STOP=1', '-v', 'VERBOSITY=verbose', '-At',
-    '--dbname', databaseUrl!], { input: statement, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
-  const text = output.trim();
-  return text.length === 0 ? null : JSON.parse(text);
-}
-
-function sqlValue(value: unknown): string {
-  if (value == null) return 'NULL';
-  if (Array.isArray(value)) return `ARRAY[${value.map((entry) => literal(entry)).join(',')}]::text[]`;
-  if (typeof value === 'object') return `${literal(JSON.stringify(value))}::jsonb`;
-  if (typeof value === 'number') return String(value);
-  return literal(value);
-}
-
-/** The minimal Supabase surface the adapters use, backed by psql as service_role, named arguments. */
-const client: RegionAssertionClient & ValueReadingClient = {
-  rpc(fn, args) {
-    const named = Object.entries(args).map(([name, value]) =>
-      `${name} => ${name === 'p_asserted_value' && value != null ? `${literal(JSON.stringify(value))}::jsonb` : sqlValue(value)}`);
-    try {
-      const data = runSql(`SET ROLE service_role; SET request.jwt.claim.role='service_role';
-        SELECT coalesce(json_agg(r), '[]'::json) FROM public.${fn}(${named.join(', ')}) r;`);
-      return Promise.resolve({ data, error: null });
-    } catch (error) {
-      const text = String((error as { stderr?: unknown }).stderr ?? error);
-      const code = /ERROR:\s+([0-9A-Z]{5}):/.exec(text)?.[1] ?? 'P0001';
-      return Promise.resolve({ data: null, error: { code, message: text } });
-    }
-  },
-  from(table) {
-    return {
-      select(columns: string) {
-        const filters: string[] = [];
-        let order = '';
-        const query = {
-          in(column: string, values: readonly string[]) {
-            filters.push(`${column}::text IN (${values.map(literal).join(',')})`);
-            return query;
-          },
-          eq(column: string, value: unknown) {
-            filters.push(`${column} = ${literal(value)}`);
-            return query;
-          },
-          order(column: string, options: { ascending: boolean }) {
-            order = ` ORDER BY ${column} ${options.ascending ? 'ASC' : 'DESC'}, id`;
-            return query;
-          },
-          then(resolve: (value: { data: unknown; error: null }) => unknown) {
-            const data = runSql(`SET ROLE service_role;
-              SELECT coalesce(json_agg(t), '[]'::json) FROM (SELECT ${columns} FROM public.${table}
-              WHERE ${filters.join(' AND ') || 'true'}${order}) t;`);
-            return Promise.resolve({ data, error: null }).then(resolve);
-          },
-        };
-        return query as never;
-      },
-    };
-  },
-};
+const client = psqlServiceRoleClient(databaseUrl) as unknown as RegionAssertionClient & ValueReadingClient;
 
 function check(condition: unknown, label: string): void {
   if (!condition) throw new Error(`B4.2 ADAPTER FAIL: ${label}`);

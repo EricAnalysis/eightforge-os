@@ -61,8 +61,16 @@ describe('B4.6 scoring: a confident wrong value is the unsafe outcome', () => {
   const target: ValueReadingBenchmarkTarget = {
     pageKey: 'dn-p107', evidenceClass: 'dense_scanned_ocr_priced_schedule', rowKey: 'r', boxes: [],
     truth: { description: 'Vegetative Debris Removal', unit: 'CY', rate: 38, category: null },
-    // This row's quantity and extended amount, and another row's rate.
-    otherPageAmounts: [7500, 285000, 24], pageUnits: ['cy', 'ton', 'ea'], pageHasCategory: false,
+    // Page evidence: this row's quantity and extended amount and the next row's rate (in the crop),
+    // a rate further down the page, and a total printed outside the table (not in the crop).
+    pageOtherValues: [
+      { amount: 7500, source: 'cell', labelId: 'c-qty', rowKey: 'r', columnName: 'Qty', inCrop: true },
+      { amount: 285000, source: 'cell', labelId: 'c-ext', rowKey: 'r', columnName: 'Extended Amount', inCrop: true },
+      { amount: 24, source: 'cell', labelId: 'c-next', rowKey: 'r-next', columnName: 'Unit Cost', inCrop: true },
+      { amount: 425, source: 'cell', labelId: 'c-far', rowKey: 'r-far', columnName: 'Unit Cost', inCrop: false },
+      { amount: 1234567, source: 'word', labelId: 'w-total', rowKey: null, columnName: null, inCrop: false },
+    ],
+    supportedCategories: ['roadway items'],
   };
   const value = (overrides: Partial<{ description: string; unit_type: string; rate_amount: number; category: string | null }>) => ({
     kind: 'value' as const, rateRow: { description: 'Vegetative Debris Removal', unit_type: 'CY', rate_amount: 38, category: null,
@@ -70,49 +78,85 @@ describe('B4.6 scoring: a confident wrong value is the unsafe outcome', () => {
 
   it('separates correct, abstained, wrong rate, field mismatch and failure', () => {
     expect(scoreValueReading(target, value({}))).toEqual({ outcome: 'correct',
-      fields: { rate: true, unit: true, description: true, category: null }, rateError: null, inventions: [] });
+      fields: { rate: true, unit: true, description: true, category: null }, rateError: null, boundTo: null, inventions: [] });
     expect(scoreValueReading(target, value({ rate_amount: 38.0 })).outcome).toBe('correct');
     expect(scoreValueReading(target, { kind: 'unreadable' })).toMatchObject({ outcome: 'abstained', fields: null });
-    expect(scoreValueReading(target, value({ unit_type: 'TON' })).outcome).toBe('field_mismatch');
+    expect(scoreValueReading(target, value({ description: 'Vegetative Debris' })).outcome).toBe('field_mismatch');
     expect(scoreValueReading(target, { kind: 'failed', code: 'provider_failed', reason: 'provider_timeout' }).outcome).toBe('failed');
   });
 
-  it('tells a wrong source-region binding from a critical hallucination', () => {
-    // The extended amount, the quantity, or a neighbouring row: read from the wrong place on the page.
-    for (const misread of [285000, 7500, 24]) {
-      expect(scoreValueReading(target, value({ rate_amount: misread }))).toMatchObject({ outcome: 'wrong_rate', rateError: 'wrong_binding' });
+  it('the target region alone decides correctness: no value from elsewhere is ever accepted', () => {
+    for (const elsewhere of [285000, 7500, 24, 425, 1234567, 17.8]) {
+      const scored = scoreValueReading(target, value({ rate_amount: elsewhere }));
+      expect(scored.outcome).toBe('wrong_rate');
+      expect(scored.fields?.rate).toBe(false);
     }
-    // A number the page never prints.
-    expect(scoreValueReading(target, value({ rate_amount: 83 }))).toMatchObject({ outcome: 'wrong_rate', rateError: 'critical_hallucination' });
   });
 
-  it('flags a category or unit the page does not show as an unsupported invention, even beside a correct rate', () => {
-    expect(scoreValueReading(target, value({ category: 'Roadway items' }))).toMatchObject({ outcome: 'correct', inventions: ['category'] });
-    expect(scoreValueReading(target, value({ unit_type: 'Cubic Yard' }))).toMatchObject({ outcome: 'field_mismatch', inventions: ['unit'] });
-    // A unit printed elsewhere on the page is a mismatch, not an invention.
-    expect(scoreValueReading(target, value({ unit_type: 'TON' })).inventions).toEqual([]);
+  it('a wrong rate that exists elsewhere in the page evidence is a wrong source-region binding, traced to where it is', () => {
+    // Target $38; returned $425, which is another row's rate on this page.
+    expect(scoreValueReading(target, value({ rate_amount: 425 }))).toMatchObject({ outcome: 'wrong_rate',
+      rateError: 'wrong_source_region_binding', boundTo: { rowKey: 'r-far', inCrop: false } });
+    expect(scoreValueReading(target, value({ rate_amount: 285000 })))
+      .toMatchObject({ rateError: 'wrong_source_region_binding', boundTo: { columnName: 'Extended Amount', inCrop: true } });
+    expect(scoreValueReading(target, value({ rate_amount: 24 }))).toMatchObject({ boundTo: { rowKey: 'r-next' } });
+    // A number printed outside the table is page evidence too.
+    expect(scoreValueReading(target, value({ rate_amount: 1234567 }))).toMatchObject({
+      rateError: 'wrong_source_region_binding', boundTo: { source: 'word' } });
+  });
+
+  it('a wrong rate printed nowhere in the page evidence is an unsupported numeric invention', () => {
+    // Target $38; returned $17.80, which exists nowhere in the source evidence.
+    expect(scoreValueReading(target, value({ rate_amount: 17.8 }))).toMatchObject({ outcome: 'wrong_rate',
+      rateError: 'unsupported_numeric_invention', boundTo: null });
+  });
+
+  it('prefers the trace the model most plausibly copied when a value appears more than once', () => {
+    const twice: ValueReadingBenchmarkTarget = { ...target, pageOtherValues: [
+      { amount: 90, source: 'word', labelId: 'w', rowKey: null, columnName: null, inCrop: false },
+      { amount: 90, source: 'cell', labelId: 'far', rowKey: 'r-far', columnName: 'Unit Cost', inCrop: false },
+      { amount: 90, source: 'cell', labelId: 'near', rowKey: 'r-next', columnName: 'Unit Cost', inCrop: true },
+    ] };
+    expect(scoreValueReading(twice, value({ rate_amount: 90 })).boundTo).toMatchObject({ labelId: 'near' });
+  });
+
+  it('a unit is supported only by the target row, and a category only by the row or its section heading', () => {
+    // TON is printed elsewhere on the page, but not in this row: unsupported.
+    expect(scoreValueReading(target, value({ unit_type: 'TON' }))).toMatchObject({ outcome: 'field_mismatch', inventions: ['unit'] });
+    expect(scoreValueReading(target, value({ unit_type: 'Cubic Yard' })).inventions).toEqual(['unit']);
+    expect(scoreValueReading(target, value({ unit_type: ' cy ' })).inventions).toEqual([]);
+    // The preceding section heading is allowed structural context; anything else is invented.
+    expect(scoreValueReading(target, value({ category: 'ROADWAY ITEMS' }))).toMatchObject({ outcome: 'correct', inventions: [] });
+    expect(scoreValueReading(target, value({ category: 'Debris' }))).toMatchObject({ outcome: 'correct', inventions: ['category'] });
   });
 
   it('scores the category only where the page labels one', () => {
-    const withCategory = { ...target, truth: { ...target.truth, category: 'Vegetative' }, pageHasCategory: true };
+    const withCategory = { ...target, truth: { ...target.truth, category: 'Vegetative' }, supportedCategories: ['vegetative'] };
     expect(scoreValueReading(withCategory, value({ category: 'vegetative' })).fields?.category).toBe(true);
     expect(scoreValueReading(withCategory, value({ category: null })).outcome).toBe('field_mismatch');
   });
 
-  it('derives binding and invention context from the real labels', () => {
-    const dn = valueReadingBenchmarkTargets(labels('dn-p107'), page('dn-p107')).targets[0]!;
-    expect(dn.otherPageAmounts).toEqual(expect.arrayContaining([7500, 285000, 24]));
-    expect(dn.otherPageAmounts).not.toContain(undefined);
-    expect(dn.pageUnits).toEqual(expect.arrayContaining(['cy', 'ton', 'ea']));
-    expect(dn.pageHasCategory).toBe(false);
-    expect(valueReadingBenchmarkTargets(labels('golden-p8'), page('golden-p8')).targets[0]!.pageHasCategory).toBe(true);
+  it('derives the visible region and the supporting context from the real labels', () => {
+    const dn = valueReadingBenchmarkTargets(labels('dn-p107'), page('dn-p107'));
+    const first = dn.targets[0]!;
+    // This row's own quantity and extended amount are page evidence, inside the crop.
+    expect(first.pageOtherValues.filter((entry) => entry.rowKey === first.rowKey && entry.inCrop).map((entry) => entry.amount))
+      .toEqual(expect.arrayContaining([7500, 285000]));
+    // A rate far down the page is page evidence too, outside the crop.
+    expect(first.pageOtherValues.find((entry) => entry.amount === 2000)).toMatchObject({ inCrop: false });
+    // The target's own rate is never "other" evidence, from its cell or its words.
+    expect(first.pageOtherValues.some((entry) => entry.rowKey === first.rowKey && entry.columnName === 'Unit Cost')).toBe(false);
+    expect(first.supportedCategories).toEqual(['roadway items']);
+    expect(dn.skipped.map((entry) => entry.reason)).toEqual(expect.arrayContaining(['section heading']));
+    const golden = valueReadingBenchmarkTargets(labels('golden-p8'), page('golden-p8')).targets[0]!;
+    expect(golden.supportedCategories).toEqual(['vegetative collect, remove & haul from unincorporated neighborhoods']);
   });
 });
 
 const record = (overrides: Partial<ValueReadingBenchmarkRecord>): ValueReadingBenchmarkRecord => ({
   pageKey: 'golden-p8', evidenceClass: 'ocr_price_sheet', rowKey: 'r', outcome: 'correct',
-  fields: { rate: true, unit: true, description: true, category: null }, rateError: null, inventions: [],
-  providerCalled: true, failureReason: null,
+  fields: { rate: true, unit: true, description: true, category: null }, rateError: null, boundTo: null, inventions: [],
+  requestDigestSha256: 'b'.repeat(64), outputDigestSha256: 'c'.repeat(64), providerCalled: true, failureReason: null,
   renderMs: 100, providerMs: 2000, totalMs: 2100, inputTokens: 1500, outputTokens: 80, usd: 0.006,
   renderDigestSha256: 'a'.repeat(64), reuseEligible: true, ...overrides,
 });
@@ -125,7 +169,7 @@ const abstained = { outcome: 'abstained' as const, fields: null };
 describe('B4.6 controlled-activation bar', () => {
   it('is the confirmed bar', () => {
     expect(VALUE_READING_ACTIVATION_BAR).toEqual({
-      minRatePrecision: 0.99, maxCriticalHallucinations: 0, maxUnsupportedInventions: 0, maxWrongBindings: 0,
+      minRatePrecision: 0.99, maxWrongSourceRegionBindings: 0, maxUnsupportedNumericInventions: 0, maxUnsupportedValueInventions: 0,
       minResolvedShareOfReadable: 0.8, maxP50TotalLatencyMs: 3000, maxP95TotalLatencyMs: 8000,
       maxUsdPerAttempt: 0.05, maxUsdPerCorrect: 0.1, minReuseRate: 1, minRowsPerClass: 20 });
   });
@@ -155,10 +199,10 @@ describe('B4.6 controlled-activation bar', () => {
     expect(decideValueReadingActivation(allConfirmed).classes[0]!.usefulness).toMatchObject({ readableTargets: 15, confirmedUnreadable: 15 });
   });
 
-  it('fails the whole corpus on one hallucination, invention or wrong binding, wherever it occurs', () => {
+  it('fails the whole corpus on one wrong binding, numeric invention or value invention, wherever it occurs', () => {
     for (const unsafe of [
-      { outcome: 'wrong_rate' as const, rateError: 'critical_hallucination' as const, fields: { rate: false, unit: true, description: true, category: null } },
-      { outcome: 'wrong_rate' as const, rateError: 'wrong_binding' as const, fields: { rate: false, unit: true, description: true, category: null } },
+      { outcome: 'wrong_rate' as const, rateError: 'unsupported_numeric_invention' as const, fields: { rate: false, unit: true, description: true, category: null } },
+      { outcome: 'wrong_rate' as const, rateError: 'wrong_source_region_binding' as const, fields: { rate: false, unit: true, description: true, category: null } },
       { inventions: ['category' as const] },
     ]) {
       const result = decideValueReadingActivation([...rows(30), ...dnRows(19), ...dnRows(1, { rowKey: 'bad', ...unsafe })]);
@@ -170,7 +214,7 @@ describe('B4.6 controlled-activation bar', () => {
   it('enforces rate precision of at least 99% among value readings', () => {
     // 1 wrong in 50 value readings is 98%: fails, and the wrong rate is also a corpus safety failure.
     const result = decideValueReadingActivation([...rows(49), ...rows(1, { rowKey: 'w', outcome: 'wrong_rate',
-      rateError: 'wrong_binding', fields: { rate: false, unit: true, description: true, category: null } }), ...dnRows(20)]);
+      rateError: 'wrong_source_region_binding', fields: { rate: false, unit: true, description: true, category: null } }), ...dnRows(20)]);
     expect(result.classes[0]!.failures.join(' ')).toContain('rate precision 0.9800');
     // All abstentions: precision undefined, so nothing qualifies.
     expect(decideValueReadingActivation(rows(30, abstained)).decision).toBe('FAIL');
@@ -194,7 +238,7 @@ describe('B4.6 controlled-activation bar', () => {
   });
 
   it('turns a disagreement into a correct reading only on a human ruling, and stays provisional until ruled', () => {
-    const disputed = record({ rowKey: 'd', outcome: 'wrong_rate', rateError: 'critical_hallucination',
+    const disputed = record({ rowKey: 'd', outcome: 'wrong_rate', rateError: 'unsupported_numeric_invention',
       fields: { rate: false, unit: true, description: true, category: null } });
     const base = [...rows(29), disputed, ...dnRows(20)];
     expect(decideValueReadingActivation(base)).toMatchObject({ decision: 'FAIL', provisional: true });
@@ -232,15 +276,21 @@ describe('B4.6 transmission clearance', () => {
   const committed = JSON.parse(readFileSync('scripts/evaluation/b46/transmission-clearance.json', 'utf8')) as {
     documents: Record<string, Record<string, unknown>> };
 
-  it('the committed record clears nothing until someone records an approval', () => {
-    expect(readValueReadingClearance(committed, pinned).map((entry) => [entry.documentKey, entry.cleared]))
-      .toEqual([['golden', false], ['hillsdale', false], ['dn', false]]);
+  it('the committed record clears the three corpus documents for the benchmark scope only, with who, when and why', () => {
+    const entries = readValueReadingClearance(committed, pinned);
+    expect(entries.map((entry) => [entry.documentKey, entry.cleared])).toEqual([['golden', true], ['hillsdale', true], ['dn', true]]);
+    expect(entries[0]!.detail).toContain('Eric');
+    expect((committed as unknown as { scope: string }).scope).toBe('b46_value_reading_benchmark');
+    // The same approvals under any other scope clear nothing.
+    expect(readValueReadingClearance({ ...committed, scope: 'production' }, pinned).every((entry) => !entry.cleared)).toBe(true);
+    expect(readValueReadingClearance({ ...committed, scope: undefined }, pinned).every((entry) => !entry.cleared)).toBe(true);
   });
 
   it('clears a document only with who, when and basis, for exactly the pinned bytes', () => {
     const approve = (overrides: Record<string, unknown>) => ({ ...committed, documents: { ...committed.documents,
       golden: { ...committed.documents.golden, pageRegionImages: true, approvedBy: 'Eric', approvedAt: '2026-10-05T12:00:00Z',
         basis: 'Public procurement record', ...overrides } } });
+    expect(readValueReadingClearance(approve({ pageRegionImages: false }), pinned)[0]).toMatchObject({ cleared: false });
     expect(readValueReadingClearance(approve({}), pinned)[0]).toMatchObject({ cleared: true });
     expect(readValueReadingClearance(approve({ basis: ' ' }), pinned)[0]).toMatchObject({ cleared: false });
     expect(readValueReadingClearance(approve({ approvedAt: 'soon' }), pinned)[0]).toMatchObject({ cleared: false });

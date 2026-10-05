@@ -29,13 +29,19 @@ The benchmark runs the production read path for every labelled priced row on the
 
 - `correct`: the rate, unit and description match, and the category matches where the page labels one. Text comparison ignores case, spacing and dash or quote variants.
 - `abstained`: an honest `unreadable`. It is allowed, and preferred over guessing.
-- `wrong_rate`: a confident value with the wrong rate. This is the unsafe outcome, and it is further classified as either:
-  - a **wrong source-region binding**: the rate equals another amount printed on the page, such as this row's quantity or extended amount, or another row's rate; or
-  - a **critical numeric hallucination**: the rate is printed nowhere on the page.
+- `wrong_rate`: a confident value with the wrong rate. This is the unsafe outcome.
+
+  **Correctness is decided by the target region alone:** a rate is correct only if it is the target cell's value, and no value from anywhere else is ever accepted. The wider page evidence (every labelled cell and word on the page) then classifies the error, for diagnosis only. Both kinds are hard qualification failures, reported separately:
+  - a **wrong source-region binding**: the returned value exists elsewhere in the page evidence, but not in the target row or field. For example, target $14.50, returned $425.00, and $425.00 is printed elsewhere on the page. The disagreement names the source and whether it was inside the crop.
+  - an **unsupported numeric invention**: the returned value exists nowhere in the page evidence. For example, target $14.50, returned $17.80, and $17.80 appears nowhere.
 - `field_mismatch`: the right rate with a different unit, description or category.
 - `failed`: the provider failed (including timeouts), the output was invalid, validation refused it, or the crop could not be drawn.
 
-A reading is also flagged as an **unsupported value invention** if it reports a category on a page that has no category column, or a unit the page's unit column never prints.
+A reading is also flagged as an **unsupported value invention** when it reports a value the target evidence does not support:
+- a **unit** other than the target row's own unit cell (a unit printed elsewhere on the page does not count as support);
+- a **category** that is neither the row's own category cell nor the explicitly allowed structural context, which is the nearest preceding section heading (for example DN's "ROADWAY ITEMS").
+
+Comparison ignores case, spacing and dash or quote variants only. Description mismatches are field mismatches, not inventions.
 
 **Usefulness.** The share of *genuinely readable* targets resolved correctly. A person may rule an abstained row genuinely unreadable, which takes it out of the denominator.
 
@@ -50,9 +56,9 @@ The bar is fixed in code (`VALUE_READING_ACTIVATION_BAR`) before any provider ca
 | Dimension | Bar | Scope | Kind |
 | --- | --- | --- | --- |
 | Rate precision among value (non-abstained) readings | at least 99% | per class | hard |
-| Critical numeric hallucinations | 0 | whole corpus | hard |
-| Unsupported value inventions | 0 | whole corpus | hard |
 | Wrong source-region bindings | 0 | whole corpus | hard |
+| Unsupported numeric inventions | 0 | whole corpus | hard |
+| Unsupported value inventions (unit, category) | 0 | whole corpus | hard |
 | Correctly resolved, of genuinely readable targets | at least 80% | per class | **soft** |
 | Median end-to-end wait | at most 3 s | per class | hard |
 | p95 end-to-end wait | at most 8 s (the engine's timeout ceiling) | per class | hard |
@@ -79,7 +85,11 @@ Lower coverage is accepted only when every hard bar holds. It can never reach PA
 
 The corpus is client material. It stays outside the repository and is located through `GOLDEN_CORPUS_ROOT`, `MIXED_MODE_HILLSDALE_PRICE_SHEET_PDF` and `DN_PRICED_SCHEDULE_SOURCE_PDF`. A provider run sends one crop of each priced row to the model provider. That is a `page_region_images` transmission, which is **not approved by default**.
 
-`scripts/evaluation/b46/transmission-clearance.json` records clearance per document, for the pinned source bytes. All three documents start **not cleared**. To clear one, a reviewed commit sets the following, and the runner refuses a provider run for any document without it:
+`scripts/evaluation/b46/transmission-clearance.json` records clearance per document, for the pinned source bytes, with `scope: b46_value_reading_benchmark`. Golden, Hillsdale and DN are **cleared**: the repository owner approved `page_region_images` and `text_excerpts` for this qualification on 2026-10-05. The benchmark sends images only, matching the production Ask route.
+
+This record authorizes benchmark runs only. It does not change or bypass the B4.1 organization data-policy ledger, which still governs every production transmission. Under any other scope the same entries clear nothing.
+
+A document is cleared only when a reviewed commit sets the following; the runner refuses a provider run for any document without it:
 
 - `pageRegionImages: true`
 - `approvedBy`: who approved
@@ -88,31 +98,52 @@ The corpus is client material. It stays outside the repository and is located th
 
 ## Running
 
-1. **Dry run (no provider calls).** Run this first on the machine that holds the corpus.
+Run all of this on the machine that holds the corpus, in a shell with **no** database variables set (`SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_DB_URL`, `DATABASE_URL`). Set the corpus variables first:
+
+```
+export GOLDEN_CORPUS_ROOT=<folder holding the Golden contract PDF>
+export MIXED_MODE_HILLSDALE_PRICE_SHEET_PDF=<path to the Hillsdale PDF>
+export DN_PRICED_SCHEDULE_SOURCE_PDF=<path to the DN PDF>
+```
+
+1. **Dry run (no provider calls).**
    ```
    npx vite-node --config vitest.config.ts scripts/evaluation/b46/runValueReadingBenchmark.ts
    ```
    It does the following:
    - verifies each corpus file against its pinned SHA-256;
    - binds each label file to its page's canonical frame;
-   - renders every target twice, reporting render time and crop determinism.
-2. **Provider run.** This needs explicit authorization for that run, a recorded clearance for every selected document, `ANTHROPIC_API_KEY`, and confirmed prices.
+   - prints each document's clearance;
+   - renders every target twice, reporting render time and crop determinism. This must report 85/85 deterministic.
+2. **Live run, one page at a time.** It needs `ANTHROPIC_API_KEY`, and `FORGEWING_MODEL` either unset or set to `claude-sonnet-4-6`. Confirm the current per-token prices, then substitute them for the `<…>` values:
    ```
    npx vite-node --config vitest.config.ts scripts/evaluation/b46/runValueReadingBenchmark.ts -- \
-     --execute-provider --input-usd-per-mtok <confirmed> --output-usd-per-mtok <confirmed>
+     --execute-provider --pages golden-p8 --input-usd-per-mtok <input> --output-usd-per-mtok <output>
    ```
-   - `--pages golden-p8` runs the progression one page at a time: Golden p8, then Hillsdale p3, then DN p107.
-   - Hard ceilings are 100 calls and $3. `--max-calls` and `--max-spend-usd` may lower them, never raise them.
-   - The full run is 85 calls. At `claude-sonnet-4-6` prices ($3 / $15 per MTok) and about 1.6k input and 100 output tokens per crop, that is roughly $0.50.
-   - A run stopped by a ceiling is not decided.
-3. **Adjudicate.** A live run writes `disagreements.json`. It lists every wrong rate, field mismatch and invention, with the label, what was read, and the classification. A person rules in a file of `{ pageKey, rowKey, verdict }` entries:
+   - Then run `--pages hillsdale-p3`, then `--pages dn-p107`.
+   - Stop and look after any page with a wrong rate or an invention.
+   - Each run is capped at 100 calls and $3. The full corpus is 85 calls.
+3. **Score the corpus as one decision.**
+   ```
+   npx vite-node --config vitest.config.ts scripts/evaluation/b46/scoreValueReadingBenchmark.ts -- \
+     --runs <golden run dir>,<hillsdale run dir>,<dn run dir>
+   ```
+   The command refuses a run that is not live or not complete, runs that differ in model, prompt, schema, crop or bar, and a row scored twice. It makes no provider call.
+4. **Adjudicate.** Each live run writes `disagreements.json`. It lists every wrong rate, field mismatch and invention, with the label, what was read, the classification, the binding trace and the digests. A person rules in a file of `{ pageKey, rowKey, verdict }` entries:
    - `label_correct`: the reading was wrong.
    - `reading_correct`: the label was wrong. The row is scored correct.
    - `target_unreadable`: for abstentions only. The crop is genuinely unreadable, so the row leaves the coverage denominator.
 
-   Re-score with `--adjudications <file>`. While any disagreement is unruled, the decision is **PROVISIONAL**.
+   Re-run step 3 with `--adjudications <file>`. While any disagreement is unruled, the decision is **PROVISIONAL**.
+5. **Report PASS / LIMITED PASS / FAIL** before any activation change.
 
-Artifacts are written to `scripts/evaluation/artifacts/b46/local/<timestamp>/`, which is gitignored because row text and readings are client material. The `summary.json` there holds aggregates, pins and the decision. It can be committed once reviewed.
+Artifacts are written to `scripts/evaluation/artifacts/b46/local/<timestamp>/`, which is gitignored because row text and readings are client material:
+- `summary.json`: aggregates, pins, clearance, the bar and the decision. It can be committed once reviewed.
+- `records.json`: per row, the typed outcome, binding trace and inventions, and the request, render and output digests.
+- `readings.json`: every raw provider output, which is the audit trail behind each output digest.
+- `disagreements.json`: what needs a human ruling.
+
+Benchmark readings are never written anywhere as proposals, and never promoted to HUMAN_REVIEWED truth. Production stays disabled until the decision (PASS, LIMITED PASS or FAIL) has been reported and a separate, reviewed change acts on it.
 
 ## Guard rails
 
@@ -125,4 +156,5 @@ Artifacts are written to `scripts/evaluation/artifacts/b46/local/<timestamp>/`, 
 
 1. **The ground truth is dual-AI, not human.** All three label files have authority `delegated_dual_ai_evaluation_ground_truth_only` (ChatGPT + Claude). Scoring Claude against labels Claude helped write can overstate agreement. Every disagreement needs a human ruling before the decision is final. A human spot-check of a sample of *agreements* (for example 10 per class) is recommended before acting on a PASS.
 2. **Benchmark crops come from the labels' row geometry.** That is the best-case crop. Production crops come from extraction's unresolved priced lines, which can be narrower or split. A PASS here is an upper bound. The first controlled activation should still record every production outcome, which the B4.3 outcome ledger already does.
-3. **Three pages, two evidence classes, 85 rows.** A class that passes here qualifies only for documents of the same character. A LIMITED PASS names those classes; it does not generalize.
+3. **The crop shows neighbouring rows.** With the B4.5 renderer's 6-point padding, the crop reaches into adjacent rows on 23 of 24 Golden rows, 38 of 40 Hillsdale rows and all 21 DN rows (on DN, up to two rows either side). That is a measured property of the production crop, not something this benchmark changes. Any resulting misreads are scored as wrong source-region bindings, with the source cell named and marked as inside the crop.
+4. **Three pages, two evidence classes, 85 rows.** A class that passes here qualifies only for documents of the same character. A LIMITED PASS names those classes; it does not generalize.

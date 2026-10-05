@@ -1,28 +1,32 @@
 {
   "version": "value-reading-transmission-clearance-v1",
+  "scope": "b46_value_reading_benchmark",
   "contentClass": "page_region_images",
-  "note": "A document may have page-region crops sent to the model provider only when its entry below records pageRegionImages=true with who approved it, when, and on what basis. Changing an entry is a reviewed commit. Text excerpts are never sent by the benchmark.",
+  "note": "Authorizes B4.6 benchmark runs only. It does not change, replace or bypass the B4.1 organization data-policy ledger, which still governs every production transmission. A document may have page-region crops sent to the model provider by the benchmark only when its entry records pageRegionImages=true with who approved it, when, and on what basis. Changing an entry is a reviewed commit. The benchmark sends no text excerpts even where they are approved, matching the production Ask route.",
   "documents": {
     "golden": {
       "sha256": "922161a533bb6b8c1afb52cb9536044c8a6836bed62401634f4f505025631e8f",
-      "pageRegionImages": false,
-      "approvedBy": null,
-      "approvedAt": null,
-      "basis": null
+      "pageRegionImages": true,
+      "textExcerpts": true,
+      "approvedBy": "Eric (EricAnalysis, repository owner)",
+      "approvedAt": "2026-10-05T11:32:29Z",
+      "basis": "Owner authorization in the B4.6 session: Golden, Hillsdale and DN are cleared for real provider execution for this qualification; approved content classes text_excerpts and page_region_images. Authorizes these benchmark runs only; does not remove the B4.1 data-policy mechanism."
     },
     "hillsdale": {
       "sha256": "596adaccf865625723dc832f5206a8f690eb17d96921ef185df35b113c767537",
-      "pageRegionImages": false,
-      "approvedBy": null,
-      "approvedAt": null,
-      "basis": null
+      "pageRegionImages": true,
+      "textExcerpts": true,
+      "approvedBy": "Eric (EricAnalysis, repository owner)",
+      "approvedAt": "2026-10-05T11:32:29Z",
+      "basis": "Owner authorization in the B4.6 session: Golden, Hillsdale and DN are cleared for real provider execution for this qualification; approved content classes text_excerpts and page_region_images. Authorizes these benchmark runs only; does not remove the B4.1 data-policy mechanism."
     },
     "dn": {
       "sha256": "69247bff02744276b75f2cb0d4c00610e8614bd5822d2d10ae2ad35564c3b272",
-      "pageRegionImages": false,
-      "approvedBy": null,
-      "approvedAt": null,
-      "basis": null
+      "pageRegionImages": true,
+      "textExcerpts": true,
+      "approvedBy": "Eric (EricAnalysis, repository owner)",
+      "approvedAt": "2026-10-05T11:32:29Z",
+      "basis": "Owner authorization in the B4.6 session: Golden, Hillsdale and DN are cleared for real provider execution for this qualification; approved content classes text_excerpts and page_region_images. Authorizes these benchmark runs only; does not remove the B4.1 data-policy mechanism."
     }
   }
 }

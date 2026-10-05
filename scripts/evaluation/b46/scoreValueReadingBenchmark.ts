@@ -67,6 +67,9 @@ function main(): void {
   const lines = [`B4.6 DECISION: ${decision.decision}${decision.provisional ? ' (PROVISIONAL: disagreements await human adjudication)' : ''}`,
     `  rows ${decision.overall.rows}; correct ${decision.overall.outcomes.correct}; abstained ${decision.overall.outcomes.abstained}; `
       + `wrong rate ${decision.overall.outcomes.wrong_rate}; field mismatch ${decision.overall.outcomes.field_mismatch}; failed ${decision.overall.outcomes.failed}`];
+  lines.push(`  wrong source-region bindings ${decision.overall.accuracy.wrongSourceRegionBindings}; `
+    + `unsupported numeric inventions ${decision.overall.accuracy.unsupportedNumericInventions}; `
+    + `unsupported value inventions ${decision.overall.accuracy.unsupportedValueInventions}`);
   for (const failure of decision.corpusSafetyFailures) lines.push(`  CORPUS SAFETY FAILURE: ${failure}`);
   for (const summary of decision.classes) {
     lines.push(`  ${summary.evidenceClass}: ${summary.status}; precision ${summary.accuracy.ratePrecision?.toFixed(4) ?? 'n/a'}; `

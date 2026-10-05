@@ -29,9 +29,11 @@ The benchmark runs the production read path for every labelled priced row on the
 
 - `correct`: the rate, unit and description match, and the category matches where the page labels one. Text comparison ignores case, spacing and dash or quote variants.
 - `abstained`: an honest `unreadable`. It is allowed, and preferred over guessing.
-- `wrong_rate`: a confident value with the wrong rate. This is the unsafe outcome. Because the model only ever sees the crop, each wrong rate is classified by what the crop shows:
-  - a **wrong source-region binding**: the rate can be traced to a different value visible in the target region, such as this row's quantity or extended amount, or a neighbouring row's cell that the padded crop reaches. The disagreement names the source cell.
-  - a **critical numeric hallucination**: the rate is unsupported by the target evidence region, even if the number is printed elsewhere on the page outside the crop.
+- `wrong_rate`: a confident value with the wrong rate. This is the unsafe outcome.
+
+  **Correctness is decided by the target region alone:** a rate is correct only if it is the target cell's value, and no value from anywhere else is ever accepted. The wider page evidence (every labelled cell and word on the page) then classifies the error, for diagnosis only. Both kinds are hard qualification failures, reported separately:
+  - a **wrong source-region binding**: the returned value exists elsewhere in the page evidence, but not in the target row or field. For example, target $14.50, returned $425.00, and $425.00 is printed elsewhere on the page. The disagreement names the source and whether it was inside the crop.
+  - an **unsupported numeric invention**: the returned value exists nowhere in the page evidence. For example, target $14.50, returned $17.80, and $17.80 appears nowhere.
 - `field_mismatch`: the right rate with a different unit, description or category.
 - `failed`: the provider failed (including timeouts), the output was invalid, validation refused it, or the crop could not be drawn.
 
@@ -54,9 +56,9 @@ The bar is fixed in code (`VALUE_READING_ACTIVATION_BAR`) before any provider ca
 | Dimension | Bar | Scope | Kind |
 | --- | --- | --- | --- |
 | Rate precision among value (non-abstained) readings | at least 99% | per class | hard |
-| Critical numeric hallucinations | 0 | whole corpus | hard |
-| Unsupported value inventions | 0 | whole corpus | hard |
 | Wrong source-region bindings | 0 | whole corpus | hard |
+| Unsupported numeric inventions | 0 | whole corpus | hard |
+| Unsupported value inventions (unit, category) | 0 | whole corpus | hard |
 | Correctly resolved, of genuinely readable targets | at least 80% | per class | **soft** |
 | Median end-to-end wait | at most 3 s | per class | hard |
 | p95 end-to-end wait | at most 8 s (the engine's timeout ceiling) | per class | hard |
@@ -154,5 +156,5 @@ Benchmark readings are never written anywhere as proposals, and never promoted t
 
 1. **The ground truth is dual-AI, not human.** All three label files have authority `delegated_dual_ai_evaluation_ground_truth_only` (ChatGPT + Claude). Scoring Claude against labels Claude helped write can overstate agreement. Every disagreement needs a human ruling before the decision is final. A human spot-check of a sample of *agreements* (for example 10 per class) is recommended before acting on a PASS.
 2. **Benchmark crops come from the labels' row geometry.** That is the best-case crop. Production crops come from extraction's unresolved priced lines, which can be narrower or split. A PASS here is an upper bound. The first controlled activation should still record every production outcome, which the B4.3 outcome ledger already does.
-3. **The crop shows neighbouring rows.** With the B4.5 renderer's 6-point padding, the crop reaches into adjacent rows on 23 of 24 Golden rows, 38 of 40 Hillsdale rows and all 21 DN rows (on DN, up to two rows either side). That is a measured property of the production crop, not something this benchmark changes. Any resulting misreads are scored as wrong bindings and name their source cell.
+3. **The crop shows neighbouring rows.** With the B4.5 renderer's 6-point padding, the crop reaches into adjacent rows on 23 of 24 Golden rows, 38 of 40 Hillsdale rows and all 21 DN rows (on DN, up to two rows either side). That is a measured property of the production crop, not something this benchmark changes. Any resulting misreads are scored as wrong source-region bindings, with the source cell named and marked as inside the crop.
 4. **Three pages, two evidence classes, 85 rows.** A class that passes here qualifies only for documents of the same character. A LIMITED PASS names those classes; it does not generalize.

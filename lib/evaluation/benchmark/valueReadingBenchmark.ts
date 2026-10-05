@@ -13,7 +13,7 @@ import { VALUE_READING_EXECUTION } from '@/lib/valueReadingContract';
  * accurately enough, fast enough and cheaply enough to justify controlled
  * activation? A confident wrong value is far worse than an honest
  * "unreadable": abstention is allowed and preferred over guessing, and a single
- * hallucinated, invented or misbound value fails the run.
+ * misbound or invented value fails the run.
  */
 
 export const VALUE_READING_BENCHMARK_VERSION = 'value-reading-benchmark-v1' as const;
@@ -23,8 +23,8 @@ export const VALUE_READING_BENCHMARK_VERSION = 'value-reading-benchmark-v1' as c
  * Changing a threshold after seeing results is a new benchmark version, not a
  * re-scoring.
  *
- * Hard bars disqualify. The three zero-tolerance safety bars (critical
- * hallucinations, unsupported inventions, wrong source-region bindings) apply
+ * Hard bars disqualify. The three zero-tolerance safety bars (wrong
+ * source-region bindings, unsupported numeric inventions, unsupported value inventions) apply
  * to the whole qualification corpus: one occurrence anywhere fails the run.
  * Everything else applies per evidence class. Coverage is the only soft bar:
  * a class that meets every hard bar but resolves fewer than 80% of its
@@ -34,12 +34,17 @@ export const VALUE_READING_BENCHMARK_VERSION = 'value-reading-benchmark-v1' as c
 export const VALUE_READING_ACTIVATION_BAR = Object.freeze({
   /** Correct rates among non-abstained (value) readings. */
   minRatePrecision: 0.99,
-  /** A confident numeric reading unsupported by the target evidence region. Corpus-wide. */
-  maxCriticalHallucinations: 0,
+  /**
+   * Correctness is decided by the target region alone: a rate is correct only
+   * if it is the target cell's value. A wrong confident rate is then
+   * classified by the wider page evidence, for diagnosis only; both kinds fail.
+   */
+  /** A wrong confident rate that does exist elsewhere in the page evidence. Corpus-wide. */
+  maxWrongSourceRegionBindings: 0,
+  /** A wrong confident rate with no support anywhere in the page evidence. Corpus-wide. */
+  maxUnsupportedNumericInventions: 0,
   /** A unit, category or other semantic value the target row, column or allowed context does not support. Corpus-wide. */
-  maxUnsupportedInventions: 0,
-  /** A confident numeric reading traced to a different visible value, row or field. Corpus-wide. */
-  maxWrongBindings: 0,
+  maxUnsupportedValueInventions: 0,
   /** Soft: correct readings over genuinely readable targets. */
   minResolvedShareOfReadable: 0.8,
   /** Render plus provider: the operator's wait. Within the engine's 8 s timeout. */
@@ -99,13 +104,13 @@ export type ValueReadingBenchmarkTarget = Readonly<{
   /** The row's labelled cells: what the crop is drawn from. */
   boxes: readonly CanonicalBox[];
   /**
-   * Every other amount visible in the crop the model is shown: this row's other
-   * fields and any cell of a neighbouring row the padded crop reaches. A wrong
-   * rate equal to one of these was copied from the wrong place (a wrong
-   * binding); any other wrong rate is unsupported by the target region (a
-   * critical hallucination), even if the number is printed elsewhere on the page.
+   * Every other amount in the page's source evidence (each labelled cell and
+   * word except the target rate cell). Diagnostic only: a wrong rate equal to
+   * one of these is a wrong source-region binding, any other wrong rate an
+   * unsupported numeric invention. Neither is ever accepted: only the target
+   * cell's value is correct.
    */
-  visibleOtherValues: readonly VisibleValue[];
+  pageOtherValues: readonly PageValue[];
   /**
    * Categories the target evidence supports, in comparison form: the row's own
    * category cell, and the explicitly allowed structural context of the
@@ -115,7 +120,16 @@ export type ValueReadingBenchmarkTarget = Readonly<{
   supportedCategories: readonly string[];
 }>;
 
-export type VisibleValue = Readonly<{ amount: number; cellLabelId: string; rowKey: string | null; columnName: string | null }>;
+/** An amount printed in the page evidence, where it is, and whether the target crop shows it. */
+export type PageValue = Readonly<{
+  amount: number;
+  source: 'cell' | 'word';
+  labelId: string;
+  rowKey: string | null;
+  columnName: string | null;
+  /** Inside the padded crop the model was shown. Diagnostic only. */
+  inCrop: boolean;
+}>;
 
 /** "$ 1,250.50" -> 1250.5. Anything that is not plainly one amount is null. */
 export function parseLabelRate(text: string): number | null {
@@ -146,9 +160,14 @@ export function valueReadingBenchmarkTargets(labels: BenchmarkPageLabels, page: 
   }
   const cells = new Map((labels.cells.items ?? []).map((cell) => [cell.labelId, cell]));
   const rowOfCell = new Map((labels.rows.items ?? []).flatMap((row) => row.orderedCellLabelIds.map((id) => [id, row.rowKey] as const)));
-  const amounts = (labels.cells.items ?? []).flatMap((cell) => {
+  const cellAmounts = (labels.cells.items ?? []).flatMap((cell) => {
     const amount = parseLabelRate(cell.text);
     return amount === null ? [] : [{ cell, amount }];
+  });
+  // Numbers outside the table (totals, notes, page furniture) are page evidence too.
+  const wordAmounts = (labels.words.status === 'labeled' ? labels.words.items ?? [] : []).flatMap((word) => {
+    const amount = parseLabelRate(word.text);
+    return amount === null ? [] : [{ word, amount }];
   });
   // A section heading: a body row whose every cell is unnamed (DN "ROADWAY ITEMS").
   let sectionHeading: string | null = null;
@@ -197,15 +216,27 @@ export function valueReadingBenchmarkTargets(labels: BenchmarkPageLabels, page: 
       y_min: Math.min(...boxes.map((box) => box.y_min)) - pad, y_max: Math.max(...boxes.map((box) => box.y_max)) + pad };
     const visible = (box: Readonly<{ x_min: number; x_max: number; y_min: number; y_max: number }>) =>
       box.x_min < region.x_max && box.x_max > region.x_min && box.y_min < region.y_max && box.y_max > region.y_min;
+    const inside = (box: Readonly<{ x_min: number; x_max: number; y_min: number; y_max: number }>,
+      outer: Readonly<{ x_min: number; x_max: number; y_min: number; y_max: number }>) => {
+      const x = (box.x_min + box.x_max) / 2;
+      const y = (box.y_min + box.y_max) / 2;
+      return x >= outer.x_min && x <= outer.x_max && y >= outer.y_min && y <= outer.y_max;
+    };
     targets.push({
       pageKey: page.pageKey,
       evidenceClass: page.evidenceClass,
       rowKey: row.rowKey,
       truth: { description: description.text, unit: unit.text, rate: amount, category: category.text },
       boxes,
-      visibleOtherValues: amounts.filter((entry) => entry.cell.labelId !== rateCell.labelId && visible(entry.cell.box))
-        .map((entry) => ({ amount: entry.amount, cellLabelId: entry.cell.labelId,
-          rowKey: rowOfCell.get(entry.cell.labelId) ?? null, columnName: entry.cell.columnName })),
+      pageOtherValues: [
+        ...cellAmounts.filter((entry) => entry.cell.labelId !== rateCell.labelId).map((entry): PageValue => ({
+          amount: entry.amount, source: 'cell', labelId: entry.cell.labelId, rowKey: rowOfCell.get(entry.cell.labelId) ?? null,
+          columnName: entry.cell.columnName, inCrop: visible(entry.cell.box) })),
+        // A word inside the target rate cell is the target's own value, not other evidence.
+        ...wordAmounts.filter((entry) => !inside(entry.word.box, rateCell.box)).map((entry): PageValue => ({
+          amount: entry.amount, source: 'word', labelId: entry.word.labelId, rowKey: null, columnName: null,
+          inCrop: visible(entry.word.box) })),
+      ],
       supportedCategories: [...new Set([category.text, sectionHeading].flatMap((text) => (text ? [normalizeReadingText(text)] : [])))],
     });
   }
@@ -228,18 +259,20 @@ export type ValueReadingAttempt =
 export type ValueReadingOutcome = 'correct' | 'abstained' | 'wrong_rate' | 'field_mismatch' | 'failed';
 
 /**
- * Why a confident rate is wrong:
- * - wrong_binding: traced to a different value visible in the target region (another field, row or cell);
- * - critical_hallucination: unsupported by the target evidence region at all.
+ * Why a confident rate is wrong. The target region decides correctness; the
+ * wider page evidence only classifies the error, and both kinds fail:
+ * - wrong_source_region_binding: the value exists elsewhere in the page evidence,
+ *   but is not the target row's rate (a real number from the wrong place);
+ * - unsupported_numeric_invention: the value exists nowhere in the page evidence.
  */
-export type ValueReadingRateError = 'wrong_binding' | 'critical_hallucination';
+export type ValueReadingRateError = 'wrong_source_region_binding' | 'unsupported_numeric_invention';
 
 export type ValueReadingScore = Readonly<{
   outcome: ValueReadingOutcome;
   fields: Readonly<{ rate: boolean; unit: boolean; description: boolean; category: boolean | null }> | null;
   rateError: ValueReadingRateError | null;
-  /** For a wrong binding: the visible value the rate was copied from. */
-  boundTo: VisibleValue | null;
+  /** For a wrong source-region binding: the page value the rate matches. */
+  boundTo: PageValue | null;
   /** Values the target evidence does not support: a unit other than the row's own, or an unsupported category. */
   inventions: readonly ('category' | 'unit')[];
 }>;
@@ -264,8 +297,12 @@ export function scoreValueReading(target: ValueReadingBenchmarkTarget, attempt: 
   const category = (read.category ?? '').trim();
   if (category && !target.supportedCategories.includes(normalizeReadingText(category))) inventions.push('category');
   if (!fields.rate) {
-    const boundTo = target.visibleOtherValues.find((value) => sameAmount(value.amount, read.rate_amount)) ?? null;
-    return { outcome: 'wrong_rate', fields, rateError: boundTo ? 'wrong_binding' : 'critical_hallucination', boundTo, inventions };
+    // Prefer the trace the model most plausibly copied: a value in its crop, then a table cell, then any word.
+    const matches = target.pageOtherValues.filter((value) => sameAmount(value.amount, read.rate_amount));
+    const boundTo = matches.find((value) => value.inCrop && value.source === 'cell') ?? matches.find((value) => value.inCrop)
+      ?? matches.find((value) => value.source === 'cell') ?? matches[0] ?? null;
+    return { outcome: 'wrong_rate', fields,
+      rateError: boundTo ? 'wrong_source_region_binding' : 'unsupported_numeric_invention', boundTo, inventions };
   }
   return { outcome: fields.unit && fields.description && fields.category !== false ? 'correct' : 'field_mismatch',
     fields, rateError: null, boundTo: null, inventions };
@@ -279,7 +316,7 @@ export type ValueReadingBenchmarkRecord = Readonly<{
   outcome: ValueReadingOutcome;
   fields: ValueReadingScore['fields'];
   rateError: ValueReadingRateError | null;
-  boundTo: VisibleValue | null;
+  boundTo: PageValue | null;
   inventions: ValueReadingScore['inventions'];
   /** The request sent (null if none), and the SHA-256 of the provider's raw output (null if none). */
   requestDigestSha256: string | null;
@@ -353,9 +390,9 @@ export type ValueReadingClassSummary = Readonly<{
     valueReadings: number;
     /** Correct rates among value readings; null when nothing was read. */
     ratePrecision: number | null;
-    criticalHallucinations: number;
-    wrongBindings: number;
-    unsupportedInventions: number;
+    wrongSourceRegionBindings: number;
+    unsupportedNumericInventions: number;
+    unsupportedValueInventions: number;
     fieldAccuracy: Readonly<{ rate: number; unit: number; description: number; category: number | null }>;
   }>;
   usefulness: Readonly<{ readableTargets: number; confirmedUnreadable: number; resolvedShareOfReadable: number; abstainShare: number }>;
@@ -385,9 +422,9 @@ export function summarizeValueReadingClass(
   const withCategory = valueRecords.filter((record) => record.fields!.category !== null);
   const ratePrecision = valueRecords.length === 0 ? null
     : valueRecords.filter((record) => record.fields!.rate).length / valueRecords.length;
-  const criticalHallucinations = records.filter((record) => record.rateError === 'critical_hallucination').length;
-  const wrongBindings = records.filter((record) => record.rateError === 'wrong_binding').length;
-  const unsupportedInventions = records.filter((record) => record.inventions.length > 0).length;
+  const wrongSourceRegionBindings = records.filter((record) => record.rateError === 'wrong_source_region_binding').length;
+  const unsupportedNumericInventions = records.filter((record) => record.rateError === 'unsupported_numeric_invention').length;
+  const unsupportedValueInventions = records.filter((record) => record.inventions.length > 0).length;
   const confirmedUnreadable = records.filter((record) => record.adjudication === 'target_unreadable').length;
   const readableTargets = rows - confirmedUnreadable;
   const resolvedShareOfReadable = share(outcomes.correct, readableTargets);
@@ -405,9 +442,9 @@ export function summarizeValueReadingClass(
   if (ratePrecision === null || ratePrecision < bar.minRatePrecision) {
     failures.push(`rate precision ${ratePrecision === null ? 'undefined (no value readings)' : ratePrecision.toFixed(4)} is below ${bar.minRatePrecision}`);
   }
-  if (criticalHallucinations > bar.maxCriticalHallucinations) failures.push(`${criticalHallucinations} critical numeric hallucination(s)`);
-  if (unsupportedInventions > bar.maxUnsupportedInventions) failures.push(`${unsupportedInventions} unsupported value invention(s)`);
-  if (wrongBindings > bar.maxWrongBindings) failures.push(`${wrongBindings} wrong source-region binding(s)`);
+  if (wrongSourceRegionBindings > bar.maxWrongSourceRegionBindings) failures.push(`${wrongSourceRegionBindings} wrong source-region binding(s)`);
+  if (unsupportedNumericInventions > bar.maxUnsupportedNumericInventions) failures.push(`${unsupportedNumericInventions} unsupported numeric invention(s)`);
+  if (unsupportedValueInventions > bar.maxUnsupportedValueInventions) failures.push(`${unsupportedValueInventions} unsupported value invention(s)`);
   if (totalP50 === null || totalP50 > bar.maxP50TotalLatencyMs) failures.push(`median wait ${totalP50 ?? 'unmeasured'} ms exceeds ${bar.maxP50TotalLatencyMs} ms`);
   if (totalP95 === null || totalP95 > bar.maxP95TotalLatencyMs) failures.push(`p95 wait ${totalP95 ?? 'unmeasured'} ms exceeds ${bar.maxP95TotalLatencyMs} ms`);
   if (usdPerAttempt === null || usdPerAttempt > bar.maxUsdPerAttempt) failures.push(`cost per attempt ${money(usdPerAttempt)} exceeds $${bar.maxUsdPerAttempt}`);
@@ -424,9 +461,9 @@ export function summarizeValueReadingClass(
     accuracy: {
       valueReadings: valueRecords.length,
       ratePrecision,
-      criticalHallucinations,
-      wrongBindings,
-      unsupportedInventions,
+      wrongSourceRegionBindings,
+      unsupportedNumericInventions,
+      unsupportedValueInventions,
       fieldAccuracy: {
         rate: share(valueRecords.filter((record) => record.fields!.rate).length, valueRecords.length),
         unit: share(valueRecords.filter((record) => record.fields!.unit).length, valueRecords.length),
@@ -482,12 +519,12 @@ export function decideValueReadingActivation(
 ): ValueReadingDecision {
   const overall = summarizeValueReadingClass('all', records, bar);
   const corpusSafetyFailures = [
-    overall.accuracy.criticalHallucinations > bar.maxCriticalHallucinations
-      ? `${overall.accuracy.criticalHallucinations} critical numeric hallucination(s) on the qualification corpus` : null,
-    overall.accuracy.unsupportedInventions > bar.maxUnsupportedInventions
-      ? `${overall.accuracy.unsupportedInventions} unsupported value invention(s) on the qualification corpus` : null,
-    overall.accuracy.wrongBindings > bar.maxWrongBindings
-      ? `${overall.accuracy.wrongBindings} wrong source-region binding(s) on the qualification corpus` : null,
+    overall.accuracy.wrongSourceRegionBindings > bar.maxWrongSourceRegionBindings
+      ? `${overall.accuracy.wrongSourceRegionBindings} wrong source-region binding(s) on the qualification corpus` : null,
+    overall.accuracy.unsupportedNumericInventions > bar.maxUnsupportedNumericInventions
+      ? `${overall.accuracy.unsupportedNumericInventions} unsupported numeric invention(s) on the qualification corpus` : null,
+    overall.accuracy.unsupportedValueInventions > bar.maxUnsupportedValueInventions
+      ? `${overall.accuracy.unsupportedValueInventions} unsupported value invention(s) on the qualification corpus` : null,
   ].filter((failure): failure is string => failure !== null);
   const classes = [...new Set(VALUE_READING_BENCHMARK_PAGES.map((page) => page.evidenceClass))]
     .map((evidenceClass) => summarizeValueReadingClass(evidenceClass,

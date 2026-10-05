@@ -97,11 +97,11 @@ describe('B4.6 benchmark run: measurement', () => {
         : index === 2 ? 'not json' : answer(goldenTargets[index]!));
     const result = await runValueReadingBenchmark(input);
     expect(result.records.slice(0, 3).map((record) => record.outcome)).toEqual(['abstained', 'wrong_rate', 'failed']);
-    // $79 is printed nowhere on the page: a critical hallucination, which fails the whole corpus.
-    expect(result.records[1]).toMatchObject({ rateError: 'critical_hallucination', providerCalled: true });
+    // $79 is printed nowhere on the page: an unsupported numeric invention, which fails the whole corpus.
+    expect(result.records[1]).toMatchObject({ rateError: 'unsupported_numeric_invention', providerCalled: true });
     expect(result.records[2]).toMatchObject({ failureReason: 'invalid_json' });
     expect(result.decision).toMatchObject({ decision: 'FAIL', provisional: true,
-      corpusSafetyFailures: ['1 critical numeric hallucination(s) on the qualification corpus'] });
+      corpusSafetyFailures: ['1 unsupported numeric invention(s) on the qualification corpus'] });
   });
 
   it('stops at the call ceiling and leaves an incomplete run undecided', async () => {

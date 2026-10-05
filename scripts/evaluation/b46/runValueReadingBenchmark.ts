@@ -224,6 +224,9 @@ async function main(): Promise<void> {
   }
   if (decision) {
     lines.push(`  DECISION: ${decision.decision}${decision.provisional ? ' (PROVISIONAL: disagreements await human adjudication)' : ''}`);
+    lines.push(`  wrong source-region bindings ${decision.overall.accuracy.wrongSourceRegionBindings}; `
+      + `unsupported numeric inventions ${decision.overall.accuracy.unsupportedNumericInventions}; `
+      + `unsupported value inventions ${decision.overall.accuracy.unsupportedValueInventions}`);
     for (const failure of decision.corpusSafetyFailures) lines.push(`  CORPUS SAFETY FAILURE: ${failure}`);
     for (const summary of decision.classes) {
       lines.push(`  ${summary.evidenceClass}: ${summary.status}`

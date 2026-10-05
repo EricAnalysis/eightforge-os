@@ -158,9 +158,35 @@ PR #___ implemented it -> regression tests proved it -> deployed on ___."
    Validator findings recur. That measurement is what makes the traceability
    claim provable.
 
+## Explicit B8 audit item
+
+**Customer configuration / mapping layer.** Confirmed 2026-10-04: there is no
+organization-scoped place for safe customer adaptations such as unit aliases
+or field names; those behaviors live in Core code today. Do not build it ahead
+of B8, but B8 opens with a read-only audit of where such adaptations would live,
+because the decision hierarchy depends on having somewhere to put them before
+falling through to Core code changes.
+
+## Forgewing request signals
+
+Every valid, authorized operator request that reaches the Forgewing value-reading
+engine leaves exactly one durable outcome, whether Forgewing generated a
+proposal, reused one, or could not run because of deployment, policy, budget,
+provider or evidence state (B4.3). Malformed or unauthorized requests leave
+none. This is what lets B8 tell "operators never needed Forgewing" apart from
+"operators asked 37 times and deployment policy blocked 29", and
+`activation_not_allowed` in particular is evidence for qualifying a recovery
+type next.
+
 ## Roadmap position
 
 B4 continues as planned: B4.3 execution engine (mocked / permitted fixtures),
 B4.4 workspace suggestion slot, B4.5 visual region reading, B4.6 benchmark,
 then measured, controlled activation. The old B8 "Improvement Signals" phase
 expands into this Forward Deployment layer.
+
+B4.5 invariant: once a page image is transmitted, the request digest must
+transitively bind the exact image bytes sent to the provider
+(`render_digest = SHA256(rendered crop bytes)`, included in `request_digest`
+with the evidence binding, text context, provider/model, prompt and output
+schema), so a renderer change can never silently reuse an old answer.

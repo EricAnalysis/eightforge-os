@@ -96,29 +96,44 @@ A document is cleared only when a reviewed commit sets the following; the runner
 
 ## Running
 
-1. **Dry run (no provider calls).** Run this first on the machine that holds the corpus.
+Run all of this on the machine that holds the corpus, in a shell with **no** database variables set (`SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_DB_URL`, `DATABASE_URL`). Set the corpus variables first:
+
+```
+export GOLDEN_CORPUS_ROOT=<folder holding the Golden contract PDF>
+export MIXED_MODE_HILLSDALE_PRICE_SHEET_PDF=<path to the Hillsdale PDF>
+export DN_PRICED_SCHEDULE_SOURCE_PDF=<path to the DN PDF>
+```
+
+1. **Dry run (no provider calls).**
    ```
    npx vite-node --config vitest.config.ts scripts/evaluation/b46/runValueReadingBenchmark.ts
    ```
    It does the following:
    - verifies each corpus file against its pinned SHA-256;
    - binds each label file to its page's canonical frame;
-   - renders every target twice, reporting render time and crop determinism.
-2. **Provider run.** This needs explicit authorization for that run, a recorded clearance for every selected document, `ANTHROPIC_API_KEY`, and confirmed prices.
+   - prints each document's clearance;
+   - renders every target twice, reporting render time and crop determinism. This must report 85/85 deterministic.
+2. **Live run, one page at a time.** It needs `ANTHROPIC_API_KEY`, and `FORGEWING_MODEL` either unset or set to `claude-sonnet-4-6`. Confirm the current per-token prices, then substitute them for the `<…>` values:
    ```
    npx vite-node --config vitest.config.ts scripts/evaluation/b46/runValueReadingBenchmark.ts -- \
-     --execute-provider --input-usd-per-mtok <confirmed> --output-usd-per-mtok <confirmed>
+     --execute-provider --pages golden-p8 --input-usd-per-mtok <input> --output-usd-per-mtok <output>
    ```
-   - `--pages golden-p8` runs the progression one page at a time: Golden p8, then Hillsdale p3, then DN p107.
-   - Hard ceilings are 100 calls and $3. `--max-calls` and `--max-spend-usd` may lower them, never raise them.
-   - The full run is 85 calls. At `claude-sonnet-4-6` prices ($3 / $15 per MTok) and about 1.6k input and 100 output tokens per crop, that is roughly $0.50.
-   - A run stopped by a ceiling is not decided.
-3. **Adjudicate.** A live run writes `disagreements.json`. It lists every wrong rate, field mismatch and invention, with the label, what was read, and the classification. A person rules in a file of `{ pageKey, rowKey, verdict }` entries:
+   - Then run `--pages hillsdale-p3`, then `--pages dn-p107`.
+   - Stop and look after any page with a wrong rate or an invention.
+   - Each run is capped at 100 calls and $3. The full corpus is 85 calls.
+3. **Score the corpus as one decision.**
+   ```
+   npx vite-node --config vitest.config.ts scripts/evaluation/b46/scoreValueReadingBenchmark.ts -- \
+     --runs <golden run dir>,<hillsdale run dir>,<dn run dir>
+   ```
+   The command refuses a run that is not live or not complete, runs that differ in model, prompt, schema, crop or bar, and a row scored twice. It makes no provider call.
+4. **Adjudicate.** Each live run writes `disagreements.json`. It lists every wrong rate, field mismatch and invention, with the label, what was read, the classification, the binding trace and the digests. A person rules in a file of `{ pageKey, rowKey, verdict }` entries:
    - `label_correct`: the reading was wrong.
    - `reading_correct`: the label was wrong. The row is scored correct.
    - `target_unreadable`: for abstentions only. The crop is genuinely unreadable, so the row leaves the coverage denominator.
 
-   Re-score with `--adjudications <file>`. While any disagreement is unruled, the decision is **PROVISIONAL**.
+   Re-run step 3 with `--adjudications <file>`. While any disagreement is unruled, the decision is **PROVISIONAL**.
+5. **Report PASS / LIMITED PASS / FAIL** before any activation change.
 
 Artifacts are written to `scripts/evaluation/artifacts/b46/local/<timestamp>/`, which is gitignored because row text and readings are client material:
 - `summary.json`: aggregates, pins, clearance, the bar and the decision. It can be committed once reviewed.

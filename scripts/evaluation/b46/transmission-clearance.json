@@ -1,0 +1,28 @@
+{
+  "version": "value-reading-transmission-clearance-v1",
+  "contentClass": "page_region_images",
+  "note": "A document may have page-region crops sent to the model provider only when its entry below records pageRegionImages=true with who approved it, when, and on what basis. Changing an entry is a reviewed commit. Text excerpts are never sent by the benchmark.",
+  "documents": {
+    "golden": {
+      "sha256": "922161a533bb6b8c1afb52cb9536044c8a6836bed62401634f4f505025631e8f",
+      "pageRegionImages": false,
+      "approvedBy": null,
+      "approvedAt": null,
+      "basis": null
+    },
+    "hillsdale": {
+      "sha256": "596adaccf865625723dc832f5206a8f690eb17d96921ef185df35b113c767537",
+      "pageRegionImages": false,
+      "approvedBy": null,
+      "approvedAt": null,
+      "basis": null
+    },
+    "dn": {
+      "sha256": "69247bff02744276b75f2cb0d4c00610e8614bd5822d2d10ae2ad35564c3b272",
+      "pageRegionImages": false,
+      "approvedBy": null,
+      "approvedAt": null,
+      "basis": null
+    }
+  }
+}

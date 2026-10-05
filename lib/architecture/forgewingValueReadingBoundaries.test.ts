@@ -85,14 +85,17 @@ describe('B4.2 value-reading authority boundaries', () => {
 
   it('only the authenticated workspace request route runs the engine; no production caller overrides its gates (B4.4)', () => {
     const files = productionFiles().filter((file) => file !== 'lib/server/valueReadingEngine.ts');
-    expect(files.filter((file) => /runValueReading/.test(read(file)))).toEqual([
+    expect(files.filter((file) => /\brunValueReading\(/.test(read(file)))).toEqual([
       'app/api/projects/[id]/resolution-cases/value-reading/route.ts',
     ]);
-    // The renderer shares the engine's crop-spec type; nothing else imports the engine.
+    // The renderer and the B4.6 benchmark share the engine's crop-spec type; nothing else imports the engine.
     expect(files.filter((file) => /from '@\/lib\/server\/valueReadingEngine'/.test(read(file)))).toEqual([
       'app/api/projects/[id]/resolution-cases/value-reading/route.ts',
+      'lib/evaluation/benchmark/valueReadingBenchmarkRun.ts',
       'lib/server/valueReadingRegionRenderer.ts',
     ]);
+    expect(read('lib/evaluation/benchmark/valueReadingBenchmarkRun.ts'))
+      .toMatch(/^import type \{ ValueReadingCropSpec \} from '@\/lib\/server\/valueReadingEngine';$/m);
     expect(files.filter((file) => /resolveEligibility\s*:|\breserve\s*:/.test(read(file)))).toEqual([]);
   });
 

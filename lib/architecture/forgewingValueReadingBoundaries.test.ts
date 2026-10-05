@@ -89,20 +89,41 @@ describe('B4.2 value-reading authority boundaries', () => {
     expect(files.filter((file) => /resolveEligibility\s*:/.test(read(file)))).toEqual([]);
   });
 
-  it('only the recovery and value-reading outcome writers record generation outcomes', () => {
-    const writers = productionFiles().filter((file) =>
-      /record_forgewing_recovery_generation_outcome|RECORD_VALUE_READING_OUTCOME_RPC/.test(read(file)));
-    expect(writers.sort()).toEqual([
-      'lib/server/forgewingRecoveryGenerationOutcomePersistence.ts',
-      'lib/server/valueReadingProposals.ts',
-    ]);
+  it('each outcome shape has exactly one writer (B4.3)', () => {
+    const recovery = productionFiles().filter((file) => /record_forgewing_recovery_generation_outcome/.test(read(file)));
+    expect(recovery).toEqual(['lib/server/forgewingRecoveryGenerationOutcomePersistence.ts']);
+    const valueReading = productionFiles().filter((file) =>
+      /record_forgewing_value_reading_outcome|RECORD_VALUE_READING_OUTCOME_RPC/.test(read(file)));
+    expect(valueReading).toEqual(['lib/server/valueReadingProposals.ts']);
   });
 
-  it('the outcomes migration only widens, and only for value readings', () => {
+  it('every resolved request records an outcome; only unresolved cases record nothing (B4.3)', () => {
+    const engine = read('lib/server/valueReadingEngine.ts');
+    const run = engine.slice(engine.indexOf('export async function runValueReading'));
+    // Every completed path goes through finish(), which writes the outcome.
+    const completions = run.match(/return finish\(/g) ?? [];
+    expect(completions.length).toBeGreaterThanOrEqual(12);
+    expect(run.match(/status: 'completed'/g)).toHaveLength(2);
+    expect(run).toMatch(/if \(!resolved\.ok\) return \{ status: 'not_resolved', reason: resolved\.reason \};/);
+    // Deployment refusals are recorded too.
+    expect(engine).toMatch(/kill_switch_off: \{ code: 'recovery_disabled', reason: 'kill_switch_off' \}/);
+    expect(engine).toMatch(/activation_disabled: \{ code: 'activation_not_allowed', reason: 'activation_disabled' \}/);
+  });
+
+  it('pins the B4.5 invariant: the request digest binds the exact rendered bytes', () => {
+    const engine = read('lib/server/valueReadingEngine.ts');
+    expect(engine).toMatch(/renderDigestSha256: params\.renderDigestSha256,/);
+    // B4.3 transmits no image; the slot is null until a renderer exists.
+    expect(engine).toMatch(/renderDigestSha256: null,/);
+  });
+
+  it('the outcomes migration only adds, and only for value readings', () => {
     const migration = read('supabase/migrations/20261004230000_forgewing_value_reading_outcomes.sql');
-    expect(migration).not.toMatch(/DROP (TABLE|COLUMN|TRIGGER|FUNCTION)|CREATE OR REPLACE FUNCTION|GRANT/i);
-    expect(migration).toMatch(/OR \(recovery_type = 'priced_value_reading'\s+AND outcome_code IN \('entitlement_missing', 'data_policy_not_approved'\)\)/);
-    expect(migration).toMatch(/recovery_type <> 'priced_value_reading' OR candidate_ids = '\[\]'::jsonb/);
+    expect(migration).not.toMatch(/DROP (TABLE|COLUMN|TRIGGER|FUNCTION)|CREATE OR REPLACE FUNCTION/i);
+    expect([...migration.matchAll(/GRANT [^;]*;/gi)].map((match) => match[0].replace(/\s+/g, ' ')))
+      .toEqual(['GRANT EXECUTE ON FUNCTION public.record_forgewing_value_reading_outcome( uuid, uuid, uuid, text, integer, text, text, text, uuid, text, text, text, boolean, text) TO service_role;']);
+    expect(migration).toMatch(/num_nonnulls\(anchor_key, request_digest_sha256, requested_by, proposal_id\) = 0/);
+    expect(migration).toMatch(/OR \(recovery_type = 'priced_value_reading' AND outcome_code IN \(/);
   });
 
   it('is forward-only and additive', () => {

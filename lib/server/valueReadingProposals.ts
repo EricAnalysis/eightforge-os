@@ -409,10 +409,19 @@ export async function loadValueReadingProposalByRequestDigest(
   return parsed[0] ?? null;
 }
 
-export const RECORD_VALUE_READING_OUTCOME_RPC = 'record_forgewing_recovery_generation_outcome' as const;
+export const RECORD_VALUE_READING_OUTCOME_RPC = 'record_forgewing_value_reading_outcome' as const;
+export const VALUE_READING_OUTCOMES_TABLE = 'forgewing_recovery_generation_outcomes' as const;
 
-/** Why a value-reading attempt ended without a proposal. Non-authoritative; explains only. */
+/**
+ * The one durable outcome of a valid operator request. Non-authoritative;
+ * explains only. Every request that reaches the engine records exactly one.
+ */
 export type ValueReadingOutcomeCode =
+  | 'generated_proposal'
+  | 'unreadable'
+  | 'existing_result_reused'
+  | 'recovery_disabled'
+  | 'activation_not_allowed'
   | 'entitlement_missing'
   | 'data_policy_not_approved'
   | 'budget_exhausted'
@@ -420,9 +429,12 @@ export type ValueReadingOutcomeCode =
   | 'structured_output_invalid'
   | 'deterministic_validation_failed'
   | 'evidence_binding_failed'
-  | 'proposal_persist_failed';
+  | 'proposal_persist_failed'
+  | 'system_error';
 
 export type ValueReadingOutcomeReason =
+  | 'proposal_recorded' | 'request_already_answered'
+  | 'kill_switch_off' | 'provider_not_configured' | 'activation_disabled'
   | 'no_entitlement' | 'entitlement_revoked'
   | 'data_policy_not_approved' | 'data_policy_revoked'
   | 'budget_exhausted' | 'budget_not_configured'
@@ -430,36 +442,43 @@ export type ValueReadingOutcomeReason =
   | 'invalid_json' | 'invalid_proposal'
   | 'proposal_value_validation_failed'
   | 'binding_changed' | 'region_image_unavailable'
-  | 'write_failed';
+  | 'write_failed'
+  | 'gate_lookup_failed' | 'reservation_failed';
 
 export type ValueReadingOutcome = Readonly<{
   binding: Pick<ValueReadingBinding, 'organizationId' | 'sourceDocumentId' | 'sourceArtifactId'
-    | 'extractionSnapshotId' | 'physicalPageNumber' | 'pageRepresentationDigest'>;
-  requestDigestSha256: string;
-  /** The reservation this attempt spent, when it reached the provider. Distinguishes attempts. */
-  reservationId: string | null;
+    | 'extractionSnapshotId' | 'physicalPageNumber' | 'pageRepresentationDigest' | 'anchorKey'>;
+  /** The operator who asked, and their key for this request. Together they are the outcome's identity. */
+  requestedBy: string;
+  requestKey: string;
+  /** Null only when the request was refused before it was built. */
+  requestDigestSha256: string | null;
   outcomeCode: ValueReadingOutcomeCode;
   sanitizedReason: ValueReadingOutcomeReason;
   providerInvoked: boolean;
+  /** The proposal generated or reused, for those outcomes only. */
+  proposalId: string | null;
 }>;
 
-/** One attempt, one identity: a gate refusal of the same request is recorded once. */
-export function valueReadingOutcomeId(outcome: ValueReadingOutcome): string {
+/** One request, one identity: a retried request records once, a new request records again. */
+export function valueReadingRequestKeyDigest(params: Readonly<{
+  organizationId: string; requestedBy: string; requestKey: string;
+}>): string {
   return hashCanonical({
-    kind: 'value_reading_outcome_v1',
-    organizationId: outcome.binding.organizationId,
-    requestDigestSha256: outcome.requestDigestSha256,
-    reservationId: outcome.reservationId,
-    outcomeCode: outcome.outcomeCode,
-    sanitizedReason: outcome.sanitizedReason,
+    kind: 'value_reading_request_key_v1',
+    organizationId: params.organizationId,
+    requestedBy: params.requestedBy,
+    requestKey: params.requestKey,
   });
 }
 
 export async function recordValueReadingOutcome(
   admin: ValueReadingClient,
   outcome: ValueReadingOutcome,
-): Promise<Readonly<{ status: 'recorded'; diagnosticId: string } | { status: 'failed'; reason: string }>> {
-  const diagnosticId = valueReadingOutcomeId(outcome);
+): Promise<Readonly<{ status: 'recorded'; requestKeyDigest: string; inserted: boolean } | { status: 'failed'; reason: string }>> {
+  const requestKeyDigest = valueReadingRequestKeyDigest({
+    organizationId: outcome.binding.organizationId, requestedBy: outcome.requestedBy, requestKey: outcome.requestKey,
+  });
   const { data, error } = await admin.rpc(RECORD_VALUE_READING_OUTCOME_RPC, {
     p_organization_id: outcome.binding.organizationId,
     p_source_document_id: outcome.binding.sourceDocumentId,
@@ -467,15 +486,67 @@ export async function recordValueReadingOutcome(
     p_extraction_snapshot_id: outcome.binding.extractionSnapshotId,
     p_physical_page_number: outcome.binding.physicalPageNumber,
     p_page_representation_digest: outcome.binding.pageRepresentationDigest,
-    p_diagnostic_id: diagnosticId,
-    p_recovery_type: VALUE_READING_RECOVERY_TYPE,
+    p_anchor_key: outcome.binding.anchorKey,
+    p_request_digest_sha256: outcome.requestDigestSha256,
+    p_requested_by: outcome.requestedBy,
+    p_request_key_digest: requestKeyDigest,
     p_outcome_code: outcome.outcomeCode,
     p_sanitized_reason: outcome.sanitizedReason,
     p_provider_invoked: outcome.providerInvoked,
-    p_candidate_ids: [],
+    p_proposal_id: outcome.proposalId,
   });
   if (error) return { status: 'failed', reason: error.message ?? 'value-reading outcome rejected' };
-  const row = Array.isArray(data) ? data[0] as { outcome_row_id?: unknown } | undefined : undefined;
+  const row = Array.isArray(data) ? data[0] as { outcome_row_id?: unknown; inserted?: unknown } | undefined : undefined;
   return row && typeof row.outcome_row_id === 'string'
-    ? { status: 'recorded', diagnosticId } : { status: 'failed', reason: 'record function returned no outcome' };
+    ? { status: 'recorded', requestKeyDigest, inserted: row.inserted === true }
+    : { status: 'failed', reason: 'record function returned no outcome' };
+}
+
+export type StoredValueReadingOutcome = Readonly<{
+  outcomeCode: ValueReadingOutcomeCode;
+  sanitizedReason: ValueReadingOutcomeReason;
+  providerInvoked: boolean;
+  proposalId: string | null;
+  anchorKey: string;
+  observedAt: string;
+}>;
+
+/** The outcome an earlier attempt of this exact request already recorded, if any. */
+export async function loadValueReadingOutcome(
+  admin: ValueReadingClient,
+  query: Readonly<{ organizationId: string; requestedBy: string; requestKey: string }>,
+): Promise<StoredValueReadingOutcome | null> {
+  const read = await admin.from(VALUE_READING_OUTCOMES_TABLE)
+    .select('outcome_code, sanitized_reason, provider_invoked, proposal_id, anchor_key, requested_by, observed_at')
+    .eq('organization_id', query.organizationId)
+    .eq('recovery_type', VALUE_READING_RECOVERY_TYPE)
+    .eq('diagnostic_id', valueReadingRequestKeyDigest(query));
+  if (read.error) throw new Error(`Failed to read value-reading outcome: ${read.error.message ?? 'unknown error'}`);
+  const row = (Array.isArray(read.data) ? read.data[0] : null) as Record<string, unknown> | null | undefined;
+  if (!row || row.requested_by !== query.requestedBy || typeof row.outcome_code !== 'string'
+    || typeof row.sanitized_reason !== 'string' || typeof row.provider_invoked !== 'boolean'
+    || typeof row.anchor_key !== 'string' || typeof row.observed_at !== 'string') return null;
+  return {
+    outcomeCode: row.outcome_code as ValueReadingOutcomeCode,
+    sanitizedReason: row.sanitized_reason as ValueReadingOutcomeReason,
+    providerInvoked: row.provider_invoked,
+    proposalId: typeof row.proposal_id === 'string' ? row.proposal_id : null,
+    anchorKey: row.anchor_key,
+    observedAt: row.observed_at,
+  };
+}
+
+/** A stored proposal by its public id, scoped to one organization. */
+export async function loadValueReadingProposalById(
+  admin: ValueReadingClient,
+  query: Readonly<{ organizationId: string; proposalId: string }>,
+): Promise<ValueReadingProposalRecord | null> {
+  const read = await admin.from(VALUE_READING_PROPOSAL_TABLE).select(VALUE_READING_PROPOSAL_SELECT)
+    .eq('organization_id', query.organizationId)
+    .eq('proposal_version', VALUE_READING_PROPOSAL_VERSION)
+    .eq('proposal_id', query.proposalId);
+  if (read.error) throw new Error(`Failed to read value reading: ${read.error.message ?? 'unknown error'}`);
+  const row = (Array.isArray(read.data) ? read.data[0] : null) as Record<string, unknown> | null | undefined;
+  const parsed = row ? parseValueReadingProposalRow(row) : null;
+  return parsed && parsed.binding.organizationId === query.organizationId ? parsed : null;
 }

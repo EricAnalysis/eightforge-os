@@ -19,9 +19,10 @@ import { psqlServiceRoleClient, sqlLiteral } from './lib/psqlServiceRoleClient';
  * B4.3 qualification of the value-reading engine against a freshly replayed
  * database, with a permitted fixture provider (no network, no model): it reads
  * the case target from a real extraction row, reserves real budget, records a
- * real proposal, reuses it without a second call, records typed outcomes for
- * invalid output, an exhausted budget and a refused data policy, and the
- * resulting proposal binds exactly to an operator's B3 write.
+ * real proposal, replays a retried request, reuses the answer for a new request
+ * without a second call, records exactly one typed outcome per valid request
+ * (including deployment and policy refusals), and the resulting proposal binds
+ * exactly to an operator's B3 write.
  *
  * The production policy keeps value reading disabled, so eligibility is
  * injected here; every other step runs through production code.
@@ -101,45 +102,58 @@ const outcomes = () => db.runSql(`SELECT coalesce(json_agg(json_build_object('co
 
 const VALUE = JSON.stringify({ reading: 'value', description: 'Stump grinding', unit_type: 'EA', rate_amount: 45,
   rationale: 'The rate cell reads $45.00.' });
-const input = { organizationId: ORG, projectId: PROJECT, caseId: caseOf(stump!.anchorKey), requestedBy: ACTOR,
-  includeTextExcerpts: false };
+const input = (requestKey: string, overrides: Partial<{ caseId: string; includeTextExcerpts: boolean }> = {}) => ({
+  organizationId: ORG, projectId: PROJECT, caseId: caseOf(stump!.anchorKey), requestedBy: ACTOR, requestKey,
+  includeTextExcerpts: false, ...overrides,
+});
+const outcomeCount = () => outcomes().length;
 
-const first = await runValueReading(client, input, {
+const first = await runValueReading(client, input('b43-first'), {
   provider: fixtureProvider(VALUE), renderRegionImage, resolveEligibility: eligible(2) });
-check(first.status === 'proposed' && !first.reused, 'the first request records a proposal');
-check(calls === 1 && reservations() === 1, 'exactly one provider call and one durable reservation');
-const proposal = (first as Extract<typeof first, { status: 'proposed' }>).proposal;
+check(first.status === 'completed' && first.outcome.code === 'generated_proposal' && first.proposal,
+  'the first request records a proposal and its outcome');
+check(calls === 1 && reservations() === 1 && outcomeCount() === 1, 'one provider call, one reservation, one outcome');
+const proposal = (first as Extract<typeof first, { status: 'completed' }>).proposal!;
 check(proposal.binding.sourceArtifactId === ARTIFACT && proposal.binding.extractionSnapshotId.length > 0,
   'the proposal binds to the verified artifact and the preferred extraction');
 
-const reused = await runValueReading(client, input, {
+const retried = await runValueReading(client, input('b43-first'), {
   provider: fixtureProvider(VALUE), renderRegionImage, resolveEligibility: eligible(2) });
-check(reused.status === 'proposed' && reused.reused && reused.proposal.proposalId === proposal.proposalId,
-  'the identical request is answered from the stored proposal');
-check(calls === 1 && reservations() === 1, 'reuse makes no call and spends no budget');
+check(retried.status === 'completed' && retried.replayed && retried.proposal?.proposalId === proposal.proposalId,
+  'a retried request key replays its recorded outcome');
+check(calls === 1 && reservations() === 1 && outcomeCount() === 1, 'a replay redoes and records nothing');
 
-const invalid = await runValueReading(client, { ...input, caseId: caseOf(hauling!.anchorKey) }, {
+const reused = await runValueReading(client, input('b43-second'), {
+  provider: fixtureProvider(VALUE), renderRegionImage, resolveEligibility: eligible(2) });
+check(reused.status === 'completed' && reused.outcome.code === 'existing_result_reused'
+  && reused.proposal?.proposalId === proposal.proposalId, 'a new request for the same line reuses the stored answer');
+check(calls === 1 && reservations() === 1 && outcomeCount() === 2, 'reuse spends nothing and is still recorded');
+
+const invalid = await runValueReading(client, input('b43-invalid', { caseId: caseOf(hauling!.anchorKey) }), {
   provider: fixtureProvider('{"reading":"value"'), renderRegionImage, resolveEligibility: eligible(2) });
-check(invalid.status === 'failed' && invalid.outcomeCode === 'structured_output_invalid' && invalid.outcomeRecorded,
+check(invalid.status === 'completed' && invalid.outcome.code === 'structured_output_invalid' && !invalid.proposal,
   'invalid output is a recorded outcome, not a proposal');
 check(reservations() === 2, 'the failed attempt still spent its reservation');
 
-const exhausted = await runValueReading(client, { ...input, includeTextExcerpts: true }, {
+const exhausted = await runValueReading(client, input('b43-cap', { includeTextExcerpts: true }), {
   provider: fixtureProvider(VALUE), renderRegionImage, resolveEligibility: eligible(2) });
-check(exhausted.status === 'failed' && exhausted.outcomeCode === 'budget_exhausted', 'the durable cap refuses the third call');
+check(exhausted.status === 'completed' && exhausted.outcome.code === 'budget_exhausted', 'the durable cap refuses the third call');
 check(calls === 2 && reservations() === 2, 'nothing is called past the cap');
 
-for (let attempt = 0; attempt < 2; attempt += 1) {
-  const refused = await runValueReading(client, { ...input, caseId: caseOf(hauling!.anchorKey) }, {
-    provider: fixtureProvider(VALUE), renderRegionImage,
-    resolveEligibility: async () => ({ eligible: false, reason: 'data_policy_not_approved' }) });
-  check(refused.status === 'refused' && refused.outcomeRecorded, 'a refused data policy is recorded');
+// Deployment and policy refusals of valid requests are durable product signals, one per request.
+for (const [key, reason] of [['b43-off-1', 'kill_switch_off'], ['b43-off-2', 'kill_switch_off'],
+  ['b43-activation', 'activation_disabled'], ['b43-policy', 'data_policy_not_approved']] as const) {
+  const refused = await runValueReading(client, input(key, { caseId: caseOf(hauling!.anchorKey) }), {
+    provider: fixtureProvider(VALUE), renderRegionImage, resolveEligibility: async () => ({ eligible: false, reason }) });
+  check(refused.status === 'completed' && refused.outcomeRecorded && !refused.outcome.providerInvoked,
+    `a ${reason} refusal is recorded without a call`);
 }
 const recorded = outcomes();
-check(recorded.filter((row) => row.code === 'data_policy_not_approved').length === 1,
-  'a repeated refusal of the same request is recorded once');
-check(recorded.some((row) => row.code === 'structured_output_invalid' && row.invoked)
-  && recorded.some((row) => row.code === 'budget_exhausted' && !row.invoked), 'every failure is typed and attributed');
+check(recorded.filter((row) => row.code === 'recovery_disabled').length === 2,
+  'two refused requests are two signals, not one');
+check(recorded.some((row) => row.code === 'activation_not_allowed') && recorded.some((row) => row.code === 'data_policy_not_approved'),
+  'activation and data-policy refusals are distinguishable');
+check(recorded.length === 8 && calls === 2 && reservations() === 2, 'eight requests, eight outcomes, two calls, two reservations');
 
 // One road to truth: the operator cites the proposal through the unchanged B3 record path.
 const evidence = verifyRegionEvidence({ extractionData: extraction, physicalPageNumber: 9,
@@ -161,8 +175,9 @@ const origin = db.runSql(`SELECT json_build_object('o', review_origin) FROM publ
   WHERE id = ${sqlLiteral((used as { assertionId: string }).assertionId)}`) as { o: string };
 check(origin.o === 'ai_proposed_operator_approved', 'the database derived approved for the unchanged value');
 
-const closed = await runValueReading(client, input, {
+const closed = await runValueReading(client, input('b43-after-review'), {
   provider: fixtureProvider(VALUE), renderRegionImage, resolveEligibility: eligible(2) });
-check(closed.status === 'refused' && closed.reason === 'target_not_open', 'a reviewed line is no longer offered for reading');
+check(closed.status === 'not_resolved' && closed.reason === 'target_not_open', 'a reviewed line is no longer offered for reading');
+check(outcomeCount() === 8, 'a request for a line that is no longer open records nothing');
 
 console.log('B4.3 VALUE-READING ENGINE FIXTURE ROUND TRIP: PASS');

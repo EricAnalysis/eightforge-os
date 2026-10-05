@@ -22,6 +22,8 @@ import { loadRegionBoundAssertionRows } from '@/lib/server/regionBoundHumanAsser
 import {
   buildValueReadingProposal,
   cleanValueReadingRationale,
+  loadValueReadingOutcome,
+  loadValueReadingProposalById,
   loadValueReadingProposalByRequestDigest,
   recordValueReadingOutcome,
   recordValueReadingProposal,
@@ -131,6 +133,11 @@ export function buildValueReadingRequest(params: Readonly<{
   neighbouringLineTexts: readonly string[];
   includeTextExcerpts: boolean;
   model: string | null;
+  /**
+   * SHA-256 of the exact rendered crop bytes sent to the provider. Required
+   * once images are transmitted (B4.5); null while no image is sent.
+   */
+  renderDigestSha256: string | null;
 }>): ValueReadingRequest {
   const { binding } = params;
   const crop: ValueReadingCropSpec = {
@@ -158,6 +165,7 @@ export function buildValueReadingRequest(params: Readonly<{
     anchorKey: binding.anchorKey,
     sourceObservationIds: [...binding.sourceObservationIds],
     crop,
+    renderDigestSha256: params.renderDigestSha256,
     textExcerpts,
     readingBasis,
     model: params.model,
@@ -315,22 +323,31 @@ export type ValueReadingRunInput = Readonly<{
   organizationId: string;
   projectId: string;
   caseId: string;
-  /** The operator who asked. Spends the budget slot. */
+  /** The operator who asked. Spends the budget slot and owns the outcome. */
   requestedBy: string;
+  /** The operator's key for this request: a retry reuses it, a new request gets a new one. */
+  requestKey: string;
   /** Send the target line's text and its neighbours alongside the image. Needs text_excerpts approval. */
   includeTextExcerpts: boolean;
 }>;
 
+/**
+ * The result of one request. A request whose case could not be resolved for
+ * this organization and project records nothing; every other request records
+ * exactly one durable outcome, and `outcome` is what it recorded.
+ */
 export type ValueReadingRunResult =
-  | Readonly<{ status: 'proposed'; proposal: ValueReadingProposalRecord; reused: boolean }>
+  | Readonly<{ status: 'not_resolved'; reason: ValueReadingTargetRefusal }>
   | Readonly<{
-      status: 'refused';
-      reason: ValueReadingTargetRefusal | 'provider_not_configured'
-        | Extract<ValueReadingEligibility, { eligible: false }>['reason'];
+      status: 'completed';
+      outcome: Readonly<{ code: ValueReadingOutcomeCode; reason: ValueReadingOutcomeReason; providerInvoked: boolean }>;
+      /** The proposal generated or reused, if the outcome produced one. */
+      proposal: ValueReadingProposalRecord | null;
+      /** True when this request key had already completed: nothing was redone. */
+      replayed: boolean;
+      /** False only if the outcome could not be written; the result is still accurate. */
       outcomeRecorded: boolean;
-    }>
-  | Readonly<{ status: 'failed'; outcomeCode: ValueReadingOutcomeCode | null;
-      reason: ValueReadingOutcomeReason | 'reservation_failed'; outcomeRecorded: boolean }>;
+    }>;
 
 export type ValueReadingEngineDependencies = Readonly<{
   /** No default: B4.3 wires no provider. */
@@ -343,15 +360,16 @@ export type ValueReadingEngineDependencies = Readonly<{
   reserve?: typeof reserveForgewingProviderCall;
 }>;
 
-const GATE_OUTCOMES: Partial<Record<Extract<ValueReadingEligibility, { eligible: false }>['reason'],
-  Readonly<{ code: ValueReadingOutcomeCode; reason: ValueReadingOutcomeReason }>>> = {
+const GATE_OUTCOMES: Record<Extract<ValueReadingEligibility, { eligible: false }>['reason'],
+  Readonly<{ code: ValueReadingOutcomeCode; reason: ValueReadingOutcomeReason }>> = {
+  kill_switch_off: { code: 'recovery_disabled', reason: 'kill_switch_off' },
+  activation_disabled: { code: 'activation_not_allowed', reason: 'activation_disabled' },
   no_entitlement: { code: 'entitlement_missing', reason: 'no_entitlement' },
   entitlement_revoked: { code: 'entitlement_missing', reason: 'entitlement_revoked' },
   data_policy_not_approved: { code: 'data_policy_not_approved', reason: 'data_policy_not_approved' },
   data_policy_revoked: { code: 'data_policy_not_approved', reason: 'data_policy_revoked' },
   budget_not_configured: { code: 'budget_exhausted', reason: 'budget_not_configured' },
-  // kill_switch_off, activation_disabled and lookup_failed describe the
-  // deployment, not this organization's request, and are not recorded.
+  lookup_failed: { code: 'system_error', reason: 'gate_lookup_failed' },
 };
 
 function providerFailureReason(error: unknown, timedOut: boolean): ValueReadingOutcomeReason {
@@ -386,15 +404,36 @@ async function callWithTimeout(
   }
 }
 
-/** One operator request, at most one provider call, at most one proposal. */
+/**
+ * One operator request: at most one provider call, at most one proposal, and
+ * exactly one durable outcome once the case resolves for this organization.
+ */
 export async function runValueReading(
   admin: ValueReadingEngineClient,
   input: ValueReadingRunInput,
   dependencies: ValueReadingEngineDependencies = {},
 ): Promise<ValueReadingRunResult> {
+  // Not yet a valid request for this organization: nothing is recorded.
   const resolved = await resolveValueReadingTarget(admin, input);
-  if (!resolved.ok) return { status: 'refused', reason: resolved.reason, outcomeRecorded: false };
+  if (!resolved.ok) return { status: 'not_resolved', reason: resolved.reason };
   const { target } = resolved;
+
+  // The same request key already completed: report it, redo nothing.
+  const previous = await loadValueReadingOutcome(admin, {
+    organizationId: input.organizationId, requestedBy: input.requestedBy, requestKey: input.requestKey,
+  });
+  if (previous) {
+    return {
+      status: 'completed',
+      outcome: { code: previous.outcomeCode, reason: previous.sanitizedReason, providerInvoked: previous.providerInvoked },
+      proposal: previous.proposalId
+        ? await loadValueReadingProposalById(admin, { organizationId: input.organizationId, proposalId: previous.proposalId })
+        : null,
+      replayed: true,
+      outcomeRecorded: true,
+    };
+  }
+
   const provider = dependencies.provider ?? null;
   const request = buildValueReadingRequest({
     binding: target.binding,
@@ -402,13 +441,22 @@ export async function runValueReading(
     neighbouringLineTexts: target.neighbouringLineTexts,
     includeTextExcerpts: input.includeTextExcerpts,
     model: provider?.providerModel ?? null,
+    // B4.3 transmits no image. B4.5 must render first and pass the digest of
+    // the exact bytes sent, so a renderer change never reuses an old answer.
+    renderDigestSha256: null,
   });
-  const outcome = async (code: ValueReadingOutcomeCode, reason: ValueReadingOutcomeReason,
-    providerInvoked: boolean, reservationId: string | null) =>
-    (await recordValueReadingOutcome(admin, {
-      binding: target.binding, requestDigestSha256: request.requestDigestSha256, reservationId,
-      outcomeCode: code, sanitizedReason: reason, providerInvoked,
-    })).status === 'recorded';
+  const finish = async (code: ValueReadingOutcomeCode, reason: ValueReadingOutcomeReason, providerInvoked: boolean,
+    proposal: ValueReadingProposalRecord | null = null): Promise<ValueReadingRunResult> => {
+    const written = await recordValueReadingOutcome(admin, {
+      binding: target.binding, requestedBy: input.requestedBy, requestKey: input.requestKey,
+      requestDigestSha256: request.requestDigestSha256, outcomeCode: code, sanitizedReason: reason, providerInvoked,
+      proposalId: proposal?.proposalId ?? null,
+    });
+    return {
+      status: 'completed', outcome: { code, reason, providerInvoked }, proposal,
+      replayed: false, outcomeRecorded: written.status === 'recorded',
+    };
+  };
 
   const eligibility = await (dependencies.resolveEligibility
     ?? ((params) => resolveValueReadingEligibility(admin as never, params)))({
@@ -416,21 +464,16 @@ export async function runValueReading(
   });
   if (!eligibility.eligible) {
     const gate = GATE_OUTCOMES[eligibility.reason];
-    return {
-      status: 'refused', reason: eligibility.reason,
-      outcomeRecorded: gate ? await outcome(gate.code, gate.reason, false, null) : false,
-    };
+    return finish(gate.code, gate.reason, false);
   }
 
   // Reuse first: the exact request was already answered. No call, no budget.
   const existing = await loadValueReadingProposalByRequestDigest(admin, {
     organizationId: input.organizationId, requestDigestSha256: request.requestDigestSha256,
   });
-  if (existing) return { status: 'proposed', proposal: existing, reused: true };
+  if (existing) return finish('existing_result_reused', 'request_already_answered', false, existing);
 
-  if (!provider || !dependencies.renderRegionImage) {
-    return { status: 'refused', reason: 'provider_not_configured', outcomeRecorded: false };
-  }
+  if (!provider || !dependencies.renderRegionImage) return finish('recovery_disabled', 'provider_not_configured', false);
 
   const reservation = await (dependencies.reserve ?? reserveForgewingProviderCall)(admin as never, {
     organizationId: input.organizationId,
@@ -438,20 +481,11 @@ export async function runValueReading(
     reservedBy: input.requestedBy,
     dailyCap: eligibility.dailyCap,
   });
-  if (reservation.status === 'budget_exhausted') {
-    return { status: 'failed', outcomeCode: 'budget_exhausted', reason: 'budget_exhausted',
-      outcomeRecorded: await outcome('budget_exhausted', 'budget_exhausted', false, null) };
-  }
-  if (reservation.status !== 'reserved') {
-    return { status: 'failed', outcomeCode: null, reason: 'reservation_failed', outcomeRecorded: false };
-  }
-  const reservationId = reservation.reservationId;
+  if (reservation.status === 'budget_exhausted') return finish('budget_exhausted', 'budget_exhausted', false);
+  if (reservation.status !== 'reserved') return finish('system_error', 'reservation_failed', false);
 
   const image = await dependencies.renderRegionImage(request.crop);
-  if (!image) {
-    return { status: 'failed', outcomeCode: 'evidence_binding_failed', reason: 'region_image_unavailable',
-      outcomeRecorded: await outcome('evidence_binding_failed', 'region_image_unavailable', false, reservationId) };
-  }
+  if (!image) return finish('evidence_binding_failed', 'region_image_unavailable', false);
 
   const called = await callWithTimeout(provider, {
     requestDigestSha256: request.requestDigestSha256,
@@ -464,22 +498,15 @@ export async function runValueReading(
     image,
     textExcerpts: request.textExcerpts,
   });
-  if (!called.ok) {
-    return { status: 'failed', outcomeCode: 'provider_failed', reason: called.reason,
-      outcomeRecorded: await outcome('provider_failed', called.reason, true, reservationId) };
-  }
+  if (!called.ok) return finish('provider_failed', called.reason, true);
 
   const parsed = parseValueReadingOutput(called.raw);
-  if (!parsed.ok) {
-    return { status: 'failed', outcomeCode: parsed.outcomeCode, reason: parsed.reason,
-      outcomeRecorded: await outcome(parsed.outcomeCode, parsed.reason, true, reservationId) };
-  }
+  if (!parsed.ok) return finish(parsed.outcomeCode, parsed.reason, true);
 
   // The page may have been re-extracted, or the line reviewed, while the provider was reading.
   const current = await resolveValueReadingTarget(admin, input);
   if (!current.ok || !sameBinding(current.target.binding, target.binding)) {
-    return { status: 'failed', outcomeCode: 'evidence_binding_failed', reason: 'binding_changed',
-      outcomeRecorded: await outcome('evidence_binding_failed', 'binding_changed', true, reservationId) };
+    return finish('evidence_binding_failed', 'binding_changed', true);
   }
 
   const proposal = buildValueReadingProposal({
@@ -493,22 +520,16 @@ export async function runValueReading(
     outputDigestSha256: createHash('sha256').update(called.raw, 'utf8').digest('hex'),
     rationale: parsed.rationale,
   });
-  if (!proposal) {
-    return { status: 'failed', outcomeCode: 'deterministic_validation_failed', reason: 'proposal_value_validation_failed',
-      outcomeRecorded: await outcome('deterministic_validation_failed', 'proposal_value_validation_failed', true, reservationId) };
-  }
+  if (!proposal) return finish('deterministic_validation_failed', 'proposal_value_validation_failed', true);
   const recorded = await recordValueReadingProposal(admin, proposal);
-  if (recorded.status === 'rejected') {
-    return { status: 'failed', outcomeCode: 'proposal_persist_failed', reason: 'write_failed',
-      outcomeRecorded: await outcome('proposal_persist_failed', 'write_failed', true, reservationId) };
-  }
-  // Recorded, replayed, or answered concurrently by an identical request: the stored row is the answer.
+  if (recorded.status === 'rejected') return finish('proposal_persist_failed', 'write_failed', true);
+  // Recorded, replayed, or answered first by a concurrent identical request: the stored row is the answer.
   const stored = await loadValueReadingProposalByRequestDigest(admin, {
     organizationId: input.organizationId, requestDigestSha256: request.requestDigestSha256,
   });
-  if (!stored) {
-    return { status: 'failed', outcomeCode: 'proposal_persist_failed', reason: 'write_failed',
-      outcomeRecorded: await outcome('proposal_persist_failed', 'write_failed', true, reservationId) };
+  if (!stored) return finish('proposal_persist_failed', 'write_failed', true);
+  if (stored.proposalDigestSha256 !== proposal.proposalDigestSha256) {
+    return finish('existing_result_reused', 'request_already_answered', true, stored);
   }
-  return { status: 'proposed', proposal: stored, reused: recorded.status === 'collision' };
+  return finish(stored.reading.kind === 'unreadable' ? 'unreadable' : 'generated_proposal', 'proposal_recorded', true, stored);
 }

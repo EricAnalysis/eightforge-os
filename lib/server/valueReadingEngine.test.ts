@@ -92,7 +92,9 @@ function fake(overrides: Partial<Store> = {}) {
         });
         return { data: [{ proposal_row_id: id, inserted: true }], error: null };
       }
-      if (fn === 'record_forgewing_recovery_generation_outcome') {
+      if (fn === 'record_forgewing_value_reading_outcome') {
+        const existing = store.outcomes.find((row) => row.p_request_key_digest === args.p_request_key_digest);
+        if (existing) return { data: [{ outcome_row_id: 'outcome-existing', inserted: false }], error: null };
         store.outcomes.push(args);
         return { data: [{ outcome_row_id: `outcome-${store.outcomes.length}`, inserted: true }], error: null };
       }
@@ -105,7 +107,13 @@ function fake(overrides: Partial<Store> = {}) {
           const rowsFor = () => {
             const source = table === 'document_extractions' ? store.extractions
               : table === 'human_fact_assertions' ? store.assertions
-                : table === 'forgewing_recovery_proposals' ? store.proposals : [];
+                : table === 'forgewing_recovery_proposals' ? store.proposals
+                  : table === 'forgewing_recovery_generation_outcomes' ? store.outcomes.map((row) => ({
+                    organization_id: row.p_organization_id, recovery_type: 'priced_value_reading',
+                    diagnostic_id: row.p_request_key_digest, outcome_code: row.p_outcome_code,
+                    sanitized_reason: row.p_sanitized_reason, provider_invoked: row.p_provider_invoked,
+                    proposal_id: row.p_proposal_id, anchor_key: row.p_anchor_key, requested_by: row.p_requested_by,
+                    observed_at: '2026-10-04T02:00:00Z' })) : [];
             return source.filter((row) => filters.every(([column, value]) =>
               !(column in row) || row[column] === value || (Array.isArray(value) && value.includes(row[column]))));
           };
@@ -148,7 +156,12 @@ function deps(overrides: Partial<ValueReadingEngineDependencies> = {}) {
   };
 }
 
-const INPUT = { organizationId: ORG, projectId: PROJECT, caseId: CASE_ID, requestedBy: 'actor-1', includeTextExcerpts: false };
+let keys = 0;
+const nextKey = () => `request-${(keys += 1)}`;
+const input = (overrides: Partial<{ projectId: string; caseId: string; includeTextExcerpts: boolean; requestKey: string }> = {}) => ({
+  organizationId: ORG, projectId: PROJECT, caseId: CASE_ID, requestedBy: 'actor-1', includeTextExcerpts: false,
+  requestKey: nextKey(), ...overrides,
+});
 
 afterEach(() => vi.useRealTimers());
 
@@ -157,92 +170,126 @@ describe('value-reading engine (B4.3)', () => {
     const { client, store } = fake();
     const { port, calls } = provider(VALUE_OUTPUT);
     const d = deps({ provider: port });
-    const result = await runValueReading(client, INPUT, d.value);
-    expect(result).toMatchObject({ status: 'proposed', reused: false, proposal: {
-      reading: { kind: 'value', rateRow: { description: 'Debris removal', unit_type: 'CY', rate_amount: 14.5 } },
-      binding: { sourceArtifactId: ARTIFACT, extractionSnapshotId: 'extraction-1', anchorKey: ANCHOR,
-        sourceObservationIds: ['o1', 'o2'], resolutionCaseId: CASE_ID, projectId: PROJECT },
-      readingBasis: 'region_image', providerModel: null,
-    } });
+    const result = await runValueReading(client, input(), d.value);
+    expect(result).toMatchObject({ status: 'completed', replayed: false, outcomeRecorded: true,
+      outcome: { code: 'generated_proposal', reason: 'proposal_recorded', providerInvoked: true },
+      proposal: {
+        reading: { kind: 'value', rateRow: { description: 'Debris removal', unit_type: 'CY', rate_amount: 14.5 } },
+        binding: { sourceArtifactId: ARTIFACT, extractionSnapshotId: 'extraction-1', anchorKey: ANCHOR,
+          sourceObservationIds: ['o1', 'o2'], resolutionCaseId: CASE_ID, projectId: PROJECT },
+        readingBasis: 'region_image', providerModel: null,
+      } });
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({ image: IMAGE, textExcerpts: null,
       timeoutMs: VALUE_READING_EXECUTION.timeoutMs, maxOutputTokens: VALUE_READING_EXECUTION.maxOutputTokens });
     expect(d.reserve).toHaveBeenCalledWith(client, expect.objectContaining({
       organizationId: ORG, reservedBy: 'actor-1', dailyCap: 5, requestDigestSha256: calls[0]!.requestDigestSha256 }));
     expect(d.eligibility).toHaveBeenCalledWith({ organizationId: ORG, contentClasses: ['page_region_images'] });
+    expect(store.outcomes[0]).toMatchObject({ p_outcome_code: 'generated_proposal', p_anchor_key: ANCHOR,
+      p_requested_by: 'actor-1', p_request_digest_sha256: calls[0]!.requestDigestSha256,
+      p_proposal_id: (result as { proposal: { proposalId: string } }).proposal.proposalId });
 
-    const again = await runValueReading(client, INPUT, d.value);
-    expect(again).toMatchObject({ status: 'proposed', reused: true });
+    // A new request for the same line is answered from the stored proposal, and still recorded.
+    const again = await runValueReading(client, input(), d.value);
+    expect(again).toMatchObject({ status: 'completed', replayed: false,
+      outcome: { code: 'existing_result_reused', reason: 'request_already_answered', providerInvoked: false } });
     expect(calls).toHaveLength(1);
     expect(d.reserve).toHaveBeenCalledTimes(1);
     expect(d.render).toHaveBeenCalledTimes(1);
+    expect(store.outcomes).toHaveLength(2);
     // The engine never writes truth.
     expect(store.rpcCalls).not.toContain('record_region_bound_human_fact_assertion');
     expect(store.proposals).toHaveLength(1);
+  });
+
+  it('replays a retried request key without redoing or re-recording anything', async () => {
+    const { client, store } = fake();
+    const { port, calls } = provider(VALUE_OUTPUT);
+    const d = deps({ provider: port });
+    const first = await runValueReading(client, input({ requestKey: 'click-1' }), d.value);
+    const retry = await runValueReading(client, input({ requestKey: 'click-1' }), d.value);
+    expect(retry).toMatchObject({ status: 'completed', replayed: true,
+      outcome: { code: 'generated_proposal' }, proposal: { proposalId: (first as { proposal: { proposalId: string } }).proposal.proposalId } });
+    expect(calls).toHaveLength(1);
+    expect(store.outcomes).toHaveLength(1);
   });
 
   it('sends text excerpts only when asked, and then needs the text_excerpts approval too', async () => {
     const { client } = fake();
     const { port, calls } = provider(VALUE_OUTPUT);
     const d = deps({ provider: port });
-    const result = await runValueReading(client, { ...INPUT, includeTextExcerpts: true }, d.value);
-    expect(result).toMatchObject({ status: 'proposed', proposal: { readingBasis: 'region_image_with_text_excerpts' } });
+    const result = await runValueReading(client, input({ includeTextExcerpts: true }), d.value);
+    expect(result).toMatchObject({ status: 'completed', proposal: { readingBasis: 'region_image_with_text_excerpts' } });
     expect(d.eligibility).toHaveBeenCalledWith({ organizationId: ORG, contentClasses: ['page_region_images', 'text_excerpts'] });
     expect(calls[0]!.textExcerpts).toEqual({ targetLineText: 'Debris CY sia 50', neighbouringLineTexts: ['Hauling TON $8.75'] });
   });
 
-  it('records an unreadable reading as a proposal that proposes no value', async () => {
-    const { client } = fake();
+  it('records an unreadable reading as its own outcome, with a proposal that proposes no value', async () => {
+    const { client, store } = fake();
     const { port } = provider(JSON.stringify({ reading: 'unreadable', rationale: 'The cell is blacked out.' }));
-    const result = await runValueReading(client, INPUT, deps({ provider: port }).value);
-    expect(result).toMatchObject({ status: 'proposed', proposal: { reading: { kind: 'unreadable' } } });
+    const result = await runValueReading(client, input(), deps({ provider: port }).value);
+    expect(result).toMatchObject({ status: 'completed', outcome: { code: 'unreadable', providerInvoked: true },
+      proposal: { reading: { kind: 'unreadable' } } });
+    expect(store.outcomes[0]).toMatchObject({ p_outcome_code: 'unreadable' });
   });
 
-  it('records gate refusals for this organization, never for the deployment switch, and sends nothing', async () => {
-    for (const [reason, code] of [['data_policy_not_approved', 'data_policy_not_approved'], ['no_entitlement', 'entitlement_missing'],
-      ['budget_not_configured', 'budget_exhausted']] as const) {
+  it('records every refusal of a valid request, deployment state included, and sends nothing', async () => {
+    for (const [gate, code] of [
+      ['kill_switch_off', 'recovery_disabled'], ['activation_disabled', 'activation_not_allowed'],
+      ['no_entitlement', 'entitlement_missing'], ['entitlement_revoked', 'entitlement_missing'],
+      ['data_policy_not_approved', 'data_policy_not_approved'], ['data_policy_revoked', 'data_policy_not_approved'],
+      ['budget_not_configured', 'budget_exhausted'], ['lookup_failed', 'system_error'],
+    ] as const) {
       const { client, store } = fake();
       const { port, calls } = provider(VALUE_OUTPUT);
-      const d = deps({ provider: port, resolveEligibility: async () => ({ eligible: false, reason }) });
-      expect(await runValueReading(client, INPUT, d.value)).toEqual({ status: 'refused', reason, outcomeRecorded: true });
-      expect(store.outcomes[0]).toMatchObject({ p_recovery_type: 'priced_value_reading', p_outcome_code: code,
-        p_sanitized_reason: reason, p_provider_invoked: false, p_candidate_ids: [] });
+      const d = deps({ provider: port, resolveEligibility: async () => ({ eligible: false, reason: gate }) });
+      const result = await runValueReading(client, input(), d.value);
+      expect(result).toMatchObject({ status: 'completed', outcomeRecorded: true, proposal: null,
+        outcome: { code, providerInvoked: false } });
+      expect(store.outcomes).toHaveLength(1);
+      expect(store.outcomes[0]).toMatchObject({ p_outcome_code: code, p_provider_invoked: false, p_proposal_id: null,
+        p_anchor_key: ANCHOR, p_requested_by: 'actor-1' });
       expect(calls).toHaveLength(0);
       expect(d.reserve).not.toHaveBeenCalled();
       expect(d.render).not.toHaveBeenCalled();
     }
-    const { client, store } = fake();
-    const d = deps({ resolveEligibility: async () => ({ eligible: false, reason: 'kill_switch_off' }) });
-    expect(await runValueReading(client, INPUT, d.value)).toEqual({ status: 'refused', reason: 'kill_switch_off', outcomeRecorded: false });
-    expect(store.outcomes).toHaveLength(0);
   });
 
-  it('wires no provider by default and refuses before spending budget', async () => {
-    const { client } = fake();
+  it('records a deployment without a provider as disabled, before spending budget', async () => {
+    const { client, store } = fake();
     const d = deps();
-    expect(await runValueReading(client, INPUT, d.value))
-      .toEqual({ status: 'refused', reason: 'provider_not_configured', outcomeRecorded: false });
+    expect(await runValueReading(client, input(), d.value)).toMatchObject({ status: 'completed',
+      outcome: { code: 'recovery_disabled', reason: 'provider_not_configured', providerInvoked: false } });
     expect(d.reserve).not.toHaveBeenCalled();
+    expect(store.outcomes).toHaveLength(1);
   });
 
   it('stops at an exhausted budget before rendering or calling', async () => {
     const { client, store } = fake();
     const { port, calls } = provider(VALUE_OUTPUT);
     const d = deps({ provider: port, reserve: async () => ({ status: 'budget_exhausted', usedInWindow: 5 }) });
-    expect(await runValueReading(client, INPUT, d.value))
-      .toMatchObject({ status: 'failed', outcomeCode: 'budget_exhausted', outcomeRecorded: true });
+    expect(await runValueReading(client, input(), d.value))
+      .toMatchObject({ status: 'completed', outcome: { code: 'budget_exhausted', providerInvoked: false } });
     expect(calls).toHaveLength(0);
     expect(d.render).not.toHaveBeenCalled();
     expect(store.outcomes[0]).toMatchObject({ p_provider_invoked: false });
+  });
+
+  it('records a failed reservation as a system error, never as a spent call', async () => {
+    const { client } = fake();
+    const { port, calls } = provider(VALUE_OUTPUT);
+    expect(await runValueReading(client, input(), deps({ provider: port, reserve: async () => ({ status: 'failed' }) }).value))
+      .toMatchObject({ outcome: { code: 'system_error', reason: 'reservation_failed', providerInvoked: false } });
+    expect(calls).toHaveLength(0);
   });
 
   it('times out a provider that does not answer, and records the spent attempt', async () => {
     vi.useFakeTimers();
     const { client, store } = fake();
     const { port } = provider(() => new Promise<string>(() => {}));
-    const pending = runValueReading(client, INPUT, deps({ provider: port }).value);
+    const pending = runValueReading(client, input(), deps({ provider: port }).value);
     await vi.advanceTimersByTimeAsync(VALUE_READING_EXECUTION.timeoutMs + 1);
-    expect(await pending).toMatchObject({ status: 'failed', outcomeCode: 'provider_failed', reason: 'provider_timeout' });
+    expect(await pending).toMatchObject({ outcome: { code: 'provider_failed', reason: 'provider_timeout', providerInvoked: true } });
     expect(store.outcomes[0]).toMatchObject({ p_outcome_code: 'provider_failed', p_provider_invoked: true });
     expect(store.proposals).toHaveLength(0);
   });
@@ -258,8 +305,8 @@ describe('value-reading engine (B4.3)', () => {
         'deterministic_validation_failed', 'proposal_value_validation_failed'],
     ] as const) {
       const { client, store } = fake();
-      const result = await runValueReading(client, INPUT, deps({ provider: provider(output).port }).value);
-      expect(result).toMatchObject({ status: 'failed', outcomeCode: code, reason });
+      const result = await runValueReading(client, input(), deps({ provider: provider(output).port }).value);
+      expect(result).toMatchObject({ outcome: { code, reason, providerInvoked: true }, proposal: null });
       expect(store.proposals).toHaveLength(0);
     }
   });
@@ -270,26 +317,30 @@ describe('value-reading engine (B4.3)', () => {
       store.extractions = [{ id: 'extraction-2', document_id: DOC, created_at: '2026-10-05T00:00:00Z', data: extractionData('b'.repeat(64)) }];
       return VALUE_OUTPUT;
     });
-    expect(await runValueReading(client, INPUT, deps({ provider: port }).value))
-      .toMatchObject({ status: 'failed', outcomeCode: 'evidence_binding_failed', reason: 'binding_changed' });
+    expect(await runValueReading(client, input(), deps({ provider: port }).value))
+      .toMatchObject({ outcome: { code: 'evidence_binding_failed', reason: 'binding_changed', providerInvoked: true } });
     expect(store.proposals).toHaveLength(0);
   });
 
   it('records a missing region image as a binding failure after the slot was reserved', async () => {
     const { client, store } = fake();
     const { port, calls } = provider(VALUE_OUTPUT);
-    const result = await runValueReading(client, INPUT, deps({ provider: port, renderRegionImage: async () => null }).value);
-    expect(result).toMatchObject({ status: 'failed', outcomeCode: 'evidence_binding_failed', reason: 'region_image_unavailable' });
+    const result = await runValueReading(client, input(), deps({ provider: port, renderRegionImage: async () => null }).value);
+    expect(result).toMatchObject({ outcome: { code: 'evidence_binding_failed', reason: 'region_image_unavailable' } });
     expect(calls).toHaveLength(0);
     expect(store.outcomes[0]).toMatchObject({ p_provider_invoked: false });
   });
 
-  it('resolves only open lines of this organization and project', async () => {
+  it('records nothing for a case that does not resolve for this organization and project', async () => {
     const { port } = provider(VALUE_OUTPUT);
-    expect(await runValueReading(fake().client, { ...INPUT, projectId: 'project-2' }, deps({ provider: port }).value))
-      .toMatchObject({ status: 'refused', reason: 'case_not_found' });
-    expect(await runValueReading(fake().client, { ...INPUT, caseId: 'finding:abc' }, deps({ provider: port }).value))
-      .toMatchObject({ status: 'refused', reason: 'case_not_found' });
+    for (const [overrides, reason] of [
+      [{ projectId: 'project-2' }, 'case_not_found'], [{ caseId: 'finding:abc' }, 'case_not_found'],
+    ] as const) {
+      const { client, store } = fake();
+      expect(await runValueReading(client, input(overrides), deps({ provider: port }).value))
+        .toEqual({ status: 'not_resolved', reason });
+      expect(store.outcomes).toHaveLength(0);
+    }
     const reviewed = fake({ assertions: [{
       id: 'a1', organization_id: ORG, source_document_id: DOC, fact_key: 'contract_rate_row', source_binding: 'region_bound',
       asserted_value: { description: 'Debris', unit_type: 'CY', rate_amount: 14.5 }, supersedes_assertion_id: null,
@@ -299,8 +350,9 @@ describe('value-reading engine (B4.3)', () => {
       original_source_text: 'Debris sia 50', anchor_key: ANCHOR, review_origin: 'operator_entered', forgewing_proposal_id: null,
     }] });
     const d = deps({ provider: port });
-    expect(await runValueReading(reviewed.client, INPUT, d.value)).toMatchObject({ status: 'refused', reason: 'target_not_open' });
+    expect(await runValueReading(reviewed.client, input(), d.value)).toEqual({ status: 'not_resolved', reason: 'target_not_open' });
     expect(d.eligibility).not.toHaveBeenCalled();
+    expect(reviewed.store.outcomes).toHaveLength(0);
   });
 });
 
@@ -317,7 +369,8 @@ describe('value-reading request and output contracts (B4.3)', () => {
       factKey: 'contract_rate_row' as const, anchorKey: ANCHOR, sourceObservationIds: ['o1', 'o2'],
       sourceRegion: { coordinate_space: 'source', boxes: [{ x_min: 1, x_max: 6, y_min: 3, y_max: 4 }] },
     };
-    const base = { binding, targetLineText: 't', neighbouringLineTexts: ['n'], includeTextExcerpts: false, model: null };
+    const base = { binding, targetLineText: 't', neighbouringLineTexts: ['n'], includeTextExcerpts: false, model: null,
+      renderDigestSha256: null as string | null };
     const digest = buildValueReadingRequest(base).requestDigestSha256;
     expect(buildValueReadingRequest(base).requestDigestSha256).toBe(digest);
     // A new extraction run of an identical page is the same request.
@@ -328,6 +381,8 @@ describe('value-reading request and output contracts (B4.3)', () => {
       { ...base, binding: { ...binding, organizationId: 'org-2' } },
       { ...base, includeTextExcerpts: true },
       { ...base, model: 'model-x' },
+      // B4.5 invariant: the exact rendered bytes sent are part of the request.
+      { ...base, renderDigestSha256: 'c'.repeat(64) },
     ]) {
       expect(buildValueReadingRequest(changed).requestDigestSha256).not.toBe(digest);
     }

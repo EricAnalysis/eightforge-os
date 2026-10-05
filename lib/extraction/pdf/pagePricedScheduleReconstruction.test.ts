@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 import type { PdfLayout, PdfLayoutLine, PdfLayoutPage, PdfToken } from '@/lib/extraction/pdf/extractText';
-import { buildPagePricedScheduleReconstruction } from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
+import { buildPagePricedScheduleReconstruction, pricedScheduleHeaderRoles } from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
 import { buildContractRateScheduleRows } from '@/lib/contracts/contractRateScheduleRows';
 
 /**
@@ -806,13 +806,121 @@ describe('generic single-page priced schedule reconstruction', () => {
 
   it('S: recognises common compact rate-column labels', () => {
     for (const label of [
-      'Cost', 'Cost ($)', 'Cost($)', 'Total Cost', 'Cost per Unit',
-      'Amount', 'Amount ($)', 'Rate', 'Rate/Unit', 'Unit Price', 'Unit Price ($)',
+      'Cost', 'Cost ($)', 'Cost($)', 'Cost per Unit', 'Rate', 'Rate/Unit', 'Unit Price', 'Unit Price ($)',
     ]) {
       const result = reconstructSinglePage([headerWith(label), ...twoBodyRows]);
       expect(result, `rate label ${label} must establish a rate column`).not.toBeNull();
       expect(result!.rows).toHaveLength(2);
     }
+  });
+
+  it('S1: an amount or total is never the unit rate (v3 collision fix)', () => {
+    // v2 read "Amount" and "Total Cost" as the rate column. Rate and amount are
+    // distinct canonical roles: these labels are unknown now, so they establish
+    // no rate column and the page is not priced from them.
+    for (const label of ['Amount', 'Amount ($)', 'Total Cost']) {
+      expect(pricedScheduleHeaderRoles(label), label).toEqual([]);
+      const result = reconstructSinglePage([headerWith(label), ...twoBodyRows]);
+      expect(result === null || !result.columns.some((column) => column.role === 'rate'), label).toBe(true);
+    }
+    expect(pricedScheduleHeaderRoles('Extended Amount')).toEqual(['amount']);
+  });
+
+  // ---------------------------------------------------------------------------
+  // V: canonical header-role vocabulary (v3). Supporting pricing-table roles
+  // (category, quantity, amount, item_code) count toward the three distinct
+  // roles a header needs; description and rate stay mandatory.
+  // ---------------------------------------------------------------------------
+
+  const threeColumnTable = (labels: readonly [string, string, string], cellsOf: (row: number) => TokenSpec[]) => [
+    line(7, 700, [
+      { x: DESCRIPTION_X, text: labels[0], width: 70 },
+      { x: UNIT_X, text: labels[1], width: 70 },
+      { x: CURRENCY_X, text: labels[2], width: 70 },
+    ]),
+    line(7, 680, cellsOf(0)),
+    line(7, 660, cellsOf(1)),
+  ];
+  const amount = (value: string): TokenSpec[] => [{ x: CURRENCY_X, text: '$', width: 8 }, { x: AMOUNT_X, text: value, width: 40 }];
+
+  it('V1: supporting roles count toward qualification; description and rate stay mandatory', () => {
+    const qualifying: Array<[readonly [string, string, string], (row: number) => TokenSpec[], string[]]> = [
+      [['Category', 'Description', 'Rate'], (row) => [{ x: DESCRIPTION_X, text: 'Group A', width: 60 },
+        { x: UNIT_X, text: `Service ${row}`, width: 80 }, ...amount('12.00')], ['category', 'description', 'rate']],
+      [['Item Number', 'Description', 'Rate'], (row) => [{ x: DESCRIPTION_X, text: `10${row}`, width: 30 },
+        { x: UNIT_X, text: `Service ${row}`, width: 80 }, ...amount('12.00')], ['item_code', 'description', 'rate']],
+      [['Description', 'Qty', 'Rate'], (row) => [{ x: DESCRIPTION_X, text: `Service ${row}`, width: 80 },
+        { x: UNIT_X, text: '4', width: 10 }, ...amount('12.00')], ['description', 'quantity', 'rate']],
+    ];
+    for (const [labels, cellsOf, roles] of qualifying) {
+      const result = reconstructSinglePage(threeColumnTable(labels, cellsOf));
+      expect(result, labels.join(' | ')).toMatchObject({ status: 'reconstructed' });
+      expect(result!.columns.map((column) => column.role)).toEqual(roles);
+      expect(result!.rows).toHaveLength(2);
+    }
+    const extended = reconstructSinglePage([
+      line(7, 700, [{ x: DESCRIPTION_X, text: 'Description', width: 70 }, { x: ORIGIN_X, text: 'Rate', width: 30 },
+        { x: CURRENCY_X, text: 'Extended Amount', width: 80 }]),
+      line(7, 680, [{ x: DESCRIPTION_X, text: 'Service 0', width: 80 }, { x: ORIGIN_X, text: '$', width: 8 },
+        { x: ORIGIN_X + 20, text: '12.00', width: 40 }, { x: AMOUNT_X, text: '48.00', width: 40 }]),
+      line(7, 660, [{ x: DESCRIPTION_X, text: 'Service 1', width: 80 }, { x: ORIGIN_X, text: '$', width: 8 },
+        { x: ORIGIN_X + 20, text: '3.50', width: 40 }, { x: AMOUNT_X, text: '7.00', width: 40 }]),
+    ]);
+    expect(extended).toMatchObject({ status: 'reconstructed' });
+    expect(extended!.columns.map((column) => column.role)).toEqual(['description', 'rate', 'amount']);
+    // The unit rate is the Rate column; the extended amount is never it.
+    expect(extended!.rows.map((row) => cellText(row, 'rate'))).toEqual(['$ 12.00', '$ 3.50']);
+    // No description: never qualifies, however many supporting roles.
+    const noDescription = reconstructSinglePage(threeColumnTable(['Category', 'Qty', 'Rate'], (row) => [
+      { x: DESCRIPTION_X, text: 'Group A', width: 60 }, { x: UNIT_X, text: `${row + 1}`, width: 10 }, ...amount('12.00')]));
+    expect(noDescription === null || (noDescription.rows.length === 0 && noDescription.columns.length === 0)).toBe(true);
+  });
+
+  it('V2: a supporting-role column never changes row assembly', () => {
+    const table = (label: string) => reconstructSinglePage([
+      line(7, 700, [{ x: 10, text: label, width: 35 }, { x: DESCRIPTION_X, text: 'Description', width: 70 },
+        { x: UNIT_X, text: 'Unit of Measure', width: 80 }, { x: CURRENCY_X, text: 'Cost', width: 30 }]),
+      line(7, 680, [{ x: 10, text: 'Group', width: 30 }, { x: DESCRIPTION_X, text: 'Alpha service', width: 100 },
+        { x: UNIT_X, text: 'Widget', width: 60 }, ...amount('12.00')]),
+      line(7, 670, [{ x: 10, text: 'A', width: 8 }]),
+      line(7, 650, [{ x: 10, text: 'Group', width: 30 }, { x: DESCRIPTION_X, text: 'Beta service', width: 100 },
+        { x: UNIT_X, text: 'Widget', width: 60 }, ...amount('3.50')]),
+    ])!;
+    const supporting = table('Category');
+    const unknown = table('Grouping');
+    expect(supporting.columns[0]!.role).toBe('category');
+    expect(unknown.columns[0]!.role).toBeNull();
+    // Rows, cells, role-less cells and diagnostics are identical: only the column's label differs.
+    const strip = (page: typeof supporting) => JSON.stringify({ ...page, columns: page.columns.map((column) => ({ ...column, role: null, header_text: '', header_source_refs: [] })),
+      header_raw_text: '', rows: page.rows.map((row) => ({ ...row, unresolved_role_cells: row.unresolved_role_cells?.map((cell) => ({ ...cell, header_text: '' })) })) });
+    expect(strip(supporting)).toBe(strip(unknown));
+    expect(supporting.rows[0]!.cells.map((cell) => cell.role)).not.toContain('category' as never);
+    expect(supporting.rows[0]!.unresolved_role_cells).toEqual([expect.objectContaining({ role: null, column_index: 0, header_text: 'Category' })]);
+  });
+
+  it('V3: the corpus-observed labels map to exactly one role; everything else is unknown', () => {
+    const observed: Array<[string, string]> = [
+      ['Description', 'description'], ['Equipment Description', 'description'], ['Personnel Description', 'description'],
+      ['Unit', 'unit'], ['Units', 'unit'], ['Unit.', 'unit'],
+      ['Rate', 'rate'], ['Unit Cost', 'rate'], ['Unit Price', 'rate'],
+      ['Category', 'category'], ['Qty', 'quantity'], ['Extended Amount', 'amount'], ['Item Number', 'item_code'],
+    ];
+    for (const [label, role] of observed) expect(pricedScheduleHeaderRoles(label), label).toEqual([role]);
+    // Unknown, never repaired or guessed: OCR fragments, identifiers, unobserved synonyms.
+    for (const label of ['Item', 'Amount', 'Total Cost', 'Line #', 'Sec #', 'Descripti', 'Uni', 'SE', 'Item / Service',
+      'Size Range (inches)', 'Debris Tonnage']) {
+      expect(pricedScheduleHeaderRoles(label), label).toEqual([]);
+    }
+  });
+
+  it('V4: the frozen spacing_only path keeps the legacy vocabulary verbatim', () => {
+    const lines = [headerWith('Amount'), ...twoBodyRows];
+    const frozen = buildPagePricedScheduleReconstruction({ layout: layoutOf([page(7, lines)]), continuationEvidence: 'spacing_only' });
+    expect(frozen.parser_version).toBe('priced_schedule_reconstruction_v1');
+    expect(frozen.pages[0]!.columns.find((column) => column.header_text === 'Amount')!.role).toBe('rate');
+    const current = buildPagePricedScheduleReconstruction({ layout: layoutOf([page(7, lines)]) });
+    expect(current.parser_version).toBe('priced_schedule_reconstruction_v3');
+    expect(current.pages.flatMap((entry) => entry.columns).some((column) => column.role === 'rate')).toBe(false);
   });
 
   it('S2: recognises common compact description and unit labels', () => {
@@ -1605,35 +1713,35 @@ describe('generic single-page priced schedule reconstruction', () => {
   it('OCR3: an unrecognized label leaves its role unresolved while the table structure survives', () => {
     const result = reconstructSinglePage([
       line(7, 700, [
-        { x: DESCRIPTION_X, text: 'Equipment', width: 45 }, { x: 99, text: 'Description', width: 55 },
+        { x: DESCRIPTION_X, text: 'Plant', width: 45 }, { x: 99, text: 'Description', width: 55 },
         { x: UNIT_X, text: 'Unit', width: 20 },
         { x: 440, text: 'Unit', width: 20 }, { x: 463, text: 'Price', width: 25 },
       ]),
       ...wordLevelBody,
     ]);
     // Structure resolved, semantics not: the table is rebuilt from geometry and
-    // "Equipment Description" stays authored text in a role-less column.
+    // "Plant Description" stays authored text in a role-less column.
     expect(result).toMatchObject({ status: 'reconstructed', semantic_status: 'unresolved' });
     expect(result!.columns.map((column) => [column.header_text, column.role])).toEqual([
-      ['Equipment Description', null], ['Unit', 'unit'], ['Unit Price', 'rate'],
+      ['Plant Description', null], ['Unit', 'unit'], ['Unit Price', 'rate'],
     ]);
     expect(result!.rows).toHaveLength(2);
     expect(result!.rows[0]!.cells.map((cell) => [cell.role, cell.raw_text])).toEqual([['unit', 'Widget'], ['rate', '$12.00']]);
     expect(result!.rows[0]!.unresolved_role_cells).toEqual([expect.objectContaining({
-      role: null, column_index: 0, header_text: 'Equipment Description', raw_text: 'Alpha service',
+      role: null, column_index: 0, header_text: 'Plant Description', raw_text: 'Alpha service',
     })]);
     expect(result!.rows.flatMap((row) => row.cells).some((cell) => cell.role === 'description')).toBe(false);
     // Promoting the column to a role needs a reviewed choice of this option.
     const interpretation = result!.header_interpretation!;
     expect(interpretation).toMatchObject({ status: 'unresolved', reason: 'required_role_missing' });
     expect(interpretation.labels.map((label) => [label.text, label.role])).toEqual([
-      ['Equipment Description', null], ['Unit', 'unit'], ['Unit Price', 'rate'],
+      ['Plant Description', null], ['Unit', 'unit'], ['Unit Price', 'rate'],
     ]);
     expect(interpretation.options).toHaveLength(1);
     const option = interpretation.options![0]!;
     expect(option).toMatchObject({ kind: 'role_assignment', qualifies: true });
     expect(option.labels.map((label) => [label.text, label.role, refTexts(label)])).toEqual([
-      ['Equipment Description', 'description', ['Equipment', 'Description']],
+      ['Plant Description', 'description', ['Plant', 'Description']],
       ['Unit', 'unit', ['Unit']], ['Unit Price', 'rate', ['Unit', 'Price']],
     ]);
   });
@@ -1675,7 +1783,7 @@ describe('generic single-page priced schedule reconstruction', () => {
   it('OCR6: header-like labels with no priced lines below are not a recovery candidate', () => {
     const result = reconstructSinglePage([
       line(7, 700, [
-        { x: DESCRIPTION_X, text: 'Equipment', width: 45 }, { x: 99, text: 'Description', width: 55 },
+        { x: DESCRIPTION_X, text: 'Plant', width: 45 }, { x: 99, text: 'Description', width: 55 },
         { x: UNIT_X, text: 'Unit', width: 20 },
         { x: 440, text: 'Unit', width: 20 }, { x: 463, text: 'Price', width: 25 },
       ]),
@@ -1716,12 +1824,14 @@ describe('generic single-page priced schedule reconstruction', () => {
     expect(JSON.stringify(layout)).toBe(before);
   });
 
-  it('OCR9: the description vocabulary is unchanged: only its generic labels resolve', () => {
-    for (const label of ['Description', 'Item Description', 'Item', 'Description of Work']) {
+  it('OCR9: only observed description labels resolve; a lone "Item" is unknown (v3)', () => {
+    for (const label of ['Description', 'Item Description', 'Description of Work', 'Equipment Description', 'Personnel Description']) {
       const result = reconstructSinglePage([headerWith('Cost', label), ...twoBodyRows]);
       expect(result, `description label ${label} must be recognised`).toMatchObject({ status: 'reconstructed' });
+      expect(result!.semantic_status, label).toBeUndefined();
     }
-    for (const label of ['Equipment Description', 'Heavy Equipment Description']) {
+    // A lone "Item" can mean a code or a description; no meaning is assumed.
+    for (const label of ['Item', 'Heavy Equipment Description']) {
       const result = reconstructSinglePage([headerWith('Cost', label), ...twoBodyRows]);
       expect(result, `${label} must not be given a role`).toMatchObject({ status: 'reconstructed', semantic_status: 'unresolved' });
       expect(result!.columns[0]).toMatchObject({ role: null, header_text: label });
@@ -1800,7 +1910,7 @@ describe('generic single-page priced schedule reconstruction', () => {
 
   it('R2-5: a page whose required role is unresolved yields structure but no pricing facts', () => {
     const recon = buildPagePricedScheduleReconstruction({
-      layout: layoutOf([page(7, [headerWith('Cost', 'Equipment Description'), ...twoBodyRows])]),
+      layout: layoutOf([page(7, [headerWith('Cost', 'Heavy Equipment Description'), ...twoBodyRows])]),
     });
     expect(recon.pages[0]).toMatchObject({ status: 'reconstructed', semantic_status: 'unresolved' });
     expect(recon.pages[0]!.rows).toHaveLength(2);
@@ -2069,7 +2179,7 @@ describe('generic single-page priced schedule reconstruction', () => {
   });
 
   it('R4-6: a page whose header semantics are unresolved is never priced structurally', () => {
-    const lines = structuredTable(middle([{ x: AMOUNT_X, text: '120.00', width: 40 }]), { descriptionLabel: 'Equipment Description' });
+    const lines = structuredTable(middle([{ x: AMOUNT_X, text: '120.00', width: 40 }]), { descriptionLabel: 'Heavy Equipment Description' });
     const result = reconstructSinglePage(lines)!;
     expect(result.semantic_status).toBe('unresolved');
     expect(result.rows.some((row) => rateCellOf(row).structured_rate)).toBe(false);

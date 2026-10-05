@@ -9,9 +9,13 @@ const context = { sourceDocumentId: '11111111-1111-4111-8111-111111111111',
   sourceArtifactId: '22222222-2222-4222-8222-222222222222', pageRepresentationDigestByPage: { 7: 'a'.repeat(64) } };
 const reviewId = '33333333-3333-4333-8333-333333333333';
 const currentPageEvidence = { 7: { pageRepresentationDigest: 'a'.repeat(64), recoveryAllowed: true } };
-function layout(resolved = false): PdfLayout {
+// "Plant Description" is unknown to both the v2 and the v3 vocabulary, so its
+// header reads identically under both and stays unresolved: the qualified v2
+// selection contract applies to it unchanged.
+function layout(resolved: boolean | 'v3_alias' = false): PdfLayout {
+  const first = resolved === 'v3_alias' ? 'Equipment' : resolved ? 'Item' : 'Plant';
   const specs: [number, [number, string, number][]][] = [
-    [700, [[50, resolved ? 'Item' : 'Equipment', 45], [99, 'Description', 55], [200, 'Unit', 20], [440, 'Unit', 20], [463, 'Price', 25]]],
+    [700, [[50, first, 45], [99, 'Description', 55], [200, 'Unit', 20], [440, 'Unit', 20], [463, 'Price', 25]]],
     [680, [[50, 'Alpha service', 80], [200, 'Widget', 30], [445, '$12.00', 35]]],
     [660, [[50, 'Beta service', 80], [200, 'Widget', 30], [445, '$3.50', 30]]],
   ];
@@ -36,7 +40,7 @@ describe('preserved header role selection', () => {
     expect(result.recovery_candidates).toHaveLength(1);
     expect(result.recovery_candidates![0]!.headerRoleSelection).toMatchObject({
       parserVersion: 'priced_schedule_reconstruction_v2', structuralRowCount: 2,
-      labels: [{ text: 'Equipment Description', role: 'description' }, { text: 'Unit', role: 'unit' }, { text: 'Unit Price', role: 'rate' }],
+      labels: [{ text: 'Plant Description', role: 'description' }, { text: 'Unit', role: 'unit' }, { text: 'Unit Price', role: 'rate' }],
     });
     expect(buildHeaderRoleSelectionCandidates({ ...result, parser_version: 'priced_schedule_reconstruction_v1' }, context)).toEqual([]);
     const page = result.pages[0]!;
@@ -96,6 +100,33 @@ describe('preserved header role selection', () => {
       .toMatchObject([{ reason: 'confirmed_recovery_evidence_changed' }]);
     expect(reenter(undefined, { currentPageEvidence: { 7: { ...currentPageEvidence[7], recoveryAllowed: false } } }).recovery_diagnostics)
       .toMatchObject([{ reason: 'confirmed_recovery_not_applied', blocked_by: 'coverage_not_trusted' }]);
+  });
+
+  it('a header the v3 vocabulary now reads deterministically is never re-bound to an earlier selection (v3)', () => {
+    // A reviewer chose "Equipment Description" = description under v2, when the
+    // label was unknown. v3 recognizes that label, so the page now resolves on its
+    // own. The selection is reported, not applied; the rows carry no
+    // human_selected provenance they did not earn, and nothing is rewritten.
+    const plant = base().recovery_candidates![0]!;
+    const { candidateId: _id, ...input } = plant;
+    void _id;
+    const swap = (text: string) => text === 'Plant' ? 'Equipment' : text;
+    const reviewed = buildRecoveryCandidateV2({ ...input,
+      rawTexts: input.rawTexts.map(swap), composedRawText: input.composedRawText.replace('Plant', 'Equipment'),
+      evidence: input.evidence.map((entry) => ({ ...entry, rawText: swap(entry.rawText) })),
+      headerRoleSelection: { ...input.headerRoleSelection!, labels: input.headerRoleSelection!.labels
+        .map((label) => ({ ...label, text: label.text.replace('Plant', 'Equipment') })) } })!;
+    expect(reviewed).not.toBeNull();
+    const after = buildPagePricedScheduleReconstruction({ layout: layout('v3_alias'), currentPageEvidence,
+      confirmedHeaderSelections: [{ candidate: reviewed, reviewId }] });
+    expect(after.recovery_diagnostics).toMatchObject([{ reason: 'confirmed_header_option_not_offered', recovery_applied: false }]);
+    const page = after.pages[0]!;
+    expect(page.semantic_status).toBeUndefined();
+    expect(page.header_semantics).toBeUndefined();
+    // Deterministic reading and the earlier selection agree here; both are reported, neither overrides the other.
+    const rows = buildContractRateScheduleRows({ rateTable: null, pricedScheduleReconstruction: after });
+    expect(rows.map((row) => [row.description, row.unit, row.rate, row.header_semantics])).toEqual([
+      ['Alpha service', 'Widget', 12, undefined], ['Beta service', 'Widget', 3.5, undefined]]);
   });
 
   it('withholds changed/removed options, resolved pages and conflicting confirmations', () => {

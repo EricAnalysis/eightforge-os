@@ -89,7 +89,7 @@ describe('durable unresolved priced pages', () => {
     const result = buildPagePricedScheduleReconstruction({ layout: layoutOf(twoTables()) });
     // Current (v2) reconstruction semantics, stored under the historical
     // priced_schedule_reconstruction_v1 envelope key.
-    expect(result.parser_version).toBe('priced_schedule_reconstruction_v2');
+    expect(result.parser_version).toBe('priced_schedule_reconstruction_v3');
     expect(result.pages).toEqual([]);
     expect(result.unresolved_pages).toHaveLength(1);
     const unresolved = result.unresolved_pages![0]!;

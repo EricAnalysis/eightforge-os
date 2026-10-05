@@ -1,6 +1,7 @@
 import type { PdfLayoutPage, PdfToken } from '@/lib/extraction/pdf/extractText';
 import { hashCanonical } from '@/lib/extraction/domain/hash';
 import type { PricedSchedulePage, PricedScheduleCellSourceRef, PricedScheduleCell, PricedScheduleUnresolvedRoleCell } from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
+import { pricedScheduleAssemblyRole } from '@/lib/extraction/pdf/pricedScheduleRoles';
 import { rulingLineInputIsIntact, rulingTokenGeometryDigest, type RulingLineInput, type RulingLineRule } from '@/lib/extraction/pdf/rulingLineEvidence';
 const ordinate = (rule: RulingLineRule, coordinate: number) => rule.slope * coordinate + rule.intercept;
 const refKey = (ref: PricedScheduleCellSourceRef) => `${ref.observation_id ?? ''}|${ref.text}|${ref.x_min}|${ref.y_min}`;
@@ -189,7 +190,7 @@ export function resolveRulingLineOwnership(page: PricedSchedulePage, layout: Pdf
         const region = token.region;
         if (!region || !token.uniqueInk || region.anchors.length !== 1)
             continue;
-        const key = refKey(token.ref), role = map[region.col]!.column.role;
+        const key = refKey(token.ref), role = pricedScheduleAssemblyRole(map[region.col]!.column.role);
         const anchor = page.rows[region.anchors[0]!]!, middle = (token.box.y0 + token.box.y1) / 2;
         if (protectedRefs.has(key) || (role !== null && role !== 'description' && !resolvedOwners.has(key)
             && (middle < anchor.y_min || middle > anchor.y_max)))
@@ -209,7 +210,7 @@ export function resolveRulingLineOwnership(page: PricedSchedulePage, layout: Pdf
         // crossing refs are retained verbatim, not cropped or classified as noise.
         if (token.box.x0 <= region.left || token.box.x1 >= region.right || token.box.y0 <= region.top || token.box.y1 >= region.bottom)
             continue;
-        const target = map[region.col]!, row = region.anchors[0]!, role = target.column.role;
+        const target = map[region.col]!, row = region.anchors[0]!, role = pricedScheduleAssemblyRole(target.column.role);
         if (role !== null && role !== 'description')
             continue;
         if (located.some((other) => other.region === region && other.uniqueInk && (resolvedOwners.get(refKey(other.ref)) ?? []).some((owner) => owner.row !== row || owner.role !== role)))

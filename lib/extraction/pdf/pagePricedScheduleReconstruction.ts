@@ -3,7 +3,8 @@ import { hashCanonical } from '@/lib/extraction/domain/hash';
 import type { PdfLayout, PdfLayoutPage, PdfToken } from '@/lib/extraction/pdf/extractText';
 import type { RulingLineEvidence, RulingLineInput } from '@/lib/extraction/pdf/rulingLineEvidence';
 import { resolveRulingLineOwnership } from '@/lib/extraction/pdf/rulingLineOwnership';
-import { LEGACY_PRICED_SCHEDULE_RECONSTRUCTION_VERSION, PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION,
+import { pricedScheduleAssemblyRole } from '@/lib/extraction/pdf/pricedScheduleRoles';
+import { isPagePricedScheduleVersion, LEGACY_PRICED_SCHEDULE_RECONSTRUCTION_VERSION, PAGE_PRICED_SCHEDULE_RECONSTRUCTION_V2, PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION,
   type PricedScheduleReconstructionVersion } from '@/lib/extraction/pdf/pricedScheduleVersion';
 export { PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION } from '@/lib/extraction/pdf/pricedScheduleVersion';
 import {
@@ -28,11 +29,33 @@ import {
  * the page's own header line and its own token geometry.
  */
 
-export type PricedScheduleColumnRole =
+/**
+ * Roles that take part in row assembly: what a priced row is made of. Body
+ * tokens in these columns decide row admission, anchoring and continuation.
+ */
+export type PricedScheduleAssemblyRole =
   | 'description'
   | 'unit'
   | 'origin_destination'
   | 'rate';
+
+/**
+ * Supporting pricing-table roles (v3). They help establish a table's identity
+ * and structure, and count toward header qualification, but they are never the
+ * authoritative unit rate and never take part in row assembly: their body cells
+ * are attached after rows are final, exactly as unrecognized columns' are.
+ * Names correspond to the interpretation layer's vocabulary (amount ~ extension,
+ * item_code ~ code), without its positional inference.
+ */
+export type PricedScheduleSupportingRole =
+  | 'category'
+  | 'quantity'
+  | 'amount'
+  | 'item_code';
+
+export type PricedScheduleColumnRole = PricedScheduleAssemblyRole | PricedScheduleSupportingRole;
+
+const assemblyRole = pricedScheduleAssemblyRole;
 
 /**
  * Generic header vocabulary. These are column-role words that priced schedules
@@ -43,11 +66,39 @@ export type PricedScheduleColumnRole =
  * as "Unit rates are firm for the contract term" begins with a role word but
  * does not name a column, and must never establish one.
  */
-const COLUMN_ROLE_PATTERNS: ReadonlyArray<readonly [PricedScheduleColumnRole, RegExp]> = [
+export type HeaderVocabulary = ReadonlyArray<readonly [PricedScheduleColumnRole, RegExp]>;
+
+/**
+ * The frozen vocabulary of the legacy 'spacing_only' path (pinned evaluation
+ * fixtures) and of v2. Kept verbatim: its known collisions ("amount" and
+ * "total cost" read as rate, a lone "item" read as description) are corrected
+ * only in the current vocabulary below, never retroactively.
+ */
+const LEGACY_COLUMN_ROLE_PATTERNS: HeaderVocabulary = [
   ['description', /^(?:description(?:\s+of\s+(?:work|works|service|services))?|item(?:\s+description)?|service|classification|scope\s+of\s+work|work\s+item)$/i],
   ['unit', /^(?:unit(?:\s+of\s+measure(?:ment)?)?|units|uom|u\s*\/\s*m|measure|measurement)$/i],
   ['origin_destination', /^(?:origin\s*\/?\s*destination|origin|destination|from\s*\/?\s*to|route|haul\s+route)$/i],
   ['rate', /^(?:cost(?:\s+per\s+unit)?|total\s+cost|rate(?:\s*\/\s*unit)?|unit\s+price|unit\s+cost|price|amount|charge)$/i],
+] as const;
+
+/**
+ * The canonical header-role vocabulary (v3). Exact matches after normalization
+ * only: no fuzzy matching, no repair of OCR fragments ("Descripti", "Uni"), and
+ * never a role from a column's position. New aliases are only those observed in
+ * the extraction corpus. Corrected collisions: "amount" and "total cost" no
+ * longer read as the unit rate (rate and amount stay distinct), and a lone
+ * "item" is unknown rather than assumed to be a description. A label matching
+ * more than one role is ambiguous and fails closed.
+ */
+const COLUMN_ROLE_PATTERNS: HeaderVocabulary = [
+  ['description', /^(?:description(?:\s+of\s+(?:work|works|service|services))?|item\s+description|equipment\s+description|personnel\s+description|service|classification|scope\s+of\s+work|work\s+item)$/i],
+  ['unit', /^(?:unit(?:\s+of\s+measure(?:ment)?)?|units|uom|u\s*\/\s*m|measure|measurement)$/i],
+  ['origin_destination', /^(?:origin\s*\/?\s*destination|origin|destination|from\s*\/?\s*to|route|haul\s+route)$/i],
+  ['rate', /^(?:cost(?:\s+per\s+unit)?|rate(?:\s*\/\s*unit)?|unit\s+price|unit\s+cost|price|charge)$/i],
+  ['category', /^category$/i],
+  ['quantity', /^qty$/i],
+  ['amount', /^extended\s+amount$/i],
+  ['item_code', /^item\s+number$/i],
 ] as const;
 
 /**
@@ -75,7 +126,7 @@ const RATE_MARKER_PATTERN = /^-$/;
 const MONETARY_AMOUNT_PATTERN = /^(?:0|[1-9]\d{0,2}(?:,\d{3})+|[1-9]\d*)\.\d{2}$/;
 
 /** Roles that must be present before a page is treated as a priced schedule. */
-const REQUIRED_ROLES: readonly PricedScheduleColumnRole[] = ['description', 'rate'];
+const REQUIRED_ROLES: readonly PricedScheduleAssemblyRole[] = ['description', 'rate'];
 const MINIMUM_DISTINCT_ROLES = 3;
 const MINIMUM_PRICED_ROWS = 2;
 /**
@@ -153,7 +204,7 @@ export type PricedScheduleCellSourceRef = {
 };
 
 export type PricedScheduleCell = {
-  readonly role: PricedScheduleColumnRole;
+  readonly role: PricedScheduleAssemblyRole;
   /**
    * Authored text exactly as read from the page, with source fragments joined
    * in descending-y (visual top-to-bottom) order. Never normalized, never
@@ -197,6 +248,12 @@ export type PricedScheduleStructuredRate = {
  * that reads resolved-role cells (pricing, evidence anchoring) can consume it.
  */
 export type PricedScheduleUnresolvedRoleCell = {
+  /**
+   * Always null: the cell takes no part in row assembly. Since v3 this also
+   * holds for columns with a supporting pricing-table role (category,
+   * quantity, amount, item_code); their role is the column's, read through
+   * `column_index`, and they are never pricing evidence.
+   */
   readonly role: null;
   /** Index into the page's `columns`. */
   readonly column_index: number;
@@ -548,11 +605,24 @@ function isCompactHeaderLabel(label: string): boolean {
   return label.split(' ').length <= MAXIMUM_HEADER_LABEL_WORDS;
 }
 
-function roleForHeaderLabel(label: string): PricedScheduleColumnRole | null {
-  for (const [role, pattern] of COLUMN_ROLE_PATTERNS) {
-    if (pattern.test(label)) return role;
-  }
-  return null;
+function headerRoleMatches(label: string, vocabulary: HeaderVocabulary): PricedScheduleColumnRole[] {
+  return vocabulary.flatMap(([role, pattern]) => (pattern.test(label) ? [role] : []));
+}
+
+/**
+ * Every role the current vocabulary gives an authored header cell, after the
+ * same normalization the reconstruction applies. Empty for an unknown label;
+ * more than one would be ambiguous (and fail closed).
+ */
+export function pricedScheduleHeaderRoles(text: string): PricedScheduleColumnRole[] {
+  const label = normalizeHeaderLabel(text);
+  return isCompactHeaderLabel(label) ? headerRoleMatches(label, COLUMN_ROLE_PATTERNS) : [];
+}
+
+/** The label's one role; null when it names none, or more than one (ambiguous, so it counts for nothing). */
+function roleForHeaderLabel(label: string, vocabulary: HeaderVocabulary = COLUMN_ROLE_PATTERNS): PricedScheduleColumnRole | null {
+  const roles = headerRoleMatches(label, vocabulary);
+  return roles.length === 1 ? roles[0]! : null;
 }
 
 type HeaderColumn = {
@@ -581,14 +651,14 @@ type DetectedHeader = {
  * carrying more than one priced table cannot be reconstructed as a single table
  * and must fail closed instead.
  */
-function detectHeaders(page: PdfLayoutPage): DetectedHeader[] {
+function detectHeaders(page: PdfLayoutPage, vocabulary: HeaderVocabulary = COLUMN_ROLE_PATTERNS): DetectedHeader[] {
   // Lines are visually ordered top-to-bottom by descending y.
   const orderedLines = [...page.lines].sort((left, right) => right.y - left.y);
   const headers: DetectedHeader[] = [];
 
   for (const line of orderedLines) {
     // A line whose own tokens already read as a header is used as-is.
-    const columns = headerColumnsFromCells(line.tokens.map((token) => headerCellOf([token])));
+    const columns = headerColumnsFromCells(line.tokens.map((token) => headerCellOf([token])), vocabulary);
     if (columns) {
       headers.push({ y: line.y, rawText: line.text, columns });
       continue;
@@ -598,13 +668,13 @@ function detectHeaders(page: PdfLayoutPage): DetectedHeader[] {
     // and only when the line's own geometry separates word spaces from column gaps.
     const reading = groupedHeaderReading(line.tokens);
     if (!reading.basis.clear || reading.cells.length === line.tokens.length) continue;
-    const grouped = headerColumnsFromCells(reading.cells);
+    const grouped = headerColumnsFromCells(reading.cells, vocabulary);
     if (!grouped) continue;
     headers.push({
       y: line.y,
       rawText: line.text,
       columns: grouped,
-      interpretation: headerInterpretation('resolved_deterministically', line.tokens, reading),
+      interpretation: headerInterpretation('resolved_deterministically', line.tokens, reading, reading.cells, vocabulary),
     });
   }
 
@@ -627,20 +697,28 @@ function headerCellOf(tokens: readonly PdfToken[]): HeaderCell {
  * qualify. Every compact cell is a column, whether or not its label is
  * recognized; non-compact cells are prose and are ignored entirely.
  */
-function headerColumnsFromCells(cells: readonly HeaderCell[]): PricedScheduleColumnBand[] | null {
-  const headerColumns = compactHeaderColumns(cells);
+function headerColumnsFromCells(
+  cells: readonly HeaderCell[],
+  vocabulary: HeaderVocabulary = COLUMN_ROLE_PATTERNS,
+): PricedScheduleColumnBand[] | null {
+  // A label naming more than one role is ambiguous: the line never qualifies.
+  if (cells.some((cell) => {
+    const label = normalizeHeaderLabel(cell.text);
+    return isCompactHeaderLabel(label) && headerRoleMatches(label, vocabulary).length > 1;
+  })) return null;
+  const headerColumns = compactHeaderColumns(cells, vocabulary);
   if (!headerRolesQualify(headerColumns.map((column) => column.role))) return null;
   return columnBands(headerColumns);
 }
 
 /** Every compact cell on the line is a column, recognized or not; prose cells are ignored. */
-function compactHeaderColumns(cells: readonly HeaderCell[]): HeaderColumn[] {
+function compactHeaderColumns(cells: readonly HeaderCell[], vocabulary: HeaderVocabulary = COLUMN_ROLE_PATTERNS): HeaderColumn[] {
   const headerColumns: HeaderColumn[] = [];
   for (const cell of cells) {
     const label = normalizeHeaderLabel(cell.text);
     if (!isCompactHeaderLabel(label)) continue;
     headerColumns.push({
-      role: roleForHeaderLabel(label),
+      role: roleForHeaderLabel(label, vocabulary),
       x: cell.x,
       xEnd: cell.xEnd,
       text: cell.text.trim(),
@@ -812,12 +890,16 @@ function groupTokens(sorted: readonly PdfToken[], joins: readonly boolean[]): He
   return groups.map((group) => headerCellOf(group));
 }
 
-function headerLabelOf(cell: HeaderCell, role?: PricedScheduleColumnRole | null): PricedScheduleHeaderLabel {
+function headerLabelOf(
+  cell: HeaderCell,
+  role?: PricedScheduleColumnRole | null,
+  vocabulary: HeaderVocabulary = COLUMN_ROLE_PATTERNS,
+): PricedScheduleHeaderLabel {
   const label = normalizeHeaderLabel(cell.text);
   return {
     text: cell.text,
     role: role !== undefined ? role
-      : isCompactHeaderLabel(label) ? roleForHeaderLabel(label) : null,
+      : isCompactHeaderLabel(label) ? roleForHeaderLabel(label, vocabulary) : null,
     source_refs: cell.tokens.map((token) => sourceRefForToken(token)),
   };
 }
@@ -827,13 +909,14 @@ function headerInterpretation(
   lineTokens: readonly PdfToken[],
   reading: GroupedHeaderReading,
   cells: readonly HeaderCell[] = reading.cells,
+  vocabulary: HeaderVocabulary = COLUMN_ROLE_PATTERNS,
 ): PricedScheduleHeaderInterpretation {
   return {
     version: PRICED_SCHEDULE_HEADER_INTERPRETATION_VERSION,
     status,
     method: cells.length < lineTokens.length ? 'word_grouped_labels' : 'token_labels',
     source_refs: reading.sorted.map((token) => sourceRefForToken(token)),
-    labels: cells.map((cell) => headerLabelOf(cell)),
+    labels: cells.map((cell) => headerLabelOf(cell, undefined, vocabulary)),
     grouping_basis: reading.basis,
   };
 }
@@ -863,6 +946,7 @@ function headerOptions(
   reason: PricedScheduleHeaderUnresolvedReason,
   reading: GroupedHeaderReading,
   labels: readonly PricedScheduleHeaderLabel[],
+  vocabulary: HeaderVocabulary = COLUMN_ROLE_PATTERNS,
 ): { options: PricedScheduleHeaderOption[]; limitExceeded: boolean } {
   const options: PricedScheduleHeaderOption[] = [];
   if (reason === 'ambiguous_label_grouping') {
@@ -876,7 +960,7 @@ function headerOptions(
         return position >= 0 ? Boolean(mask & (1 << position)) : ratio <= low;
       });
       options.push(headerOption('label_grouping',
-        groupTokens(reading.sorted, joins).map((cell) => headerLabelOf(cell))));
+        groupTokens(reading.sorted, joins).map((cell) => headerLabelOf(cell, undefined, vocabulary))));
     }
     return { options, limitExceeded: false };
   }
@@ -918,7 +1002,7 @@ function headerOptions(
  * deterministic options, instead of disappearing. More than one such line is
  * not guessed between.
  */
-function unresolvedHeaderCandidate(page: PdfLayoutPage): {
+function unresolvedHeaderCandidate(page: PdfLayoutPage, vocabulary: HeaderVocabulary = COLUMN_ROLE_PATTERNS): {
   y: number;
   rawText: string;
   interpretation: PricedScheduleHeaderInterpretation;
@@ -931,11 +1015,11 @@ function unresolvedHeaderCandidate(page: PdfLayoutPage): {
    */
   structuralColumns: PricedScheduleColumnBand[] | null;
 } | null {
-  const candidates = unresolvedHeaderCandidateLines(page);
+  const candidates = unresolvedHeaderCandidateLines(page, vocabulary);
   if (candidates.length !== 1) return null;
   const candidate = candidates[0]!;
-  const { options, limitExceeded } = headerOptions(candidate.reason, candidate.reading, candidate.labels);
-  const structuralRoles = compactHeaderColumns(candidate.cells).flatMap((column) => (column.role ? [column.role] : []));
+  const { options, limitExceeded } = headerOptions(candidate.reason, candidate.reading, candidate.labels, vocabulary);
+  const structuralRoles = compactHeaderColumns(candidate.cells, vocabulary).flatMap((column) => (column.role ? [column.role] : []));
   // The header must account for the table: every missing required role has to
   // be mappable onto a column the header itself defines. A header that lacks
   // such a column (for example one line of a header split across two) does not
@@ -948,9 +1032,9 @@ function unresolvedHeaderCandidate(page: PdfLayoutPage): {
   return {
     y: candidate.y,
     rawText: candidate.rawText,
-    structuralColumns: structureDeterministic ? columnBands(compactHeaderColumns(candidate.cells)) : null,
+    structuralColumns: structureDeterministic ? columnBands(compactHeaderColumns(candidate.cells, vocabulary)) : null,
     interpretation: {
-      ...headerInterpretation('unresolved', candidate.tokens, candidate.reading, candidate.cells),
+      ...headerInterpretation('unresolved', candidate.tokens, candidate.reading, candidate.cells, vocabulary),
       reason: candidate.reason,
       options,
       ...(limitExceeded ? { options_limit_exceeded: true } : {}),
@@ -965,7 +1049,10 @@ type UnresolvedHeaderCandidateLine = {
 };
 
 /** Every line that plainly reads as a table header but does not qualify as one. */
-function unresolvedHeaderCandidateLines(page: PdfLayoutPage): UnresolvedHeaderCandidateLine[] {
+function unresolvedHeaderCandidateLines(
+  page: PdfLayoutPage,
+  vocabulary: HeaderVocabulary = COLUMN_ROLE_PATTERNS,
+): UnresolvedHeaderCandidateLine[] {
   const spineYs = page.lines
     .filter((line) => line.tokens.some((token) => isRowSpineToken(token)))
     .map((line) => line.y);
@@ -980,7 +1067,7 @@ function unresolvedHeaderCandidateLines(page: PdfLayoutPage): UnresolvedHeaderCa
     const meaningful = cells.filter((cell) => normalizeHeaderLabel(cell.text).length > 0);
     if (meaningful.length === 0
         || meaningful.some((cell) => !isCompactHeaderLabel(normalizeHeaderLabel(cell.text)))) continue;
-    const labels = cells.map((cell) => headerLabelOf(cell));
+    const labels = cells.map((cell) => headerLabelOf(cell, undefined, vocabulary));
     const roles = labels.flatMap((label) => (label.role ? [label.role] : []));
     const distinct = new Set(roles);
     if (!distinct.has('rate') || distinct.size < 2) continue;
@@ -1254,7 +1341,7 @@ function columnAssignmentsForLine(
     // unresolved (role-less) column on either side. It never moves ink between
     // two recognized columns: that boundary keeps primitive-token membership,
     // so no token passes from one semantic (pricing) cell into another.
-    if (columns[firstColumn]!.role != null && columns[firstColumn + 1]!.role != null) continue;
+    if (assemblyRole(columns[firstColumn]!.role) != null && assemblyRole(columns[firstColumn + 1]!.role) != null) continue;
     const left = Math.min(...cluster.tokens.map((token) => token.x));
     const right = Math.max(...cluster.tokens.map((token) => token.x + token.width));
     if (!(right > left)) continue;
@@ -1318,7 +1405,7 @@ function attachRoleLessTokens<T extends { lines: readonly SourceLine[] }>(
 
 type BandedToken = {
   token: PdfToken;
-  role: PricedScheduleColumnRole;
+  role: PricedScheduleAssemblyRole;
   y: number;
 };
 
@@ -1351,7 +1438,7 @@ function compareTokens(left: PdfToken, right: PdfToken): number {
 }
 
 function buildCell(
-  role: PricedScheduleColumnRole,
+  role: PricedScheduleAssemblyRole,
   banded: readonly BandedToken[],
 ): PricedScheduleCell | null {
   const cell = buildCellFromTokens(banded.map((entry) => entry.token));
@@ -1723,22 +1810,42 @@ function buildPageRecoveryCandidate(
   });
 }
 
-/** Build options from the current v2 unresolved reconstruction; no semantic winner is chosen. */
+/** The role the v2 vocabulary gives a header label, under the same compactness rule. */
+function v2HeaderRole(text: string): PricedScheduleColumnRole | null {
+  const label = normalizeHeaderLabel(text);
+  return isCompactHeaderLabel(label) ? roleForHeaderLabel(label, LEGACY_COLUMN_ROLE_PATTERNS) : null;
+}
+
+/**
+ * Build options from an unresolved page reconstruction; no semantic winner is chosen.
+ *
+ * Candidates use the qualified v2 recovery contract (recoveryCandidateV2.ts,
+ * pinned by Phase 17), which names v2 header semantics. A v3 page is offered
+ * only when every header label reads exactly as it did under the v2 vocabulary:
+ * then its options are the v2 options, unchanged. A header whose reading the
+ * v3 vocabulary changed is not offered until that contract is deliberately
+ * re-qualified, so a confirmed selection on it is reported as
+ * confirmed_header_option_not_offered: never applied, never re-bound.
+ */
 export function buildHeaderRoleSelectionCandidates(
   reconstruction: PagePricedScheduleReconstruction,
   context: RecoveryCandidateBuildContext,
 ): RecoveryCandidateV2[] {
-  if (reconstruction.parser_version !== PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION
+  if (!isPagePricedScheduleVersion(reconstruction.parser_version)
     || (context.allowedRecoveryTypes && !context.allowedRecoveryTypes.includes('priced_schedule_header_role_selection'))) return [];
   return reconstruction.pages.flatMap(page => {
     const interpretation = page.header_interpretation;
     if (page.semantic_status !== 'unresolved' || !page.columns.length
       || !interpretation || interpretation.status !== 'unresolved' || interpretation.options_limit_exceeded) return [];
+    if (reconstruction.parser_version !== PAGE_PRICED_SCHEDULE_RECONSTRUCTION_V2
+      && interpretation.labels.some((label) => label.role !== v2HeaderRole(label.text))) return [];
     const refs = interpretation.source_refs;
     const digest = context.pageRepresentationDigestByPage[page.physical_page_number];
     if (!digest || refs.some(ref => !ref.observation_id)) return [];
     return (interpretation.options ?? []).flatMap(option => {
       if (option.kind !== 'role_assignment' || !option.qualifies) return [];
+      // The v2 contract names only the four v2 roles.
+      if (option.labels.some(label => label.role != null && assemblyRole(label.role) == null)) return [];
       const candidate = buildRecoveryCandidateV2({
         recoveryType: 'priced_schedule_header_role_selection',
         sourceDocumentId: context.sourceDocumentId, sourceArtifactId: context.sourceArtifactId,
@@ -1750,9 +1857,9 @@ export function buildHeaderRoleSelectionCandidates(
           sourceLayer: ref.source === 'ocr_fallback' ? 'ocr' : 'pdf_native_text', rawText: ref.text,
           boundingBox: { xMin: ref.x_min, xMax: ref.x_max, yMin: ref.y_min, yMax: ref.y_max } })),
         headerRoleSelection: {
-          parserVersion: PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION,
+          parserVersion: PAGE_PRICED_SCHEDULE_RECONSTRUCTION_V2,
           headerInterpretationVersion: interpretation.version, optionId: option.option_id,
-          labels: option.labels.map(label => ({ text: label.text, role: label.role,
+          labels: option.labels.map(label => ({ text: label.text, role: assemblyRole(label.role),
             orderedObservationIds: label.source_refs.flatMap(ref => ref.observation_id ? [ref.observation_id] : []) })),
           structuralRowCount: page.rows.length,
         },
@@ -1773,7 +1880,9 @@ function reconstructPage(
   continuationEvidence: PricedScheduleContinuationEvidence = 'row_start_anchors',
   headerSelection?: ConfirmedHeaderSelection,
 ): PricedSchedulePage | null {
-  const headers = detectHeaders(page);
+  // Frozen 'spacing_only' fixtures keep the legacy vocabulary verbatim.
+  const vocabulary = continuationEvidence === 'spacing_only' ? LEGACY_COLUMN_ROLE_PATTERNS : COLUMN_ROLE_PATTERNS;
+  const headers = detectHeaders(page, vocabulary);
   let header: DetectedHeader;
   // Semantics resolved: every role admission needs is recognized. When false the
   // structure is reconstructed from geometry alone and published as structure only.
@@ -1781,7 +1890,7 @@ function reconstructPage(
   if (headers.length === 0) {
     // A plausible table whose header cannot be resolved is reported with its
     // header evidence rather than disappearing.
-    const unresolved = unresolvedHeaderCandidate(page);
+    const unresolved = unresolvedHeaderCandidate(page, vocabulary);
     if (!unresolved) return null;
     if (!unresolved.structuralColumns) {
       // Structure itself is unresolved: no columns, roles or rows are claimed.
@@ -1834,7 +1943,8 @@ function reconstructPage(
     // outside the vocabulary, or its words are not cleanly grouped): its rows
     // cannot be proven to share this header's columns. Fail closed, exactly as
     // for two qualifying headers, rather than read them through this one.
-    if (laterTableBoundaries(page, header.y).length > 0) return null;
+    // Not applied to the frozen 'spacing_only' fixtures.
+    if (continuationEvidence !== 'spacing_only' && laterTableBoundaries(page, header.y).length > 0) return null;
   }
 
   const banded: BandedToken[] = [];
@@ -1862,13 +1972,13 @@ function reconstructPage(
       if (token.text.trim().length === 0) continue;
       bodyTokens.push(token);
       const baselineColumnIndex = centerColumnIndexForToken(token, header.columns);
-      if (baselineColumnIndex >= 0 && !header.columns[baselineColumnIndex]!.role) {
+      if (baselineColumnIndex >= 0 && !assemblyRole(header.columns[baselineColumnIndex]!.role)) {
         rowStartRoleLess.push({ token, columnIndex: baselineColumnIndex });
       }
       const columnIndex = assignments.get(token) ?? -1;
       if (columnIndex < 0) {
         if (baselineColumnIndex >= 0) {
-          const baselineRole = header.columns[baselineColumnIndex]!.role;
+          const baselineRole = assemblyRole(header.columns[baselineColumnIndex]!.role);
           if (baselineRole) {
             ambiguousColumnBanded.push({ token, role: baselineRole, y: token.y });
           } else {
@@ -1877,7 +1987,7 @@ function reconstructPage(
         }
         continue;
       }
-      const role = header.columns[columnIndex]!.role;
+      const role = assemblyRole(header.columns[columnIndex]!.role);
       if (!role) {
         roleLess.push({ token, columnIndex });
         continue;
@@ -1928,7 +2038,7 @@ function reconstructPage(
         if (beforeBody) {
           // A cell wholly inside a role-resolved column reads as body content.
           if (edge.cells.some((cell) => cell.column_index != null
-            && header.columns[cell.column_index]!.role != null)) continue;
+            && assemblyRole(header.columns[cell.column_index]!.role) != null)) continue;
         } else {
           const lastColumn = header.columns.length - 1;
           // A footer line must contain a spanning leading cell plus a separate
@@ -2317,9 +2427,10 @@ function reconstructPage(
     reportLine(line, 'unsupported_trailing_line');
   }
 
+  // Row assembly sees only assembly roles: supporting columns never change admission or anchoring.
   const recognizedRoles = header.columns
-    .map((column) => column.role)
-    .filter((role): role is PricedScheduleColumnRole => role != null);
+    .map((column) => assemblyRole(column.role))
+    .filter((role): role is PricedScheduleAssemblyRole => role != null);
   // A row must carry the evidence a priced row is made of. With unresolved
   // semantics only the recognized structural roles (the rate spine) can be
   // required; the unrecognized column's cells stay role-less.

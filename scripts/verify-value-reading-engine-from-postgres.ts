@@ -166,9 +166,9 @@ const digestRows = () => db.runSql(`SELECT coalesce(json_agg(json_build_object('
   'invoked', provider_invoked) ORDER BY observed_at), '[]'::json) FROM public.forgewing_recovery_generation_outcomes
   WHERE organization_id = ${sqlLiteral(ORG)} AND recovery_type = 'priced_value_reading'
     AND page_representation_digest = ${sqlLiteral(PAGE_DIGEST)}`) as Array<{ code: string; request: string | null; invoked: boolean }>;
-const proposalRequest = (proposalId: string) => (db.runSql(`SELECT json_build_object('r', request_digest_sha256)
-  FROM public.forgewing_recovery_proposals WHERE proposal_id = ${sqlLiteral(proposalId)}`) as { r: string }).r;
-check(proposalRequest(proposal.proposalId) === digestRows()[0]!.request, 'the outcome and the proposal name one request digest');
+// The record function refuses an outcome citing a proposal unless both name the same request digest.
+check(digestRows()[0]!.code === 'generated_proposal' && /^[0-9a-f]{64}$/.test(digestRows()[0]!.request ?? ''),
+  'the generated outcome names its request digest');
 check(digestRows().filter((row) => ['recovery_disabled', 'activation_not_allowed', 'data_policy_not_approved'].includes(row.code))
   .every((row) => row.request === null), 'a refused request rendered nothing and names no request');
 // A region that cannot be rendered is an evidence failure before any budget: no request, no reservation.
@@ -184,8 +184,11 @@ const rerendered = await runValueReading(client, input('b45-rerendered'), { prov
   renderRegionImage: async () => ({ mediaType: 'image/png' as const, bytes: new Uint8Array([137, 80, 78, 71, 45]) }),
   resolveEligibility: eligible(5) });
 check(rerendered.status === 'completed' && rerendered.outcome.code === 'generated_proposal'
-  && rerendered.proposal && proposalRequest(rerendered.proposal.proposalId) !== proposalRequest(proposal.proposalId),
+  && rerendered.proposal && rerendered.proposal.proposalId !== proposal.proposalId,
   'new image bytes are a new request with its own proposal');
+const generated = digestRows().filter((row) => row.code === 'generated_proposal');
+check(generated.length === 2 && generated[0]!.request !== generated[1]!.request,
+  'the two readings of one line name two request digests');
 check(calls === 3 && reservations() === 3, 'and it was a real, budgeted call');
 
 // One road to truth: the operator cites the proposal through the unchanged B3 record path.

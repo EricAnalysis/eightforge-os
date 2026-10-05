@@ -202,6 +202,10 @@ export interface ContractAnalysisTrace {
 
 export interface ContractRateScheduleRow {
   header_semantics?: Readonly<{ status: 'human_selected'; candidate_id: string; review_id: string }>;
+  /** Present only for a row read under a proven header carried from an earlier page (v3). */
+  inherited_header?: Readonly<{
+    status: 'carried'; signature_digest: string; source_page: number; carried_from_page: number; continuation_page: number;
+  }>;
   row_id: string;
   description: string | null;
   unit: string | null;

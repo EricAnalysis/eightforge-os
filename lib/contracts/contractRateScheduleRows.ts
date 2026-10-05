@@ -1470,6 +1470,11 @@ function buildPagePricedScheduleRows(
       rows.push({
         row_id: rowId,
         ...(row.header_semantics ? { header_semantics: row.header_semantics } : {}),
+        ...(row.inherited_header ? { inherited_header: {
+          status: row.inherited_header.status, signature_digest: row.inherited_header.signature_digest,
+          source_page: row.inherited_header.source_page, carried_from_page: row.inherited_header.carried_from_page,
+          continuation_page: row.inherited_header.continuation_page,
+        } } : {}),
         description: descriptionCell.raw_text,
         unit: unitCell?.raw_text ?? null,
         rate,

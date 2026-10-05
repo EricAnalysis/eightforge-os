@@ -267,7 +267,41 @@ export type PricedScheduleUnresolvedRoleCell = {
   readonly y_max: number;
 };
 
+/**
+ * A proven header/layout signature: one printed, deterministically qualified
+ * header of one page, with every column (recognized or not, since unknown
+ * columns still bound their neighbours). It is reused only by the immediately
+ * following physical page, and only when that page proves compatible.
+ */
+export type PricedScheduleHeaderSignature = {
+  readonly version: 'priced_schedule_header_signature_v1';
+  /** Digest of the layout identity: ordered roles, normalized labels and bands. */
+  readonly digest: string;
+  readonly columns: readonly PricedScheduleColumnBand[];
+  readonly source_page: number;
+  readonly source_header_raw_text: string;
+  readonly source_header_observation_ids: readonly string[];
+};
+
+/** Provenance of a page or row read under a header printed on an earlier page. */
+export type PricedScheduleInheritedHeader = {
+  readonly status: 'carried';
+  readonly signature_digest: string;
+  readonly source_page: number;
+  readonly source_header_observation_ids: readonly string[];
+  /** The page the header was carried from: the source page, or the previous page in a proven chain. */
+  readonly carried_from_page: number;
+  readonly continuation_page: number;
+  readonly proof: Readonly<{
+    priced_lines: number;
+    rate_markers_in_rate_column: number;
+    rows_published: number;
+    rows_withheld: number;
+  }>;
+};
+
 export type PricedScheduleRow = {
+  readonly inherited_header?: PricedScheduleInheritedHeader;
   readonly header_semantics?: HeaderSemanticsSelection;
   readonly row_index: number;
   readonly physical_page_number: number;
@@ -392,6 +426,8 @@ export type HeaderSemanticsSelection = Readonly<{
 export type ConfirmedHeaderSelection = Readonly<{ candidate: RecoveryCandidateV2; reviewId: string }>;
 
 export type PricedSchedulePage = {
+  /** Present only when the page carries no header of its own and reused a proven one. */
+  readonly inherited_header?: PricedScheduleInheritedHeader;
   readonly header_semantics?: HeaderSemanticsSelection;
   /** Whether this qualifying page yielded usable rows or retained a failed-closed audit result. */
   readonly status?: 'reconstructed' | 'failed_closed';
@@ -1887,6 +1923,7 @@ function reconstructPage(
   generatedCandidates: RecoveryCandidateV2[] = [],
   continuationEvidence: PricedScheduleContinuationEvidence = 'row_start_anchors',
   headerSelection?: ConfirmedHeaderSelection,
+  inheritedHeader?: PricedScheduleHeaderSignature,
 ): PricedSchedulePage | null {
   // Frozen 'spacing_only' fixtures keep the legacy vocabulary verbatim.
   const vocabulary = continuationEvidence === 'spacing_only' ? LEGACY_COLUMN_ROLE_PATTERNS : COLUMN_ROLE_PATTERNS;
@@ -1895,7 +1932,12 @@ function reconstructPage(
   // Semantics resolved: every role admission needs is recognized. When false the
   // structure is reconstructed from geometry alone and published as structure only.
   let semanticsResolved = true;
-  if (headers.length === 0) {
+  if (headers.length === 0 && inheritedHeader) {
+    // A proven header carried from the previous page. Its columns are used
+    // exactly; the page's whole content sits below it.
+    const top = Math.max(page.height ?? 0, ...page.lines.flatMap((line) => line.tokens.map((token) => token.y + token.height)));
+    header = { y: top + 1, rawText: inheritedHeader.source_header_raw_text, columns: [...inheritedHeader.columns] };
+  } else if (headers.length === 0) {
     // A plausible table whose header cannot be resolved is reported with its
     // header evidence rather than disappearing.
     const unresolved = unresolvedHeaderCandidate(page, vocabulary);
@@ -2732,6 +2774,51 @@ function reconstructPage(
  * semantically a rate schedule, does not resolve column roles beyond the generic
  * vocabulary above, and does not segment a page that holds several tables.
  */
+/**
+ * The signature a reconstructed page offers to its next page: only a header
+ * printed on the page and qualified deterministically (never one a reviewer
+ * selected), or the same signature the page itself proved under.
+ */
+function headerSignatureOf(page: PricedSchedulePage): PricedScheduleHeaderSignature | null {
+  if (page.status === 'failed_closed' || page.semantic_status === 'unresolved' || page.header_semantics
+    || page.rows.length === 0 || page.inherited_header) return null;
+  const ids = page.columns.flatMap((column) => (column.header_source_refs ?? []).flatMap((ref) => ref.observation_id ? [ref.observation_id] : []));
+  return {
+    version: 'priced_schedule_header_signature_v1',
+    digest: hashCanonical({ version: 'priced_schedule_header_signature_v1', columns: page.columns.map((column) => ({
+      role: column.role, label: normalizeHeaderLabel(column.header_text), x_min: column.x_min, x_max: column.x_max })) }),
+    columns: page.columns,
+    source_page: page.physical_page_number,
+    source_header_raw_text: page.header_raw_text,
+    source_header_observation_ids: ids,
+  };
+}
+
+/**
+ * Whether a headerless page proves the carried layout: every rate marker on
+ * it falls in the carried rate column, rows are published, and no priced line
+ * is rejected for a structural reason (row-level ambiguity may still withhold
+ * rows). Any contradiction refuses the whole page: nothing is inherited partially.
+ */
+function inheritedLayoutProof(
+  page: PdfLayoutPage,
+  signature: PricedScheduleHeaderSignature,
+  result: PricedSchedulePage | null,
+): PricedScheduleInheritedHeader['proof'] | null {
+  if (!result || result.status === 'failed_closed' || result.semantic_status === 'unresolved' || result.rows.length === 0) return null;
+  const rateColumn = signature.columns.findIndex((column) => column.role === 'rate');
+  const markers = page.lines.flatMap((line) => line.tokens.filter((token) => isRowSpineToken(token)));
+  if (rateColumn < 0 || markers.some((token) => centerColumnIndexForToken(token, signature.columns) !== rateColumn)) return null;
+  const rowLevel = new Set<PricedScheduleRejectedSpineReason>(['ambiguous_row_continuation', 'ambiguous_rate_clusters']);
+  if (result.rejected_spines.some((spine) => !rowLevel.has(spine.reason))) return null;
+  return {
+    priced_lines: page.lines.filter((line) => line.tokens.some((token) => isRowSpineToken(token))).length,
+    rate_markers_in_rate_column: markers.length,
+    rows_published: result.rows.length,
+    rows_withheld: result.rejected_spines.length,
+  };
+}
+
 export function buildPagePricedScheduleReconstruction(params: {
   layout: PdfLayout;
   /**
@@ -2856,12 +2943,43 @@ export function buildPagePricedScheduleReconstruction(params: {
   const orderedPages = [...params.layout.pages].sort(
     (left, right) => left.page_number - right.page_number,
   );
+  // The proven signature the previous physical page offers, if any.
+  let carried: { signature: PricedScheduleHeaderSignature; page: number } | null = null;
   for (const page of orderedPages) {
     let reconstructed = reconstructPage(
       page, confirmed, confirmedCandidates, appliedConfirmations, appliedCandidates,
       params.recoveryCandidateBuildContext, generatedCandidates,
       params.continuationEvidence ?? 'row_start_anchors',
     );
+    // Cross-page reuse: only the immediately following page, only when it has
+    // no header candidate of its own, and only under a proof of compatibility.
+    if (!reconstructed && carried && carried.page === page.page_number - 1
+      && params.continuationEvidence !== 'spacing_only'
+      && unresolvedPricedPage(page)?.reason === 'header_not_found') {
+      // A refused attempt leaves no trace: candidates and applied sets merge only on success.
+      const scratchConfirmations = new Set(appliedConfirmations);
+      const scratchCandidates = new Set(appliedCandidates);
+      const scratchGenerated: RecoveryCandidateV2[] = [];
+      const attempt = reconstructPage(page, confirmed, confirmedCandidates, scratchConfirmations, scratchCandidates,
+        params.recoveryCandidateBuildContext, scratchGenerated, params.continuationEvidence ?? 'row_start_anchors',
+        undefined, carried.signature);
+      const proof = inheritedLayoutProof(page, carried.signature, attempt);
+      if (attempt && proof) {
+        const inherited: PricedScheduleInheritedHeader = {
+          status: 'carried', signature_digest: carried.signature.digest, source_page: carried.signature.source_page,
+          source_header_observation_ids: carried.signature.source_header_observation_ids,
+          carried_from_page: carried.page, continuation_page: page.page_number, proof,
+        };
+        reconstructed = { ...attempt, inherited_header: inherited,
+          rows: attempt.rows.map((row) => ({ ...row, inherited_header: inherited })) };
+        for (const id of scratchConfirmations) appliedConfirmations.add(id);
+        for (const id of scratchCandidates) appliedCandidates.add(id);
+        generatedCandidates.push(...scratchGenerated);
+      }
+    }
+    const offered: PricedScheduleHeaderSignature | null = reconstructed ? (reconstructed.inherited_header
+      ? (reconstructed.rows.length > 0 && carried ? carried.signature : null)
+      : headerSignatureOf(reconstructed)) : null;
     const headerSelections = (params.confirmedHeaderSelections ?? []).filter(selection =>
       selection.candidate.physicalPageNumber === page.page_number);
     const version = params.continuationEvidence === 'spacing_only'
@@ -2914,6 +3032,8 @@ export function buildPagePricedScheduleReconstruction(params: {
       const unresolved = unresolvedPricedPage(page);
       if (unresolved) unresolvedPages.push(unresolved);
     }
+    // A chain continues only through pages that proved the signature, and stops at the first break.
+    carried = offered && params.continuationEvidence !== 'spacing_only' ? { signature: offered, page: page.page_number } : null;
   }
   for (const selection of params.confirmedHeaderSelections ?? []) {
     const candidate = selection.candidate;

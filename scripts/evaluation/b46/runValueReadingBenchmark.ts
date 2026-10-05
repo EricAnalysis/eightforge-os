@@ -20,6 +20,7 @@ import { BENCHMARK_PAGES, bindBenchmarkLabels, parseBenchmarkLabels } from '@/li
 import {
   applyValueReadingAdjudications,
   decideValueReadingActivation,
+  isValueReadingDisagreement,
   readValueReadingClearance,
   VALUE_READING_ACTIVATION_BAR,
   VALUE_READING_BENCHMARK_PAGES,
@@ -29,6 +30,7 @@ import {
 } from '@/lib/evaluation/benchmark/valueReadingBenchmark';
 import {
   runValueReadingBenchmark,
+  scoredValueReadingRecords,
   VALUE_READING_BENCHMARK_CEILINGS,
   type ValueReadingBenchmarkDocument,
 } from '@/lib/evaluation/benchmark/valueReadingBenchmarkRun';
@@ -171,14 +173,8 @@ async function main(): Promise<void> {
   const adjudicationsFile = args.get('--adjudications');
   const adjudications = typeof adjudicationsFile === 'string'
     ? JSON.parse(readFileSync(adjudicationsFile, 'utf8')) as ValueReadingAdjudication[] : [];
-  const records = applyValueReadingAdjudications(result.records, adjudications);
-  const decision = result.decision && result.notRun.length === 0
-    ? decideValueReadingActivation(records.concat(result.unrendered.map((entry) => ({
-      pageKey: entry.pageKey, rowKey: entry.rowKey, outcome: 'failed' as const, fields: null,
-      evidenceClass: documents.flatMap((document) => document.targets).find((target) =>
-        target.pageKey === entry.pageKey && target.rowKey === entry.rowKey)!.evidenceClass,
-      renderMs: 0, providerMs: 0, totalMs: 0, inputTokens: 0, outputTokens: 0, usd: 0, renderDigestSha256: '', reuseEligible: false,
-    })))) : null;
+  const records = applyValueReadingAdjudications(scoredValueReadingRecords(documents, result), adjudications);
+  const decision = result.decision ? decideValueReadingActivation(records) : null;
 
   // Client material (row text, crops) stays under the gitignored local root.
   const runDirectory = path.resolve(String(args.get('--artifact-root') ?? DEFAULT_ARTIFACT_ROOT),
@@ -209,8 +205,9 @@ async function main(): Promise<void> {
   if (live) {
     const truths = new Map(documents.flatMap((document) => document.targets)
       .map((target) => [`${target.pageKey}/${target.rowKey}`, target.truth]));
-    write('disagreements.json', records.filter((record) => record.outcome === 'wrong_rate' || record.outcome === 'field_mismatch')
+    write('disagreements.json', records.filter(isValueReadingDisagreement)
       .map((record) => ({ pageKey: record.pageKey, rowKey: record.rowKey, outcome: record.outcome,
+        rateError: record.rateError, inventions: record.inventions,
         adjudication: record.adjudication ?? null, truth: truths.get(`${record.pageKey}/${record.rowKey}`),
         reading: result.readings.find((entry) => entry.pageKey === record.pageKey && entry.rowKey === record.rowKey)?.attempt })));
   }
@@ -223,9 +220,14 @@ async function main(): Promise<void> {
   }
   if (decision) {
     lines.push(`  DECISION: ${decision.decision}${decision.provisional ? ' (PROVISIONAL: disagreements await human adjudication)' : ''}`);
+    for (const failure of decision.corpusSafetyFailures) lines.push(`  CORPUS SAFETY FAILURE: ${failure}`);
     for (const summary of decision.classes) {
-      lines.push(`  ${summary.evidenceClass}: ${summary.meetsBar ? 'meets bar' : `fails: ${summary.failures.join('; ')}`}`);
+      lines.push(`  ${summary.evidenceClass}: ${summary.status}`
+        + `${summary.failures.length ? ` | fails: ${summary.failures.join('; ')}` : ''}`
+        + `${summary.shortfalls.length ? ` | shortfall: ${summary.shortfalls.join('; ')}` : ''}`);
     }
+    lines.push('  Authority invariants are proven by CI on this commit, not by this run:');
+    for (const entry of decision.authorityInvariants) lines.push(`    - ${entry.invariant} (${entry.provenBy.join(', ')})`);
   } else if (live) lines.push('  No decision: the run did not complete.');
   lines.push(`  artifacts: ${runDirectory}`);
   process.stdout.write(`${lines.join('\n')}\n`);

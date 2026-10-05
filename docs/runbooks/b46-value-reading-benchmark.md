@@ -28,28 +28,52 @@ The benchmark runs the production read path for every labelled priced row on the
 **Accuracy.** Each reading is scored against the tracked label truth:
 
 - `correct`: the rate, unit and description match, and the category matches where the page labels one. Text comparison ignores case, spacing and dash or quote variants.
-- `abstained`: an honest `unreadable`. This is never a failure.
-- `wrong_rate`: a confident value with the wrong rate. This is the unsafe outcome.
+- `abstained`: an honest `unreadable`. It is allowed, and preferred over guessing.
+- `wrong_rate`: a confident value with the wrong rate. This is the unsafe outcome, and it is further classified as either:
+  - a **wrong source-region binding**: the rate equals another amount printed on the page, such as this row's quantity or extended amount, or another row's rate; or
+  - a **critical numeric hallucination**: the rate is printed nowhere on the page.
 - `field_mismatch`: the right rate with a different unit, description or category.
-- `failed`: the provider failed, the output was invalid, or validation refused it.
+- `failed`: the provider failed (including timeouts), the output was invalid, validation refused it, or the crop could not be drawn.
 
-**Latency.** Render time, provider time and total operator wait, each as p50, with total wait also as p95.
+A reading is also flagged as an **unsupported value invention** if it reports a category on a page that has no category column, or a unit the page's unit column never prints.
 
-**Cost.** Spend per attempted reading and per correct reading, from the token counts the provider reports times confirmed prices. **Reuse rate** is the share of crops that render to the same bytes twice. A repeated ask for those is answered from the stored proposal at no cost.
+**Usefulness.** The share of *genuinely readable* targets resolved correctly. A person may rule an abstained row genuinely unreadable, which takes it out of the denominator.
 
-## Pre-registered activation bar
+**Latency.** Render time and provider time at p50; total operator wait at p50 and p95; and the timeout count.
 
-The bar is set in code (`VALUE_READING_ACTIVATION_BAR`) before any provider call. Changing it after seeing results makes a new benchmark version.
+**Cost.** Spend per attempt (per provider call) and per correct reading, computed from the provider's reported tokens and confirmed prices. **Reuse rate** is the share of crops that render to identical bytes, so that a repeat ask is answered from the stored proposal at $0.
 
-| Bar | Value |
-| --- | --- |
-| Confident wrong rates per class | **0** |
-| Correct share of all rows | at least 0.80 (abstentions are not wrong, but are not correct either) |
-| p95 operator wait | at most 8000 ms (the engine timeout) |
-| Cost per correct reading | at most $0.05 |
-| Rows per class | at least 20 |
+## Controlled-activation bar (confirmed, pre-registered)
 
-An incorrect confident value is far worse than "unreadable". A single wrong rate disqualifies its class, while abstaining only lowers the correct share.
+The bar is fixed in code (`VALUE_READING_ACTIVATION_BAR`) before any provider call. Changing it after seeing results makes a new benchmark version.
+
+| Dimension | Bar | Scope | Kind |
+| --- | --- | --- | --- |
+| Rate precision among value (non-abstained) readings | at least 99% | per class | hard |
+| Critical numeric hallucinations | 0 | whole corpus | hard |
+| Unsupported value inventions | 0 | whole corpus | hard |
+| Wrong source-region bindings | 0 | whole corpus | hard |
+| Correctly resolved, of genuinely readable targets | at least 80% | per class | **soft** |
+| Median end-to-end wait | at most 3 s | per class | hard |
+| p95 end-to-end wait | at most 8 s (the engine's timeout ceiling) | per class | hard |
+| Cost per attempted reading | at most $0.05 | per class | hard |
+| Cost per correct reading | at most $0.10 | per class | hard |
+| Crops rendering to identical bytes (repeat asks reused at $0) | 100% | per class | hard |
+| Rows per class | at least 20 | per class | hard |
+
+**Decision.**
+- **PASS:** no corpus-wide safety failure, and every class meets every bar.
+- **LIMITED PASS:** no corpus-wide safety failure, and at least one class meets every hard bar. That class's status is `qualified`, or `qualified_low_coverage` when it is below 80% coverage. Only those classes may be enabled.
+- **FAIL:** anything else.
+
+Lower coverage is accepted only when every hard bar holds. It can never reach PASS, and coverage is never bought by relaxing a hard bar. A class with no value readings at all has undefined precision and fails.
+
+**Authority and safety.** These are properties of the system, not of a reading, so this measurement does not prove them. The decision lists each invariant with the suites that prove it. Those suites must be green on the qualification commit (full-vitest and the Phase 1B Postgres regression):
+
+- 100% of readings remain AI_PROPOSED and non-authoritative until a human assertion cites them.
+- 100% of stale evidence is rejected. A reading whose page or binding moved is discarded, and a stale citation is refused.
+- 100% of rejected and deferred proposals are unpromotable, including under concurrency.
+- No Core, canonical or Validator path consumes an AI proposal directly.
 
 ## Before any real call: transmission clearance
 
@@ -81,7 +105,12 @@ The corpus is client material. It stays outside the repository and is located th
    - Hard ceilings are 100 calls and $3. `--max-calls` and `--max-spend-usd` may lower them, never raise them.
    - The full run is 85 calls. At `claude-sonnet-4-6` prices ($3 / $15 per MTok) and about 1.6k input and 100 output tokens per crop, that is roughly $0.50.
    - A run stopped by a ceiling is not decided.
-3. **Adjudicate.** A live run writes `disagreements.json` with each label, what was read, and the crop digest. A person rules on each one in a file of `{ pageKey, rowKey, verdict: "label_correct" | "reading_correct" }`, then re-scores with `--adjudications <file>`. While any disagreement is unruled, the decision is reported as **PROVISIONAL**.
+3. **Adjudicate.** A live run writes `disagreements.json`. It lists every wrong rate, field mismatch and invention, with the label, what was read, and the classification. A person rules in a file of `{ pageKey, rowKey, verdict }` entries:
+   - `label_correct`: the reading was wrong.
+   - `reading_correct`: the label was wrong. The row is scored correct.
+   - `target_unreadable`: for abstentions only. The crop is genuinely unreadable, so the row leaves the coverage denominator.
+
+   Re-score with `--adjudications <file>`. While any disagreement is unruled, the decision is **PROVISIONAL**.
 
 Artifacts are written to `scripts/evaluation/artifacts/b46/local/<timestamp>/`, which is gitignored because row text and readings are client material. The `summary.json` there holds aggregates, pins and the decision. It can be committed once reviewed.
 

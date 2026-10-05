@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 import { describe, expect, it } from 'vitest';
 
@@ -11,9 +11,11 @@ import {
   readValueReadingClearance,
   scoreValueReading,
   VALUE_READING_ACTIVATION_BAR,
+  VALUE_READING_AUTHORITY_INVARIANTS,
   VALUE_READING_BENCHMARK_PAGES,
   valueReadingBenchmarkTargets,
   type ValueReadingBenchmarkRecord,
+  type ValueReadingBenchmarkTarget,
 } from '@/lib/evaluation/benchmark/valueReadingBenchmark';
 
 const labels = (pageKey: string) =>
@@ -55,97 +57,171 @@ describe('B4.6 value-reading targets from tracked truth', () => {
   });
 });
 
-describe('B4.6 scoring: a confident wrong rate is the unsafe outcome', () => {
-  const truth = { description: 'Debris removal', unit: 'CY', rate: 14.5, category: null };
+describe('B4.6 scoring: a confident wrong value is the unsafe outcome', () => {
+  const target: ValueReadingBenchmarkTarget = {
+    pageKey: 'dn-p107', evidenceClass: 'dense_scanned_ocr_priced_schedule', rowKey: 'r', boxes: [],
+    truth: { description: 'Vegetative Debris Removal', unit: 'CY', rate: 38, category: null },
+    // This row's quantity and extended amount, and another row's rate.
+    otherPageAmounts: [7500, 285000, 24], pageUnits: ['cy', 'ton', 'ea'], pageHasCategory: false,
+  };
   const value = (overrides: Partial<{ description: string; unit_type: string; rate_amount: number; category: string | null }>) => ({
-    kind: 'value' as const, rateRow: { description: 'Debris removal', unit_type: 'CY', rate_amount: 14.5, category: null, ...overrides } });
+    kind: 'value' as const, rateRow: { description: 'Vegetative Debris Removal', unit_type: 'CY', rate_amount: 38, category: null,
+      ...overrides } });
 
   it('separates correct, abstained, wrong rate, field mismatch and failure', () => {
-    expect(scoreValueReading(truth, value({})).outcome).toBe('correct');
-    expect(scoreValueReading(truth, value({ rate_amount: 14.50000 })).outcome).toBe('correct');
-    expect(scoreValueReading(truth, { kind: 'unreadable' })).toEqual({ outcome: 'abstained', fields: null });
-    expect(scoreValueReading(truth, value({ rate_amount: 145 })).outcome).toBe('wrong_rate');
-    expect(scoreValueReading(truth, value({ unit_type: 'TON' })).outcome).toBe('field_mismatch');
-    expect(scoreValueReading(truth, { kind: 'failed', code: 'provider_failed', reason: 'provider_timeout' }).outcome).toBe('failed');
-    // A wrong rate is wrong whatever else matches.
-    expect(scoreValueReading(truth, value({ rate_amount: 14.05, unit_type: 'CY' })).outcome).toBe('wrong_rate');
+    expect(scoreValueReading(target, value({}))).toEqual({ outcome: 'correct',
+      fields: { rate: true, unit: true, description: true, category: null }, rateError: null, inventions: [] });
+    expect(scoreValueReading(target, value({ rate_amount: 38.0 })).outcome).toBe('correct');
+    expect(scoreValueReading(target, { kind: 'unreadable' })).toMatchObject({ outcome: 'abstained', fields: null });
+    expect(scoreValueReading(target, value({ unit_type: 'TON' })).outcome).toBe('field_mismatch');
+    expect(scoreValueReading(target, { kind: 'failed', code: 'provider_failed', reason: 'provider_timeout' }).outcome).toBe('failed');
+  });
+
+  it('tells a wrong source-region binding from a critical hallucination', () => {
+    // The extended amount, the quantity, or a neighbouring row: read from the wrong place on the page.
+    for (const misread of [285000, 7500, 24]) {
+      expect(scoreValueReading(target, value({ rate_amount: misread }))).toMatchObject({ outcome: 'wrong_rate', rateError: 'wrong_binding' });
+    }
+    // A number the page never prints.
+    expect(scoreValueReading(target, value({ rate_amount: 83 }))).toMatchObject({ outcome: 'wrong_rate', rateError: 'critical_hallucination' });
+  });
+
+  it('flags a category or unit the page does not show as an unsupported invention, even beside a correct rate', () => {
+    expect(scoreValueReading(target, value({ category: 'Roadway items' }))).toMatchObject({ outcome: 'correct', inventions: ['category'] });
+    expect(scoreValueReading(target, value({ unit_type: 'Cubic Yard' }))).toMatchObject({ outcome: 'field_mismatch', inventions: ['unit'] });
+    // A unit printed elsewhere on the page is a mismatch, not an invention.
+    expect(scoreValueReading(target, value({ unit_type: 'TON' })).inventions).toEqual([]);
   });
 
   it('scores the category only where the page labels one', () => {
-    const withCategory = { ...truth, category: 'Vegetative' };
+    const withCategory = { ...target, truth: { ...target.truth, category: 'Vegetative' }, pageHasCategory: true };
     expect(scoreValueReading(withCategory, value({ category: 'vegetative' })).fields?.category).toBe(true);
     expect(scoreValueReading(withCategory, value({ category: null })).outcome).toBe('field_mismatch');
-    expect(scoreValueReading(truth, value({ category: 'anything' })).fields?.category).toBeNull();
+  });
+
+  it('derives binding and invention context from the real labels', () => {
+    const dn = valueReadingBenchmarkTargets(labels('dn-p107'), page('dn-p107')).targets[0]!;
+    expect(dn.otherPageAmounts).toEqual(expect.arrayContaining([7500, 285000, 24]));
+    expect(dn.otherPageAmounts).not.toContain(undefined);
+    expect(dn.pageUnits).toEqual(expect.arrayContaining(['cy', 'ton', 'ea']));
+    expect(dn.pageHasCategory).toBe(false);
+    expect(valueReadingBenchmarkTargets(labels('golden-p8'), page('golden-p8')).targets[0]!.pageHasCategory).toBe(true);
   });
 });
 
 const record = (overrides: Partial<ValueReadingBenchmarkRecord>): ValueReadingBenchmarkRecord => ({
   pageKey: 'golden-p8', evidenceClass: 'ocr_price_sheet', rowKey: 'r', outcome: 'correct',
-  fields: { rate: true, unit: true, description: true, category: null },
+  fields: { rate: true, unit: true, description: true, category: null }, rateError: null, inventions: [],
+  providerCalled: true, failureReason: null,
   renderMs: 100, providerMs: 2000, totalMs: 2100, inputTokens: 1500, outputTokens: 80, usd: 0.006,
   renderDigestSha256: 'a'.repeat(64), reuseEligible: true, ...overrides,
 });
 const rows = (count: number, overrides: Partial<ValueReadingBenchmarkRecord> = {}) =>
   Array.from({ length: count }, (_, index) => record({ rowKey: `r-${index}`, ...overrides }));
+const dnRows = (count: number, overrides: Partial<ValueReadingBenchmarkRecord> = {}) =>
+  rows(count, { pageKey: 'dn-p107', evidenceClass: 'dense_scanned_ocr_priced_schedule', ...overrides });
+const abstained = { outcome: 'abstained' as const, fields: null };
 
-describe('B4.6 pre-registered activation decision', () => {
-  it('is conservative by construction', () => {
-    expect(VALUE_READING_ACTIVATION_BAR).toEqual({ maxWrongRateReadings: 0, minCorrectShare: 0.8,
-      maxP95TotalLatencyMs: 8000, maxUsdPerCorrectReading: 0.05, minRowsPerClass: 20 });
+describe('B4.6 controlled-activation bar', () => {
+  it('is the confirmed bar', () => {
+    expect(VALUE_READING_ACTIVATION_BAR).toEqual({
+      minRatePrecision: 0.99, maxCriticalHallucinations: 0, maxUnsupportedInventions: 0, maxWrongBindings: 0,
+      minResolvedShareOfReadable: 0.8, maxP50TotalLatencyMs: 3000, maxP95TotalLatencyMs: 8000,
+      maxUsdPerAttempt: 0.05, maxUsdPerCorrect: 0.1, minReuseRate: 1, minRowsPerClass: 20 });
   });
 
-  it('PASS only when every evidence class meets every bar', () => {
-    const result = decideValueReadingActivation([
-      ...rows(30),
-      ...rows(20, { pageKey: 'dn-p107', evidenceClass: 'dense_scanned_ocr_priced_schedule' }),
-    ]);
-    expect(result).toMatchObject({ decision: 'PASS', provisional: false,
-      qualifiedClasses: ['ocr_price_sheet', 'dense_scanned_ocr_priced_schedule'] });
+  it('PASS when every class meets every bar at full coverage, with the authority invariants attached', () => {
+    const result = decideValueReadingActivation([...rows(30), ...dnRows(20)]);
+    expect(result).toMatchObject({ decision: 'PASS', provisional: false, corpusSafetyFailures: [],
+      qualifiedClasses: [{ evidenceClass: 'ocr_price_sheet', status: 'qualified' },
+        { evidenceClass: 'dense_scanned_ocr_priced_schedule', status: 'qualified' }] });
+    expect(result.authorityInvariants.map((entry) => entry.invariant)).toHaveLength(4);
   });
 
-  it('rewards honest abstention and disqualifies a class for one confident wrong rate', () => {
-    // 20% abstention still meets the bar.
-    const honest = [...rows(24), ...rows(6, { outcome: 'abstained', fields: null, usd: 0.006 })];
-    const dn = rows(20, { pageKey: 'dn-p107', evidenceClass: 'dense_scanned_ocr_priced_schedule' });
-    expect(decideValueReadingActivation([...honest, ...dn]).decision).toBe('PASS');
-    // One wrong rate in the dense class leaves only the price-sheet class qualified.
-    const wrong = [...dn.slice(1), record({ pageKey: 'dn-p107', evidenceClass: 'dense_scanned_ocr_priced_schedule',
-      rowKey: 'bad', outcome: 'wrong_rate', fields: { rate: false, unit: true, description: true, category: null } })];
-    const limited = decideValueReadingActivation([...honest, ...wrong]);
-    expect(limited).toMatchObject({ decision: 'LIMITED_PASS', qualifiedClasses: ['ocr_price_sheet'], provisional: true });
-    expect(limited.classes[1]!.failures).toContain('1 confident wrong rate(s); at most 0 allowed');
+  it('prefers abstention: unreadable never hurts precision, only coverage, and low coverage is at most a LIMITED PASS', () => {
+    // 24 correct + 6 honest abstentions: 80% resolved, still a full qualification.
+    expect(decideValueReadingActivation([...rows(24), ...rows(6, abstained), ...dnRows(20)]).decision).toBe('PASS');
+    // Heavy abstention with perfect precision: qualified at low coverage, never PASS.
+    const cautious = decideValueReadingActivation([...rows(15), ...rows(15, abstained), ...dnRows(20)]);
+    expect(cautious).toMatchObject({ decision: 'LIMITED_PASS', qualifiedClasses: [
+      { evidenceClass: 'ocr_price_sheet', status: 'qualified_low_coverage' },
+      { evidenceClass: 'dense_scanned_ocr_priced_schedule', status: 'qualified' }] });
+    expect(cautious.classes[0]!.accuracy.ratePrecision).toBe(1);
+    // A human confirming the abstentions genuinely unreadable takes them out of the denominator.
+    const ruledUnreadable = [...rows(15), ...rows(15, abstained).map((entry, index) => ({ ...entry, rowKey: `a-${index}` })), ...dnRows(20)];
+    const allConfirmed = applyValueReadingAdjudications(ruledUnreadable,
+      Array.from({ length: 15 }, (_, index) => ({ pageKey: 'golden-p8', rowKey: `a-${index}`, verdict: 'target_unreadable' as const })));
+    expect(decideValueReadingActivation(allConfirmed)).toMatchObject({ decision: 'PASS' });
+    expect(decideValueReadingActivation(allConfirmed).classes[0]!.usefulness).toMatchObject({ readableTargets: 15, confirmedUnreadable: 15 });
   });
 
-  it('fails on latency, cost, too few correct rows, or too few rows', () => {
-    const dn = rows(20, { pageKey: 'dn-p107', evidenceClass: 'dense_scanned_ocr_priced_schedule' });
-    for (const bad of [
-      rows(30, { totalMs: 9000 }),
-      rows(30, { usd: 0.2 }),
-      [...rows(20), ...rows(10, { outcome: 'failed', fields: null })],
-      rows(10),
+  it('fails the whole corpus on one hallucination, invention or wrong binding, wherever it occurs', () => {
+    for (const unsafe of [
+      { outcome: 'wrong_rate' as const, rateError: 'critical_hallucination' as const, fields: { rate: false, unit: true, description: true, category: null } },
+      { outcome: 'wrong_rate' as const, rateError: 'wrong_binding' as const, fields: { rate: false, unit: true, description: true, category: null } },
+      { inventions: ['category' as const] },
     ]) {
-      expect(decideValueReadingActivation([...bad, ...dn]).qualifiedClasses).toEqual(['dense_scanned_ocr_priced_schedule']);
+      const result = decideValueReadingActivation([...rows(30), ...dnRows(19), ...dnRows(1, { rowKey: 'bad', ...unsafe })]);
+      expect(result).toMatchObject({ decision: 'FAIL', qualifiedClasses: [], provisional: true });
+      expect(result.corpusSafetyFailures).toHaveLength(1);
     }
-    expect(decideValueReadingActivation(rows(30, { outcome: 'abstained', fields: null })).decision).toBe('FAIL');
+  });
+
+  it('enforces rate precision of at least 99% among value readings', () => {
+    // 1 wrong in 50 value readings is 98%: fails, and the wrong rate is also a corpus safety failure.
+    const result = decideValueReadingActivation([...rows(49), ...rows(1, { rowKey: 'w', outcome: 'wrong_rate',
+      rateError: 'wrong_binding', fields: { rate: false, unit: true, description: true, category: null } }), ...dnRows(20)]);
+    expect(result.classes[0]!.failures.join(' ')).toContain('rate precision 0.9800');
+    // All abstentions: precision undefined, so nothing qualifies.
+    expect(decideValueReadingActivation(rows(30, abstained)).decision).toBe('FAIL');
+  });
+
+  it('enforces median and p95 wait, cost per attempt and per correct reading, reuse, and class size', () => {
+    for (const [bad, expected] of [
+      [rows(30, { totalMs: 3500 }), 'median wait'],
+      [[...rows(27), ...rows(3, { totalMs: 9000 })], 'p95 wait'],
+      [rows(30, { usd: 0.06 }), 'cost per attempt'],
+      // $0.045 an attempt is within budget, but 12 correct of 30 makes $0.1125 per correct reading.
+      [[...rows(12), ...rows(18, { outcome: 'failed', fields: null }).map((entry, index) => ({ ...entry, rowKey: `f-${index}` }))]
+        .map((entry) => ({ ...entry, usd: 0.045 })), 'cost per correct reading'],
+      [[...rows(29), record({ rowKey: 'x', reuseEligible: false })], 'reuse rate'],
+      [rows(10), 'only 10 rows'],
+    ] as const) {
+      const result = decideValueReadingActivation([...bad, ...dnRows(20)]);
+      expect(result.qualifiedClasses.map((entry) => entry.evidenceClass)).toEqual(['dense_scanned_ocr_priced_schedule']);
+      expect(result.classes[0]!.failures.join(' ')).toContain(expected);
+    }
   });
 
   it('turns a disagreement into a correct reading only on a human ruling, and stays provisional until ruled', () => {
-    const disputed = record({ rowKey: 'd', outcome: 'wrong_rate', fields: { rate: false, unit: true, description: true, category: null } });
-    const base = [...rows(29), disputed];
+    const disputed = record({ rowKey: 'd', outcome: 'wrong_rate', rateError: 'critical_hallucination',
+      fields: { rate: false, unit: true, description: true, category: null } });
+    const base = [...rows(29), disputed, ...dnRows(20)];
     expect(decideValueReadingActivation(base)).toMatchObject({ decision: 'FAIL', provisional: true });
-    const ruledForReading = applyValueReadingAdjudications(base, [{ pageKey: 'golden-p8', rowKey: 'd', verdict: 'reading_correct' }]);
-    expect(decideValueReadingActivation(ruledForReading)).toMatchObject({ decision: 'PASS', provisional: false });
-    expect(ruledForReading.at(-1)).toMatchObject({ outcome: 'correct', adjudication: 'reading_correct' });
-    const ruledForLabel = applyValueReadingAdjudications(base, [{ pageKey: 'golden-p8', rowKey: 'd', verdict: 'label_correct' }]);
-    expect(decideValueReadingActivation(ruledForLabel)).toMatchObject({ decision: 'FAIL', provisional: false });
+    const forReading = applyValueReadingAdjudications(base, [{ pageKey: 'golden-p8', rowKey: 'd', verdict: 'reading_correct' }]);
+    expect(decideValueReadingActivation(forReading)).toMatchObject({ decision: 'PASS', provisional: false });
+    expect(forReading[29]).toMatchObject({ outcome: 'correct', rateError: null, adjudication: 'reading_correct' });
+    const forLabel = applyValueReadingAdjudications(base, [{ pageKey: 'golden-p8', rowKey: 'd', verdict: 'label_correct' }]);
+    expect(decideValueReadingActivation(forLabel)).toMatchObject({ decision: 'FAIL', provisional: false });
+    // "Genuinely unreadable" cannot excuse a value reading.
+    expect(applyValueReadingAdjudications([disputed], [{ pageKey: 'golden-p8', rowKey: 'd', verdict: 'target_unreadable' }])[0])
+      .not.toHaveProperty('adjudication');
   });
 
-  it('reports latency, cost per attempt and per correct reading, and the reuse rate', () => {
-    const summary = decideValueReadingActivation([...rows(29), record({ rowKey: 'x', reuseEligible: false })]).overall;
-    expect(summary.latencyMs).toEqual({ renderP50: 100, providerP50: 2000, totalP50: 2100, totalP95: 2100 });
-    expect(summary.cost.usdPerCorrect).toBeCloseTo(0.006);
+  it('reports latency, timeouts, cost per attempt and per correct reading, and reuse', () => {
+    const summary = decideValueReadingActivation([...rows(29),
+      record({ rowKey: 'x', outcome: 'failed', fields: null, failureReason: 'provider_timeout' })]).overall;
+    expect(summary.latencyMs).toMatchObject({ renderP50: 100, providerP50: 2000, totalP50: 2100, totalP95: 2100, timeouts: 1 });
+    expect(summary.cost.attempts).toBe(30);
     expect(summary.cost.usdPerAttempt).toBeCloseTo(0.006);
-    expect(summary.reuseRate).toBeCloseTo(29 / 30);
+    expect(summary.cost.usdPerCorrect).toBeCloseTo((30 * 0.006) / 29);
+    expect(summary.cost.reuseRate).toBe(1);
+  });
+
+  it('names the suites that prove every authority invariant, and they exist', () => {
+    for (const entry of VALUE_READING_AUTHORITY_INVARIANTS) {
+      for (const file of entry.provenBy) expect(existsSync(file), file).toBe(true);
+    }
   });
 });
 

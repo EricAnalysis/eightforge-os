@@ -84,7 +84,7 @@ describe('B4.6 benchmark run: measurement', () => {
     expect(result.calls).toBe(24);
     expect(result.records.every((record) => record.outcome === 'correct')).toBe(true);
     expect(result.spendUsd).toBeCloseTo(24 * (1600 * 3 + 90 * 15) / 1e6);
-    expect(result.decision?.classes[0]).toMatchObject({ evidenceClass: 'ocr_price_sheet', rows: 24, meetsBar: true });
+    expect(result.decision?.classes[0]).toMatchObject({ evidenceClass: 'ocr_price_sheet', rows: 24, status: 'qualified' });
     // Only the image is sent: no text excerpts, the production request shape.
     expect(read.mock.calls[0]![0]).toMatchObject({ textExcerpts: null, model: 'claude-sonnet-4-6', timeoutMs: 8000,
       outputSchemaVersion: 'value_reading_output_v2' });
@@ -97,7 +97,11 @@ describe('B4.6 benchmark run: measurement', () => {
         : index === 2 ? 'not json' : answer(goldenTargets[index]!));
     const result = await runValueReadingBenchmark(input);
     expect(result.records.slice(0, 3).map((record) => record.outcome)).toEqual(['abstained', 'wrong_rate', 'failed']);
-    expect(result.decision?.classes[0]!.failures).toContain('1 confident wrong rate(s); at most 0 allowed');
+    // $79 is printed nowhere on the page: a critical hallucination, which fails the whole corpus.
+    expect(result.records[1]).toMatchObject({ rateError: 'critical_hallucination', providerCalled: true });
+    expect(result.records[2]).toMatchObject({ failureReason: 'invalid_json' });
+    expect(result.decision).toMatchObject({ decision: 'FAIL', provisional: true,
+      corpusSafetyFailures: ['1 critical numeric hallucination(s) on the qualification corpus'] });
   });
 
   it('stops at the call ceiling and leaves an incomplete run undecided', async () => {

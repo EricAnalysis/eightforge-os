@@ -10,29 +10,64 @@ import type { CanonicalBox } from '@/lib/extraction/geometry/canonicalPageFrame'
  *
  * The question it answers: can visual reading read unresolved pricing cells
  * accurately enough, fast enough and cheaply enough to justify controlled
- * activation? A confident wrong rate is far worse than an honest
- * "unreadable", so abstention is never scored as a failure, and one wrong rate
- * disqualifies its evidence class.
+ * activation? A confident wrong value is far worse than an honest
+ * "unreadable": abstention is allowed and preferred over guessing, and a single
+ * hallucinated, invented or misbound value fails the run.
  */
 
 export const VALUE_READING_BENCHMARK_VERSION = 'value-reading-benchmark-v1' as const;
 
 /**
- * Pre-registered before any provider call. Changing a threshold after seeing
- * results is a new benchmark version, not a re-scoring.
+ * The controlled-activation bar, pre-registered before any provider call.
+ * Changing a threshold after seeing results is a new benchmark version, not a
+ * re-scoring.
+ *
+ * Hard bars disqualify. The three zero-tolerance safety bars (critical
+ * hallucinations, unsupported inventions, wrong source-region bindings) apply
+ * to the whole qualification corpus: one occurrence anywhere fails the run.
+ * Everything else applies per evidence class. Coverage is the only soft bar:
+ * a class that meets every hard bar but resolves fewer than 80% of its
+ * readable targets qualifies with low coverage (at most a LIMITED PASS); its
+ * coverage is never improved by lowering the trust bar.
  */
 export const VALUE_READING_ACTIVATION_BAR = Object.freeze({
-  /** Confident wrong rates tolerated per evidence class, after adjudication. */
-  maxWrongRateReadings: 0,
-  /** Fully correct rows (rate, unit, description, category) over all target rows. */
-  minCorrectShare: 0.8,
-  /** Render plus provider, the operator's wait. The engine itself times out at 8 s. */
+  /** Correct rates among non-abstained (value) readings. */
+  minRatePrecision: 0.99,
+  /** A confident rate that matches no amount printed anywhere on the page. Corpus-wide. */
+  maxCriticalHallucinations: 0,
+  /** A category or unit the page does not show. Corpus-wide. */
+  maxUnsupportedInventions: 0,
+  /** A confident rate read from another cell or row of the page. Corpus-wide. */
+  maxWrongBindings: 0,
+  /** Soft: correct readings over genuinely readable targets. */
+  minResolvedShareOfReadable: 0.8,
+  /** Render plus provider: the operator's wait. Within the engine's 8 s timeout. */
+  maxP50TotalLatencyMs: 3000,
   maxP95TotalLatencyMs: 8000,
-  /** Total spend over correct readings. */
-  maxUsdPerCorrectReading: 0.05,
+  /** Spend over provider calls, and over correct readings. */
+  maxUsdPerAttempt: 0.05,
+  maxUsdPerCorrect: 0.1,
+  /** Every crop must render to the same bytes, so a repeat ask is reused at $0. */
+  minReuseRate: 1,
   /** Fewer rows than this cannot qualify a class. */
   minRowsPerClass: 20,
 });
+
+/**
+ * Authority and safety are properties of the system, not of a reading. They are
+ * proven by these suites on the qualification commit (full-vitest and the
+ * Phase 1B Postgres regression), never by this measurement.
+ */
+export const VALUE_READING_AUTHORITY_INVARIANTS = Object.freeze([
+  { invariant: 'Every reading remains AI_PROPOSED and non-authoritative until a human assertion cites it',
+    provenBy: ['scripts/sql/verify-forgewing-value-reading.sql', 'lib/architecture/forgewingValueReadingBoundaries.test.ts'] },
+  { invariant: 'Stale evidence is rejected: a reading whose page or binding moved is discarded, and a stale citation is refused',
+    provenBy: ['lib/server/valueReadingEngine.test.ts', 'scripts/sql/verify-forgewing-value-reading.sql'] },
+  { invariant: 'Rejected and deferred proposals can never be promoted, including under concurrency',
+    provenBy: ['scripts/sql/verify-forgewing-value-reading.sql', 'scripts/verify-value-reading-disposition-concurrency.ts'] },
+  { invariant: 'No Core, canonical or Validator path consumes an AI proposal directly',
+    provenBy: ['lib/architecture/forgewingValueReadingBoundaries.test.ts', 'lib/architecture/importBoundaries.test.ts'] },
+] as const);
 
 /** Which labelled columns carry each field on each benchmark page. */
 export const VALUE_READING_BENCHMARK_PAGES = [
@@ -62,6 +97,12 @@ export type ValueReadingBenchmarkTarget = Readonly<{
   truth: ValueReadingTruth;
   /** The row's labelled cells: what the crop is drawn from. */
   boxes: readonly CanonicalBox[];
+  /** Every other amount printed on the page (this row's other cells and all other rows): a rate read from one is a wrong binding. */
+  otherPageAmounts: readonly number[];
+  /** Every unit the page's unit column shows, in comparison form. */
+  pageUnits: readonly string[];
+  /** Whether the page has a category column at all. */
+  pageHasCategory: boolean;
 }>;
 
 /** "$ 1,250.50" -> 1250.5. Anything that is not plainly one amount is null. */
@@ -92,6 +133,13 @@ export function valueReadingBenchmarkTargets(labels: BenchmarkPageLabels, page: 
     throw new Error(`${page.pageKey}: cells and rows must be labelled`);
   }
   const cells = new Map((labels.cells.items ?? []).map((cell) => [cell.labelId, cell]));
+  const body = (labels.cells.items ?? []).filter((cell) => !cell.isHeader);
+  const pageAmounts = body.flatMap((cell) => {
+    const amount = parseLabelRate(cell.text);
+    return amount === null ? [] : [{ labelId: cell.labelId, amount }];
+  });
+  const pageUnits = [...new Set(body.filter((cell) => cell.columnName === page.columns.unit)
+    .map((cell) => normalizeReadingText(cell.text)))];
   const targets: ValueReadingBenchmarkTarget[] = [];
   const skipped: { rowKey: string; reason: string }[] = [];
   for (const row of labels.rows.items ?? []) {
@@ -118,6 +166,7 @@ export function valueReadingBenchmarkTargets(labels: BenchmarkPageLabels, page: 
       skipped.push({ rowKey: row.rowKey, reason: 'not a priced row (description, unit and rate each exactly once)' });
       continue;
     }
+    const rateCell = present.find((cell) => cell.columnName === page.columns.rate)!;
     const amount = parseLabelRate(rate.text);
     if (amount === null) {
       skipped.push({ rowKey: row.rowKey, reason: `rate cell is not one amount: ${rate.text}` });
@@ -130,6 +179,9 @@ export function valueReadingBenchmarkTargets(labels: BenchmarkPageLabels, page: 
       truth: { description: description.text, unit: unit.text, rate: amount, category: category.text },
       boxes: present.map((cell) => ({ coordinate_space: 'canonical_v1' as const, x_min: cell.box.x_min,
         x_max: cell.box.x_max, y_min: cell.box.y_min, y_max: cell.box.y_max })),
+      otherPageAmounts: pageAmounts.filter((entry) => entry.labelId !== rateCell.labelId).map((entry) => entry.amount),
+      pageUnits,
+      pageHasCategory: page.columns.category !== null,
     });
   }
   return { targets, skipped };
@@ -143,31 +195,48 @@ export type ValueReadingAttempt =
 
 /**
  * - correct: rate, unit, description and (where labelled) category all match.
- * - abstained: an honest "unreadable". Not wrong, not useful.
+ * - abstained: an honest "unreadable". Allowed, and preferred over a guess.
  * - wrong_rate: a confident value whose rate is not the page's. The unsafe outcome.
  * - field_mismatch: the right rate with a different unit, description or category.
  * - failed: no usable answer (provider, output or validation failure).
  */
 export type ValueReadingOutcome = 'correct' | 'abstained' | 'wrong_rate' | 'field_mismatch' | 'failed';
 
+/** Why a confident rate is wrong: read from elsewhere on the page, or printed nowhere at all. */
+export type ValueReadingRateError = 'wrong_binding' | 'critical_hallucination';
+
 export type ValueReadingScore = Readonly<{
   outcome: ValueReadingOutcome;
   fields: Readonly<{ rate: boolean; unit: boolean; description: boolean; category: boolean | null }> | null;
+  rateError: ValueReadingRateError | null;
+  /** Values the page does not show: a category where it has none, or a unit its unit column never prints. */
+  inventions: readonly ('category' | 'unit')[];
 }>;
 
-export function scoreValueReading(truth: ValueReadingTruth, attempt: ValueReadingAttempt): ValueReadingScore {
-  if (attempt.kind === 'unreadable') return { outcome: 'abstained', fields: null };
-  if (attempt.kind === 'failed') return { outcome: 'failed', fields: null };
+const sameAmount = (left: number, right: number) => Math.round(left * 1e6) === Math.round(right * 1e6);
+
+export function scoreValueReading(target: ValueReadingBenchmarkTarget, attempt: ValueReadingAttempt): ValueReadingScore {
+  if (attempt.kind === 'unreadable') return { outcome: 'abstained', fields: null, rateError: null, inventions: [] };
+  if (attempt.kind === 'failed') return { outcome: 'failed', fields: null, rateError: null, inventions: [] };
+  const { truth } = target;
   const read = attempt.rateRow;
   const fields = {
-    rate: Math.round(read.rate_amount * 1e6) === Math.round(truth.rate * 1e6),
+    rate: sameAmount(read.rate_amount, truth.rate),
     unit: normalizeReadingText(read.unit_type) === normalizeReadingText(truth.unit),
     description: normalizeReadingText(read.description) === normalizeReadingText(truth.description),
     category: truth.category === null ? null
       : normalizeReadingText(read.category ?? '') === normalizeReadingText(truth.category),
   };
-  if (!fields.rate) return { outcome: 'wrong_rate', fields };
-  return { outcome: fields.unit && fields.description && fields.category !== false ? 'correct' : 'field_mismatch', fields };
+  const inventions: ('category' | 'unit')[] = [];
+  if (!target.pageHasCategory && (read.category ?? '').trim()) inventions.push('category');
+  if (!target.pageUnits.includes(normalizeReadingText(read.unit_type))) inventions.push('unit');
+  if (!fields.rate) {
+    const rateError = target.otherPageAmounts.some((amount) => sameAmount(amount, read.rate_amount))
+      ? 'wrong_binding' : 'critical_hallucination';
+    return { outcome: 'wrong_rate', fields, rateError, inventions };
+  }
+  return { outcome: fields.unit && fields.description && fields.category !== false ? 'correct' : 'field_mismatch',
+    fields, rateError: null, inventions };
 }
 
 /** One measured reading. Times in milliseconds; spend in US dollars. */
@@ -177,6 +246,12 @@ export type ValueReadingBenchmarkRecord = Readonly<{
   rowKey: string;
   outcome: ValueReadingOutcome;
   fields: ValueReadingScore['fields'];
+  rateError: ValueReadingRateError | null;
+  inventions: ValueReadingScore['inventions'];
+  /** Whether a provider call was made for this row (an attempt). */
+  providerCalled: boolean;
+  /** For failed readings: why (for example provider_timeout). */
+  failureReason: string | null;
   renderMs: number;
   providerMs: number;
   totalMs: number;
@@ -187,13 +262,22 @@ export type ValueReadingBenchmarkRecord = Readonly<{
   /** A second render produced the same bytes, so a repeat ask is answered from the stored proposal at no cost. */
   reuseEligible: boolean;
   /**
-   * A human ruling on a disagreement with the labels. `reading_correct` means
-   * the label was wrong: the record is scored as correct and stays listed.
+   * A human ruling. On a disagreement with the labels, `reading_correct` means
+   * the label was wrong: the record is scored correct and stays listed. On an
+   * abstention, `target_unreadable` confirms the crop is genuinely unreadable:
+   * the row leaves the readable-target denominator and still counts as an
+   * honest abstention.
    */
-  adjudication?: 'label_correct' | 'reading_correct';
+  adjudication?: ValueReadingVerdict;
 }>;
 
-export type ValueReadingAdjudication = Readonly<{ pageKey: string; rowKey: string; verdict: 'label_correct' | 'reading_correct' }>;
+export type ValueReadingVerdict = 'label_correct' | 'reading_correct' | 'target_unreadable';
+export type ValueReadingAdjudication = Readonly<{ pageKey: string; rowKey: string; verdict: ValueReadingVerdict }>;
+
+/** A record that disagrees with the labels or the page: what a human must rule on. */
+export function isValueReadingDisagreement(record: ValueReadingBenchmarkRecord): boolean {
+  return record.outcome === 'wrong_rate' || record.outcome === 'field_mismatch' || record.inventions.length > 0;
+}
 
 /** Applies human rulings on disagreements. The labels are dual-AI truth, so a disagreement may be a label error. */
 export function applyValueReadingAdjudications(
@@ -202,12 +286,18 @@ export function applyValueReadingAdjudications(
 ): readonly ValueReadingBenchmarkRecord[] {
   const rulings = new Map(adjudications.map((entry) => [`${entry.pageKey}/${entry.rowKey}`, entry.verdict]));
   return records.map((record) => {
-    const disagreement = record.outcome === 'wrong_rate' || record.outcome === 'field_mismatch';
-    const verdict = disagreement ? rulings.get(`${record.pageKey}/${record.rowKey}`) : undefined;
+    const verdict = rulings.get(`${record.pageKey}/${record.rowKey}`);
     if (!verdict) return record;
-    return verdict === 'reading_correct'
-      ? { ...record, outcome: 'correct' as const, adjudication: verdict }
-      : { ...record, adjudication: verdict };
+    if (verdict === 'target_unreadable') {
+      // Only an abstention can be confirmed unreadable: a value reading of an unreadable crop is still a value reading.
+      return record.outcome === 'abstained' ? { ...record, adjudication: verdict } : record;
+    }
+    if (!isValueReadingDisagreement(record)) return record;
+    if (verdict === 'label_correct') return { ...record, adjudication: verdict };
+    // The label was wrong and the reading right: every field the reading reported is correct.
+    const fields = record.fields
+      ? { rate: true, unit: true, description: true, category: record.fields.category === null ? null : true } : null;
+    return { ...record, outcome: 'correct' as const, fields, rateError: null, inventions: [], adjudication: verdict };
   });
 }
 
@@ -217,21 +307,33 @@ function percentile(values: readonly number[], p: number): number | null {
   return sorted[Math.min(sorted.length - 1, Math.ceil(p * sorted.length) - 1)]!;
 }
 
+export type ValueReadingClassStatus = 'qualified' | 'qualified_low_coverage' | 'failed';
+
 export type ValueReadingClassSummary = Readonly<{
   evidenceClass: ValueReadingEvidenceClass | 'all';
   rows: number;
   outcomes: Readonly<Record<ValueReadingOutcome, number>>;
-  correctShare: number;
-  abstainShare: number;
-  fieldAccuracy: Readonly<{ rate: number; unit: number; description: number; category: number | null }>;
-  latencyMs: Readonly<{ renderP50: number | null; providerP50: number | null; totalP50: number | null; totalP95: number | null }>;
-  cost: Readonly<{ usdTotal: number; usdPerAttempt: number | null; usdPerCorrect: number | null;
-    inputTokens: number; outputTokens: number }>;
-  reuseRate: number;
-  /** Disagreements with the labels not yet ruled on by a human. */
+  accuracy: Readonly<{
+    valueReadings: number;
+    /** Correct rates among value readings; null when nothing was read. */
+    ratePrecision: number | null;
+    criticalHallucinations: number;
+    wrongBindings: number;
+    unsupportedInventions: number;
+    fieldAccuracy: Readonly<{ rate: number; unit: number; description: number; category: number | null }>;
+  }>;
+  usefulness: Readonly<{ readableTargets: number; confirmedUnreadable: number; resolvedShareOfReadable: number; abstainShare: number }>;
+  latencyMs: Readonly<{ renderP50: number | null; providerP50: number | null; totalP50: number | null; totalP95: number | null;
+    timeouts: number }>;
+  cost: Readonly<{ usdTotal: number; attempts: number; usdPerAttempt: number | null; usdPerCorrect: number | null;
+    inputTokens: number; outputTokens: number; reuseRate: number }>;
+  /** Disagreements with the labels or the page not yet ruled on by a human. */
   unadjudicatedDisagreements: number;
-  meetsBar: boolean;
+  status: ValueReadingClassStatus;
+  /** Hard-bar failures. */
   failures: readonly string[];
+  /** Soft-bar shortfalls. */
+  shortfalls: readonly string[];
 }>;
 
 export function summarizeValueReadingClass(
@@ -242,93 +344,134 @@ export function summarizeValueReadingClass(
   const outcomes: Record<ValueReadingOutcome, number> = { correct: 0, abstained: 0, wrong_rate: 0, field_mismatch: 0, failed: 0 };
   for (const record of records) outcomes[record.outcome] += 1;
   const rows = records.length;
-  const answered = records.filter((record) => record.fields !== null);
   const share = (count: number, of: number) => (of === 0 ? 0 : count / of);
-  const withCategory = answered.filter((record) => record.fields!.category !== null);
-  const usdTotal = records.reduce((sum, record) => sum + record.usd, 0);
+  const valueRecords = records.filter((record) => record.fields !== null);
+  const withCategory = valueRecords.filter((record) => record.fields!.category !== null);
+  const ratePrecision = valueRecords.length === 0 ? null
+    : valueRecords.filter((record) => record.fields!.rate).length / valueRecords.length;
+  const criticalHallucinations = records.filter((record) => record.rateError === 'critical_hallucination').length;
+  const wrongBindings = records.filter((record) => record.rateError === 'wrong_binding').length;
+  const unsupportedInventions = records.filter((record) => record.inventions.length > 0).length;
+  const confirmedUnreadable = records.filter((record) => record.adjudication === 'target_unreadable').length;
+  const readableTargets = rows - confirmedUnreadable;
+  const resolvedShareOfReadable = share(outcomes.correct, readableTargets);
+  const totalP50 = percentile(records.map((record) => record.totalMs), 0.5);
   const totalP95 = percentile(records.map((record) => record.totalMs), 0.95);
+  const usdTotal = records.reduce((sum, record) => sum + record.usd, 0);
+  const attempts = records.filter((record) => record.providerCalled).length;
+  const usdPerAttempt = attempts === 0 ? null : usdTotal / attempts;
   const usdPerCorrect = outcomes.correct === 0 ? null : usdTotal / outcomes.correct;
-  const correctShare = share(outcomes.correct, rows);
+  const reuseRate = share(records.filter((record) => record.reuseEligible).length, rows);
+  const money = (value: number | null) => (value === null ? 'undefined' : `$${value.toFixed(4)}`);
+
   const failures: string[] = [];
   if (rows < bar.minRowsPerClass) failures.push(`only ${rows} rows; at least ${bar.minRowsPerClass} are needed to qualify`);
-  if (outcomes.wrong_rate > bar.maxWrongRateReadings) {
-    failures.push(`${outcomes.wrong_rate} confident wrong rate(s); at most ${bar.maxWrongRateReadings} allowed`);
+  if (ratePrecision === null || ratePrecision < bar.minRatePrecision) {
+    failures.push(`rate precision ${ratePrecision === null ? 'undefined (no value readings)' : ratePrecision.toFixed(4)} is below ${bar.minRatePrecision}`);
   }
-  if (correctShare < bar.minCorrectShare) {
-    failures.push(`correct share ${correctShare.toFixed(3)} is below ${bar.minCorrectShare}`);
-  }
-  if (totalP95 === null || totalP95 > bar.maxP95TotalLatencyMs) {
-    failures.push(`p95 operator wait ${totalP95 ?? 'unmeasured'} ms exceeds ${bar.maxP95TotalLatencyMs} ms`);
-  }
-  if (usdPerCorrect === null || usdPerCorrect > bar.maxUsdPerCorrectReading) {
-    failures.push(`cost per correct reading ${usdPerCorrect === null ? 'undefined' : `$${usdPerCorrect.toFixed(4)}`} exceeds $${bar.maxUsdPerCorrectReading}`);
+  if (criticalHallucinations > bar.maxCriticalHallucinations) failures.push(`${criticalHallucinations} critical numeric hallucination(s)`);
+  if (unsupportedInventions > bar.maxUnsupportedInventions) failures.push(`${unsupportedInventions} unsupported value invention(s)`);
+  if (wrongBindings > bar.maxWrongBindings) failures.push(`${wrongBindings} wrong source-region binding(s)`);
+  if (totalP50 === null || totalP50 > bar.maxP50TotalLatencyMs) failures.push(`median wait ${totalP50 ?? 'unmeasured'} ms exceeds ${bar.maxP50TotalLatencyMs} ms`);
+  if (totalP95 === null || totalP95 > bar.maxP95TotalLatencyMs) failures.push(`p95 wait ${totalP95 ?? 'unmeasured'} ms exceeds ${bar.maxP95TotalLatencyMs} ms`);
+  if (usdPerAttempt === null || usdPerAttempt > bar.maxUsdPerAttempt) failures.push(`cost per attempt ${money(usdPerAttempt)} exceeds $${bar.maxUsdPerAttempt}`);
+  if (usdPerCorrect === null || usdPerCorrect > bar.maxUsdPerCorrect) failures.push(`cost per correct reading ${money(usdPerCorrect)} exceeds $${bar.maxUsdPerCorrect}`);
+  if (reuseRate < bar.minReuseRate) failures.push(`reuse rate ${reuseRate.toFixed(3)}: some crops do not render to the same bytes`);
+  const shortfalls: string[] = [];
+  if (resolvedShareOfReadable < bar.minResolvedShareOfReadable) {
+    shortfalls.push(`resolves ${resolvedShareOfReadable.toFixed(3)} of readable targets; the target is ${bar.minResolvedShareOfReadable}`);
   }
   return {
     evidenceClass,
     rows,
     outcomes,
-    correctShare,
-    abstainShare: share(outcomes.abstained, rows),
-    fieldAccuracy: {
-      rate: share(answered.filter((record) => record.fields!.rate).length, answered.length),
-      unit: share(answered.filter((record) => record.fields!.unit).length, answered.length),
-      description: share(answered.filter((record) => record.fields!.description).length, answered.length),
-      category: withCategory.length === 0 ? null
-        : share(withCategory.filter((record) => record.fields!.category).length, withCategory.length),
+    accuracy: {
+      valueReadings: valueRecords.length,
+      ratePrecision,
+      criticalHallucinations,
+      wrongBindings,
+      unsupportedInventions,
+      fieldAccuracy: {
+        rate: share(valueRecords.filter((record) => record.fields!.rate).length, valueRecords.length),
+        unit: share(valueRecords.filter((record) => record.fields!.unit).length, valueRecords.length),
+        description: share(valueRecords.filter((record) => record.fields!.description).length, valueRecords.length),
+        category: withCategory.length === 0 ? null
+          : share(withCategory.filter((record) => record.fields!.category).length, withCategory.length),
+      },
     },
+    usefulness: { readableTargets, confirmedUnreadable, resolvedShareOfReadable, abstainShare: share(outcomes.abstained, rows) },
     latencyMs: {
       renderP50: percentile(records.map((record) => record.renderMs), 0.5),
-      providerP50: percentile(records.map((record) => record.providerMs), 0.5),
-      totalP50: percentile(records.map((record) => record.totalMs), 0.5),
+      providerP50: percentile(records.filter((record) => record.providerCalled).map((record) => record.providerMs), 0.5),
+      totalP50,
       totalP95,
+      timeouts: records.filter((record) => record.failureReason === 'provider_timeout').length,
     },
     cost: {
-      usdTotal,
-      usdPerAttempt: rows === 0 ? null : usdTotal / rows,
-      usdPerCorrect,
+      usdTotal, attempts, usdPerAttempt, usdPerCorrect,
       inputTokens: records.reduce((sum, record) => sum + record.inputTokens, 0),
       outputTokens: records.reduce((sum, record) => sum + record.outputTokens, 0),
+      reuseRate,
     },
-    reuseRate: share(records.filter((record) => record.reuseEligible).length, rows),
-    unadjudicatedDisagreements: records.filter((record) => !record.adjudication
-      && (record.outcome === 'wrong_rate' || record.outcome === 'field_mismatch')).length,
-    meetsBar: failures.length === 0,
+    unadjudicatedDisagreements: records.filter((record) => !record.adjudication && isValueReadingDisagreement(record)).length,
+    status: failures.length > 0 ? 'failed' : shortfalls.length > 0 ? 'qualified_low_coverage' : 'qualified',
     failures,
+    shortfalls,
   };
 }
 
 export type ValueReadingDecision = Readonly<{
   decision: 'PASS' | 'LIMITED_PASS' | 'FAIL';
-  /** Evidence classes that met every bar: the only classes a LIMITED PASS may enable. */
-  qualifiedClasses: readonly ValueReadingEvidenceClass[];
+  /** Classes that met every hard bar, with their status: the only classes a LIMITED PASS may enable. */
+  qualifiedClasses: readonly Readonly<{ evidenceClass: ValueReadingEvidenceClass; status: Exclude<ValueReadingClassStatus, 'failed'> }>[];
+  /** Corpus-wide zero-tolerance safety failures: any one fails the whole run. */
+  corpusSafetyFailures: readonly string[];
   /** True while any disagreement awaits a human ruling: the decision is not final. */
   provisional: boolean;
   classes: readonly ValueReadingClassSummary[];
   overall: ValueReadingClassSummary;
+  /** Proven by CI on the qualification commit, not by this measurement. */
+  authorityInvariants: typeof VALUE_READING_AUTHORITY_INVARIANTS;
 }>;
 
 /**
- * PASS: every evidence class meets every bar. LIMITED PASS: some do; only
- * those may be enabled. FAIL: none do; visual reading stays disabled.
+ * PASS: no corpus-wide safety failure, and every evidence class qualified at
+ * full coverage. LIMITED PASS: no corpus-wide safety failure, and some classes
+ * qualified (possibly at low coverage); only those may be enabled. FAIL:
+ * anything else; visual reading stays disabled.
  */
 export function decideValueReadingActivation(
   records: readonly ValueReadingBenchmarkRecord[],
   bar = VALUE_READING_ACTIVATION_BAR,
 ): ValueReadingDecision {
+  const overall = summarizeValueReadingClass('all', records, bar);
+  const corpusSafetyFailures = [
+    overall.accuracy.criticalHallucinations > bar.maxCriticalHallucinations
+      ? `${overall.accuracy.criticalHallucinations} critical numeric hallucination(s) on the qualification corpus` : null,
+    overall.accuracy.unsupportedInventions > bar.maxUnsupportedInventions
+      ? `${overall.accuracy.unsupportedInventions} unsupported value invention(s) on the qualification corpus` : null,
+    overall.accuracy.wrongBindings > bar.maxWrongBindings
+      ? `${overall.accuracy.wrongBindings} wrong source-region binding(s) on the qualification corpus` : null,
+  ].filter((failure): failure is string => failure !== null);
   const classes = [...new Set(VALUE_READING_BENCHMARK_PAGES.map((page) => page.evidenceClass))]
     .map((evidenceClass) => summarizeValueReadingClass(evidenceClass,
       records.filter((record) => record.evidenceClass === evidenceClass), bar))
     .filter((summary) => summary.rows > 0);
-  const qualifiedClasses = classes.filter((summary) => summary.meetsBar)
-    .map((summary) => summary.evidenceClass as ValueReadingEvidenceClass);
-  const decision = classes.length > 0 && qualifiedClasses.length === classes.length ? 'PASS'
+  const qualifiedClasses = corpusSafetyFailures.length > 0 ? [] : classes
+    .filter((summary) => summary.status !== 'failed')
+    .map((summary) => ({ evidenceClass: summary.evidenceClass as ValueReadingEvidenceClass,
+      status: summary.status as Exclude<ValueReadingClassStatus, 'failed'> }));
+  const decision = corpusSafetyFailures.length === 0 && classes.length > 0
+    && classes.every((summary) => summary.status === 'qualified') ? 'PASS'
     : qualifiedClasses.length > 0 ? 'LIMITED_PASS' : 'FAIL';
   return {
     decision,
     qualifiedClasses,
-    provisional: classes.some((summary) => summary.unadjudicatedDisagreements > 0),
+    corpusSafetyFailures,
+    provisional: overall.unadjudicatedDisagreements > 0,
     classes,
-    overall: summarizeValueReadingClass('all', records, bar),
+    overall,
+    authorityInvariants: VALUE_READING_AUTHORITY_INVARIANTS,
   };
 }
 

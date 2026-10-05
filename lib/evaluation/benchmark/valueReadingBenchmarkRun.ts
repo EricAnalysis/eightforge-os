@@ -161,8 +161,8 @@ export async function runValueReadingBenchmark(input: ValueReadingBenchmarkRunIn
       const base = { pageKey: target.pageKey, evidenceClass: target.evidenceClass, rowKey: target.rowKey,
         renderMs, renderDigestSha256, reuseEligible };
       if (!live) {
-        records.push({ ...base, outcome: 'failed', fields: null, providerMs: 0, totalMs: renderMs,
-          inputTokens: 0, outputTokens: 0, usd: 0 });
+        records.push({ ...base, outcome: 'failed', fields: null, rateError: null, inventions: [], providerCalled: false,
+          failureReason: 'dry_run', providerMs: 0, totalMs: renderMs, inputTokens: 0, outputTokens: 0, usd: 0 });
         continue;
       }
       if (calls + 1 > ceilings.maxCalls || spendUsd >= ceilings.maxSpendUsd) {
@@ -197,9 +197,10 @@ export async function runValueReadingBenchmark(input: ValueReadingBenchmarkRunIn
         attempt = parsed.ok ? parsed.reading : { kind: 'failed', code: parsed.outcomeCode, reason: parsed.reason };
       }
       readings.push({ pageKey: target.pageKey, rowKey: target.rowKey, attempt });
-      const score = scoreValueReading(target.truth, attempt);
-      records.push({ ...base, outcome: score.outcome, fields: score.fields, providerMs, totalMs: renderMs + providerMs,
-        inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, usd });
+      const score = scoreValueReading(target, attempt);
+      records.push({ ...base, outcome: score.outcome, fields: score.fields, rateError: score.rateError,
+        inventions: score.inventions, providerCalled: true, failureReason: attempt.kind === 'failed' ? attempt.reason : null,
+        providerMs, totalMs: renderMs + providerMs, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, usd });
     }
   }
   return {
@@ -211,14 +212,27 @@ export async function runValueReadingBenchmark(input: ValueReadingBenchmarkRunIn
     readings,
     calls,
     spendUsd,
-    // Only a complete provider run is decided. Unrendered targets count against the run as failures.
-    decision: live && notRun.length === 0 ? decideValueReadingActivation([...records,
-      ...unrendered.map((entry) => {
-        const target = input.documents.flatMap((document) => document.targets)
-          .find((candidate) => candidate.pageKey === entry.pageKey && candidate.rowKey === entry.rowKey)!;
-        return { pageKey: entry.pageKey, evidenceClass: target.evidenceClass, rowKey: entry.rowKey, outcome: 'failed' as const,
-          fields: null, renderMs: 0, providerMs: 0, totalMs: 0, inputTokens: 0, outputTokens: 0, usd: 0,
-          renderDigestSha256: '', reuseEligible: false };
-      })]) : null,
+    // Only a complete provider run is decided.
+    decision: live && notRun.length === 0 ? decideValueReadingActivation(scoredValueReadingRecords(input.documents,
+      { records, unrendered })) : null,
   };
+}
+
+/**
+ * Every target as a scored record: the measured readings, plus each target
+ * whose crop could not be drawn, counted against the run as a failure (and as
+ * not reusable). Adjudications apply to this set before a decision.
+ */
+export function scoredValueReadingRecords(
+  documents: readonly ValueReadingBenchmarkDocument[],
+  result: Pick<ValueReadingBenchmarkRunResult, 'records' | 'unrendered'>,
+): readonly ValueReadingBenchmarkRecord[] {
+  const targets = documents.flatMap((document) => document.targets);
+  return [...result.records, ...result.unrendered.map((entry): ValueReadingBenchmarkRecord => {
+    const target = targets.find((candidate) => candidate.pageKey === entry.pageKey && candidate.rowKey === entry.rowKey)!;
+    return { pageKey: entry.pageKey, evidenceClass: target.evidenceClass, rowKey: entry.rowKey, outcome: 'failed',
+      fields: null, rateError: null, inventions: [], providerCalled: false, failureReason: 'region_image_unavailable',
+      renderMs: 0, providerMs: 0, totalMs: 0, inputTokens: 0, outputTokens: 0, usd: 0, renderDigestSha256: '',
+      reuseEligible: false };
+  })];
 }

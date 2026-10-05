@@ -202,12 +202,16 @@ async function main(): Promise<void> {
     decision,
   });
   write('records.json', records);
+  // Every raw provider output, by row: the audit trail behind each output digest. Client material: local only.
+  if (live) write('readings.json', result.readings);
   if (live) {
     const truths = new Map(documents.flatMap((document) => document.targets)
       .map((target) => [`${target.pageKey}/${target.rowKey}`, target.truth]));
     write('disagreements.json', records.filter(isValueReadingDisagreement)
       .map((record) => ({ pageKey: record.pageKey, rowKey: record.rowKey, outcome: record.outcome,
-        rateError: record.rateError, inventions: record.inventions,
+        rateError: record.rateError, boundTo: record.boundTo, inventions: record.inventions,
+        requestDigestSha256: record.requestDigestSha256, renderDigestSha256: record.renderDigestSha256,
+        outputDigestSha256: record.outputDigestSha256,
         adjudication: record.adjudication ?? null, truth: truths.get(`${record.pageKey}/${record.rowKey}`),
         reading: result.readings.find((entry) => entry.pageKey === record.pageKey && entry.rowKey === record.rowKey)?.attempt })));
   }

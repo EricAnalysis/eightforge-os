@@ -67,8 +67,8 @@ export type ValueReadingBenchmarkRunResult = Readonly<{
   unrendered: readonly Readonly<{ pageKey: string; rowKey: string }>[];
   /** Targets left unread because a ceiling was reached. Non-empty means the run cannot pass. */
   notRun: readonly Readonly<{ pageKey: string; rowKey: string }>[];
-  /** What was read for each provider call, kept for human adjudication of disagreements. Client material: local only. */
-  readings: readonly Readonly<{ pageKey: string; rowKey: string; attempt: ValueReadingAttempt }>[];
+  /** What was read for each provider call, with the raw output, kept for audit and adjudication. Client material: local only. */
+  readings: readonly Readonly<{ pageKey: string; rowKey: string; attempt: ValueReadingAttempt; rawOutput: string | null }>[];
   calls: number;
   spendUsd: number;
   decision: ValueReadingDecision | null;
@@ -141,7 +141,7 @@ export async function runValueReadingBenchmark(input: ValueReadingBenchmarkRunIn
   const records: ValueReadingBenchmarkRecord[] = [];
   const unrendered: { pageKey: string; rowKey: string }[] = [];
   const notRun: { pageKey: string; rowKey: string }[] = [];
-  const readings: { pageKey: string; rowKey: string; attempt: ValueReadingAttempt }[] = [];
+  const readings: { pageKey: string; rowKey: string; attempt: ValueReadingAttempt; rawOutput: string | null }[] = [];
   let calls = 0;
   let spendUsd = 0;
   for (const document of input.documents) {
@@ -161,7 +161,8 @@ export async function runValueReadingBenchmark(input: ValueReadingBenchmarkRunIn
       const base = { pageKey: target.pageKey, evidenceClass: target.evidenceClass, rowKey: target.rowKey,
         renderMs, renderDigestSha256, reuseEligible };
       if (!live) {
-        records.push({ ...base, outcome: 'failed', fields: null, rateError: null, inventions: [], providerCalled: false,
+        records.push({ ...base, outcome: 'failed', fields: null, rateError: null, boundTo: null, inventions: [],
+          requestDigestSha256: null, outputDigestSha256: null, providerCalled: false,
           failureReason: 'dry_run', providerMs: 0, totalMs: renderMs, inputTokens: 0, outputTokens: 0, usd: 0 });
         continue;
       }
@@ -172,8 +173,12 @@ export async function runValueReadingBenchmark(input: ValueReadingBenchmarkRunIn
       calls += 1;
       input.takeUsage();
       const providerStart = now();
+      // Names exactly what is sent: this target, these image bytes, this model, prompt and schema.
+      const requestDigestSha256 = sha256(new TextEncoder().encode(JSON.stringify(['b46', target.pageKey, target.rowKey,
+        renderDigestSha256, input.provider!.providerModel, VALUE_READING_EXECUTION.promptTemplateId,
+        VALUE_READING_EXECUTION.promptTemplateVersion, VALUE_READING_EXECUTION.outputSchemaVersion])));
       const called = await readWithTimeout(input.provider!, {
-        requestDigestSha256: sha256(new TextEncoder().encode(`b46:${target.pageKey}:${target.rowKey}:${renderDigestSha256}`)),
+        requestDigestSha256,
         renderDigestSha256,
         model: input.provider!.providerModel,
         timeoutMs: VALUE_READING_EXECUTION.timeoutMs,
@@ -196,10 +201,13 @@ export async function runValueReadingBenchmark(input: ValueReadingBenchmarkRunIn
         const parsed = input.parse(called.raw);
         attempt = parsed.ok ? parsed.reading : { kind: 'failed', code: parsed.outcomeCode, reason: parsed.reason };
       }
-      readings.push({ pageKey: target.pageKey, rowKey: target.rowKey, attempt });
+      const rawOutput = called.ok ? called.raw : null;
+      readings.push({ pageKey: target.pageKey, rowKey: target.rowKey, attempt, rawOutput });
       const score = scoreValueReading(target, attempt);
-      records.push({ ...base, outcome: score.outcome, fields: score.fields, rateError: score.rateError,
-        inventions: score.inventions, providerCalled: true, failureReason: attempt.kind === 'failed' ? attempt.reason : null,
+      records.push({ ...base, outcome: score.outcome, fields: score.fields, rateError: score.rateError, boundTo: score.boundTo,
+        inventions: score.inventions, requestDigestSha256,
+        outputDigestSha256: rawOutput === null ? null : sha256(new TextEncoder().encode(rawOutput)),
+        providerCalled: true, failureReason: attempt.kind === 'failed' ? attempt.reason : null,
         providerMs, totalMs: renderMs + providerMs, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, usd });
     }
   }
@@ -231,7 +239,8 @@ export function scoredValueReadingRecords(
   return [...result.records, ...result.unrendered.map((entry): ValueReadingBenchmarkRecord => {
     const target = targets.find((candidate) => candidate.pageKey === entry.pageKey && candidate.rowKey === entry.rowKey)!;
     return { pageKey: entry.pageKey, evidenceClass: target.evidenceClass, rowKey: entry.rowKey, outcome: 'failed',
-      fields: null, rateError: null, inventions: [], providerCalled: false, failureReason: 'region_image_unavailable',
+      fields: null, rateError: null, boundTo: null, inventions: [], requestDigestSha256: null, outputDigestSha256: null,
+      providerCalled: false, failureReason: 'region_image_unavailable',
       renderMs: 0, providerMs: 0, totalMs: 0, inputTokens: 0, outputTokens: 0, usd: 0, renderDigestSha256: '',
       reuseEligible: false };
   })];

@@ -345,7 +345,15 @@ export type PricedScheduleRejectedSpineReason =
    * Sat at the start or end of the sequence, separated from it by a gap
    * materially outside the spacing the rest of the sequence established.
    */
-  | 'inconsistent_row_pitch';
+  | 'inconsistent_row_pitch'
+  /**
+   * v3 row integrity: a continuation line (description, unit, route or rate
+   * text) sat between this row and its neighbour without being meaningfully
+   * nearer to either (it is reported as ambiguous_row_assignment). Either
+   * row's meaning may be incomplete, so neither is published until the line is
+   * attributed deterministically or by a confirmed continuation attribution.
+   */
+  | 'ambiguous_row_continuation';
 
 /** Why a non-rate source line was not attached to any row. */
 export type PricedScheduleUnassignedLineReason =
@@ -2305,6 +2313,17 @@ function reconstructPage(
     return matches[0]!.target;
   };
 
+  // Rows an ambiguous continuation line could belong to. Continuation lines
+  // carry only assembly-role text (description, unit, route, rate), so each one
+  // could complete either neighbour's meaning; role-less and supporting-column
+  // text never reaches here. Both candidates are withheld, because choosing one
+  // would itself be the guess. The frozen 'spacing_only' fixtures are unchanged.
+  const ambiguousContinuationSpines = new Set<SourceLine>();
+  const markAmbiguousContinuation = (line: SourceLine, candidates: readonly SourceLine[]) => {
+    if (continuationEvidence === 'spacing_only' || line.banded.length === 0) return;
+    for (const candidate of candidates) ambiguousContinuationSpines.add(candidate);
+  };
+
   // Quarantine lines clearly belonging to a rejected edge spine. They remain in
   // that diagnostic bundle and never enter active continuation spacing or cells.
   for (const line of continuationLines) {
@@ -2339,6 +2358,7 @@ function reconstructPage(
         continue;
       }
       reportLine(line, 'ambiguous_row_assignment');
+      markAmbiguousContinuation(line, [above, below]);
       continue;
     }
     if (pitchOutliers.has(spineIndex.get(nearer)!)) {
@@ -2388,6 +2408,7 @@ function reconstructPage(
         continue;
       }
       reportLine(line, 'ambiguous_row_assignment');
+      markAmbiguousContinuation(line, [above, below]);
       continue;
     }
     attached.get(nearer)!.push(line);
@@ -2572,6 +2593,12 @@ function reconstructPage(
     }
     if (entry.spine.y < bodyBottom) {
       rejectLines(entry.spine, entry.lines, 'outside_table_body');
+      continue;
+    }
+
+    if (ambiguousContinuationSpines.has(entry.spine)) {
+      // After body bounds are fixed: the row still bounds the table, it is only not published.
+      rejectLines(entry.spine, entry.lines, 'ambiguous_row_continuation');
       continue;
     }
 

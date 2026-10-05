@@ -582,23 +582,27 @@ describe('candidate-based continuation attribution re-entry', () => {
       .toBe('Inert Debris Removal and Disposal');
   });
 
-  it('publishes no row and loses no line other than the one confirmed', () => {
-    // A continuation confirmation authorizes exactly one attachment. It must
-    // not become evidence about the page's continuation spacing, which is what
-    // admits edge lines elsewhere -- so the published row count is unchanged
-    // and the withheld set shrinks by exactly the confirmed fragment.
+  it('releases exactly the rows the ambiguous line withheld, and loses no line', () => {
+    // v3 row integrity: while "Disposal" is ambiguous, neither "Inert Debris
+    // Removal and" nor its neighbour is published. A continuation confirmation
+    // authorizes exactly one attachment: it releases those two rows and nothing
+    // else, and it never becomes evidence about the page's continuation spacing.
     const layout = continuationAmbiguousPageLayout();
     const baseline = reconstruct(layout).pages[0]!;
     const candidate = continuationCandidates(layout).find((entry) =>
       entry.targetRowIdentity.endsWith(':r0'))!;
     const recovered = reconstruct(layout, undefined, [candidate]).pages[0]!;
 
-    expect(recovered.rows).toHaveLength(baseline.rows.length);
+    expect(baseline.rows).toEqual([]);
+    expect(baseline.rejected_spines.map((entry) => entry.reason)).toEqual(['ambiguous_row_continuation', 'ambiguous_row_continuation']);
     expect(baseline.unassigned_lines.map((entry) => entry.raw_text)).toEqual(['Disposal']);
     expect(recovered.unassigned_lines).toEqual([]);
-    expect(recovered.rejected_spines).toEqual(baseline.rejected_spines);
-    // Every row the confirmation did not target is byte-identical.
-    expect(recovered.rows[1]).toEqual(baseline.rows[1]);
+    expect(recovered.rejected_spines).toEqual([]);
+    expect(recovered.rows).toHaveLength(2);
+    // The row the confirmation did not target is exactly the row the page gives without the fragment.
+    const withoutFragment = continuationAmbiguousPageLayout();
+    withoutFragment.pages[0]!.lines.splice(2, 1);
+    expect(recovered.rows[1]).toEqual(reconstruct(withoutFragment).pages[0]!.rows[1]);
   });
 
   it('J: recovered and ordinary continuation produce the same ordinary row shape', () => {

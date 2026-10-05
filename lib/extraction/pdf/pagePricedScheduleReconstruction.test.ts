@@ -688,8 +688,12 @@ describe('generic single-page priced schedule reconstruction', () => {
       line(7, 600, [{ x: UNIT_X, text: 'Unit', width: 30 }, { x: CURRENCY_X, text: 'Cost', width: 30 }]),
       pricedLine(7, 580, { description: 'Epsilon service', unit: 'Widget', origin: 'E to F', currency: '$', amount: '1.00' }),
     ]);
+    // Not a table boundary: the page is still read. The note line sits midway
+    // between two rows, so the row-integrity guard withholds those two only.
     expect(result).not.toBeNull();
-    expect(result!.rows.map((row) => cellText(row, 'rate'))).toEqual(expect.arrayContaining(['$ 12.00', '$ 3.50', '$ 7.00', '$ 9.00']));
+    expect(result!.status).toBe('reconstructed');
+    expect(result!.rows.map((row) => cellText(row, 'rate'))).toEqual(expect.arrayContaining(['$ 12.00', '$ 9.00']));
+    expect(result!.rejected_spines.filter((entry) => entry.reason === 'ambiguous_row_continuation')).toHaveLength(2);
   });
 
   it('O4: body text reading like column values does not count as a header', () => {
@@ -1110,9 +1114,13 @@ describe('generic single-page priced schedule reconstruction', () => {
       line(7, 630, [{ x: DESCRIPTION_X, text: 'orphan fragment', width: 100 }]),
       wrapRow(600, 'Beta service', '3.50'),
     ]);
-    expect(result!.rows).toHaveLength(2);
-    expect(cellText(result!.rows[0]!, 'description')).toBe('Alpha service');
-    expect(cellText(result!.rows[1]!, 'description')).toBe('Beta service');
+    // v3 row integrity: the fragment could complete either row, so neither is
+    // published; with no other row the page fails closed. Nothing is lost.
+    expect(result!.rows).toEqual([]);
+    expect(result!.rejected_spines.map((entry) => [entry.reason, entry.raw_text])).toEqual([
+      ['ambiguous_row_continuation', 'Alpha service Widget A to B $ 12.00'],
+      ['ambiguous_row_continuation', 'Beta service Widget A to B $ 3.50'],
+    ]);
     expect(result!.unassigned_lines).toHaveLength(1);
     expect(result!.unassigned_lines[0]!.reason).toBe('ambiguous_row_assignment');
     expect(result!.unassigned_lines[0]!.raw_text).toBe('orphan fragment');
@@ -1128,9 +1136,75 @@ describe('generic single-page priced schedule reconstruction', () => {
       line(7, 629.9, [{ x: DESCRIPTION_X, text: 'borderline fragment', width: 100 }]),
       wrapRow(600, 'Beta service', '3.50'),
     ]);
-    expect(cellText(result!.rows[1]!, 'description')).toBe('Beta service');
-    expect(cellText(result!.rows[0]!, 'description')).toBe('Alpha service');
+    // Not handed to either row, and neither row is published with a meaning it may be missing.
+    expect(result!.rows).toEqual([]);
+    expect(result!.rejected_spines.map((entry) => entry.reason)).toEqual(['ambiguous_row_continuation', 'ambiguous_row_continuation']);
     expect(result!.unassigned_lines.map((entry) => entry.reason)).toEqual(['ambiguous_row_assignment']);
+  });
+
+  // ---------------------------------------------------------------------------
+  // G: v3 row integrity. A row whose meaning an ambiguous continuation line may
+  // complete is withheld, with its neighbour; nothing else changes.
+  // ---------------------------------------------------------------------------
+
+  const fourRows = (fragment: PdfLayoutLine | null) => reconstructSinglePage([
+    wrapHeader(),
+    wrapRow(680, 'Alpha service', '12.00'),
+    // The second row's description wraps; its continuation sits midway to the third row.
+    wrapRow(660, 'Beta service and', '3.50'),
+    ...(fragment ? [fragment] : []),
+    wrapRow(640, 'Gamma service', '7.00'),
+    wrapRow(620, 'Delta service', '9.00'),
+  ])!;
+
+  it('G1: withholds only the rows an ambiguous description line could complete', () => {
+    const clean = fourRows(null);
+    expect(clean.rows.map((row) => cellText(row, 'description'))).toEqual(['Alpha service', 'Beta service and', 'Gamma service', 'Delta service']);
+    const guarded = fourRows(line(7, 650, [{ x: DESCRIPTION_X, text: 'disposal', width: 50 }]));
+    // The candidates are withheld, never published with a meaning they may be missing.
+    expect(guarded.rejected_spines.map((entry) => [entry.reason, entry.raw_text])).toEqual([
+      ['ambiguous_row_continuation', 'Beta service and Widget A to B $ 3.50'],
+      ['ambiguous_row_continuation', 'Gamma service Widget A to B $ 7.00'],
+    ]);
+    // The ambiguous line stays in unresolved evidence.
+    expect(guarded.unassigned_lines.map((entry) => [entry.reason, entry.raw_text])).toEqual([['ambiguous_row_assignment', 'disposal']]);
+    // Rows the line cannot belong to stay deterministic, byte-identical, with their own rate and unit.
+    expect(guarded.rows).toEqual([clean.rows[0], clean.rows[3]]);
+    expect(guarded.rows.map((row) => [cellText(row, 'rate'), cellText(row, 'unit')])).toEqual([['$ 12.00', 'Widget'], ['$ 9.00', 'Widget']]);
+  });
+
+  it('G2: a line clearly nearer one row attaches to it and withholds nothing', () => {
+    const attached = fourRows(line(7, 656, [{ x: DESCRIPTION_X, text: 'disposal', width: 50 }]));
+    expect(attached.rejected_spines).toEqual([]);
+    expect(attached.rows.map((row) => cellText(row, 'description'))).toEqual(['Alpha service', 'Beta service and disposal', 'Gamma service', 'Delta service']);
+  });
+
+  it('G3: ambiguous text in a column outside row semantics does not block pricing', () => {
+    // A role-less reference column: its text never joins row assembly, so it is
+    // reported as unattached evidence and no row is withheld.
+    const page = reconstructSinglePage([
+      line(7, 700, [{ x: 10, text: 'Ref', width: 20 }, { x: DESCRIPTION_X, text: 'Description', width: 70 },
+        { x: UNIT_X, text: 'Unit of Measure', width: 80 }, { x: ORIGIN_X, text: 'Origin/ Destination', width: 90 },
+        { x: CURRENCY_X, text: 'Cost', width: 30 }]),
+      wrapRow(680, 'Alpha service', '12.00'),
+      wrapRow(660, 'Beta service', '3.50'),
+      line(7, 650, [{ x: 10, text: 'n/a', width: 15 }]),
+      wrapRow(640, 'Gamma service', '7.00'),
+    ])!;
+    expect(page.rejected_spines).toEqual([]);
+    expect(page.rows).toHaveLength(3);
+    expect(page.unattached_role_less_tokens?.map((token) => token.text)).toEqual(['n/a']);
+  });
+
+  it('G4: the frozen spacing_only path keeps publishing as recorded', () => {
+    const frozen = buildPagePricedScheduleReconstruction({
+      layout: layoutOf([page(7, [wrapHeader(), wrapRow(680, 'Alpha service', '12.00'), wrapRow(660, 'Beta service and', '3.50'),
+        line(7, 650, [{ x: DESCRIPTION_X, text: 'disposal', width: 50 }]), wrapRow(640, 'Gamma service', '7.00'),
+        wrapRow(620, 'Delta service', '9.00')])]),
+      continuationEvidence: 'spacing_only',
+    }).pages[0]!;
+    expect(frozen.rejected_spines.some((entry) => (entry.reason as string) === 'ambiguous_row_continuation')).toBe(false);
+    expect(frozen.rows).toHaveLength(4);
   });
 
   it('V5: reassembles a three-line wrapped description in authored order', () => {

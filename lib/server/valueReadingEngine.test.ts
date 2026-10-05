@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/server/supabaseAdmin', () => ({ getSupabaseAdmin: () => null }));
@@ -10,6 +12,7 @@ import {
   parseValueReadingOutput,
   runValueReading,
   VALUE_READING_EXECUTION,
+  VALUE_READING_OUTPUT_JSON_SCHEMA,
   type ValueReadingEngineClient,
   type ValueReadingEngineDependencies,
   type ValueReadingProvider,
@@ -31,7 +34,12 @@ function extractionData(digest = DIGEST) {
       { id: 'o2', raw_text: 'sia 50', physical_page_number: 8 },
       { id: 'o3', raw_text: 'Hauling', physical_page_number: 8 },
       { id: 'o4', raw_text: '$8.75', physical_page_number: 8 },
-    ] },
+    ], canonical_geometry_v1: { frame_version: 'canonical_frame_v1', observations: [
+      ['o1', 1, 2, 3, 4], ['o2', 5, 6, 3, 4], ['o3', 1, 2, 5, 6], ['o4', 5, 6, 5, 6],
+    ].map(([id, x_min, x_max, y_min, y_max]) => ({ observation_id: id, physical_page_number: 8,
+      source_bounding_box: { x_min, x_max, y_min, y_max },
+      canonical_bounding_box: { coordinate_space: 'canonical_v1', x_min, x_max, y_min: 792 - (y_max as number),
+        y_max: 792 - (y_min as number) } })) } },
     priced_schedule_reconstruction_v1: {
       parser_version: 'priced_schedule_reconstruction_v2', pages: [],
       unresolved_pages: [{ authority: 'non_authoritative_diagnostic', reason: 'header_not_found', physical_page_number: 8,
@@ -51,7 +59,9 @@ const ANCHOR = regionAssertionEntryTargets(extractionData())[0]!.anchorKey;
 const CASE_ID = `unreadable:${DOC}:${ANCHOR}`;
 const ELIGIBLE: ValueReadingEligibility = { eligible: true, entitlementEventId: 'ent-1', dataPolicyEventIds: ['dp-1'], dailyCap: 5 };
 const VALUE_OUTPUT = JSON.stringify({ reading: 'value', description: 'Debris removal', unit_type: 'CY', rate_amount: 14.5,
-  rationale: 'The rate cell reads $14.50.' });
+  category: null, rationale: 'The rate cell reads $14.50.' });
+const UNREADABLE = (rationale: string) => JSON.stringify({ reading: 'unreadable', description: null, unit_type: null,
+  rate_amount: null, category: null, rationale });
 
 type Store = {
   document: Record<string, unknown> | null;
@@ -147,6 +157,7 @@ function provider(output: string | (() => Promise<string>), model: string | null
 }
 
 const IMAGE = { mediaType: 'image/png' as const, bytes: new Uint8Array([137, 80, 78, 71]) };
+const IMAGE_DIGEST = createHash('sha256').update(IMAGE.bytes).digest('hex');
 
 function deps(overrides: Partial<ValueReadingEngineDependencies> = {}) {
   const reserve = vi.fn(async () => ({ status: 'reserved' as const, reservationId: 'reservation-1', usedInWindow: 1 }));
@@ -182,7 +193,7 @@ describe('value-reading engine (B4.3)', () => {
         readingBasis: 'region_image', providerModel: null,
       } });
     expect(calls).toHaveLength(1);
-    expect(calls[0]).toMatchObject({ image: IMAGE, textExcerpts: null,
+    expect(calls[0]).toMatchObject({ image: IMAGE, textExcerpts: null, renderDigestSha256: IMAGE_DIGEST,
       timeoutMs: VALUE_READING_EXECUTION.timeoutMs, maxOutputTokens: VALUE_READING_EXECUTION.maxOutputTokens });
     expect(d.reserve).toHaveBeenCalledWith(client, expect.objectContaining({
       organizationId: ORG, reservedBy: 'actor-1', dailyCap: 5, requestDigestSha256: calls[0]!.requestDigestSha256 }));
@@ -197,8 +208,10 @@ describe('value-reading engine (B4.3)', () => {
       outcome: { code: 'existing_result_reused', reason: 'request_already_answered', providerInvoked: false } });
     expect(calls).toHaveLength(1);
     expect(d.reserve).toHaveBeenCalledTimes(1);
-    expect(d.render).toHaveBeenCalledTimes(1);
+    // B4.5: the request is named by the bytes, so a new request renders again to find its answer.
+    expect(d.render).toHaveBeenCalledTimes(2);
     expect(store.outcomes).toHaveLength(2);
+    expect(store.outcomes[1]).toMatchObject({ p_request_digest_sha256: calls[0]!.requestDigestSha256 });
     // The engine never writes truth.
     expect(store.rpcCalls).not.toContain('record_region_bound_human_fact_assertion');
     expect(store.proposals).toHaveLength(1);
@@ -252,7 +265,7 @@ describe('value-reading engine (B4.3)', () => {
 
   it('records an unreadable reading as its own outcome, with a proposal that proposes no value', async () => {
     const { client, store } = fake();
-    const { port } = provider(JSON.stringify({ reading: 'unreadable', rationale: 'The cell is blacked out.' }));
+    const { port } = provider(UNREADABLE('The cell is blacked out.'));
     const result = await runValueReading(client, input(), deps({ provider: port }).value);
     expect(result).toMatchObject({ status: 'completed', outcome: { code: 'unreadable', providerInvoked: true },
       proposal: { reading: { kind: 'unreadable' } } });
@@ -274,7 +287,7 @@ describe('value-reading engine (B4.3)', () => {
         outcome: { code, providerInvoked: false } });
       expect(store.outcomes).toHaveLength(1);
       expect(store.outcomes[0]).toMatchObject({ p_outcome_code: code, p_provider_invoked: false, p_proposal_id: null,
-        p_anchor_key: ANCHOR, p_requested_by: 'actor-1' });
+        p_anchor_key: ANCHOR, p_requested_by: 'actor-1', p_request_digest_sha256: null });
       expect(calls).toHaveLength(0);
       expect(d.reserve).not.toHaveBeenCalled();
       expect(d.render).not.toHaveBeenCalled();
@@ -287,18 +300,21 @@ describe('value-reading engine (B4.3)', () => {
     expect(await runValueReading(client, input(), d.value)).toMatchObject({ status: 'completed',
       outcome: { code: 'recovery_disabled', reason: 'provider_not_configured', providerInvoked: false } });
     expect(d.reserve).not.toHaveBeenCalled();
+    expect(d.render).not.toHaveBeenCalled();
     expect(store.outcomes).toHaveLength(1);
+    expect(store.outcomes[0]).toMatchObject({ p_request_digest_sha256: null });
   });
 
-  it('stops at an exhausted budget before rendering or calling', async () => {
+  it('stops at an exhausted budget before calling; the rendered request is what was refused', async () => {
     const { client, store } = fake();
     const { port, calls } = provider(VALUE_OUTPUT);
     const d = deps({ provider: port, reserve: async () => ({ status: 'budget_exhausted', usedInWindow: 5 }) });
     expect(await runValueReading(client, input(), d.value))
       .toMatchObject({ status: 'completed', outcome: { code: 'budget_exhausted', providerInvoked: false } });
     expect(calls).toHaveLength(0);
-    expect(d.render).not.toHaveBeenCalled();
+    expect(d.render).toHaveBeenCalledTimes(1);
     expect(store.outcomes[0]).toMatchObject({ p_provider_invoked: false });
+    expect(store.outcomes[0]!.p_request_digest_sha256).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it('records a failed reservation as a system error, never as a spent call', async () => {
@@ -323,11 +339,19 @@ describe('value-reading engine (B4.3)', () => {
   it('refuses invalid or out-of-contract output deterministically', async () => {
     for (const [output, code, reason] of [
       ['not json', 'structured_output_invalid', 'invalid_json'],
-      [JSON.stringify({ reading: 'value', description: 'x', unit_type: 'CY', rate_amount: '14.5', rationale: 'r' }),
+      [JSON.stringify({ reading: 'value', description: 'x', unit_type: 'CY', rate_amount: '14.5', category: null, rationale: 'r' }),
         'structured_output_invalid', 'invalid_proposal'],
-      [JSON.stringify({ reading: 'value', description: 'x', unit_type: 'CY', rate_amount: 14.5, rationale: 'r', confidence: 0.9 }),
+      [JSON.stringify({ reading: 'value', description: 'x', unit_type: 'CY', rate_amount: 14.5, category: null, rationale: 'r',
+        confidence: 0.9 }), 'structured_output_invalid', 'invalid_proposal'],
+      // Every field is required, even when null.
+      [JSON.stringify({ reading: 'value', description: 'x', unit_type: 'CY', rate_amount: 14.5, rationale: 'r' }),
         'structured_output_invalid', 'invalid_proposal'],
-      [JSON.stringify({ reading: 'value', description: 'x', unit_type: 'CY', rate_amount: -1, rationale: 'r' }),
+      // A value reading must carry its value; an unreadable one must carry none.
+      [JSON.stringify({ reading: 'value', description: 'x', unit_type: null, rate_amount: 14.5, category: null, rationale: 'r' }),
+        'structured_output_invalid', 'invalid_proposal'],
+      [JSON.stringify({ reading: 'unreadable', description: null, unit_type: null, rate_amount: 14.5, category: null,
+        rationale: 'r' }), 'structured_output_invalid', 'invalid_proposal'],
+      [JSON.stringify({ reading: 'value', description: 'x', unit_type: 'CY', rate_amount: -1, category: null, rationale: 'r' }),
         'deterministic_validation_failed', 'proposal_value_validation_failed'],
     ] as const) {
       const { client, store } = fake();
@@ -348,13 +372,70 @@ describe('value-reading engine (B4.3)', () => {
     expect(store.proposals).toHaveLength(0);
   });
 
-  it('records a missing region image as a binding failure after the slot was reserved', async () => {
+  it('records an unrenderable region as a binding failure before any budget is reserved (B4.5)', async () => {
+    for (const renderRegionImage of [
+      async () => null,
+      async () => { throw new Error('render failed'); },
+      async () => ({ mediaType: 'image/png' as const, bytes: new Uint8Array() }),
+      async () => ({ mediaType: 'image/jpeg' as const, bytes: IMAGE.bytes }),
+    ]) {
+      const { client, store } = fake();
+      const { port, calls } = provider(VALUE_OUTPUT);
+      const d = deps({ provider: port, renderRegionImage });
+      const result = await runValueReading(client, input(), d.value);
+      expect(result).toMatchObject({ outcome: { code: 'evidence_binding_failed', reason: 'region_image_unavailable',
+        providerInvoked: false } });
+      expect(calls).toHaveLength(0);
+      expect(d.reserve).not.toHaveBeenCalled();
+      expect(store.outcomes[0]).toMatchObject({ p_provider_invoked: false, p_request_digest_sha256: null });
+    }
+  });
+
+  it('never draws a region the persisted canonical geometry cannot prove (B4.5)', async () => {
+    const data = extractionData() as { extraction: { content_layers_v1: { pdf: { layout_observations_v1: Record<string, unknown> } } } };
+    delete data.extraction.content_layers_v1.pdf.layout_observations_v1.canonical_geometry_v1;
+    const { client, store } = fake({ extractions: [{ id: 'extraction-1', document_id: DOC, created_at: '2026-10-04T00:00:00Z', data }] });
+    const { port, calls } = provider(VALUE_OUTPUT);
+    const d = deps({ provider: port });
+    expect(await runValueReading(client, input(), d.value))
+      .toMatchObject({ outcome: { code: 'evidence_binding_failed', reason: 'region_image_unavailable' } });
+    expect(d.render).not.toHaveBeenCalled();
+    expect(d.reserve).not.toHaveBeenCalled();
+    expect(calls).toHaveLength(0);
+    expect(store.outcomes[0]).toMatchObject({ p_request_digest_sha256: null });
+  });
+
+  it('hands the renderer only the line, in canonical geometry, on the bound artifact (B4.5)', async () => {
+    const { client } = fake();
+    const { port } = provider(VALUE_OUTPUT);
+    const d = deps({ provider: port });
+    await runValueReading(client, input(), d.value);
+    expect(d.render).toHaveBeenCalledWith({
+      renderer: VALUE_READING_EXECUTION.cropRenderer, organizationId: ORG, sourceDocumentId: DOC, sourceArtifactId: ARTIFACT,
+      physicalPageNumber: 8, pageRepresentationDigest: DIGEST,
+      sourceRegion: { coordinate_space: 'source', boxes: [{ x_min: 1, x_max: 2, y_min: 3, y_max: 4 }, { x_min: 5, x_max: 6, y_min: 3, y_max: 4 }] },
+      canonicalBoxes: [
+        { coordinate_space: 'canonical_v1', x_min: 1, x_max: 2, y_min: 788, y_max: 789 },
+        { coordinate_space: 'canonical_v1', x_min: 5, x_max: 6, y_min: 788, y_max: 789 },
+      ],
+      scale: VALUE_READING_EXECUTION.cropScale, paddingPoints: VALUE_READING_EXECUTION.cropPaddingPoints,
+      maxWidthPx: VALUE_READING_EXECUTION.cropMaxWidthPx, maxHeightPx: VALUE_READING_EXECUTION.cropMaxHeightPx,
+    });
+  });
+
+  it('never reuses an answer for different image bytes: a renderer change makes a new request (B4.5)', async () => {
     const { client, store } = fake();
     const { port, calls } = provider(VALUE_OUTPUT);
-    const result = await runValueReading(client, input(), deps({ provider: port, renderRegionImage: async () => null }).value);
-    expect(result).toMatchObject({ outcome: { code: 'evidence_binding_failed', reason: 'region_image_unavailable' } });
-    expect(calls).toHaveLength(0);
-    expect(store.outcomes[0]).toMatchObject({ p_provider_invoked: false });
+    const first = deps({ provider: port });
+    await runValueReading(client, input(), first.value);
+    const changed = deps({ provider: port,
+      renderRegionImage: async () => ({ mediaType: 'image/png' as const, bytes: new Uint8Array([137, 80, 78, 71, 1]) }) });
+    const second = await runValueReading(client, input(), changed.value);
+    expect(second).toMatchObject({ outcome: { code: 'generated_proposal', providerInvoked: true } });
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.requestDigestSha256).not.toBe(calls[0]!.requestDigestSha256);
+    expect(calls[1]!.renderDigestSha256).toBe(createHash('sha256').update(new Uint8Array([137, 80, 78, 71, 1])).digest('hex'));
+    expect(store.proposals).toHaveLength(2);
   });
 
   it('records nothing for a case that does not resolve for this organization and project', async () => {
@@ -395,16 +476,25 @@ describe('value-reading request and output contracts (B4.3)', () => {
       factKey: 'contract_rate_row' as const, anchorKey: ANCHOR, sourceObservationIds: ['o1', 'o2'],
       sourceRegion: { coordinate_space: 'source', boxes: [{ x_min: 1, x_max: 6, y_min: 3, y_max: 4 }] },
     };
-    const base = { binding, targetLineText: 't', neighbouringLineTexts: ['n'], includeTextExcerpts: false, model: null,
-      renderDigestSha256: null as string | null };
+    const crop = {
+      renderer: VALUE_READING_EXECUTION.cropRenderer, organizationId: ORG, sourceDocumentId: DOC, sourceArtifactId: ARTIFACT,
+      physicalPageNumber: 8, pageRepresentationDigest: DIGEST, sourceRegion: binding.sourceRegion,
+      canonicalBoxes: [{ coordinate_space: 'canonical_v1' as const, x_min: 1, x_max: 6, y_min: 788, y_max: 789 }],
+      scale: 3, paddingPoints: 6, maxWidthPx: 2600, maxHeightPx: 1000,
+    };
+    const base = { binding, crop, targetLineText: 't', neighbouringLineTexts: ['n'], includeTextExcerpts: false, model: null,
+      renderDigestSha256: 'e'.repeat(64) };
     const digest = buildValueReadingRequest(base).requestDigestSha256;
     expect(buildValueReadingRequest(base).requestDigestSha256).toBe(digest);
     // A new extraction run of an identical page is the same request.
     expect(buildValueReadingRequest({ ...base, binding: { ...binding, extractionSnapshotId: 'extraction-9' } })
       .requestDigestSha256).toBe(digest);
     for (const changed of [
-      { ...base, binding: { ...binding, pageRepresentationDigest: 'b'.repeat(64) } },
-      { ...base, binding: { ...binding, organizationId: 'org-2' } },
+      { ...base, binding: { ...binding, pageRepresentationDigest: 'b'.repeat(64) },
+        crop: { ...crop, pageRepresentationDigest: 'b'.repeat(64) } },
+      { ...base, binding: { ...binding, organizationId: 'org-2' }, crop: { ...crop, organizationId: 'org-2' } },
+      { ...base, crop: { ...crop, scale: 4 } },
+      { ...base, crop: { ...crop, canonicalBoxes: [{ ...crop.canonicalBoxes[0]!, x_max: 7 }] } },
       { ...base, includeTextExcerpts: true },
       { ...base, model: 'model-x' },
       // B4.5 invariant: the exact rendered bytes sent are part of the request.
@@ -412,12 +502,28 @@ describe('value-reading request and output contracts (B4.3)', () => {
     ]) {
       expect(buildValueReadingRequest(changed).requestDigestSha256).not.toBe(digest);
     }
+    // No image digest, or a crop of other evidence, builds no request at all.
+    expect(() => buildValueReadingRequest({ ...base, renderDigestSha256: '' })).toThrow();
+    expect(() => buildValueReadingRequest({ ...base, crop: { ...crop, sourceArtifactId: 'other' } })).toThrow();
   });
 
   it('never repairs output and carries no model self-reported certainty', () => {
     expect(parseValueReadingOutput(VALUE_OUTPUT)).toMatchObject({ ok: true });
     expect(parseValueReadingOutput('```json\n' + VALUE_OUTPUT + '\n```')).toMatchObject({ ok: false, reason: 'invalid_json' });
-    expect(parseValueReadingOutput(JSON.stringify({ reading: 'unreadable', rationale: '   ' })))
-      .toMatchObject({ ok: false, reason: 'invalid_proposal' });
+    expect(parseValueReadingOutput(UNREADABLE('   '))).toMatchObject({ ok: false, reason: 'invalid_proposal' });
+    expect(parseValueReadingOutput(UNREADABLE('Blacked out.'))).toEqual({ ok: true, reading: { kind: 'unreadable' },
+      rationale: 'Blacked out.' });
+  });
+
+  it('the provider schema and the parser describe the same contract (B4.5)', () => {
+    const schema = VALUE_READING_OUTPUT_JSON_SCHEMA;
+    expect(schema.type).toBe('object');
+    expect(schema.additionalProperties).toBe(false);
+    expect([...schema.required].sort()).toEqual(Object.keys(schema.properties).sort());
+    // Exactly the fields the parser accepts: one more is rejected, one fewer is rejected.
+    const full = JSON.parse(VALUE_OUTPUT) as Record<string, unknown>;
+    expect(Object.keys(full).sort()).toEqual([...schema.required].sort());
+    // No unsupported structured-output constraints.
+    expect(JSON.stringify(schema)).not.toMatch(/anyOf|oneOf|minimum|maximum|minLength|maxLength|pattern/);
   });
 });

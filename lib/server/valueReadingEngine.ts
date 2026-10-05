@@ -4,6 +4,7 @@ import { z } from 'zod';
 
 import { pickPreferredExtractionBlob } from '@/lib/blobExtractionSelection';
 import { hashCanonical } from '@/lib/extraction/domain/hash';
+import type { CanonicalBox } from '@/lib/extraction/geometry/canonicalPageFrame';
 import {
   CONTRACT_RATE_ROW_FACT_KEY,
   documentReviewedValueState,
@@ -34,6 +35,23 @@ import {
   type ValueReadingOutcomeReason,
   type ValueReadingProposalRecord,
 } from '@/lib/server/valueReadingProposals';
+import {
+  VALUE_READING_EXECUTION,
+  VALUE_READING_OUTPUT_JSON_SCHEMA,
+  type ValueReadingProvider,
+  type ValueReadingProviderRequest,
+  type ValueReadingRegionImage,
+  type ValueReadingTextExcerpts,
+} from '@/lib/valueReadingContract';
+
+export {
+  VALUE_READING_EXECUTION,
+  VALUE_READING_OUTPUT_JSON_SCHEMA,
+  type ValueReadingProvider,
+  type ValueReadingProviderRequest,
+  type ValueReadingRegionImage,
+  type ValueReadingTextExcerpts,
+};
 
 /**
  * Value-reading execution engine (Forgewing B4.3).
@@ -62,50 +80,26 @@ import {
  * injected; B4.3 runs only with mocked or permitted-fixture providers.
  */
 
-export const VALUE_READING_EXECUTION = Object.freeze({
-  timeoutMs: 8000,
-  maxOutputTokens: 300,
-  promptTemplateId: 'forgewing-priced-value-reading',
-  promptTemplateVersion: 'v1',
-  outputSchemaVersion: 'value_reading_output_v1',
-  cropRenderer: 'value_reading_region_crop_v1',
-  /** Context around the target line, never the whole page. */
-  maxNeighbouringLines: 6,
-});
-
-/** A deterministic crop of the source page: same spec, same pixels. */
+/**
+ * A deterministic crop of one verified source artifact: same spec, same
+ * pixels. The renderer reads only this spec; the request digest then binds
+ * the SHA-256 of the exact bytes it produced (B4.5).
+ */
 export type ValueReadingCropSpec = Readonly<{
   renderer: typeof VALUE_READING_EXECUTION.cropRenderer;
+  organizationId: string;
   sourceDocumentId: string;
+  sourceArtifactId: string;
   physicalPageNumber: number;
   pageRepresentationDigest: string;
-  region: SourceRegion;
-}>;
-
-export type ValueReadingTextExcerpts = Readonly<{
-  targetLineText: string;
-  neighbouringLineTexts: readonly string[];
-}>;
-
-export type ValueReadingRegionImage = Readonly<{ mediaType: 'image/png' | 'image/jpeg'; bytes: Uint8Array }>;
-
-export type ValueReadingProviderRequest = Readonly<{
-  requestDigestSha256: string;
-  model: string | null;
-  timeoutMs: number;
-  maxOutputTokens: number;
-  promptTemplateId: string;
-  promptTemplateVersion: string;
-  outputSchemaVersion: string;
-  image: ValueReadingRegionImage;
-  /** Present only when text excerpts are requested and approved. */
-  textExcerpts: ValueReadingTextExcerpts | null;
-}>;
-
-/** The provider port. Returns the raw structured output text. */
-export type ValueReadingProvider = Readonly<{
-  providerModel: string | null;
-  read(request: ValueReadingProviderRequest, signal: AbortSignal): Promise<string>;
+  /** Identity geometry, exactly as the binding carries it. Never used to draw. */
+  sourceRegion: SourceRegion;
+  /** The line's boxes in canonical_v1, one per source observation, sorted by observation id. */
+  canonicalBoxes: readonly CanonicalBox[];
+  scale: number;
+  paddingPoints: number;
+  maxWidthPx: number;
+  maxHeightPx: number;
 }>;
 
 export type ValueReadingRegionRenderer = (spec: ValueReadingCropSpec) => Promise<ValueReadingRegionImage | null>;
@@ -117,6 +111,7 @@ export type ValueReadingRequest = Readonly<{
   contentClasses: readonly AiProviderContentClass[];
   readingBasis: ValueReadingBasis;
   model: string | null;
+  renderDigestSha256: string;
   requestDigestSha256: string;
 }>;
 
@@ -126,33 +121,81 @@ export function parseUnreadableLineCaseId(caseId: string): Readonly<{ documentId
   return match ? { documentId: match[1]!, anchorKey: match[2]! } : null;
 }
 
+const SHA256_HEX = /^[0-9a-f]{64}$/;
+
+/** The content classes a request transmits. The image is always sent; text only on request. */
+export function valueReadingContentClasses(includeTextExcerpts: boolean): readonly AiProviderContentClass[] {
+  return includeTextExcerpts ? ['page_region_images', 'text_excerpts'] : ['page_region_images'];
+}
+
+/**
+ * The crop for a resolved target, from the canonical boxes the shared visual
+ * evidence already resolved through the persisted canonical-geometry sidecar.
+ * Null unless every source observation has exactly one canonical box on the
+ * same artifact and page representation: an unproven region is never drawn.
+ */
+export function buildValueReadingCropSpec(target: ValueReadingTarget): ValueReadingCropSpec | null {
+  const { binding } = target;
+  const visual = target.entryTarget.visual;
+  if (!visual || visual.sourceArtifactId !== binding.sourceArtifactId
+    || visual.sourceDocumentId !== binding.sourceDocumentId
+    || visual.physicalPageNumber !== binding.physicalPageNumber
+    || visual.pageRepresentationDigest !== binding.pageRepresentationDigest) return null;
+  const ids = [...new Set(binding.sourceObservationIds)].sort();
+  if (ids.length === 0) return null;
+  const canonicalBoxes: CanonicalBox[] = [];
+  for (const id of ids) {
+    const matches = visual.boxes.filter((box) => box.observationId === id);
+    const canonical = matches[0]?.canonicalBoundingBox;
+    if (matches.length !== 1 || !canonical || canonical.coordinate_space !== 'canonical_v1'
+      || ![canonical.x_min, canonical.x_max, canonical.y_min, canonical.y_max].every(Number.isFinite)
+      || canonical.x_max <= canonical.x_min || canonical.y_max <= canonical.y_min) return null;
+    canonicalBoxes.push({ coordinate_space: 'canonical_v1', x_min: canonical.x_min, x_max: canonical.x_max,
+      y_min: canonical.y_min, y_max: canonical.y_max });
+  }
+  return {
+    renderer: VALUE_READING_EXECUTION.cropRenderer,
+    organizationId: binding.organizationId,
+    sourceDocumentId: binding.sourceDocumentId,
+    sourceArtifactId: binding.sourceArtifactId,
+    physicalPageNumber: binding.physicalPageNumber,
+    pageRepresentationDigest: binding.pageRepresentationDigest,
+    sourceRegion: binding.sourceRegion,
+    canonicalBoxes,
+    scale: VALUE_READING_EXECUTION.cropScale,
+    paddingPoints: VALUE_READING_EXECUTION.cropPaddingPoints,
+    maxWidthPx: VALUE_READING_EXECUTION.cropMaxWidthPx,
+    maxHeightPx: VALUE_READING_EXECUTION.cropMaxHeightPx,
+  };
+}
+
 /** Deterministic request: identical inputs give an identical digest. */
 export function buildValueReadingRequest(params: Readonly<{
   binding: ValueReadingBinding;
+  crop: ValueReadingCropSpec;
   targetLineText: string;
   neighbouringLineTexts: readonly string[];
   includeTextExcerpts: boolean;
   model: string | null;
   /**
-   * SHA-256 of the exact rendered crop bytes sent to the provider. Required
-   * once images are transmitted (B4.5); null while no image is sent.
+   * SHA-256 of the exact rendered crop bytes sent to the provider (B4.5).
+   * Binding it here binds reuse, the budget reservation and the proposal to
+   * those bytes: a renderer change can never silently reuse an old answer.
    */
-  renderDigestSha256: string | null;
+  renderDigestSha256: string;
 }>): ValueReadingRequest {
-  const { binding } = params;
-  const crop: ValueReadingCropSpec = {
-    renderer: VALUE_READING_EXECUTION.cropRenderer,
-    sourceDocumentId: binding.sourceDocumentId,
-    physicalPageNumber: binding.physicalPageNumber,
-    pageRepresentationDigest: binding.pageRepresentationDigest,
-    region: binding.sourceRegion,
-  };
+  const { binding, crop } = params;
+  if (!SHA256_HEX.test(params.renderDigestSha256)) throw new Error('A value-reading request needs the rendered image digest');
+  if (crop.organizationId !== binding.organizationId || crop.sourceDocumentId !== binding.sourceDocumentId
+    || crop.sourceArtifactId !== binding.sourceArtifactId || crop.physicalPageNumber !== binding.physicalPageNumber
+    || crop.pageRepresentationDigest !== binding.pageRepresentationDigest) {
+    throw new Error('The crop is bound to other evidence');
+  }
   const textExcerpts = params.includeTextExcerpts ? {
     targetLineText: params.targetLineText,
     neighbouringLineTexts: params.neighbouringLineTexts.slice(0, VALUE_READING_EXECUTION.maxNeighbouringLines),
   } : null;
-  const contentClasses: AiProviderContentClass[] = textExcerpts
-    ? ['page_region_images', 'text_excerpts'] : ['page_region_images'];
+  const contentClasses = valueReadingContentClasses(textExcerpts !== null);
   const readingBasis: ValueReadingBasis = textExcerpts ? 'region_image_with_text_excerpts' : 'region_image';
   const requestDigestSha256 = hashCanonical({
     kind: 'value_reading_request_v1',
@@ -173,20 +216,18 @@ export function buildValueReadingRequest(params: Readonly<{
     promptTemplateVersion: VALUE_READING_EXECUTION.promptTemplateVersion,
     outputSchemaVersion: VALUE_READING_EXECUTION.outputSchemaVersion,
   });
-  return { binding, crop, textExcerpts, contentClasses, readingBasis, model: params.model, requestDigestSha256 };
+  return { binding, crop, textExcerpts, contentClasses, readingBasis, model: params.model,
+    renderDigestSha256: params.renderDigestSha256, requestDigestSha256 };
 }
 
-const OutputSchema = z.discriminatedUnion('reading', [
-  z.object({
-    reading: z.literal('value'),
-    description: z.string(),
-    unit_type: z.string(),
-    rate_amount: z.number(),
-    category: z.string().nullable().optional(),
-    rationale: z.string(),
-  }).strict(),
-  z.object({ reading: z.literal('unreadable'), rationale: z.string() }).strict(),
-]);
+const OutputSchema = z.object({
+  reading: z.enum(['value', 'unreadable']),
+  description: z.string().nullable(),
+  unit_type: z.string().nullable(),
+  rate_amount: z.number().nullable(),
+  category: z.string().nullable(),
+  rationale: z.string(),
+}).strict();
 
 export type ParsedValueReadingOutput =
   | Readonly<{ ok: true; reading: ValueReading; rationale: string }>
@@ -204,11 +245,21 @@ export function parseValueReadingOutput(raw: string): ParsedValueReadingOutput {
   if (!parsed.success) return { ok: false, outcomeCode: 'structured_output_invalid', reason: 'invalid_proposal' };
   const rationale = cleanValueReadingRationale(parsed.data.rationale);
   if (!rationale) return { ok: false, outcomeCode: 'structured_output_invalid', reason: 'invalid_proposal' };
-  if (parsed.data.reading === 'unreadable') return { ok: true, reading: { kind: 'unreadable' }, rationale };
-  const description = parsed.data.description.trim();
-  const unitType = parsed.data.unit_type.trim();
-  const rate = parsed.data.rate_amount;
-  const category = parsed.data.category?.trim() || null;
+  const output = parsed.data;
+  if (output.reading === 'unreadable') {
+    // An unreadable reading proposes nothing; a value smuggled beside it is a contract violation.
+    if (output.description !== null || output.unit_type !== null || output.rate_amount !== null || output.category !== null) {
+      return { ok: false, outcomeCode: 'structured_output_invalid', reason: 'invalid_proposal' };
+    }
+    return { ok: true, reading: { kind: 'unreadable' }, rationale };
+  }
+  if (output.description === null || output.unit_type === null || output.rate_amount === null) {
+    return { ok: false, outcomeCode: 'structured_output_invalid', reason: 'invalid_proposal' };
+  }
+  const description = output.description.trim();
+  const unitType = output.unit_type.trim();
+  const rate = output.rate_amount;
+  const category = output.category?.trim() || null;
   if (!description || description.length > 300 || !unitType || unitType.length > 100
     || !Number.isFinite(rate) || rate < 0 || rate > 1_000_000_000 || (category !== null && category.length > 200)) {
     return { ok: false, outcomeCode: 'deterministic_validation_failed', reason: 'proposal_value_validation_failed' };
@@ -444,21 +495,14 @@ export async function runValueReading(
   }
 
   const provider = dependencies.provider ?? null;
-  const request = buildValueReadingRequest({
-    binding: target.binding,
-    targetLineText: target.entryTarget.rawText,
-    neighbouringLineTexts: target.neighbouringLineTexts,
-    includeTextExcerpts: input.includeTextExcerpts,
-    model: provider?.providerModel ?? null,
-    // B4.3 transmits no image. B4.5 must render first and pass the digest of
-    // the exact bytes sent, so a renderer change never reuses an old answer.
-    renderDigestSha256: null,
-  });
+  // Until the image is rendered there is no request to name: the request
+  // digest binds the exact bytes sent (B4.5), so earlier refusals record none.
+  let requestDigestSha256: string | null = null;
   const finish = async (code: ValueReadingOutcomeCode, reason: ValueReadingOutcomeReason, providerInvoked: boolean,
     proposal: ValueReadingProposalRecord | null = null): Promise<ValueReadingRunResult> => {
     const written = await recordValueReadingOutcome(admin, {
       binding: target.binding, requestedBy: input.requestedBy, requestKey: input.requestKey,
-      requestDigestSha256: request.requestDigestSha256, outcomeCode: code, sanitizedReason: reason, providerInvoked,
+      requestDigestSha256, outcomeCode: code, sanitizedReason: reason, providerInvoked,
       proposalId: proposal?.proposalId ?? null,
     });
     return {
@@ -467,22 +511,50 @@ export async function runValueReading(
     };
   };
 
+  // Deployment, entitlement, data policy and budget configuration, before any
+  // source byte is read: a refused request never renders the customer's page.
   const eligibility = await (dependencies.resolveEligibility
     ?? ((params) => resolveValueReadingEligibility(admin as never, params)))({
-    organizationId: input.organizationId, contentClasses: request.contentClasses,
+    organizationId: input.organizationId, contentClasses: valueReadingContentClasses(input.includeTextExcerpts),
   });
   if (!eligibility.eligible) {
     const gate = GATE_OUTCOMES[eligibility.reason];
     return finish(gate.code, gate.reason, false);
   }
 
-  // Reuse first: the exact request was already answered. No call, no budget.
+  if (!provider || !dependencies.renderRegionImage) return finish('recovery_disabled', 'provider_not_configured', false);
+
+  // Render first. A region the persisted geometry cannot prove, a source that
+  // no longer hashes to its artifact, or a failed render spends no budget.
+  const crop = buildValueReadingCropSpec(target);
+  if (!crop) return finish('evidence_binding_failed', 'region_image_unavailable', false);
+  let image: ValueReadingRegionImage | null;
+  try {
+    image = await dependencies.renderRegionImage(crop);
+  } catch {
+    image = null;
+  }
+  if (!image || image.mediaType !== 'image/png' || image.bytes.byteLength === 0) {
+    return finish('evidence_binding_failed', 'region_image_unavailable', false);
+  }
+  // Computed here from the bytes that will be sent, never taken from the renderer.
+  const renderDigestSha256 = createHash('sha256').update(image.bytes).digest('hex');
+  const request = buildValueReadingRequest({
+    binding: target.binding,
+    crop,
+    targetLineText: target.entryTarget.rawText,
+    neighbouringLineTexts: target.neighbouringLineTexts,
+    includeTextExcerpts: input.includeTextExcerpts,
+    model: provider.providerModel,
+    renderDigestSha256,
+  });
+  requestDigestSha256 = request.requestDigestSha256;
+
+  // Reuse: these exact bytes, this binding, prompt and model were already answered. No call, no budget.
   const existing = await loadValueReadingProposalByRequestDigest(admin, {
     organizationId: input.organizationId, requestDigestSha256: request.requestDigestSha256,
   });
   if (existing) return finish('existing_result_reused', 'request_already_answered', false, existing);
-
-  if (!provider || !dependencies.renderRegionImage) return finish('recovery_disabled', 'provider_not_configured', false);
 
   const reservation = await (dependencies.reserve ?? reserveForgewingProviderCall)(admin as never, {
     organizationId: input.organizationId,
@@ -493,11 +565,9 @@ export async function runValueReading(
   if (reservation.status === 'budget_exhausted') return finish('budget_exhausted', 'budget_exhausted', false);
   if (reservation.status !== 'reserved') return finish('system_error', 'reservation_failed', false);
 
-  const image = await dependencies.renderRegionImage(request.crop);
-  if (!image) return finish('evidence_binding_failed', 'region_image_unavailable', false);
-
   const called = await callWithTimeout(provider, {
     requestDigestSha256: request.requestDigestSha256,
+    renderDigestSha256,
     model: request.model,
     timeoutMs: VALUE_READING_EXECUTION.timeoutMs,
     maxOutputTokens: VALUE_READING_EXECUTION.maxOutputTokens,

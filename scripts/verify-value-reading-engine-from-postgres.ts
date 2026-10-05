@@ -53,7 +53,13 @@ const extraction = { extraction: { content_layers_v1: { pdf: {
     { id: 'e9-o2', raw_text: '4S.OO', physical_page_number: 9 },
     { id: 'e9-o3', raw_text: 'Hauling', physical_page_number: 9 },
     { id: 'e9-o4', raw_text: '8.7S', physical_page_number: 9 },
-  ] },
+  ],
+  // B4.5: the canonical geometry the crop is drawn from (canonical_v1 = pdf.js viewport at scale 1).
+  canonical_geometry_v1: { frame_version: 'canonical_frame_v1', observations: ([
+    ['e9-o1', 10, 60, 300, 312], ['e9-o2', 440, 520, 300, 312], ['e9-o3', 10, 60, 320, 332], ['e9-o4', 440, 520, 320, 332],
+  ] as const).map(([id, xMin, xMax, yMin, yMax]) => ({ observation_id: id, physical_page_number: 9,
+    source_bounding_box: { x_min: xMin, x_max: xMax, y_min: yMin, y_max: yMax },
+    canonical_bounding_box: { coordinate_space: 'canonical_v1', x_min: xMin, x_max: xMax, y_min: 792 - yMax, y_max: 792 - yMin } })) } },
   priced_schedule_reconstruction_v1: {
     parser_version: 'priced_schedule_reconstruction_v2', pages: [],
     unresolved_pages: [{ authority: 'non_authoritative_diagnostic', reason: 'header_not_found', physical_page_number: 9,
@@ -100,7 +106,7 @@ const outcomes = () => db.runSql(`SELECT coalesce(json_agg(json_build_object('co
     AND page_representation_digest = ${sqlLiteral(PAGE_DIGEST)}`) as
   Array<{ code: string; reason: string; invoked: boolean }>;
 
-const VALUE = JSON.stringify({ reading: 'value', description: 'Stump grinding', unit_type: 'EA', rate_amount: 45,
+const VALUE = JSON.stringify({ reading: 'value', description: 'Stump grinding', unit_type: 'EA', rate_amount: 45, category: null,
   rationale: 'The rate cell reads $45.00.' });
 const input = (requestKey: string, overrides: Partial<{ caseId: string; includeTextExcerpts: boolean }> = {}) => ({
   organizationId: ORG, projectId: PROJECT, caseId: caseOf(stump!.anchorKey), requestedBy: ACTOR, requestKey,
@@ -155,6 +161,33 @@ check(recorded.some((row) => row.code === 'activation_not_allowed') && recorded.
   'activation and data-policy refusals are distinguishable');
 check(recorded.length === 8 && calls === 2 && reservations() === 2, 'eight requests, eight outcomes, two calls, two reservations');
 
+// B4.5: the request is named by the exact image bytes sent.
+const digestRows = () => db.runSql(`SELECT coalesce(json_agg(json_build_object('code', outcome_code, 'request', request_digest_sha256,
+  'invoked', provider_invoked) ORDER BY observed_at), '[]'::json) FROM public.forgewing_recovery_generation_outcomes
+  WHERE organization_id = ${sqlLiteral(ORG)} AND recovery_type = 'priced_value_reading'
+    AND page_representation_digest = ${sqlLiteral(PAGE_DIGEST)}`) as Array<{ code: string; request: string | null; invoked: boolean }>;
+const proposalRequest = (proposalId: string) => (db.runSql(`SELECT json_build_object('r', request_digest_sha256)
+  FROM public.forgewing_recovery_proposals WHERE proposal_id = ${sqlLiteral(proposalId)}`) as { r: string }).r;
+check(proposalRequest(proposal.proposalId) === digestRows()[0]!.request, 'the outcome and the proposal name one request digest');
+check(digestRows().filter((row) => ['recovery_disabled', 'activation_not_allowed', 'data_policy_not_approved'].includes(row.code))
+  .every((row) => row.request === null), 'a refused request rendered nothing and names no request');
+// A region that cannot be rendered is an evidence failure before any budget: no request, no reservation.
+const unrendered = await runValueReading(client, input('b45-unrendered', { caseId: caseOf(hauling!.anchorKey) }), {
+  provider: fixtureProvider(VALUE), renderRegionImage: async () => null, resolveEligibility: eligible(5) });
+check(unrendered.status === 'completed' && unrendered.outcomeRecorded
+  && unrendered.outcome.code === 'evidence_binding_failed' && unrendered.outcome.reason === 'region_image_unavailable',
+  'an unrenderable region is a durable evidence outcome');
+check(digestRows().at(-1)!.request === null && !digestRows().at(-1)!.invoked && reservations() === 2 && calls === 2,
+  'it names no request, spends no budget and calls nothing');
+// Different bytes for the same line are a different request: a renderer change never reuses an old answer.
+const rerendered = await runValueReading(client, input('b45-rerendered'), { provider: fixtureProvider(VALUE),
+  renderRegionImage: async () => ({ mediaType: 'image/png' as const, bytes: new Uint8Array([137, 80, 78, 71, 45]) }),
+  resolveEligibility: eligible(5) });
+check(rerendered.status === 'completed' && rerendered.outcome.code === 'generated_proposal'
+  && rerendered.proposal && proposalRequest(rerendered.proposal.proposalId) !== proposalRequest(proposal.proposalId),
+  'new image bytes are a new request with its own proposal');
+check(calls === 3 && reservations() === 3, 'and it was a real, budgeted call');
+
 // One road to truth: the operator cites the proposal through the unchanged B3 record path.
 const evidence = verifyRegionEvidence({ extractionData: extraction, physicalPageNumber: 9,
   pageRepresentationDigest: PAGE_DIGEST, sourceObservationIds: stump!.sourceObservationIds });
@@ -178,6 +211,6 @@ check(origin.o === 'ai_proposed_operator_approved', 'the database derived approv
 const closed = await runValueReading(client, input('b43-after-review'), {
   provider: fixtureProvider(VALUE), renderRegionImage, resolveEligibility: eligible(2) });
 check(closed.status === 'not_resolved' && closed.reason === 'target_not_open', 'a reviewed line is no longer offered for reading');
-check(outcomeCount() === 8, 'a request for a line that is no longer open records nothing');
+check(outcomeCount() === 10, 'a request for a line that is no longer open records nothing');
 
 console.log('B4.3 VALUE-READING ENGINE FIXTURE ROUND TRIP: PASS');

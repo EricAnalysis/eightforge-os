@@ -120,6 +120,12 @@ const FORGEWING_ALLOWED_OUTBOUND_MODULES = new Set([
   // persistence, provider, review, or reprocess reach. It can only narrow
   // Forgewing, never widen it.
   '@/lib/extraction/recovery/recoveryOperationalPolicy',
+  // B4.5. The value-reading provider contract: execution constants, the output
+  // schema and the provider port, shared with the engine that decides whether
+  // the provider may be called. It has no imports at all, so it grants
+  // Forgewing no persistence, gate, budget, truth or authority reach; the
+  // adapter cannot see the engine, only the request the engine hands it.
+  '@/lib/valueReadingContract',
   'zod',
   'node:fs',
   '@/lib/extraction/domain/hash',
@@ -144,6 +150,12 @@ const FORGEWING_AUTHORIZED_CONSUMERS = new Set([
   // canonical, pricing, and validator code.
   'lib/forgewingRecoveryProposal.ts',
   'lib/server/forgewingRecoveryProposalPersistence.ts',
+  // B4.5. The authenticated Resolution Workspace Ask route is the one place
+  // the value-reading provider adapter is constructed and injected into the
+  // engine. The engine still applies activation, entitlement, data policy and
+  // the durable budget before the adapter can be called, and its output is an
+  // immutable non-authoritative proposal; only a human assertion makes truth.
+  'app/api/projects/[id]/resolution-cases/value-reading/route.ts',
 ]);
 const FORGEWING_EVALUATION_AUTHORIZED_CONSUMERS = new Set([
   'app/evaluation/forgewing/a3-linkage/page.tsx',
@@ -981,6 +993,7 @@ describe('production architecture import boundaries', () => {
     // to non-authoritative storage and nowhere else; a further entry appearing
     // here is a deliberate architectural decision, not an accident.
     expect(forgewingProductionConsumers()).toEqual([
+      'app/api/projects/[id]/resolution-cases/value-reading/route.ts',
       'lib/extraction/persistence/complianceShadow.ts',
       'lib/server/forgewingRecoveryProposalPersistence.ts',
       'lib/server/repositoryPlanGenerationWorker.ts',

@@ -1,10 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import {
+  createClaudeValueReadingProvider,
+  isValueReadingProviderConfigured,
+  valueReadingProviderModel,
+} from '@/lib/forgewing/runtime/valueReadingClient';
 import { offeredAction } from '@/lib/resolution/resolutionActionRequest';
 import { getActorContext } from '@/lib/server/getActorContext';
 import { readResolutionQueue } from '@/lib/server/resolutionQueueRead';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { runValueReading, type ValueReadingEngineClient } from '@/lib/server/valueReadingEngine';
+import {
+  createValueReadingRegionRenderer,
+  loadVerifiedValueReadingSource,
+  type ValueReadingSourceClient,
+} from '@/lib/server/valueReadingRegionRenderer';
 
 /** Operator request only. Evidence and capability are re-derived on the server. */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -31,6 +41,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const result = await runValueReading(admin as unknown as ValueReadingEngineClient, {
       organizationId: ctx.actor.organizationId, projectId, caseId: entry.caseId,
       requestedBy: ctx.actor.actorId, requestKey: body.requestKey, includeTextExcerpts: false,
+    }, {
+      // The engine gates first (activation, entitlement, data policy, budget);
+      // these run only for a request every gate has admitted (B4.5).
+      provider: isValueReadingProviderConfigured()
+        ? createClaudeValueReadingProvider({ model: valueReadingProviderModel() }) : null,
+      renderRegionImage: createValueReadingRegionRenderer((spec) =>
+        loadVerifiedValueReadingSource(admin as unknown as ValueReadingSourceClient, spec)),
     });
     if (result.status === 'not_resolved') {
       return NextResponse.json({ error: 'The current source target is unavailable', code: result.reason },

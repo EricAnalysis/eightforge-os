@@ -647,6 +647,51 @@ describe('generic single-page priced schedule reconstruction', () => {
     expect(result!.rows).toHaveLength(2);
   });
 
+  // O, O2 and O3 are intentional: two qualifying headers (even identical ones)
+  // fail the page closed, and a header-like line with no priced rows of its own
+  // beneath it is harmless. O5 and O6 extend the same rule to a later header
+  // that does not qualify.
+
+  it('O5: a later table under a header that does not qualify is never read through the first header', () => {
+    // Table B reorders the columns and uses labels outside the vocabulary
+    // ("Item / Service"), so its header does not qualify. Its unit text sits where
+    // table A reads descriptions, and its descriptions where A reads units, so
+    // reading B through A would admit rows with swapped roles. The page fails closed.
+    const result = reconstructSinglePage([
+      headerLine(7, 720),
+      pricedLine(7, 700, { description: 'Alpha service', unit: 'Widget', origin: 'A to B', currency: '$', amount: '12.00' }),
+      pricedLine(7, 690, { description: 'Beta service', unit: 'Widget', origin: 'B to C', currency: '$', amount: '3.50' }),
+      line(7, 600, [
+        { x: DESCRIPTION_X, text: 'UOM', width: 30 },
+        { x: UNIT_X, text: 'Item / Service', width: 80 },
+        { x: ORIGIN_X, text: 'Route', width: 40 },
+        { x: CURRENCY_X, text: 'Unit Price', width: 50 },
+      ]),
+      // B fills every one of A's columns, so before this rule both rows were
+      // admitted as A's rows with "Each" as the description.
+      pricedLine(7, 580, { description: 'Each', unit: 'Gamma service', origin: 'C to D', currency: '$', amount: '7.00' }),
+      pricedLine(7, 560, { description: 'Each', unit: 'Delta service', origin: 'D to E', currency: '$', amount: '9.00' }),
+    ]);
+    expect(result).toBeNull();
+  });
+
+  it('O6: header-like noise without priced rows of its own does not truncate the table', () => {
+    const result = reconstructSinglePage([
+      headerLine(7, 720),
+      pricedLine(7, 700, { description: 'Alpha service', unit: 'Widget', origin: 'A to B', currency: '$', amount: '12.00' }),
+      pricedLine(7, 680, { description: 'Beta service', unit: 'Widget', origin: 'B to C', currency: '$', amount: '3.50' }),
+      // One recognized role only: a note, not a header.
+      line(7, 665, [{ x: DESCRIPTION_X, text: 'Notes', width: 40 }, { x: CURRENCY_X, text: 'Cost', width: 30 }]),
+      pricedLine(7, 650, { description: 'Gamma service', unit: 'Widget', origin: 'C to D', currency: '$', amount: '7.00' }),
+      pricedLine(7, 630, { description: 'Delta service', unit: 'Widget', origin: 'D to E', currency: '$', amount: '9.00' }),
+      // Two recognized roles, but only one priced line beneath it: not a table of its own.
+      line(7, 600, [{ x: UNIT_X, text: 'Unit', width: 30 }, { x: CURRENCY_X, text: 'Cost', width: 30 }]),
+      pricedLine(7, 580, { description: 'Epsilon service', unit: 'Widget', origin: 'E to F', currency: '$', amount: '1.00' }),
+    ]);
+    expect(result).not.toBeNull();
+    expect(result!.rows.map((row) => cellText(row, 'rate'))).toEqual(expect.arrayContaining(['$ 12.00', '$ 3.50', '$ 7.00', '$ 9.00']));
+  });
+
   it('O4: body text reading like column values does not count as a header', () => {
     const result = reconstructSinglePage([
       headerLine(7, 720),

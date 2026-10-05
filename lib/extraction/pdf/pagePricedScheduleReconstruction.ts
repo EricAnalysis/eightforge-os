@@ -452,11 +452,16 @@ export type PricedScheduleRecoveryDiagnostic = {
  * - ambiguous_header_candidates: no line qualifies, and more than one line reads
  *   as a plausible but unresolved header. None is chosen.
  * - header_not_found: no line reads as a header, qualifying or not.
+ * - unresolved_later_header: exactly one line qualifies, but a later line below
+ *   it, above priced lines of its own, plainly reads as another table's header
+ *   without qualifying. The rows beneath it cannot be proven to share the first
+ *   header's columns, so the page is not read through them.
  */
 export type PricedScheduleUnresolvedPageReason =
   | 'multiple_priced_headers'
   | 'ambiguous_header_candidates'
-  | 'header_not_found';
+  | 'header_not_found'
+  | 'unresolved_later_header';
 
 export type PricedScheduleUnresolvedPageLine = {
   /** Authored text of the line, exactly as read. */
@@ -990,6 +995,18 @@ function unresolvedHeaderCandidateLines(page: PdfLayoutPage): UnresolvedHeaderCa
 }
 
 /**
+ * Lines below the page's one qualifying header that plainly read as another
+ * table's header: an unresolved header candidate (compact labels, a rate label
+ * and another recognized role, at least MINIMUM_PRICED_ROWS priced lines below)
+ * that is not itself a priced line. A header-like line with no priced lines of
+ * its own beneath it is not a boundary, so trailing noise never truncates a table.
+ */
+function laterTableBoundaries(page: PdfLayoutPage, headerY: number): UnresolvedHeaderCandidateLine[] {
+  return unresolvedHeaderCandidateLines(page).filter((candidate) => candidate.y < headerY
+    && !candidate.tokens.some((token) => isRowSpineToken(token)));
+}
+
+/**
  * A headerless page is recorded as unresolved only when at least this many of
  * its priced lines are laid out in columns (layout kind 'table_candidate').
  * Higher than MINIMUM_PRICED_ROWS so a page carrying only a subtotal and a total
@@ -1022,8 +1039,11 @@ function unresolvedPricedPage(page: PdfLayoutPage): PricedScheduleUnresolvedPage
   if (headerYs.size > 1) {
     reason = 'multiple_priced_headers';
   } else if (headerYs.size === 1) {
-    // reconstructPage only returns null for zero or several headers.
-    return null;
+    // With one qualifying header, reconstructPage returns null only at a later table boundary.
+    const boundaries = laterTableBoundaries(page, [...headerYs][0]!);
+    if (boundaries.length === 0) return null;
+    for (const boundary of boundaries) headerYs.add(boundary.y);
+    reason = 'unresolved_later_header';
   } else {
     for (const candidate of unresolvedHeaderCandidateLines(page)) headerYs.add(candidate.y);
     if (headerYs.size > 1) reason = 'ambiguous_header_candidates';
@@ -1810,6 +1830,11 @@ function reconstructPage(
     // its rows be read through the first table's columns, so fail closed instead.
     if (headers.length !== 1) return null;
     header = headers[0]!;
+    // The same holds when the later header does not qualify (its labels are
+    // outside the vocabulary, or its words are not cleanly grouped): its rows
+    // cannot be proven to share this header's columns. Fail closed, exactly as
+    // for two qualifying headers, rather than read them through this one.
+    if (laterTableBoundaries(page, header.y).length > 0) return null;
   }
 
   const banded: BandedToken[] = [];

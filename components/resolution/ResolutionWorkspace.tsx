@@ -63,6 +63,43 @@ const SIGNED_URL_REUSE_MS = 240_000;
 
 const EMPTY_FORM = { description: '', unit: '', rate: '', category: '', reason: '' };
 
+const VALUE_READING_OUTCOME_LABEL: Record<NonNullable<ResolutionCase['valueReadingOutcome']>['code'], string> = {
+  generated_proposal: 'A visual reading is ready for your review.',
+  unreadable: 'Forgewing could not read this source region. Enter a value only if you can verify it from the source.',
+  existing_result_reused: 'The previous result for this request has been restored.',
+  recovery_disabled: 'Visual reading is currently unavailable.',
+  activation_not_allowed: 'Visual reading is not enabled for this project.',
+  entitlement_missing: 'Visual reading is unavailable for this organization.',
+  data_policy_not_approved: 'The organization has not approved sending source images for visual reading.',
+  budget_exhausted: 'The visual reading budget is unavailable or exhausted.',
+  provider_failed: 'The visual reading service could not complete the request. You can continue reviewing the source.',
+  structured_output_invalid: 'The service returned an invalid reading. No new suggestion was generated.',
+  deterministic_validation_failed: 'The reading did not pass value validation. No new suggestion was generated.',
+  evidence_binding_failed: 'The source evidence could not be bound to a reading. Review the current source again.',
+  proposal_persist_failed: 'The reading could not be recorded. No new suggestion was recorded.',
+  system_error: 'The visual reading request could not be completed.',
+};
+
+/** A refresh that changes the offered evidence or proposal discards the prior draft and citation. */
+export function resolutionDecisionIdentity(entry: ResolutionCase, forgewingSuggestionsIncluded: boolean): string {
+  const enter = offeredAction(entry, 'enter_reviewed_value');
+  const review = offeredAction(entry, 'review_value_reading');
+  return JSON.stringify([entry.caseId, enter?.target ?? null, enter?.supersedesAssertionId ?? null,
+    forgewingSuggestionsIncluded, enter?.forgewingProposalId ?? null, review?.proposalId ?? null,
+    review?.proposalDigestSha256 ?? null]);
+}
+
+/** Only an explicit operator selection can copy a complete, server-offered reading into the draft. */
+export function valueReadingDraft(entry: ResolutionCase, proposalId: string) {
+  const enter = offeredAction(entry, 'enter_reviewed_value');
+  if (enter?.forgewingProposalId !== proposalId) return null;
+  const suggestions = entry.suggestions.filter((suggestion) => suggestion.source === 'forgewing_value_reading'
+    && suggestion.proposalId === proposalId);
+  if (suggestions.length !== 1 || suggestions[0]?.source !== 'forgewing_value_reading') return null;
+  const row = suggestions[0].rateRow;
+  return { description: row.description, unit: row.unit_type, rate: String(row.rate_amount), category: row.category ?? '' };
+}
+
 async function accessToken(): Promise<string | null> {
   const { data: { session } } = await supabase.auth.getSession();
   return session?.access_token ?? null;
@@ -76,6 +113,17 @@ function newIdempotencyKey(): string {
 
 function currency(amount: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
+}
+
+/** Keep the exact proposed number visible; currency rounding must not hide what selection copies. */
+function readingRateCurrency(amount: number): string {
+  const literal = String(amount);
+  const sign = literal.startsWith('-') ? '-' : '';
+  const unsigned = sign ? literal.slice(1) : literal;
+  if (unsigned.includes('e')) return `${sign}$${unsigned}`;
+  const [integer, fraction = ''] = unsigned.split('.');
+  const groupedInteger = integer!.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return `${sign}$${groupedInteger}.${fraction.padEnd(2, '0')}`;
 }
 
 type SignedSource = Readonly<{ url: string | null; error: string | null; expiresAt: number }>;
@@ -225,6 +273,8 @@ export function ResolutionDecisionPane({ entry, forgewingSuggestionsIncluded, sa
   const [outcome, setOutcome] = useState<'approve' | 'correct' | 'override'>('approve');
   const [outcomeReason, setOutcomeReason] = useState('');
   const [linkCandidate, setLinkCandidate] = useState<Readonly<{ documentId: string; recordId: string }> | null>(null);
+  const [selectedReadingId, setSelectedReadingId] = useState<string | null>(null);
+  const [readingRationale, setReadingRationale] = useState('');
 
   const enter = offeredAction(entry, 'enter_reviewed_value');
   const withdraw = offeredAction(entry, 'withdraw_reviewed_value');
@@ -233,7 +283,13 @@ export function ResolutionDecisionPane({ entry, forgewingSuggestionsIncluded, sa
   const execution = offeredAction(entry, 'resolve_execution_item');
   const openValidator = offeredAction(entry, 'open_in_validator');
   const openDocument = offeredAction(entry, 'open_document');
+  const requestReading = offeredAction(entry, 'request_value_reading');
+  const reviewReading = offeredAction(entry, 'review_value_reading');
   const showSuggestions = forgewingSuggestionsIncluded && entry.suggestions.length > 0;
+  const readingSuggestions = forgewingSuggestionsIncluded
+    ? entry.suggestions.filter((suggestion) => suggestion.source === 'forgewing_value_reading') : [];
+  const showReading = forgewingSuggestionsIncluded
+    && (requestReading != null || reviewReading != null || readingSuggestions.length > 0 || entry.valueReadingOutcome != null);
 
   return (
     <div className="space-y-4" data-testid="resolution-decision">
@@ -241,12 +297,73 @@ export function ResolutionDecisionPane({ entry, forgewingSuggestionsIncluded, sa
         <p className="text-xs text-[var(--ef-text-secondary)]">{entry.finding.recommendedAction}</p>
       ) : null}
 
-      {showSuggestions ? (
+      {showReading ? (
+        <section className="space-y-2 rounded border border-[var(--ef-purple-primary-a30)] p-3" data-testid="forgewing-value-reading">
+          <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--ef-text-muted)]">
+            Forgewing visual reading · Unverified
+          </p>
+          {entry.valueReadingOutcome ? (
+            <p role="status" className="text-xs text-[var(--ef-text-secondary)]" data-testid="value-reading-outcome">
+              {readingSuggestions.length === 0 && (entry.valueReadingOutcome.code === 'generated_proposal'
+                || entry.valueReadingOutcome.code === 'existing_result_reused')
+                ? 'The request completed. No visual reading is currently offered for this case.'
+                : VALUE_READING_OUTCOME_LABEL[entry.valueReadingOutcome.code]}
+            </p>
+          ) : null}
+          {requestReading ? (
+            <button type="button" disabled={saving} className="rounded border border-white/10 px-3 py-1 text-xs text-[var(--ef-text-primary)]"
+              onClick={() => void submit({ kind: 'request_value_reading', requestKey: newIdempotencyKey() })}>
+              {saving ? 'Reading…' : 'Ask Forgewing to read this region'}
+            </button>
+          ) : null}
+          {readingSuggestions.map((suggestion) => (
+            <div key={suggestion.proposalId} className="space-y-1">
+              <p className="text-lg font-semibold text-[var(--ef-text-primary)]">{readingRateCurrency(suggestion.rateRow.rate_amount)}</p>
+              <p className="text-xs text-[var(--ef-text-secondary)]">
+                {suggestion.rateRow.description} · {suggestion.rateRow.unit_type}
+                {suggestion.rateRow.category ? ` · ${suggestion.rateRow.category}` : ''}
+              </p>
+              {valueReadingDraft(entry, suggestion.proposalId) ? (
+                <button type="button" disabled={saving}
+                  className="rounded border border-white/10 px-3 py-1 text-xs text-[var(--ef-text-primary)]"
+                  onClick={() => {
+                    const draft = valueReadingDraft(entry, suggestion.proposalId);
+                    if (!draft) return;
+                    setForm((current) => ({ ...current, ...draft }));
+                    setSelectedReadingId(suggestion.proposalId);
+                  }}>
+                  Use suggestion
+                </button>
+              ) : null}
+            </div>
+          ))}
+          {selectedReadingId ? <p className="text-xs text-[var(--ef-text-muted)]">Suggestion copied to your draft. Verify every field against the source before saving.</p> : null}
+          {reviewReading ? (
+            <>
+              <textarea aria-label="visual reading rationale" placeholder="Why reject or defer this reading (required)"
+                className="w-full rounded border border-white/10 bg-transparent p-2 text-xs text-[var(--ef-text-primary)]"
+                value={readingRationale} onChange={(event) => setReadingRationale(event.target.value)} />
+              <div className="flex gap-2">
+                {reviewReading.dispositions.map((disposition) => (
+                  <button key={disposition} type="button" disabled={saving}
+                    className="rounded border border-white/10 px-3 py-1 text-xs text-[var(--ef-text-primary)]"
+                    onClick={() => void submit({ kind: 'review_value_reading', disposition,
+                      rationale: readingRationale, idempotencyKey: newIdempotencyKey() })}>
+                    {DISPOSITION_LABEL[disposition]} reading
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : null}
+        </section>
+      ) : null}
+
+      {showSuggestions && entry.suggestions.some((suggestion) => suggestion.source === 'forgewing_recovery_proposal') ? (
         <section className="rounded border border-[var(--ef-purple-primary-a30)] p-3" data-testid="forgewing-suggestion">
           <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--ef-text-muted)]">
             Forgewing suggestion · not authority
           </p>
-          {entry.suggestions.map((suggestion) => (
+          {entry.suggestions.filter((suggestion) => suggestion.source === 'forgewing_recovery_proposal').map((suggestion) => (
             <p key={suggestion.proposalId} className="mt-1 text-sm text-[var(--ef-text-primary)]">
               {suggestion.proposedValue}
               {suggestion.uncalibratedCertainty != null
@@ -268,7 +385,8 @@ export function ResolutionDecisionPane({ entry, forgewingSuggestionsIncluded, sa
           onSubmit={(event) => {
             event.preventDefault();
             void submit({ kind: 'enter_reviewed_value', reason: form.reason, idempotencyKey: newIdempotencyKey(),
-              value: { description: form.description, unitType: form.unit, rate: form.rate, category: form.category } });
+              value: { description: form.description, unitType: form.unit, rate: form.rate, category: form.category },
+              ...(selectedReadingId ? { forgewingProposalId: selectedReadingId } : {}) });
           }}>
           <p className="col-span-2 text-xs text-[var(--ef-text-muted)]">
             Enter what the source shows. It is recorded as human-reviewed and never rewrites what extraction read.
@@ -391,6 +509,7 @@ export function ResolutionWorkspace({ projectId, link }: { projectId: string; li
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [decisionRevision, setDecisionRevision] = useState(0);
 
   const fetchQueue = useCallback(async (): Promise<ResolutionQueue | null> => {
     const token = await accessToken();
@@ -457,12 +576,18 @@ export function ResolutionWorkspace({ projectId, link }: { projectId: string; li
     setSaving(false);
     const outcome = classifyResolutionWriteStatus(response.status);
     if (outcome === 'saved') {
+      if (input.kind === 'request_value_reading' || input.kind === 'review_value_reading') {
+        const refreshed = await fetchQueue();
+        if (refreshed) setSelectedId(entry.caseId);
+        return;
+      }
       await advanceAfterSave(entry.caseId);
       return;
     }
     const body = await response.json().catch(() => null) as { error?: string } | null;
     if (outcome === 'stale') {
       // The evidence or the review chain moved. Show the case as the server has it now.
+      setDecisionRevision((revision) => revision + 1);
       const previousOrder = order;
       const refreshed = await fetchQueue();
       if (refreshed && !refreshed.cases.some((candidate) => candidate.caseId === entry.caseId)) {
@@ -539,7 +664,7 @@ export function ResolutionWorkspace({ projectId, link }: { projectId: string; li
       <aside className="rounded border border-white/5 bg-[var(--ef-background-secondary)] p-4">
         {notice ? <p role="status" className="mb-3 text-xs text-[var(--ef-warning)]">{notice}</p> : null}
         {selected ? (
-          <ResolutionDecisionPane key={selected.caseId} entry={selected}
+          <ResolutionDecisionPane key={`${resolutionDecisionIdentity(selected, queue.forgewingSuggestionsIncluded)}:${decisionRevision}`} entry={selected}
             forgewingSuggestionsIncluded={queue.forgewingSuggestionsIncluded}
             saving={saving}
             submit={(input) => submit(selected, input)}

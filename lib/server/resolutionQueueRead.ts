@@ -19,6 +19,7 @@ import { resolveForgewingEntitlement, type OrganizationForgewingEntitlementResol
 import { readRecoveryReviewQueue, type RecoveryReviewCandidate } from '@/lib/server/forgewingRecoveryReviewRead';
 import { loadRegionBoundAssertionRows, type RegionAssertionClient } from '@/lib/server/regionBoundHumanAssertions';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
+import { addValueReadingsToResolutionQueue } from '@/lib/server/valueReadingWorkspace';
 import type { ValidationEvidence, ValidationFinding } from '@/types/validator';
 
 /**
@@ -143,9 +144,11 @@ export async function readResolutionQueue(
     extractionsByDocument.set(row.document_id, [...(extractionsByDocument.get(row.document_id) ?? []), row]);
   }
   const reviewedValuesByDocument = new Map<string, DocumentReviewedValueState>();
+  const extractionDataByDocument = new Map<string, unknown>();
   const documentPages = new Map<string, DocumentPageFrames>();
   for (const documentId of documentIds) {
     const preferred = pickPreferredExtractionBlob(extractionsByDocument.get(documentId) ?? []);
+    extractionDataByDocument.set(documentId, preferred?.data ?? null);
     const frames = documentPageFrames({
       extractionData: preferred?.data ?? null,
       sourceDocumentId: documentId,
@@ -189,9 +192,7 @@ export async function readResolutionQueue(
     }
   }
 
-  return {
-    status: 'ok',
-    queue: buildResolutionQueue({
+  const queue = buildResolutionQueue({
       projectId: query.projectId,
       documents,
       issues,
@@ -200,6 +201,13 @@ export async function readResolutionQueue(
       recoveryProposals,
       forgewingEnabled,
       documentPages,
-    }),
-  };
+    });
+  if (!forgewingEnabled) return { status: 'ok', queue };
+  try {
+    return { status: 'ok', queue: await addValueReadingsToResolutionQueue(admin as never,
+      { organizationId: query.organizationId, queue, extractionDataByDocument, assertions: assertionRead.rows }) };
+  } catch {
+    // Optional Forgewing reads fail closed while manual Core review remains available.
+    return { status: 'ok', queue };
+  }
 }

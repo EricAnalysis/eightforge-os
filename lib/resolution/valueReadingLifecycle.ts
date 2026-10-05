@@ -20,7 +20,7 @@ export type ValueReadingState = 'pending' | 'used' | 'used_edited' | 'rejected' 
 export type ValueReadingLifecycle = Readonly<{
   proposalId: string;
   state: ValueReadingState;
-  /** True only for a current, unrejected, unused reading of a value: what may be offered. */
+  /** True only for a current, unreviewed, unused reading of a value: what may be offered. */
   offerable: boolean;
   /** The latest active assertion that cited this proposal, when used. */
   usedByAssertionId: string | null;
@@ -81,7 +81,7 @@ export function deriveValueReadingLifecycle(params: Readonly<{
       return {
         proposalId: proposal.proposalId,
         state,
-        offerable: (state === 'pending' || state === 'deferred') && proposal.reading.kind === 'value',
+        offerable: state === 'pending' && proposal.reading.kind === 'value',
         usedByAssertionId: used?.id ?? null,
         latestReviewId: latestReview?.id ?? null,
       };
@@ -112,7 +112,7 @@ export type ValueReadingTelemetryEvent = Readonly<{
  * - a rejection review: rejected;
  * - an active reviewed rate row entered without a proposal: suggestion
  *   ignored when a reading of a value for that exact anchor and page
- *   representation existed and was neither rejected nor already used at the
+ *   representation existed and was neither rejected, deferred nor already used at the
  *   time; otherwise entered without a suggestion.
  * Withdrawals and deferrals are not outcomes.
  */
@@ -160,7 +160,7 @@ export function deriveValueReadingTelemetry(params: Readonly<{
         && proposal.binding.pageRepresentationDigest === row.page_representation_digest
         && time(proposal.createdAt) <= assertedAt
         && !params.reviews.some((review) => review.proposalRowId === proposal.rowId
-          && review.disposition === 'rejected' && time(review.createdAt) <= assertedAt)
+          && (review.disposition === 'rejected' || review.disposition === 'deferred') && time(review.createdAt) <= assertedAt)
         // A suggestion already used is no longer offered.
         && !activeCitations(params.assertions, proposal).some((cited) => time(cited.asserted_at) < assertedAt))
       .sort(byTimeThenId((proposal) => proposal.createdAt, (proposal) => proposal.proposalId));

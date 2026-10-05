@@ -2877,6 +2877,11 @@ WSLENV="${WSLENV:+${WSLENV}:}B42_DATABASE_URL" \
   npx --no-install vite-node --config vitest.config.ts \
     scripts/verify-value-reading-engine-from-postgres.ts
 
+# B4.4 disposition enforcement: two real SQL sessions observe shared row locks.
+B42_DATABASE_URL="${replay_database_url}" \
+WSLENV="${WSLENV:+${WSLENV}:}B42_DATABASE_URL" \
+  npx --no-install vite-node --config vitest.config.ts \
+    scripts/verify-value-reading-disposition-concurrency.ts
 echo "FRESH REPLAY: PASS (${#migrations[@]} migrations)"
 echo "PHASE 1B MIGRATION LEDGER / OBJECT REPLAY: PASS"
 echo "PHASE 1B PAGE / FRAGMENT PROVENANCE INSERT / UPDATE MATRIX: PASS"

@@ -15,7 +15,7 @@ vi.mock('@/components/validator/ManualRateLinkResolutionPanel', () => ({
   ),
 }));
 
-import { ResolutionDecisionPane, ResolutionEvidencePane } from '@/components/resolution/ResolutionWorkspace';
+import { ResolutionDecisionPane, ResolutionEvidencePane, resolutionDecisionIdentity, valueReadingDraft } from '@/components/resolution/ResolutionWorkspace';
 import type { ResolutionAction, ResolutionCase } from '@/lib/resolution/resolutionCases';
 
 const TARGET = {
@@ -40,6 +40,11 @@ const enter: ResolutionAction = {
   kind: 'enter_reviewed_value', method: 'POST', endpoint: '/api/documents/doc-1/facts/region-assertions',
   factKey: 'contract_rate_row', target: TARGET, supersedesAssertionId: null,
 };
+const reading = { source: 'forgewing_value_reading' as const, proposalId: 'reading-1', proposedValue: 'Hauling · CY · 14.5',
+  rateRow: { description: 'Hauling', unit_type: 'CY', rate_amount: 14.5, category: 'hauling' }, uncalibratedCertainty: null };
+const requestReading: ResolutionAction = { kind: 'request_value_reading', method: 'POST', endpoint: '/value-reading' };
+const reviewReading: ResolutionAction = { kind: 'review_value_reading', method: 'POST', endpoint: '/value-reading-review',
+  proposalId: 'reading-1', proposalDigestSha256: 'b'.repeat(64), dispositions: ['rejected', 'deferred'] };
 
 function decision(entry: ResolutionCase, forgewingSuggestionsIncluded = false): string {
   return renderToStaticMarkup(
@@ -49,6 +54,86 @@ function decision(entry: ResolutionCase, forgewingSuggestionsIncluded = false): 
 }
 
 describe('Resolution Workspace rendering (B5-B)', () => {
+  it('renders entitled Ask and typed outcomes only when supplied by the server, with no Core area', () => {
+    const entry = resolutionCase({ actions: [enter, requestReading], valueReadingOutcome: { code: 'budget_exhausted', reason: 'budget_exhausted' } });
+    const html = decision(entry, true);
+    expect(html).toContain('Ask Forgewing to read this region');
+    expect(html).toContain('budget is unavailable or exhausted');
+    expect(html).toContain('Forgewing visual reading · Unverified');
+    expect(html).not.toContain('Use suggestion');
+    expect(decision(entry, false)).not.toMatch(/Forgewing|visual reading|budget is unavailable/);
+    expect(decision(resolutionCase({ actions: [enter] }), true)).not.toContain('forgewing-value-reading');
+    expect(decision(resolutionCase({ valueReadingOutcome: { code: 'unreadable', reason: 'proposal_recorded' } }), true)).toContain('could not read this source region');
+    for (const code of ['generated_proposal', 'existing_result_reused'] as const) {
+      const reviewed = decision(resolutionCase({ actions: [enter, requestReading], suggestions: [],
+        valueReadingOutcome: { code, reason: 'proposal_recorded' } }), true);
+      expect(reviewed).toContain('No visual reading is currently offered for this case.');
+      expect(reviewed).not.toContain('ready for your review');
+      expect(reviewed).not.toContain('Use suggestion');
+    }
+  });
+
+  it('offers explicit Use suggestion and reject/defer without prefilling a value or displaying confidence', () => {
+    const html = decision(resolutionCase({ actions: [{ ...enter, forgewingProposalId: 'reading-1' }, reviewReading], suggestions: [reading] }), true);
+    expect(html).toContain('Use suggestion');
+    expect(html).toContain('$14.50');
+    expect(html).toContain('Hauling');
+    expect(html).toContain('CY');
+    const fractional = decision(resolutionCase({ actions: [{ ...enter, forgewingProposalId: 'reading-1' }],
+      suggestions: [{ ...reading, rateRow: { ...reading.rateRow, rate_amount: 8.75 } }] }), true);
+    expect(fractional).toContain('$8.75');
+    for (const [rate, displayed] of [
+      [14.501, '$14.501'], [1.2345678901234567e-6, '$0.0000012345678901234567'],
+      [1e-21, '$1e-21'], [-14.501, '-$14.501'], [320, '$320.00'],
+    ] as const) {
+      const preciseEntry = resolutionCase({ actions: [{ ...enter, forgewingProposalId: 'reading-1' }],
+        suggestions: [{ ...reading, rateRow: { ...reading.rateRow, rate_amount: rate } }] });
+      expect(decision(preciseEntry, true)).toContain(displayed);
+      expect(valueReadingDraft(preciseEntry, 'reading-1')?.rate).toBe(String(rate));
+    }
+    expect(html).toContain('Reject reading');
+    expect(html).toContain('Defer reading');
+    expect(html).toContain('aria-label="visual reading rationale"');
+    expect(html).toContain('aria-label="description"');
+    expect(html).not.toContain('value="Hauling"');
+    expect(html).not.toContain('value="14.5"');
+    expect(html).not.toMatch(/confidence|certainty|uncalibrated|\d+(?:\.\d+)?%|Accept reading/);
+    expect(decision(resolutionCase({ actions: [enter], suggestions: [reading] }), true)).not.toContain('Use suggestion');
+  });
+
+  it('copies every structured field only from the single reading offered for reviewed-value entry', () => {
+    const entry = resolutionCase({ actions: [{ ...enter, forgewingProposalId: 'reading-1' }], suggestions: [reading] });
+    expect(valueReadingDraft(entry, 'reading-1')).toEqual({ description: 'Hauling', unit: 'CY', rate: '14.5', category: 'hauling' });
+    expect(valueReadingDraft({ ...entry, suggestions: [{ ...reading, rateRow: { ...reading.rateRow, category: null } }] }, 'reading-1')?.category).toBe('');
+    expect(valueReadingDraft(entry, 'invented')).toBeNull();
+    expect(valueReadingDraft({ ...entry, actions: [enter] }, 'reading-1')).toBeNull();
+    expect(valueReadingDraft({ ...entry, suggestions: [reading, reading] }, 'reading-1')).toBeNull();
+  });
+
+  it('describes a failed latest request without denying a still-current older suggestion', () => {
+    for (const code of ['structured_output_invalid', 'deterministic_validation_failed', 'proposal_persist_failed'] as const) {
+      const html = decision(resolutionCase({ actions: [{ ...enter, forgewingProposalId: 'reading-1' }, reviewReading], suggestions: [reading],
+        valueReadingOutcome: { code, reason: code === 'proposal_persist_failed' ? 'write_failed' : 'invalid_proposal' } }), true);
+      expect(html).toContain('Use suggestion');
+      expect(html).toContain('No new suggestion');
+      expect(html).not.toContain('No suggestion is available');
+    }
+  });
+
+  it('invalidates the prior draft when refresh changes evidence, chain head, proposal, rejection, or entitlement', () => {
+    const entry = resolutionCase({ actions: [{ ...enter, forgewingProposalId: 'reading-1' }, reviewReading], suggestions: [reading] });
+    const initial = resolutionDecisionIdentity(entry, true);
+    const changed = [
+      { ...entry, actions: [{ ...enter, target: { ...TARGET, pageRepresentationDigest: 'c'.repeat(64) } }, reviewReading] },
+      { ...entry, actions: [{ ...enter, supersedesAssertionId: 'head-2', forgewingProposalId: 'reading-1' }, reviewReading] },
+      { ...entry, actions: [{ ...enter, forgewingProposalId: 'reading-2' }, { ...reviewReading, proposalId: 'reading-2' }] },
+      { ...entry, actions: [enter], suggestions: [] },
+    ];
+    for (const refreshed of changed) expect(resolutionDecisionIdentity(refreshed, true)).not.toBe(initial);
+    expect(resolutionDecisionIdentity(entry, false)).not.toBe(initial);
+    expect(resolutionDecisionIdentity({ ...entry, valueReadingOutcome: { code: 'generated_proposal', reason: 'proposal_recorded' } }, true)).toBe(initial);
+  });
+
   it('renders only the actions the server listed, with Save & next for a reviewed value', () => {
     const html = decision(resolutionCase({ actions: [enter, { kind: 'open_document', href: '/platform/documents/doc-1?page=8' }] }));
     expect(html).toContain('Save &amp; next');

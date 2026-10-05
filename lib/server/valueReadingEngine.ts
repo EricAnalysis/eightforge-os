@@ -235,7 +235,7 @@ export type ValueReadingTarget = Readonly<{
   neighbouringLineTexts: readonly string[];
 }>;
 
-export type ValueReadingTargetRefusal = 'case_not_found' | 'target_not_open' | 'source_artifact_unknown' | 'read_failed';
+export type ValueReadingTargetRefusal = 'case_not_found' | 'target_not_open' | 'source_artifact_unknown' | 'read_failed' | 'request_key_collision';
 
 /**
  * The target, resolved only from server records: the document must belong to
@@ -423,6 +423,15 @@ export async function runValueReading(
     organizationId: input.organizationId, requestedBy: input.requestedBy, requestKey: input.requestKey,
   });
   if (previous) {
+    // A request key names one source target. Reusing it for another line or
+    // changed evidence must never disclose/replay that earlier answer.
+    if (previous.sourceDocumentId !== target.binding.sourceDocumentId
+      || previous.sourceArtifactId !== target.binding.sourceArtifactId
+      || previous.physicalPageNumber !== target.binding.physicalPageNumber
+      || previous.pageRepresentationDigest !== target.binding.pageRepresentationDigest
+      || previous.anchorKey !== target.binding.anchorKey) {
+      return { status: 'not_resolved', reason: 'request_key_collision' };
+    }
     return {
       status: 'completed',
       outcome: { code: previous.outcomeCode, reason: previous.sanitizedReason, providerInvoked: previous.providerInvoked },

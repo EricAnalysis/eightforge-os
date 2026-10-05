@@ -10,6 +10,7 @@ import type { ProjectDecisionRow } from '@/lib/projectOverview';
 import {
   buildResolutionQueue,
   type DocumentReviewedValueState,
+  type DocumentValueReadings,
   type PendingRecoveryProposal,
   type RecoveryConfirmationOption,
   type ResolutionQueue,
@@ -18,6 +19,8 @@ import { resolveProjectIssueObjects } from '@/lib/resolveProjectIssueObjects';
 import { resolveForgewingEntitlement, type OrganizationForgewingEntitlementResolver } from '@/lib/server/forgewingEntitlement';
 import { readRecoveryReviewQueue, type RecoveryReviewCandidate } from '@/lib/server/forgewingRecoveryReviewRead';
 import { loadRegionBoundAssertionRows, type RegionAssertionClient } from '@/lib/server/regionBoundHumanAssertions';
+import { deriveValueReadingLifecycle } from '@/lib/resolution/valueReadingLifecycle';
+import { loadValueReadingOutcomes, loadValueReadingRecords } from '@/lib/server/valueReadingProposals';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import type { ValidationEvidence, ValidationFinding } from '@/types/validator';
 
@@ -25,7 +28,7 @@ import type { ValidationEvidence, ValidationFinding } from '@/types/validator';
  * Server read for the resolution queue (B5-A). Read-only: it loads existing
  * records and hands them to the pure builder. It writes nothing.
  *
- * Forgewing suggestion sources (recovery proposals) are read only for an
+ * Forgewing suggestion sources (recovery proposals, value readings) are read only for an
  * organization entitled to Core + Forgewing (the kill switch AND its latest
  * entitlement event). Everything else is EightForge Core, identical in both
  * tiers.
@@ -79,6 +82,8 @@ export async function readResolutionQueue(
     forgewingEnabled?: boolean;
     resolveEntitlement?: OrganizationForgewingEntitlementResolver;
     readRecoveryQueue?: typeof readRecoveryReviewQueue;
+    loadValueReadings?: typeof loadValueReadingRecords;
+    loadValueReadingOutcomes?: typeof loadValueReadingOutcomes;
   }> = {},
 ): Promise<ResolutionQueueReadResult> {
   const admin = dependencies.admin === undefined
@@ -144,8 +149,11 @@ export async function readResolutionQueue(
   }
   const reviewedValuesByDocument = new Map<string, DocumentReviewedValueState>();
   const documentPages = new Map<string, DocumentPageFrames>();
+  const currentPageDigests = new Map<string, ReadonlyMap<number, string>>();
   for (const documentId of documentIds) {
     const preferred = pickPreferredExtractionBlob(extractionsByDocument.get(documentId) ?? []);
+    currentPageDigests.set(documentId,
+      currentDocumentEvidenceFromExtractionData(preferred?.data ?? null).pageRepresentationDigestByPage);
     const frames = documentPageFrames({
       extractionData: preferred?.data ?? null,
       sourceDocumentId: documentId,
@@ -189,6 +197,36 @@ export async function readResolutionQueue(
     }
   }
 
+  // Forgewing value readings (B4): read only for an entitled organization.
+  // Their lifecycle is derived from durable records against the current pages.
+  const valueReadingsByDocument = new Map<string, DocumentValueReadings>();
+  if (forgewingEnabled && documentIds.length > 0) {
+    let records: Awaited<ReturnType<typeof loadValueReadingRecords>>;
+    let outcomes: Awaited<ReturnType<typeof loadValueReadingOutcomes>>;
+    try {
+      [records, outcomes] = await Promise.all([
+        (dependencies.loadValueReadings ?? loadValueReadingRecords)(admin as never,
+          { organizationId: query.organizationId, documentIds }),
+        (dependencies.loadValueReadingOutcomes ?? loadValueReadingOutcomes)(admin as never,
+          { organizationId: query.organizationId, documentIds }),
+      ]);
+    } catch {
+      return { status: 'read_failed', reason: 'value_reading_read_failed' };
+    }
+    const lifecycle = deriveValueReadingLifecycle({
+      proposals: records.proposals, reviews: records.reviews, assertions: assertionRead.rows, currentPageDigests,
+    });
+    for (const documentId of documentIds) {
+      const proposals = records.proposals.filter((proposal) => proposal.binding.sourceDocumentId === documentId);
+      const ids = new Set(proposals.map((proposal) => proposal.proposalId));
+      valueReadingsByDocument.set(documentId, {
+        proposals,
+        lifecycle: lifecycle.filter((entry) => ids.has(entry.proposalId)),
+        outcomes: outcomes.filter((outcome) => outcome.sourceDocumentId === documentId),
+      });
+    }
+  }
+
   return {
     status: 'ok',
     queue: buildResolutionQueue({
@@ -199,6 +237,7 @@ export async function readResolutionQueue(
       reviewedValuesByDocument,
       recoveryProposals,
       forgewingEnabled,
+      valueReadingsByDocument,
       documentPages,
     }),
   };

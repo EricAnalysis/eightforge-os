@@ -12,6 +12,13 @@ import { pageFrameVisual, type DocumentPageFrames } from '@/lib/recovery/diagnos
 import type { VisualSourceEvidence } from '@/lib/recovery/visualSourceEvidence';
 import { isApprovalBlocker } from '@/lib/validator/findingSemantics';
 import { isHumanReviewedEvidenceNote } from '@/lib/validator/humanReviewedEvidence';
+import type { ValueReadingLifecycle } from '@/lib/resolution/valueReadingLifecycle';
+import type {
+  ValueReadingOutcomeCode,
+  ValueReadingOutcomeReason,
+  ValueReadingOutcomeRecord,
+  ValueReadingProposalRecord,
+} from '@/lib/server/valueReadingProposals';
 import type { ValidationEvidence } from '@/types/validator';
 
 /**
@@ -127,13 +134,42 @@ export type RecoveryConfirmationOption = Readonly<{
  * A typed suggestion. Its source says who suggested it. A suggestion is never
  * authority: only the operator's action through a listed write path is.
  */
-export type ResolutionSuggestion = Readonly<{
-  source: 'forgewing_recovery_proposal';
-  /** The proposal's own value, verbatim. Shown beside the decision, never pre-filled as truth. */
-  proposedValue: string;
-  /** Model self-report. Uncalibrated; renderers must not present it as accuracy. */
-  uncalibratedCertainty: number | null;
-  proposalId: string;
+export type ResolutionSuggestion =
+  | Readonly<{
+      source: 'forgewing_recovery_proposal';
+      /** The proposal's own value, verbatim. Shown beside the decision, never pre-filled as truth. */
+      proposedValue: string;
+      /** Model self-report. Uncalibrated; renderers must not present it as accuracy. */
+      uncalibratedCertainty: number | null;
+      proposalId: string;
+    }>
+  | Readonly<{
+      /** A Forgewing value reading (B4). AI_PROPOSED: shown beside the operator's input, never inside it. */
+      source: 'forgewing_value_reading';
+      proposalId: string;
+      /** What Forgewing read, verbatim; or that it could not read the value. */
+      reading:
+        | Readonly<{ kind: 'value'; description: string; unitType: string; rateAmount: number; category: string | null }>
+        | Readonly<{ kind: 'unreadable' }>;
+      rationale: string;
+      /** Always shown as an unverified visual reading. No numeric confidence exists or is shown. */
+      basis: 'visual_reading';
+      verification: 'unverified';
+      /** The operator deferred it earlier; it is still current. */
+      deferred: boolean;
+      createdAt: string;
+    }>;
+
+/** The last time an operator asked Forgewing to read this line, and what happened. */
+export type ValueReadingStatus = Readonly<{
+  lastOutcome: Readonly<{ code: ValueReadingOutcomeCode; reason: ValueReadingOutcomeReason; observedAt: string }> | null;
+}>;
+
+/** Value readings for one document, as the server read them. */
+export type DocumentValueReadings = Readonly<{
+  proposals: readonly ValueReadingProposalRecord[];
+  lifecycle: readonly ValueReadingLifecycle[];
+  outcomes: readonly ValueReadingOutcomeRecord[];
 }>;
 
 /** Every action names the existing write path it uses. */
@@ -146,6 +182,28 @@ export type ResolutionAction =
       target: RegionAssertionEntryTarget;
       /** The current chain head to supersede, or null for a first review. */
       supersedesAssertionId: string | null;
+      /**
+       * Value-reading proposals the operator may cite when they use a
+       * suggestion. The database verifies the citation and decides whether
+       * the value was used unchanged or edited; the client never says which.
+       */
+      citableProposalIds: readonly string[];
+    }>
+  | Readonly<{
+      /** Ask Forgewing to read this line. Records one durable outcome; never writes truth. */
+      kind: 'request_value_reading';
+      method: 'POST';
+      endpoint: string;
+      caseId: string;
+    }>
+  | Readonly<{
+      /** Reject or defer a value reading. Neither authorizes a value: use is a reviewed value. */
+      kind: 'review_value_reading';
+      method: 'POST';
+      endpoint: string;
+      proposalId: string;
+      proposalDigestSha256: string;
+      dispositions: readonly ('rejected' | 'deferred')[];
     }>
   | Readonly<{
       kind: 'withdraw_reviewed_value';
@@ -226,6 +284,8 @@ export type ResolutionCase = Readonly<{
   rootCauseKey: string;
   evidence: readonly ResolutionEvidenceRef[];
   suggestions: readonly ResolutionSuggestion[];
+  /** Forgewing value reading for an unread line; null when not offered (Core, or other kinds). */
+  valueReading: ValueReadingStatus | null;
   actions: readonly ResolutionAction[];
   /** Ids of the records this case was derived from. */
   sourceRefs: Readonly<{
@@ -462,24 +522,102 @@ function validatorCases(params: {
       rootCauseKey: rateRow ? `rate_row:${rateRow.source_document_id ?? ''}:${rateRow.record_id}` : `finding:${finding.id}`,
       evidence,
       suggestions: [],
+      valueReading: null,
       actions,
       sourceRefs: { findingId: finding.id },
     }];
   });
 }
 
+function valueReadingEndpoint(projectId: string): string {
+  return `/api/projects/${projectId}/resolution-cases/value-reading`;
+}
+
+/**
+ * The Forgewing slot for one unread line: the current suggestion (a value
+ * reading that is neither stale, rejected nor used), the last request outcome,
+ * and the actions the operator may take. Only for an entitled organization.
+ */
+function valueReadingSlot(params: {
+  projectId: string;
+  caseId: string;
+  documentId: string;
+  target: RegionAssertionEntryTarget;
+  readings: DocumentValueReadings | null;
+}): Readonly<{ suggestions: ResolutionSuggestion[]; status: ValueReadingStatus; actions: ResolutionAction[];
+  citableProposalIds: string[] }> {
+  const readings = params.readings;
+  const lifecycle = new Map((readings?.lifecycle ?? []).map((entry) => [entry.proposalId, entry]));
+  // Current for this exact line: same anchor and page representation, not stale, rejected or used.
+  const current = (readings?.proposals ?? [])
+    .filter((proposal) => proposal.binding.sourceDocumentId === params.documentId
+      && proposal.binding.anchorKey === params.target.anchorKey
+      && proposal.binding.pageRepresentationDigest === params.target.pageRepresentationDigest)
+    .filter((proposal) => {
+      const state = lifecycle.get(proposal.proposalId)?.state;
+      return state === 'pending' || state === 'deferred';
+    })
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt, 'en-US')
+      || left.proposalId.localeCompare(right.proposalId, 'en-US'));
+  const shown = current.find((proposal) => proposal.reading.kind === 'value') ?? current[0] ?? null;
+  const last = (readings?.outcomes ?? []).filter((outcome) => outcome.sourceDocumentId === params.documentId
+    && outcome.anchorKey === params.target.anchorKey).at(-1) ?? null;
+
+  const suggestions: ResolutionSuggestion[] = shown ? [{
+    source: 'forgewing_value_reading',
+    proposalId: shown.proposalId,
+    reading: shown.reading.kind === 'value' ? {
+      kind: 'value',
+      description: shown.reading.rateRow.description,
+      unitType: shown.reading.rateRow.unit_type,
+      rateAmount: shown.reading.rateRow.rate_amount,
+      category: shown.reading.rateRow.category,
+    } : { kind: 'unreadable' },
+    rationale: shown.rationale,
+    basis: 'visual_reading',
+    verification: 'unverified',
+    deferred: lifecycle.get(shown.proposalId)?.state === 'deferred',
+    createdAt: shown.createdAt,
+  }] : [];
+  const actions: ResolutionAction[] = [];
+  // Asking again for a line with a current reading would only return that reading.
+  if (!shown) {
+    actions.push({ kind: 'request_value_reading', method: 'POST',
+      endpoint: valueReadingEndpoint(params.projectId), caseId: params.caseId });
+  }
+  if (shown && shown.reading.kind === 'value') {
+    actions.push({ kind: 'review_value_reading', method: 'POST',
+      endpoint: `${valueReadingEndpoint(params.projectId)}/review`,
+      proposalId: shown.proposalId, proposalDigestSha256: shown.proposalDigestSha256,
+      dispositions: ['rejected', 'deferred'] });
+  }
+  return {
+    suggestions,
+    status: { lastOutcome: last ? { code: last.outcomeCode, reason: last.sanitizedReason, observedAt: last.observedAt } : null },
+    actions,
+    citableProposalIds: shown && shown.reading.kind === 'value' ? [shown.proposalId] : [],
+  };
+}
+
 function reviewedValueCases(params: {
   projectId: string;
   documents: ReadonlyMap<string, ResolutionDocument>;
   reviewedValuesByDocument: ReadonlyMap<string, DocumentReviewedValueState>;
+  forgewingEnabled: boolean;
+  valueReadingsByDocument: ReadonlyMap<string, DocumentValueReadings>;
 }): ResolutionCase[] {
   const cases: ResolutionCase[] = [];
   for (const [documentId, state] of params.reviewedValuesByDocument) {
     const label = documentLabel(params.documents, documentId);
 
     for (const target of openRegionAssertionEntryTargets(state)) {
+      const caseId = `unreadable:${documentId}:${target.anchorKey}`;
+      const forgewing = params.forgewingEnabled ? valueReadingSlot({
+        projectId: params.projectId, caseId, documentId, target,
+        readings: params.valueReadingsByDocument.get(documentId) ?? null,
+      }) : null;
       cases.push({
-        caseId: `unreadable:${documentId}:${target.anchorKey}`,
+        caseId,
         kind: 'unreadable_priced_line',
         tier: 'missing_authoritative_value',
         exposureAmount: null,
@@ -495,7 +633,8 @@ function reviewedValueCases(params: {
         originalSourceText: target.rawText,
         rootCauseKey: `unresolved_page:${documentId}:${target.physicalPageNumber}`,
         evidence: [currentTargetEvidence(documentId, target)],
-        suggestions: [],
+        suggestions: forgewing?.suggestions ?? [],
+        valueReading: forgewing?.status ?? null,
         actions: [
           {
             kind: 'enter_reviewed_value',
@@ -504,7 +643,9 @@ function reviewedValueCases(params: {
             factKey: 'contract_rate_row',
             target,
             supersedesAssertionId: chainHead(state.history, target.anchorKey),
+            citableProposalIds: forgewing?.citableProposalIds ?? [],
           },
+          ...(forgewing?.actions ?? []),
           { kind: 'open_document', href: documentHref(documentId, target.physicalPageNumber) },
         ],
         sourceRefs: { anchorKey: target.anchorKey },
@@ -526,6 +667,7 @@ function reviewedValueCases(params: {
           factKey: 'contract_rate_row',
           target,
           supersedesAssertionId: chainHead(state.history, anchorKey),
+          citableProposalIds: [],
         });
       }
       // Withdrawal is bound to the current target like any other review, so it
@@ -576,6 +718,7 @@ function reviewedValueCases(params: {
           })),
         ],
         suggestions: [],
+      valueReading: null,
         actions,
         sourceRefs: { assertionIds: held.assertionIds, anchorKey },
       });
@@ -619,6 +762,7 @@ function recoveryCases(params: {
           : proposal.selectableConfirmations.find((option) => option.proposed)?.visual ?? null,
         detail: null,
       }],
+      valueReading: null,
       suggestions: [{
         source: 'forgewing_recovery_proposal' as const,
         proposedValue: proposal.proposedValue,
@@ -663,6 +807,8 @@ export function buildResolutionQueue(params: {
   recoveryProposals: readonly PendingRecoveryProposal[];
   /** Forgewing suggestion sources appear only for an organization with Forgewing enabled. */
   forgewingEnabled: boolean;
+  /** Value readings per document; read only for an organization with Forgewing enabled. */
+  valueReadingsByDocument?: ReadonlyMap<string, DocumentValueReadings>;
   /** Current verified pages per document, for page-level evidence. */
   documentPages?: ReadonlyMap<string, DocumentPageFrames>;
 }): ResolutionQueue {
@@ -674,6 +820,7 @@ export function buildResolutionQueue(params: {
     }),
     ...reviewedValueCases({
       projectId: params.projectId, documents, reviewedValuesByDocument: params.reviewedValuesByDocument,
+      forgewingEnabled: params.forgewingEnabled, valueReadingsByDocument: params.valueReadingsByDocument ?? new Map(),
     }),
     ...(params.forgewingEnabled
       ? recoveryCases({ projectId: params.projectId, documents, proposals: params.recoveryProposals })

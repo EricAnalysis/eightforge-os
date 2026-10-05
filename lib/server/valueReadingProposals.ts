@@ -550,3 +550,41 @@ export async function loadValueReadingProposalById(
   const parsed = row ? parseValueReadingProposalRow(row) : null;
   return parsed && parsed.binding.organizationId === query.organizationId ? parsed : null;
 }
+
+export type ValueReadingOutcomeRecord = Readonly<{
+  sourceDocumentId: string;
+  anchorKey: string;
+  pageRepresentationDigest: string;
+  outcomeCode: ValueReadingOutcomeCode;
+  sanitizedReason: ValueReadingOutcomeReason;
+  providerInvoked: boolean;
+  proposalId: string | null;
+  requestedBy: string;
+  observedAt: string;
+}>;
+
+/** Every value-reading request outcome for these documents, oldest first. */
+export async function loadValueReadingOutcomes(
+  admin: ValueReadingClient,
+  query: Readonly<{ organizationId: string; documentIds: readonly string[] }>,
+): Promise<readonly ValueReadingOutcomeRecord[]> {
+  if (query.documentIds.length === 0) return [];
+  const read = await admin.from(VALUE_READING_OUTCOMES_TABLE)
+    .select('source_document_id, anchor_key, page_representation_digest, outcome_code, sanitized_reason, provider_invoked, proposal_id, requested_by, observed_at')
+    .eq('organization_id', query.organizationId)
+    .eq('recovery_type', VALUE_READING_RECOVERY_TYPE)
+    .in('source_document_id', [...query.documentIds]);
+  if (read.error) throw new Error(`Failed to load value-reading outcomes: ${read.error.message ?? 'unknown error'}`);
+  return (Array.isArray(read.data) ? read.data : []).flatMap((entry): ValueReadingOutcomeRecord[] => {
+    const row = entry as Record<string, unknown> | null;
+    const fields = [row?.source_document_id, row?.anchor_key, row?.page_representation_digest, row?.outcome_code,
+      row?.sanitized_reason, row?.requested_by, row?.observed_at].map(str);
+    if (fields.some((field) => field === null) || typeof row?.provider_invoked !== 'boolean') return [];
+    const [sourceDocumentId, anchorKey, pageRepresentationDigest, outcomeCode, sanitizedReason, requestedBy, observedAt] = fields as string[];
+    return [{
+      sourceDocumentId: sourceDocumentId!, anchorKey: anchorKey!, pageRepresentationDigest: pageRepresentationDigest!,
+      outcomeCode: outcomeCode as ValueReadingOutcomeCode, sanitizedReason: sanitizedReason as ValueReadingOutcomeReason,
+      providerInvoked: row.provider_invoked, proposalId: str(row.proposal_id), requestedBy: requestedBy!, observedAt: observedAt!,
+    }];
+  }).sort((left, right) => left.observedAt.localeCompare(right.observedAt, 'en-US'));
+}

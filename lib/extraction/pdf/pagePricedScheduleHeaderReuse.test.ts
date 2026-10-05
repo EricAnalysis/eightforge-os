@@ -14,7 +14,6 @@ import { buildPagePricedScheduleReconstruction } from '@/lib/extraction/pdf/page
 const DESCRIPTION_X = 50;
 const UNIT_X = 200;
 const CURRENCY_X = 450;
-const AMOUNT_X = 470;
 
 type Spec = { x: number; text: string; width?: number };
 

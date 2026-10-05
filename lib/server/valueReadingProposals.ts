@@ -509,6 +509,10 @@ export type StoredValueReadingOutcome = Readonly<{
   proposalId: string | null;
   anchorKey: string;
   observedAt: string;
+  sourceDocumentId: string;
+  sourceArtifactId: string;
+  physicalPageNumber: number;
+  pageRepresentationDigest: string;
 }>;
 
 /** The outcome an earlier attempt of this exact request already recorded, if any. */
@@ -517,7 +521,8 @@ export async function loadValueReadingOutcome(
   query: Readonly<{ organizationId: string; requestedBy: string; requestKey: string }>,
 ): Promise<StoredValueReadingOutcome | null> {
   const read = await admin.from(VALUE_READING_OUTCOMES_TABLE)
-    .select('outcome_code, sanitized_reason, provider_invoked, proposal_id, anchor_key, requested_by, observed_at')
+    .select('outcome_code, sanitized_reason, provider_invoked, proposal_id, anchor_key, requested_by, observed_at, '
+      + 'source_document_id, source_artifact_id, physical_page_number, page_representation_digest')
     .eq('organization_id', query.organizationId)
     .eq('recovery_type', VALUE_READING_RECOVERY_TYPE)
     .eq('diagnostic_id', valueReadingRequestKeyDigest(query));
@@ -525,7 +530,9 @@ export async function loadValueReadingOutcome(
   const row = (Array.isArray(read.data) ? read.data[0] : null) as Record<string, unknown> | null | undefined;
   if (!row || row.requested_by !== query.requestedBy || typeof row.outcome_code !== 'string'
     || typeof row.sanitized_reason !== 'string' || typeof row.provider_invoked !== 'boolean'
-    || typeof row.anchor_key !== 'string' || typeof row.observed_at !== 'string') return null;
+    || typeof row.anchor_key !== 'string' || typeof row.observed_at !== 'string'
+    || typeof row.source_document_id !== 'string' || typeof row.source_artifact_id !== 'string'
+    || typeof row.physical_page_number !== 'number' || typeof row.page_representation_digest !== 'string') return null;
   return {
     outcomeCode: row.outcome_code as ValueReadingOutcomeCode,
     sanitizedReason: row.sanitized_reason as ValueReadingOutcomeReason,
@@ -533,6 +540,10 @@ export async function loadValueReadingOutcome(
     proposalId: typeof row.proposal_id === 'string' ? row.proposal_id : null,
     anchorKey: row.anchor_key,
     observedAt: row.observed_at,
+    sourceDocumentId: row.source_document_id,
+    sourceArtifactId: row.source_artifact_id,
+    physicalPageNumber: row.physical_page_number,
+    pageRepresentationDigest: row.page_representation_digest,
   };
 }
 

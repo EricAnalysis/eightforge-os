@@ -53,6 +53,21 @@ describe('resolution workspace boundaries (B5-B)', () => {
       expect(`${term}:${workspace.includes(term)}`).toBe(`${term}:false`);
     }
     expect(workspace).toContain('const showSuggestions = forgewingSuggestionsIncluded && entry.suggestions.length > 0;');
+    expect(workspace).toContain('const showReading = forgewingSuggestionsIncluded');
+    expect(workspace).toContain("offeredAction(entry, 'request_value_reading')");
+    expect(workspace).toContain("offeredAction(entry, 'review_value_reading')");
+    expect(workspace).toContain('Forgewing visual reading · Unverified');
+    expect(workspace).not.toMatch(/valueReadingEngine|createValueReadingProposal|runValueReading/);
+  });
+
+  it('keeps reading selection in a human draft and request/review refresh on the same case', () => {
+    const workspace = code(WORKSPACE);
+    expect(workspace).toContain('setForm((current) => ({ ...current, ...draft }))');
+    expect(workspace).toContain('setSelectedReadingId(suggestion.proposalId)');
+    expect(workspace).toContain("input.kind === 'request_value_reading' || input.kind === 'review_value_reading'");
+    expect(workspace).toContain('if (refreshed) setSelectedId(entry.caseId)');
+    expect(workspace).toContain('setDecisionRevision((revision) => revision + 1)');
+    expect(workspace).toContain('resolutionDecisionIdentity(selected, queue.forgewingSuggestionsIncluded)');
   });
 
   it('adds no keyboard shortcuts yet', () => {

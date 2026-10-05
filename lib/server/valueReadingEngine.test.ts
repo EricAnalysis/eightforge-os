@@ -113,6 +113,8 @@ function fake(overrides: Partial<Store> = {}) {
                     diagnostic_id: row.p_request_key_digest, outcome_code: row.p_outcome_code,
                     sanitized_reason: row.p_sanitized_reason, provider_invoked: row.p_provider_invoked,
                     proposal_id: row.p_proposal_id, anchor_key: row.p_anchor_key, requested_by: row.p_requested_by,
+                    source_document_id: row.p_source_document_id, source_artifact_id: row.p_source_artifact_id,
+                    physical_page_number: row.p_physical_page_number, page_representation_digest: row.p_page_representation_digest,
                     observed_at: '2026-10-04T02:00:00Z' })) : [];
             return source.filter((row) => filters.every(([column, value]) =>
               !(column in row) || row[column] === value || (Array.isArray(value) && value.includes(row[column]))));
@@ -210,6 +212,30 @@ describe('value-reading engine (B4.3)', () => {
     const retry = await runValueReading(client, input({ requestKey: 'click-1' }), d.value);
     expect(retry).toMatchObject({ status: 'completed', replayed: true,
       outcome: { code: 'generated_proposal' }, proposal: { proposalId: (first as { proposal: { proposalId: string } }).proposal.proposalId } });
+    expect(calls).toHaveLength(1);
+    expect(store.outcomes).toHaveLength(1);
+  });
+
+  it('refuses request-key reuse for another case without replaying its proposal or writing again', async () => {
+    const { client, store } = fake();
+    const { port, calls } = provider(VALUE_OUTPUT);
+    const d = deps({ provider: port });
+    await runValueReading(client, input({ requestKey: 'one-target' }), d.value);
+    const otherAnchor = regionAssertionEntryTargets(extractionData())[1]!.anchorKey;
+    const result = await runValueReading(client, input({ requestKey: 'one-target', caseId: `unreadable:${DOC}:${otherAnchor}` }), d.value);
+    expect(result).toEqual({ status: 'not_resolved', reason: 'request_key_collision' });
+    expect(calls).toHaveLength(1);
+    expect(store.outcomes).toHaveLength(1);
+  });
+
+  it('refuses request-key replay after the target evidence changes', async () => {
+    const { client, store } = fake();
+    const { port, calls } = provider(VALUE_OUTPUT);
+    const d = deps({ provider: port });
+    await runValueReading(client, input({ requestKey: 'old-evidence' }), d.value);
+    store.extractions[0]!.data = extractionData('c'.repeat(64));
+    const result = await runValueReading(client, input({ requestKey: 'old-evidence' }), d.value);
+    expect(result).toEqual({ status: 'not_resolved', reason: 'request_key_collision' });
     expect(calls).toHaveLength(1);
     expect(store.outcomes).toHaveLength(1);
   });

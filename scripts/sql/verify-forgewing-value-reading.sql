@@ -124,6 +124,8 @@ DO $$ DECLARE r record; v record; BEGIN
   IF NOT r.inserted THEN RAISE EXCEPTION 'B4.2 FAIL: unreadable proposal'; END IF;
   SELECT * INTO r FROM pg_temp.propose('other-anchor', 'value',
     '{"description":"Debris removal","unit_type":"CY","rate_amount":14.5}', p_anchor => 'p8:line:420');
+  SELECT * INTO r FROM pg_temp.propose('deferred', 'value',
+    '{"description":"Debris removal","unit_type":"CY","rate_amount":14.5}', p_anchor => 'p8:line:600');
   SELECT * INTO r FROM pg_temp.propose('org-b', 'value',
     '{"description":"Debris removal","unit_type":"CY","rate_amount":14.5}',
     p_org => 'b4200000-0000-4000-8000-000000000002', p_project => 'b4200000-0000-4000-8000-0000000000e3',
@@ -171,7 +173,7 @@ DO $$ DECLARE r record; BEGIN
     'Reads the wrong row', pg_temp.rq('c'));
   IF r.inserted THEN RAISE EXCEPTION 'B4.2 FAIL: idempotent review replay inserted'; END IF;
   SELECT * INTO r FROM public.record_forgewing_value_reading_review(
-    'b4200000-0000-4000-8000-000000000001', pg_temp.proposal_id('p1'), pg_temp.proposal_digest('p1'),
+    'b4200000-0000-4000-8000-000000000001', pg_temp.proposal_id('deferred'), pg_temp.proposal_digest('deferred'),
     'b4200000-0000-4000-8000-0000000000a1', 'deferred', 'Check the original first', pg_temp.rq('d'));
   IF NOT r.inserted THEN RAISE EXCEPTION 'B4.2 FAIL: deferral'; END IF;
 END $$;
@@ -208,6 +210,33 @@ DO $$ BEGIN
   END IF;
 END $$;
 
+-- B4.4: rejected/deferred readings cannot be cited, even after operator edits.
+DO $$ DECLARE v_key text; v_anchor text; v_amount numeric; BEGIN
+  FOREACH v_key IN ARRAY ARRAY['other-anchor', 'deferred'] LOOP
+    v_anchor := CASE WHEN v_key = 'other-anchor' THEN 'p8:line:420' ELSE 'p8:line:600' END;
+    FOREACH v_amount IN ARRAY ARRAY[14.5, 14.75] LOOP
+      BEGIN
+        PERFORM pg_temp.assert_value(jsonb_build_object('description', 'Debris removal',
+          'unit_type', 'CY', 'rate_amount', v_amount), pg_temp.proposal_id(v_key),
+          pg_temp.rq('blocked:' || v_key || ':' || v_amount), p_anchor => v_anchor);
+        RAISE EXCEPTION 'B4.4 FAIL: reviewed proposal % promoted at rate %', v_key, v_amount;
+      EXCEPTION WHEN check_violation THEN NULL;
+      END;
+    END LOOP;
+    IF EXISTS (SELECT 1 FROM public.human_fact_assertions
+      WHERE source_document_id = 'b4200000-0000-4000-8000-0000000000d1' AND anchor_key = v_anchor) THEN
+      RAISE EXCEPTION 'B4.4 FAIL: refused citation left truth';
+    END IF;
+    -- Manual B3 entry remains available with no proposal authority.
+    PERFORM pg_temp.assert_value('{"description":"Operator reading","unit_type":"CY","rate_amount":14.5}',
+      NULL, pg_temp.rq('manual:' || v_key), p_origin => 'operator_entered', p_anchor => v_anchor);
+    IF NOT EXISTS (SELECT 1 FROM public.human_fact_assertions
+      WHERE request_digest_sha256 = pg_temp.rq('manual:' || v_key)
+        AND review_origin = 'operator_entered' AND forgewing_proposal_id IS NULL) THEN
+      RAISE EXCEPTION 'B4.4 FAIL: independent operator entry blocked';
+    END IF;
+  END LOOP;
+END $$;
 -- 11. Core operator entry is unchanged, and the caller never chooses an AI origin.
 DO $$ DECLARE r record; BEGIN
   SELECT * INTO r FROM pg_temp.assert_value('{"description":"Hauling","unit_type":"TON","rate_amount":9}',
@@ -382,4 +411,25 @@ DO $$ BEGIN
   END IF;
 END $$;
 
+-- Existing human truth is never withdrawn by a later rejection/deferral.
+-- Exact assertion replay survives; every new cited assertion is refused.
+SET ROLE service_role;
+SELECT set_config('request.jwt.claim.role', 'service_role', false);
+DO $$ DECLARE r record; BEGIN
+  PERFORM public.record_forgewing_value_reading_review(
+    'b4200000-0000-4000-8000-000000000001', pg_temp.proposal_id('p1'), pg_temp.proposal_digest('p1'),
+    'b4200000-0000-4000-8000-0000000000a1', 'rejected', 'Do not use this reading again', pg_temp.rq('late-review'));
+  SELECT * INTO r FROM pg_temp.assert_value(
+    '{"rate_amount":14.50,"unit_type":" CY","description":"Debris removal "}',
+    pg_temp.proposal_id('p1'), pg_temp.rq('3'), p_observations => ARRAY['obs-2', 'obs-1']);
+  IF r.inserted OR r.assertion_id IS DISTINCT FROM pg_temp.assertion(pg_temp.rq('3')) THEN
+    RAISE EXCEPTION 'B4.4 FAIL: later review changed exact assertion replay';
+  END IF;
+END $$;
+DO $$ BEGIN
+  PERFORM pg_temp.assert_value('{"description":"Debris removal","unit_type":"CY","rate_amount":15}',
+    pg_temp.proposal_id('p1'), pg_temp.rq('late-new'), pg_temp.assertion(pg_temp.rq('6')));
+  RAISE EXCEPTION 'B4.4 FAIL: new citation survived later rejection';
+EXCEPTION WHEN check_violation THEN NULL; END $$;
+RESET ROLE;
 SELECT 'B4.2 VALUE-READING PROPOSAL IMMUTABILITY / VERIFIED HUMAN PROMOTION / ONE ROAD TO TRUTH: PASS' AS result;

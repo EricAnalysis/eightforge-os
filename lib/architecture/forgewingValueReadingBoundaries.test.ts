@@ -83,9 +83,11 @@ describe('B4.2 value-reading authority boundaries', () => {
     expect(engine).toMatch(/if \(!provider \|\| !dependencies\.renderRegionImage\)/);
   });
 
-  it('nothing in production runs the engine or overrides its gates yet (B4.3)', () => {
+  it('only the authenticated workspace request route runs the engine; no production caller overrides its gates (B4.4)', () => {
     const files = productionFiles().filter((file) => file !== 'lib/server/valueReadingEngine.ts');
-    expect(files.filter((file) => /runValueReading|valueReadingEngine/.test(read(file)))).toEqual([]);
+    expect(files.filter((file) => /runValueReading|valueReadingEngine/.test(read(file)))).toEqual([
+      'app/api/projects/[id]/resolution-cases/value-reading/route.ts',
+    ]);
     expect(files.filter((file) => /resolveEligibility\s*:/.test(read(file)))).toEqual([]);
   });
 

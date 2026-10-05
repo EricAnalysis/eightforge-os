@@ -73,7 +73,7 @@ describe('value-reading lifecycle (B4.2)', () => {
     expect(state[edited!.proposalId]).toMatchObject({ state: 'used_edited', usedByAssertionId: 'a2' });
     expect(state[rejected!.proposalId]).toMatchObject({ state: 'rejected', latestReviewId: 'r2', offerable: false });
     expect(state[stale!.proposalId]).toMatchObject({ state: 'stale', offerable: false });
-    expect(state[deferred!.proposalId]).toMatchObject({ state: 'deferred', offerable: true });
+    expect(state[deferred!.proposalId]).toMatchObject({ state: 'deferred', offerable: false });
     expect(state[pending!.proposalId]).toMatchObject({ state: 'pending', offerable: true });
     // An unreadable reading is never offered as a value.
     expect(state[unreadable!.proposalId]).toMatchObject({ state: 'pending', offerable: false });
@@ -110,7 +110,7 @@ describe('value-reading telemetry (B4.2)', () => {
     const events = deriveValueReadingTelemetry({
       proposals: [shown, usedP, editedP, rejectedP],
       reviews: [review('r1', rejectedP.rowId, 'rejected', 1, '2026-10-04T10:30:00Z'),
-        review('r2', shown.rowId, 'deferred', 1, '2026-10-04T10:31:00Z')],
+        review('r2', shown.rowId, 'deferred', 1, '2026-10-04T11:31:00Z')],
       assertions: [
         assertion('a1', 'ai_proposed_operator_approved', usedP.proposalId, { anchor_key: 'p8:line:310' }),
         assertion('a2', 'ai_proposed_operator_modified', editedP.proposalId, { anchor_key: 'p8:line:320' }),
@@ -154,6 +154,18 @@ describe('value-reading telemetry (B4.2)', () => {
     expect(events.map((event) => event.outcome)).toEqual(['forgewing_used_unchanged', 'operator_entered_without_suggestion']);
   });
 
+  it.each(['rejected', 'deferred'] as const)('does not treat a %s reading as offered for manual entry', (disposition) => {
+    const shown = proposal('1');
+    const params = { proposals: [shown],
+      reviews: [review('r1', shown.rowId, disposition, 1, '2026-10-04T10:30:00Z')],
+      assertions: [assertion('a1', 'operator_entered', null)] };
+    expect(deriveValueReadingTelemetry(params)).toEqual([
+      ...(disposition === 'rejected' ? [expect.objectContaining({ outcome: 'forgewing_rejected' })] : []),
+      expect.objectContaining({ outcome: 'operator_entered_without_suggestion', proposalId: null }),
+    ]);
+    expect(deriveValueReadingLifecycle({ ...params, currentPageDigests: CURRENT })[0])
+      .toMatchObject({ state: disposition, offerable: false });
+  });
   it('is independent of input order', () => {
     const shown = proposal('1');
     const params = { proposals: [shown, proposal('2', { anchorKey: 'x' })], reviews: [],

@@ -133,4 +133,18 @@ describe('resolution queue server read (B5-A)', () => {
       .resolves.toEqual({ status: 'not_found' });
     expect(reads).toEqual(['projects']);
   });
+
+  it('keeps the manual Core queue when optional Forgewing value-reading records fail to load', async () => {
+    const fake = fakeClient({ documents: [{ id: DOC }], document_extractions: [extraction] });
+    const client: ResolutionReadClient = { ...fake.client, from(table) {
+      if (table === 'forgewing_recovery_proposals') throw new Error('Optional value-reading store unavailable');
+      return fake.client.from(table);
+    } };
+    const result = await readResolutionQueue({ organizationId: ORG, projectId: PROJECT }, { admin: client,
+      forgewingEnabled: true, readRecoveryQueue: vi.fn(async () => ({ status: 'ok' as const, candidates: [] })) });
+    expect(result.status).toBe('ok');
+    if (result.status !== 'ok') return;
+    expect(result.queue.cases[0]!.actions.map((action) => action.kind)).toEqual(['enter_reviewed_value', 'open_document']);
+    expect(result.queue.cases[0]!.suggestions).toEqual([]);
+  });
 });

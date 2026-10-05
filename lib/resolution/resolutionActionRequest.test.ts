@@ -45,8 +45,53 @@ const execution: ResolutionAction = {
   outcomes: ['approve', 'correct', 'override'],
 };
 const value = { description: ' Hauling ', unitType: 'CY', rate: '14.50', category: '' };
+const requestReading: ResolutionAction = { kind: 'request_value_reading', method: 'POST', endpoint: '/api/projects/p/resolution-cases/value-reading' };
+const reviewReading: ResolutionAction = { kind: 'review_value_reading', method: 'POST', endpoint: '/api/projects/p/resolution-cases/value-reading-review',
+  proposalId: 'reading-1', proposalDigestSha256: 'b'.repeat(64), dispositions: ['rejected', 'deferred'] };
 
 describe('resolution action requests (B5-B)', () => {
+  it('asks only through an offered action and sends only the case identity and operator request key', () => {
+    const input = { kind: 'request_value_reading' as const, requestKey: ' request-1 ', sourceDocumentId: 'forged',
+      proposalId: 'forged', pageRepresentationDigest: 'forged', binding: { anchorKey: 'forged' } };
+    expect(buildResolutionActionRequest(resolutionCase([requestReading]), input)).toEqual({ ok: true, request: {
+      method: 'POST', url: requestReading.endpoint, body: { caseId: 'case-1', requestKey: 'request-1' },
+    } });
+    expect(buildResolutionActionRequest(resolutionCase([]), input).ok).toBe(false);
+    expect(buildResolutionActionRequest(resolutionCase([requestReading, requestReading]), input).ok).toBe(false);
+    expect(buildResolutionActionRequest(resolutionCase([requestReading]), { kind: 'request_value_reading', requestKey: ' ' }).ok).toBe(false);
+  });
+
+  it('reviews readings with reject/defer only, pinning the server-listed proposal and refusing browser-supplied replacements', () => {
+    const input = { kind: 'review_value_reading' as const, disposition: 'rejected' as const, rationale: ' wrong rate ', idempotencyKey: ' k ',
+      proposalId: 'forged', proposalDigestSha256: 'forged', confirmedObservationId: 'forged' };
+    expect(buildResolutionActionRequest(resolutionCase([reviewReading]), input)).toEqual({ ok: true, request: {
+      method: 'POST', url: reviewReading.endpoint, body: { caseId: 'case-1', proposalId: 'reading-1',
+        proposalDigestSha256: 'b'.repeat(64), disposition: 'rejected', rationale: 'wrong rate', idempotencyKey: 'k' },
+    } });
+    expect(buildResolutionActionRequest(resolutionCase([]), input).ok).toBe(false);
+    expect(buildResolutionActionRequest(resolutionCase([reviewReading, reviewReading]), input).ok).toBe(false);
+    expect(buildResolutionActionRequest(resolutionCase([reviewReading]), { ...input, rationale: '' }).ok).toBe(false);
+    expect(buildResolutionActionRequest(resolutionCase([reviewReading]), { ...input, idempotencyKey: '' }).ok).toBe(false);
+    expect(buildResolutionActionRequest(resolutionCase([{ ...reviewReading, dispositions: ['rejected'] }]), { ...input, disposition: 'deferred' }).ok).toBe(false);
+    expect(buildResolutionActionRequest(resolutionCase([reviewReading]), { ...input, disposition: 'accepted' as 'rejected' }).ok).toBe(false);
+  });
+
+  it('cites a reading only after explicit selection, and refuses a stale or invented citation', () => {
+    const entry = resolutionCase([{ ...enter, forgewingProposalId: 'reading-1' }]);
+    const input = { kind: 'enter_reviewed_value' as const, value, reason: 'r', idempotencyKey: 'k' };
+    const manual = buildResolutionActionRequest(entry, input);
+    expect(manual.ok && manual.request.body).not.toHaveProperty('forgewingProposalId');
+    const selected = buildResolutionActionRequest(entry, { ...input, forgewingProposalId: 'reading-1' });
+    expect(selected.ok && selected.request.body).toHaveProperty('forgewingProposalId', 'reading-1');
+    // Human edits stay cited; B3 determines accepted versus modified from the persisted value.
+    const modified = buildResolutionActionRequest(entry, { ...input, value: { ...value, rate: '15' }, forgewingProposalId: 'reading-1' });
+    expect(modified.ok && modified.request.body).toMatchObject({ forgewingProposalId: 'reading-1', value: { rate_amount: 15 } });
+    expect(buildResolutionActionRequest(entry, { ...input, forgewingProposalId: 'invented' }).ok).toBe(false);
+    expect(buildResolutionActionRequest(resolutionCase([enter]), { ...input, forgewingProposalId: 'reading-1' }).ok).toBe(false);
+    expect(selected.ok && selected.request.body).not.toHaveProperty('provenance');
+    expect(selected.ok && selected.request.body).not.toHaveProperty('reviewOrigin');
+  });
+
   it('refuses every action the server did not list on the case', () => {
     const core = resolutionCase([{ kind: 'open_in_validator', href: '/x' }]);
     expect(buildResolutionActionRequest(core, { kind: 'enter_reviewed_value', value, reason: 'r', idempotencyKey: 'k' }).ok).toBe(false);

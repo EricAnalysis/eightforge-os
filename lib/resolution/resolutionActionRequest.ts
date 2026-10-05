@@ -21,7 +21,9 @@ export type ReviewedRateRowInput = Readonly<{
 }>;
 
 export type ResolutionDecisionInput =
-  | Readonly<{ kind: 'enter_reviewed_value'; value: ReviewedRateRowInput; reason: string; idempotencyKey: string }>
+  | Readonly<{ kind: 'enter_reviewed_value'; value: ReviewedRateRowInput; reason: string; idempotencyKey: string; forgewingProposalId?: string }>
+  | Readonly<{ kind: 'request_value_reading'; requestKey: string }>
+  | Readonly<{ kind: 'review_value_reading'; disposition: 'rejected' | 'deferred'; rationale: string; idempotencyKey: string }>
   | Readonly<{ kind: 'withdraw_reviewed_value'; reason: string; idempotencyKey: string }>
   | Readonly<{
       kind: 'review_recovery_proposal';
@@ -73,6 +75,9 @@ export function buildResolutionActionRequest(
       }
       const reason = input.reason.trim();
       if (!reason) return refuse('A reason is required for every reviewed value.');
+      if (input.forgewingProposalId !== undefined && input.forgewingProposalId !== action.forgewingProposalId) {
+        return refuse('The selected visual reading is no longer offered. Refresh this case.');
+      }
       const category = input.value.category?.trim();
       return {
         ok: true,
@@ -91,9 +96,30 @@ export function buildResolutionActionRequest(
             sourceRegion: action.target.sourceRegion,
             supersedesAssertionId: action.supersedesAssertionId,
             idempotencyKey: input.idempotencyKey,
+            ...(input.forgewingProposalId !== undefined ? { forgewingProposalId: input.forgewingProposalId } : {}),
           },
         },
       };
+    }
+    case 'request_value_reading': {
+      const action = offeredAction(resolutionCase, 'request_value_reading');
+      if (!action) return refuse('This case does not offer a visual reading.');
+      const requestKey = input.requestKey.trim();
+      if (!requestKey) return refuse('A request key is required.');
+      return { ok: true, request: { method: action.method, url: action.endpoint,
+        body: { caseId: resolutionCase.caseId, requestKey } } };
+    }
+    case 'review_value_reading': {
+      const action = offeredAction(resolutionCase, 'review_value_reading');
+      if (!action) return refuse('This case does not offer a visual reading review.');
+      if (!action.dispositions.includes(input.disposition)) return refuse('That disposition is not offered.');
+      const rationale = input.rationale.trim();
+      if (!rationale) return refuse('A rationale is required: the review is immutable audit history.');
+      const idempotencyKey = input.idempotencyKey.trim();
+      if (!idempotencyKey) return refuse('An idempotency key is required.');
+      return { ok: true, request: { method: action.method, url: action.endpoint,
+        body: { caseId: resolutionCase.caseId, proposalId: action.proposalId,
+          proposalDigestSha256: action.proposalDigestSha256, disposition: input.disposition, rationale, idempotencyKey } } };
     }
     case 'withdraw_reviewed_value': {
       const action = offeredAction(resolutionCase, 'withdraw_reviewed_value');

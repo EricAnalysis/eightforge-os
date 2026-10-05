@@ -26,7 +26,8 @@ import { psqlServiceRoleClient } from './lib/psqlServiceRoleClient';
 /**
  * B4.2 qualification through the real TypeScript adapters against a freshly
  * replayed database: build and record a value-reading proposal, replay it,
- * refuse a second answer, defer it, promote it only through the B3 record
+ * refuse a second answer, defer it and refuse its citation, then promote a
+ * separate unreviewed proposal only through the B3 record
  * function (approved, then modified), refuse a stale citation, and read it all
  * back into the derived lifecycle, telemetry and the fail-closed resolver.
  * Runs after scripts/sql/verify-forgewing-value-reading.sql, whose fixtures it reuses.
@@ -65,7 +66,7 @@ const draft: ValueReadingProposalDraft = {
   rationale: 'Rate cell reads $6.25 in the source image.',
 };
 
-const proposal = buildValueReadingProposal(draft);
+let proposal = buildValueReadingProposal(draft);
 check(proposal, 'proposal builds');
 const recorded = await recordValueReadingProposal(client, proposal!);
 check(recorded.status === 'recorded' && recorded.inserted, 'proposal recorded');
@@ -93,21 +94,48 @@ const base: RecordRegionAssertionInput = {
   sourceObservationIds: ['obs-7b', 'obs-7a'], originalSourceText: 'sia 25', anchorKey: ANCHOR,
   supersedesAssertionId: null, idempotencyKey: 'b42-adapter-use', forgewingProposalId: proposal!.proposalId,
 };
-const used = await recordRegionBoundAssertion(client, base);
+const deferredProposal = proposal!;
+const refusedDeferred = await recordRegionBoundAssertion(client, base);
+check(refusedDeferred.status === 'proposal_not_bound', 'a deferred citation is refused');
+const refusedDeferredEdit = await recordRegionBoundAssertion(client, {
+  ...base, idempotencyKey: 'b44-adapter-deferred-edit',
+  assertedValue: { description: 'Vegetative debris', unit_type: 'CY', rate_amount: 6.5 },
+});
+check(refusedDeferredEdit.status === 'proposal_not_bound', 'an edited deferred citation is refused');
+proposal = buildValueReadingProposal({ ...draft, requestDigestSha256: '4'.repeat(64), outputDigestSha256: '5'.repeat(64) });
+check(proposal, 'separate unreviewed proposal builds');
+const pendingRecorded = await recordValueReadingProposal(client, proposal!);
+check(pendingRecorded.status === 'recorded' && pendingRecorded.inserted, 'separate unreviewed proposal records');
+const pendingBase = { ...base, forgewingProposalId: proposal!.proposalId };
+const used = await recordRegionBoundAssertion(client, pendingBase);
 check(used.status === 'recorded' && used.inserted, 'exact value recorded through the B3 record function');
 const usedId = (used as { assertionId: string }).assertionId;
 
 const stale = await recordRegionBoundAssertion(client, {
-  ...base, idempotencyKey: 'b42-adapter-stale', pageRepresentationDigest: 'b'.repeat(64), supersedesAssertionId: usedId,
+  ...pendingBase, idempotencyKey: 'b42-adapter-stale', pageRepresentationDigest: 'b'.repeat(64), supersedesAssertionId: usedId,
 });
 check(stale.status === 'proposal_not_bound', 'a stale citation is refused');
 
 const edited = await recordRegionBoundAssertion(client, {
-  ...base, idempotencyKey: 'b42-adapter-edit', supersedesAssertionId: usedId,
+  ...pendingBase, idempotencyKey: 'b42-adapter-edit', supersedesAssertionId: usedId,
   assertedValue: { description: 'Vegetative debris', unit_type: 'CY', rate_amount: 6.5 },
 });
 check(edited.status === 'recorded' && edited.inserted, 'edited value recorded');
 
+const lateReview = await recordValueReadingReview(client, {
+  organizationId: ORG, reviewerActorId: ACTOR, proposalId: proposal!.proposalId,
+  proposalDigestSha256: proposal!.proposalDigestSha256, disposition: 'rejected',
+  rationale: 'Do not use the reading again', idempotencyKey: 'b44-adapter-late-reject',
+});
+check(lateReview.status === 'recorded', 'later rejection records without changing human truth');
+const exactReplay = await recordRegionBoundAssertion(client, pendingBase);
+check(exactReplay.status === 'recorded' && !exactReplay.inserted
+  && exactReplay.assertionId === usedId, 'exact human assertion replay survives later rejection');
+const blockedAfterUse = await recordRegionBoundAssertion(client, {
+  ...pendingBase, idempotencyKey: 'b44-adapter-late-use',
+  supersedesAssertionId: (edited as { assertionId: string }).assertionId,
+});
+check(blockedAfterUse.status === 'proposal_not_bound', 'later rejection blocks every new citation');
 const read = await loadRegionBoundAssertionRows(client, [DOCUMENT]);
 check(read.status === 'ok', 'assertions read back');
 const chain = read.rows.filter((row) => row.anchor_key === ANCHOR);
@@ -119,8 +147,9 @@ check(chain.find((row) => row.id !== usedId)?.review_origin === 'ai_proposed_ope
 
 const records = await loadValueReadingRecords(client, { organizationId: ORG, documentIds: [DOCUMENT] });
 const mine = records.proposals.find((entry) => entry.proposalId === proposal!.proposalId);
+const deferredRecord = records.proposals.find((entry) => entry.proposalId === deferredProposal.proposalId);
 check(mine && mine.reading.kind === 'value' && mine.providerModel === null, 'proposal read back');
-check(records.reviews.some((review) => review.disposition === 'deferred' && review.proposalRowId === mine!.rowId),
+check(records.reviews.some((review) => review.disposition === 'deferred' && review.proposalRowId === deferredRecord?.rowId),
   'deferral read back');
 
 const currentDigests = (digest: string) => new Map([[DOCUMENT, new Map([[8, digest]])]]);
@@ -128,6 +157,8 @@ const lifecycle = deriveValueReadingLifecycle({ proposals: records.proposals, re
   assertions: read.rows, currentPageDigests: currentDigests(PAGE_DIGEST) });
 check(lifecycle.find((entry) => entry.proposalId === proposal!.proposalId)?.state === 'used_edited',
   'lifecycle derives used_edited from the latest citing assertion');
+check(lifecycle.find((entry) => entry.proposalId === deferredProposal.proposalId)?.offerable === false,
+  'deferred proposal stays unavailable and cannot become truth');
 const telemetry = deriveValueReadingTelemetry({ proposals: records.proposals, reviews: records.reviews, assertions: read.rows });
 const outcomes = new Set(telemetry.map((event) => event.outcome));
 for (const outcome of ['forgewing_used_unchanged', 'forgewing_used_then_edited', 'forgewing_rejected',

@@ -5,7 +5,9 @@ import {
   type HeldRegionAssertion,
   type HumanFactAssertionRow,
   type RegionAssertionEntryTarget,
+  type ReviewedRateRowValue,
 } from '@/lib/humanFactAssertions/regionBoundAssertions';
+import type { ValueReadingOutcomeCode, ValueReadingOutcomeReason } from '@/lib/server/valueReadingProposals';
 import { getIssueDisplayLabel } from '@/lib/issueDisplayFormatter';
 import { isIssueRequiringReview, type IssueObject } from '@/lib/issueObjects';
 import { pageFrameVisual, type DocumentPageFrames } from '@/lib/recovery/diagnosticVisualEvidence';
@@ -134,6 +136,12 @@ export type ResolutionSuggestion = Readonly<{
   /** Model self-report. Uncalibrated; renderers must not present it as accuracy. */
   uncalibratedCertainty: number | null;
   proposalId: string;
+}> | Readonly<{
+  source: 'forgewing_value_reading';
+  proposedValue: string;
+  rateRow: ReviewedRateRowValue;
+  uncalibratedCertainty: null;
+  proposalId: string;
 }>;
 
 /** Every action names the existing write path it uses. */
@@ -146,6 +154,21 @@ export type ResolutionAction =
       target: RegionAssertionEntryTarget;
       /** The current chain head to supersede, or null for a first review. */
       supersedesAssertionId: string | null;
+      /** Offered provenance only; the operator must explicitly use the suggestion. */
+      forgewingProposalId?: string;
+    }>
+  | Readonly<{
+      kind: 'request_value_reading';
+      method: 'POST';
+      endpoint: string;
+    }>
+  | Readonly<{
+      kind: 'review_value_reading';
+      method: 'POST';
+      endpoint: string;
+      proposalId: string;
+      proposalDigestSha256: string;
+      dispositions: readonly ('rejected' | 'deferred')[];
     }>
   | Readonly<{
       kind: 'withdraw_reviewed_value';
@@ -226,6 +249,8 @@ export type ResolutionCase = Readonly<{
   rootCauseKey: string;
   evidence: readonly ResolutionEvidenceRef[];
   suggestions: readonly ResolutionSuggestion[];
+  /** Durable explanation only; never a value or authority. */
+  valueReadingOutcome?: Readonly<{ code: ValueReadingOutcomeCode; reason: ValueReadingOutcomeReason }> | null;
   actions: readonly ResolutionAction[];
   /** Ids of the records this case was derived from. */
   sourceRefs: Readonly<{

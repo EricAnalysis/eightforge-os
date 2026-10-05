@@ -5,6 +5,8 @@ B4.6 is a measurement, not an architecture phase. It answers one question:
 > Can Forgewing read unresolved pricing cells accurately enough, fast enough
 > and cheaply enough to justify controlled activation?
 
+> **Result (2026-10-05): FAIL.** See [b46-value-reading-result.md](b46-value-reading-result.md). Production value reading remains disabled.
+
 It ends with exactly one decision:
 
 | Decision | Meaning |

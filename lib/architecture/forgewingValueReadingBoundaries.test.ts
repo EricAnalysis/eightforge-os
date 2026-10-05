@@ -85,10 +85,15 @@ describe('B4.2 value-reading authority boundaries', () => {
 
   it('only the authenticated workspace request route runs the engine; no production caller overrides its gates (B4.4)', () => {
     const files = productionFiles().filter((file) => file !== 'lib/server/valueReadingEngine.ts');
-    expect(files.filter((file) => /runValueReading|valueReadingEngine/.test(read(file)))).toEqual([
+    expect(files.filter((file) => /runValueReading/.test(read(file)))).toEqual([
       'app/api/projects/[id]/resolution-cases/value-reading/route.ts',
     ]);
-    expect(files.filter((file) => /resolveEligibility\s*:/.test(read(file)))).toEqual([]);
+    // The renderer shares the engine's crop-spec type; nothing else imports the engine.
+    expect(files.filter((file) => /from '@\/lib\/server\/valueReadingEngine'/.test(read(file)))).toEqual([
+      'app/api/projects/[id]/resolution-cases/value-reading/route.ts',
+      'lib/server/valueReadingRegionRenderer.ts',
+    ]);
+    expect(files.filter((file) => /resolveEligibility\s*:|\breserve\s*:/.test(read(file)))).toEqual([]);
   });
 
   it('each outcome shape has exactly one writer (B4.3)', () => {
@@ -114,9 +119,69 @@ describe('B4.2 value-reading authority boundaries', () => {
 
   it('pins the B4.5 invariant: the request digest binds the exact rendered bytes', () => {
     const engine = read('lib/server/valueReadingEngine.ts');
+    const run = engine.slice(engine.indexOf('export async function runValueReading'));
     expect(engine).toMatch(/renderDigestSha256: params\.renderDigestSha256,/);
-    // B4.3 transmits no image; the slot is null until a renderer exists.
-    expect(engine).toMatch(/renderDigestSha256: null,/);
+    expect(engine).not.toMatch(/renderDigestSha256: null,/);
+    // A request cannot be built without the digest of the image bytes.
+    expect(engine).toMatch(/if \(!SHA256_HEX\.test\(params\.renderDigestSha256\)\) throw/);
+    // The digest is the engine's own hash of the bytes it sends, never the renderer's claim.
+    expect(run).toMatch(/const renderDigestSha256 = createHash\('sha256'\)\.update\(image\.bytes\)\.digest\('hex'\);/);
+    // Order: gates, render, digest, then reuse, budget and the call, all keyed by that digest.
+    const order = ['GATE_OUTCOMES[eligibility.reason]', 'dependencies.renderRegionImage(crop)',
+      'const renderDigestSha256 =', 'buildValueReadingRequest({', 'loadValueReadingProposalByRequestDigest',
+      'reserveForgewingProviderCall)', 'callWithTimeout(provider'];
+    const positions = order.map((marker) => run.indexOf(marker));
+    expect(positions.every((position) => position >= 0)).toBe(true);
+    expect([...positions].sort((left, right) => left - right)).toEqual(positions);
+    expect(run).toMatch(/renderDigestSha256,\n\s+model: request\.model,/);
+  });
+
+  it('constructs the provider and renderer only in the authenticated Ask route (B4.5)', () => {
+    const files = productionFiles();
+    expect(files.filter((file) => /createClaudeValueReadingProvider\(/.test(read(file)))
+      .filter((file) => file !== 'lib/forgewing/runtime/valueReadingClient.ts'))
+      .toEqual(['app/api/projects/[id]/resolution-cases/value-reading/route.ts']);
+    expect(files.filter((file) => /createValueReadingRegionRenderer\(|loadVerifiedValueReadingSource\(/.test(read(file)))
+      .filter((file) => file !== 'lib/server/valueReadingRegionRenderer.ts'))
+      .toEqual(['app/api/projects/[id]/resolution-cases/value-reading/route.ts']);
+    const route = read('app/api/projects/[id]/resolution-cases/value-reading/route.ts');
+    expect(route).toContain('includeTextExcerpts: false');
+    expect(route).toContain('getActorContext(req)');
+  });
+
+  it('keeps the provider contract pure and the adapter away from the engine, persistence and truth (B4.5)', () => {
+    expect(read('lib/valueReadingContract.ts')).not.toMatch(/^import /m);
+    const adapter = read('lib/forgewing/runtime/valueReadingClient.ts');
+    expect(adapter).not.toMatch(/valueReadingEngine|valueReadingProposals|forgewingGates|supabase|getSupabaseAdmin|human_fact_assertions/i);
+    // One image, one call: no SDK retries behind the engine's single reservation.
+    expect(adapter).toMatch(/maxRetries: 0/);
+    expect(adapter).toMatch(/temperature: 0/);
+    expect(adapter).toMatch(/if \(sha256Hex\(request\.image\.bytes\) !== request\.renderDigestSha256\) throw/);
+  });
+
+  it('draws only from bytes that hash to the bound artifact (B4.5)', () => {
+    const renderer = read('lib/server/valueReadingRegionRenderer.ts');
+    expect(renderer).toMatch(/return sha256Hex\(bytes\) === artifactRow\.source_sha256 \? bytes : null;/);
+    expect(renderer).toMatch(/\.eq\('id', spec\.sourceArtifactId\)\.eq\('organization_id', spec\.organizationId\)/);
+    expect(renderer).not.toMatch(/\.(insert|update|upsert|delete|rpc)\(/);
+  });
+
+  it('activates nothing: the value-reading ceiling stays disabled until B4.6 qualifies it', () => {
+    expect(read('lib/server/forgewingGates.ts')).toMatch(
+      /qualification: 'unqualified',\s+qualificationCeiling: 'disabled',/);
+  });
+
+  it('the B4.5 outcome migration widens one predicate and nothing else', () => {
+    const migration = read('supabase/migrations/20261005120000_forgewing_value_reading_unrendered_evidence.sql');
+    expect(migration.replace(/--.*$/gm, '')).not.toMatch(/CREATE|GRANT|REVOKE|UPDATE public\.|DELETE FROM|DROP (TABLE|COLUMN|FUNCTION|TRIGGER)/i);
+    expect(migration.match(/DROP CONSTRAINT/g)).toHaveLength(1);
+    expect(migration).toMatch(/OR \(outcome_code = 'evidence_binding_failed' AND NOT provider_invoked\)\)/);
+    // The rest of the shape is the deployed one, unchanged.
+    const deployed = read('supabase/migrations/20261004230000_forgewing_value_reading_outcomes.sql');
+    const shape = (sql: string) => sql.slice(sql.indexOf('ADD CONSTRAINT forgewing_generation_outcomes_value_reading_shape'))
+      .split('END);')[0]!.replace(/\n\s*-- B4\.5:.*\n\s*OR \(outcome_code = 'evidence_binding_failed' AND NOT provider_invoked\)\)/, ')')
+      .replace(/\s+/g, ' ');
+    expect(shape(migration)).toBe(shape(deployed));
   });
 
   it('the outcomes migration only adds, and only for value readings', () => {

@@ -57,14 +57,29 @@ describe('B4.4 request and review routes', () => {
     expect(recordValueReadingReview).not.toHaveBeenCalled();
   });
 
-  it('passes only server-derived actor/project/case identity to the engine without wiring a provider', async () => {
+  it('passes only server-derived actor/project/case identity to the engine, with no provider when no key exists', async () => {
+    vi.stubEnv('ANTHROPIC_API_KEY', '');
     const response = await requestReading(request({ caseId: CASE, requestKey: 'click1' }), params);
     expect(response.status).toBe(200);
     expect(readResolutionQueue).toHaveBeenCalledWith({ organizationId: 'org', projectId: 'project' });
     expect(runValueReading).toHaveBeenCalledWith(admin, { organizationId: 'org', projectId: 'project', caseId: CASE,
-      requestedBy: 'actor', requestKey: 'click1', includeTextExcerpts: false });
+      requestedBy: 'actor', requestKey: 'click1', includeTextExcerpts: false },
+    { provider: null, renderRegionImage: expect.any(Function) });
     expect(await response.json()).toMatchObject({ outcome: { code: 'activation_not_allowed' }, proposal: null });
     expect(admin.rpc).not.toHaveBeenCalled();
+    vi.unstubAllEnvs();
+  });
+
+  it('injects the Claude provider and the verified-source renderer only through the engine (B4.5)', async () => {
+    vi.stubEnv('ANTHROPIC_API_KEY', 'test-key');
+    vi.stubEnv('FORGEWING_MODEL', 'forgewing-model');
+    await requestReading(request({ caseId: CASE, requestKey: 'click2' }), params);
+    const dependencies = vi.mocked(runValueReading).mock.calls.at(-1)![2]!;
+    expect(dependencies.provider?.providerModel).toBe('forgewing-model');
+    expect(typeof dependencies.renderRegionImage).toBe('function');
+    // The route never calls either itself; the engine gates first.
+    expect(admin.rpc).not.toHaveBeenCalled();
+    vi.unstubAllEnvs();
   });
 
   it('rejects invented request actions, including Core or stale cases', async () => {

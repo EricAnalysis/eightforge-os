@@ -100,6 +100,21 @@ DO $$ BEGIN
   RAISE EXCEPTION 'B4.3 FAIL: a provider failure without a request digest';
 EXCEPTION WHEN check_violation THEN NULL; END $$;
 
+-- B4.5: a region that could not be rendered built no request, and only then may
+-- an evidence failure name none.
+DO $$ DECLARE r record; BEGIN
+  SELECT * INTO r FROM pg_temp.outcome('unrendered', 'evidence_binding_failed', 'region_image_unavailable', false);
+  IF NOT r.inserted THEN RAISE EXCEPTION 'B4.5 FAIL: an unrendered region was not recordable'; END IF;
+END $$;
+DO $$ BEGIN
+  PERFORM pg_temp.outcome('unrendered-invoked', 'evidence_binding_failed', 'binding_changed', true);
+  RAISE EXCEPTION 'B4.5 FAIL: a provider-invoked binding failure without its request';
+EXCEPTION WHEN check_violation THEN NULL; END $$;
+DO $$ BEGIN
+  PERFORM pg_temp.outcome('unbuilt-validation', 'deterministic_validation_failed', 'proposal_value_validation_failed', true);
+  RAISE EXCEPTION 'B4.5 FAIL: a validation failure without its request';
+EXCEPTION WHEN check_violation THEN NULL; END $$;
+
 -- The requesting operator belongs to the organization.
 DO $$ BEGIN
   PERFORM pg_temp.outcome('foreign-operator', 'recovery_disabled', 'kill_switch_off', false,
@@ -132,4 +147,4 @@ DO $$ BEGIN
   RAISE EXCEPTION 'B4.3 FAIL: an outcome was updated';
 EXCEPTION WHEN insufficient_privilege THEN NULL; END $$;
 
-SELECT 'B4.3 VALUE-READING OUTCOMES: ONE PER REQUEST / TYPED / GATE-COHERENT / SCOPED / IMMUTABLE: PASS' AS result;
+SELECT 'B4.3 VALUE-READING OUTCOMES: ONE PER REQUEST / TYPED / GATE-COHERENT / SCOPED / IMMUTABLE / B4.5 UNRENDERED: PASS' AS result;

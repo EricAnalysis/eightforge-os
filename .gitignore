@@ -70,3 +70,6 @@ __pycache__/
 # are copied into lib/evaluation/benchmark/labels/ instead.
 .benchmark-workspace/
 .benchmark-review/
+
+# B4.6 value-reading benchmark runs: row text and readings are client material.
+scripts/evaluation/artifacts/b46/local/

@@ -13,7 +13,8 @@ export const VALUE_READING_EXECUTION = Object.freeze({
   promptTemplateId: 'forgewing-priced-value-reading',
   promptTemplateVersion: 'v1',
   outputSchemaVersion: 'value_reading_output_v2',
-  cropRenderer: 'value_reading_region_crop_v1',
+  /** v2 paints only the crop rectangle (B4.6.1); v1 painted the whole page and copied the rectangle out. */
+  cropRenderer: 'value_reading_region_crop_v2',
   /** Render scale over canonical_v1 points (pdf.js viewport scale 1): 216 dpi. */
   cropScale: 3,
   /** Margin around the line's own boxes, in canonical points, so no glyph is clipped. */

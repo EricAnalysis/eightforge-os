@@ -85,11 +85,23 @@ const twoTables = () => [
 ];
 
 describe('durable unresolved priced pages', () => {
-  it('records a page holding two priced tables instead of dropping it', () => {
+  it('reads a page holding two qualifying priced tables one table per header, leaving nothing unresolved', () => {
     const result = buildPagePricedScheduleReconstruction({ layout: layoutOf(twoTables()) });
-    // Current (v2) reconstruction semantics, stored under the historical
+    // Current (v4) reconstruction semantics, stored under the historical
     // priced_schedule_reconstruction_v1 envelope key.
-    expect(result.parser_version).toBe('priced_schedule_reconstruction_v3');
+    expect(result.parser_version).toBe('priced_schedule_reconstruction_v4');
+    expect(result.pages.map((entry) => [entry.header_y, entry.rows.length])).toEqual([[720, 2], [600, 2]]);
+    expect(result.unresolved_pages).toBeUndefined();
+  });
+
+  it('records a page whose two qualifying headers share a line, with every priced line', () => {
+    const sideBySide = [
+      line(720, [{ x: 20, text: 'Description', width: 60 }, { x: 100, text: 'Unit', width: 25 }, { x: 160, text: 'Cost', width: 25 }]),
+      line(720, [{ x: 320, text: 'Description', width: 60 }, { x: 400, text: 'Unit', width: 25 }, { x: 460, text: 'Cost', width: 25 }]),
+      bare(700, 'Alpha service', '12.00'),
+      bare(690, 'Beta service', '3.50'),
+    ];
+    const result = buildPagePricedScheduleReconstruction({ layout: layoutOf(sideBySide) });
     expect(result.pages).toEqual([]);
     expect(result.unresolved_pages).toHaveLength(1);
     const unresolved = result.unresolved_pages![0]!;
@@ -98,12 +110,9 @@ describe('durable unresolved priced pages', () => {
       reason: 'multiple_priced_headers',
       physical_page_number: PAGE,
     });
-    expect(unresolved.header_lines.map((entry) => entry.y)).toEqual([720, 600]);
     expect(unresolved.priced_lines.map((entry) => entry.raw_text)).toEqual([
-      'Alpha service Widget A to B $ 12.00',
-      'Beta service Widget A to B $ 3.50',
-      'Gamma service Widget A to B $ 7.00',
-      'Delta service Widget A to B $ 9.00',
+      'Alpha service $ 12.00',
+      'Beta service $ 3.50',
     ]);
     // Every token of every recorded line keeps its observation identity.
     for (const entry of [...unresolved.header_lines, ...unresolved.priced_lines]) {
@@ -206,7 +215,9 @@ describe('durable unresolved priced pages', () => {
   });
 
   it('materializes durable observations for unresolved lines without changing closure', () => {
-    const lines = [prose(760), ...twoTables()];
+    const lines = [prose(760), header(720), priced(700, 'Alpha service', '12.00'), priced(690, 'Beta service', '3.50'),
+      line(600, [{ x: 50, text: 'UOM', width: 30 }, { x: 200, text: 'Item / Service', width: 80 }, { x: 450, text: 'Unit Price', width: 50 }]),
+      priced(580, 'Gamma service', '7.00'), priced(560, 'Delta service', '9.00')];
     const layout = layoutOf(lines);
     const reconstruction = buildPagePricedScheduleReconstruction({ layout });
     const layer = buildPdfLayoutObservationsLayer({ layout, reconstruction, context: CONTEXT });

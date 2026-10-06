@@ -300,8 +300,31 @@ export type PricedScheduleInheritedHeader = {
   }>;
 };
 
+/**
+ * Provenance of a page entry, and of each of its rows, read from one table of
+ * a page that prints more than one independently qualifying priced-table
+ * header (v4). The page is split at each qualifying header: a segment runs from
+ * its own header down to the next qualifying header, or to the page's end for
+ * the last one, and its rows are read only against its own header. One physical
+ * page then has one page entry per segment that reconstructs.
+ */
+export type PricedScheduleTableSegment = {
+  readonly status: 'same_page_segment';
+  /** Top to bottom, from 0. */
+  readonly segment_index: number;
+  readonly segment_count: number;
+  /** The y of the header that governs this segment. */
+  readonly header_y: number;
+  /** Every token of that header line, in reading order. */
+  readonly header_observation_ids: readonly string[];
+  /** The next segment's header y (this segment holds only lines above it); null for the last segment. */
+  readonly lower_boundary_y: number | null;
+};
+
 export type PricedScheduleRow = {
   readonly inherited_header?: PricedScheduleInheritedHeader;
+  /** Present only when the row was read from one table segment of a multi-table page. */
+  readonly table_segment?: PricedScheduleTableSegment;
   readonly header_semantics?: HeaderSemanticsSelection;
   readonly row_index: number;
   readonly physical_page_number: number;
@@ -428,6 +451,12 @@ export type ConfirmedHeaderSelection = Readonly<{ candidate: RecoveryCandidateV2
 export type PricedSchedulePage = {
   /** Present only when the page carries no header of its own and reused a proven one. */
   readonly inherited_header?: PricedScheduleInheritedHeader;
+  /**
+   * Present only when this entry is one table segment of a page that prints
+   * several qualifying headers. Row indexes stay unique across the page's
+   * segments, numbered on from the segment above.
+   */
+  readonly table_segment?: PricedScheduleTableSegment;
   readonly header_semantics?: HeaderSemanticsSelection;
   /** Whether this qualifying page yielded usable rows or retained a failed-closed audit result. */
   readonly status?: 'reconstructed' | 'failed_closed';
@@ -549,7 +578,10 @@ export type PricedScheduleRecoveryDiagnostic = {
 /**
  * Why a page that presents priced lines produced no reconstructed page at all.
  * - multiple_priced_headers: more than one line qualifies as a priced-table
- *   header, so the page holds more than one table and is never read as one.
+ *   header and the page cannot be split into one table per header (two of them
+ *   share a line), so it is never read as one table. Since v4 a page whose
+ *   qualifying headers are on distinct lines is read segment by segment instead,
+ *   and a segment that cannot be read is recorded with its own reason.
  * - ambiguous_header_candidates: no line qualifies, and more than one line reads
  *   as a plausible but unresolved header. None is chosen.
  * - header_not_found: no line reads as a header, qualifying or not.
@@ -557,12 +589,17 @@ export type PricedScheduleRecoveryDiagnostic = {
  *   it, above priced lines of its own, plainly reads as another table's header
  *   without qualifying. The rows beneath it cannot be proven to share the first
  *   header's columns, so the page is not read through them.
+ * - table_segment_without_rows: one table segment of a page with several
+ *   qualifying headers (v4) published no row (for instance it holds a single
+ *   priced line). Its priced lines stay open for review rather than becoming
+ *   diagnostics only; the page's other segments are read independently.
  */
 export type PricedScheduleUnresolvedPageReason =
   | 'multiple_priced_headers'
   | 'ambiguous_header_candidates'
   | 'header_not_found'
-  | 'unresolved_later_header';
+  | 'unresolved_later_header'
+  | 'table_segment_without_rows';
 
 export type PricedScheduleUnresolvedPageLine = {
   /** Authored text of the line, exactly as read. */
@@ -586,6 +623,11 @@ export type PricedScheduleUnresolvedPage = {
   readonly header_lines: readonly PricedScheduleUnresolvedPageLine[];
   /** Every line carrying a rate marker, top to bottom, with all of its tokens. */
   readonly priced_lines: readonly PricedScheduleUnresolvedPageLine[];
+  /**
+   * Present only when this is one table segment of a multi-table page that did
+   * not reconstruct; the page's other segments are read independently.
+   */
+  readonly table_segment?: PricedScheduleTableSegment;
 };
 
 export type PagePricedScheduleReconstruction = {
@@ -1165,9 +1207,11 @@ function unresolvedPricedPage(page: PdfLayoutPage): PricedScheduleUnresolvedPage
   const pricedLines = byVisualOrder.filter((line) => line.tokens.some((token) => isRowSpineToken(token)));
   // Cheap gate first: most pages carry no priced lines and need no header pass.
   if (pricedLines.length < MINIMUM_PRICED_ROWS) return null;
-  const headerYs = new Set(detectHeaders(page).map((header) => header.y));
+  const headers = detectHeaders(page);
+  const headerYs = new Set(headers.map((header) => header.y));
   let reason: PricedScheduleUnresolvedPageReason;
-  if (headerYs.size > 1) {
+  // Counted by header, not by line: two qualifying headers side by side share a y.
+  if (headers.length > 1) {
     reason = 'multiple_priced_headers';
   } else if (headerYs.size === 1) {
     // With one qualifying header, reconstructPage returns null only at a later table boundary.
@@ -1924,7 +1968,10 @@ function reconstructPage(
   continuationEvidence: PricedScheduleContinuationEvidence = 'row_start_anchors',
   headerSelection?: ConfirmedHeaderSelection,
   inheritedHeader?: PricedScheduleHeaderSignature,
+  /** Scopes recovery row identities to one table segment of a multi-table page (v4). */
+  rowIdentityScope?: string,
 ): PricedSchedulePage | null {
+  const rowIdentityPrefix = `page_priced_schedule:p${page.page_number}${rowIdentityScope ? `:${rowIdentityScope}` : ''}`;
   // Frozen 'spacing_only' fixtures keep the legacy vocabulary verbatim.
   const vocabulary = continuationEvidence === 'spacing_only' ? LEGACY_COLUMN_ROLE_PATTERNS : COLUMN_ROLE_PATTERNS;
   const headers = detectHeaders(page, vocabulary);
@@ -1986,7 +2033,8 @@ function reconstructPage(
   } else {
     // A page presenting more than one priced-table header holds more than one
     // table. Reconstructing it as a single table would let the second header and
-    // its rows be read through the first table's columns, so fail closed instead.
+    // its rows be read through the first table's columns, so it is never read
+    // whole: the caller reads it one segment per header instead (v4).
     if (headers.length !== 1) return null;
     header = headers[0]!;
     // The same holds when the later header does not qualify (its labels are
@@ -2314,7 +2362,7 @@ function reconstructPage(
   ): SourceLine | null => {
     const matches = targetSpines.flatMap((target) => {
       if (!attached.has(target)) return [];
-      const targetRowIdentity = `page_priced_schedule:p${page.page_number}:r${spineIndex.get(target)!}`;
+      const targetRowIdentity = `${rowIdentityPrefix}:r${spineIndex.get(target)!}`;
       const preview = buildCell('description', [...target.banded, ...line.banded]
         .filter((entry) => entry.role === 'description'))?.raw_text ?? lineRawText(line);
       const candidateInput = {
@@ -2520,7 +2568,7 @@ function reconstructPage(
       ? rateTokens.length !== (structured.marker ? 2 : 1) || !rateTokens.includes(structured.amount)
         || (structured.marker != null && !rateTokens.includes(structured.marker))
       : lines.reduce((count, line) => count + rateLikeClusterCount(line), 0) > 1;
-    const targetRowIdentity = `page_priced_schedule:p${page.page_number}:r${index}`;
+    const targetRowIdentity = `${rowIdentityPrefix}:r${index}`;
     if (ambiguous) {
       for (const cluster of lines.flatMap((line) => rateLikeClusters(line))) {
         const candidate = buildPageRecoveryCandidate(page, candidateBuildContext, {
@@ -2760,7 +2808,9 @@ function reconstructPage(
  *
  * Qualifying pages that yield no usable table remain present with
  * `status: failed_closed`, empty rows, and their diagnostics. Pages without one
- * unambiguous qualifying header remain absent.
+ * unambiguous qualifying header remain absent, except that (v4) a page printing
+ * several qualifying headers on distinct lines is read one segment per header,
+ * each segment under its own header only and each failing closed on its own.
  *
  * What this cannot decide: a line that fills every column *and* sits at the
  * table's own spacing is structurally identical to a row, whatever it says. Row
@@ -2771,9 +2821,100 @@ function reconstructPage(
  *   - Every cell, row and geometry reference belongs to one physical page.
  *
  * What this does not claim: it does not verify that a qualifying page is
- * semantically a rate schedule, does not resolve column roles beyond the generic
- * vocabulary above, and does not segment a page that holds several tables.
+ * semantically a rate schedule, and does not resolve column roles beyond the
+ * generic vocabulary above.
  */
+type TableSegmentBounds = {
+  readonly headerY: number;
+  readonly lowerBoundaryY: number | null;
+  readonly lines: readonly PdfLayoutPage['lines'][number][];
+};
+
+/**
+ * The tables of a page that prints more than one independently qualifying
+ * priced-table header, top to bottom: each runs from its own header down to the
+ * next qualifying header (exclusive), or to the page's end for the last. The
+ * first also keeps the lines above its header, exactly as a single-table page
+ * does. Null when fewer than two headers qualify, or when two qualifying
+ * headers share a line, which cannot be split.
+ */
+function tableSegmentsOf(page: PdfLayoutPage): TableSegmentBounds[] | null {
+  const headers = detectHeaders(page);
+  const ys = [...new Set(headers.map((header) => header.y))].sort((left, right) => right - left);
+  if (ys.length < 2 || ys.length !== headers.length) return null;
+  return ys.map((headerY, index) => {
+    const lowerBoundaryY = ys[index + 1] ?? null;
+    return {
+      headerY,
+      lowerBoundaryY,
+      lines: page.lines.filter((line) => (index === 0 || line.y <= headerY)
+        && (lowerBoundaryY == null || line.y > lowerBoundaryY)),
+    };
+  });
+}
+
+/**
+ * Reads each table segment as its own single-header page: the segment's lines
+ * only, so no row beneath one header can be read through another header's
+ * columns. A segment that cannot be read is recorded as unresolved with its own
+ * reason, and never affects another segment. Row indexes are numbered on from
+ * the segment above, so they stay unique across the physical page.
+ */
+function reconstructTableSegments(
+  page: PdfLayoutPage,
+  segments: readonly TableSegmentBounds[],
+  read: (slice: PdfLayoutPage, rowIdentityScope: string) => PricedSchedulePage | null,
+): { pages: PricedSchedulePage[]; unresolved: PricedScheduleUnresolvedPage[]; last: PricedSchedulePage | null } {
+  const pages: PricedSchedulePage[] = [];
+  const unresolved: PricedScheduleUnresolvedPage[] = [];
+  let last: PricedSchedulePage | null = null;
+  let nextRowIndex = 0;
+  segments.forEach((segment, index) => {
+    const slice: PdfLayoutPage = { ...page, lines: [...segment.lines] };
+    const provenance: PricedScheduleTableSegment = {
+      status: 'same_page_segment',
+      segment_index: index,
+      segment_count: segments.length,
+      header_y: segment.headerY,
+      header_observation_ids: segment.lines.filter((line) => line.y === segment.headerY)
+        .flatMap((line) => [...line.tokens].sort(compareTokens))
+        .flatMap((token) => (token.observation_id ? [token.observation_id] : [])),
+      lower_boundary_y: segment.lowerBoundaryY,
+    };
+    const result = read(slice, `s${index}`);
+    if (!result) {
+      const entry = unresolvedPricedPage(slice);
+      if (entry) unresolved.push({ ...entry, table_segment: provenance });
+      last = null;
+      return;
+    }
+    if (result.rows.length === 0) {
+      // Splitting must never take a priced line out of review without reading
+      // it: a segment that publishes no row keeps its lines open, whole.
+      const byVisualOrder = [...segment.lines].sort((left, right) => right.y - left.y);
+      const pricedLines = byVisualOrder.filter((line) => line.tokens.some((token) => isRowSpineToken(token)));
+      if (pricedLines.length > 0) {
+        unresolved.push({
+          authority: 'non_authoritative_diagnostic',
+          reason: 'table_segment_without_rows',
+          physical_page_number: page.page_number,
+          header_lines: byVisualOrder.filter((line) => line.y === segment.headerY).map(unresolvedPageLine),
+          priced_lines: pricedLines.map(unresolvedPageLine),
+          table_segment: provenance,
+        });
+      }
+      last = null;
+      return;
+    }
+    const offset = nextRowIndex;
+    const rows = result.rows.map((row) => ({ ...row, row_index: row.row_index + offset, table_segment: provenance }));
+    for (const row of rows) nextRowIndex = Math.max(nextRowIndex, row.row_index + 1);
+    last = { ...result, table_segment: provenance, rows };
+    pages.push(last);
+  });
+  return { pages, unresolved, last };
+}
+
 /**
  * The signature a reconstructed page offers to its next page: only a header
  * printed on the page and qualified deterministically (never one a reviewer
@@ -2954,9 +3095,20 @@ export function buildPagePricedScheduleReconstruction(params: {
       params.recoveryCandidateBuildContext, generatedCandidates,
       params.continuationEvidence ?? 'row_start_anchors',
     );
+    // Same-page table segments (v4): a page printing several independently
+    // qualifying headers is read one table per header, never as one table.
+    const segmented = !reconstructed && params.continuationEvidence !== 'spacing_only'
+      ? (() => {
+        const segments = tableSegmentsOf(page);
+        return segments ? reconstructTableSegments(page, segments, (slice, rowIdentityScope) => reconstructPage(
+          slice, confirmed, confirmedCandidates, appliedConfirmations, appliedCandidates,
+          params.recoveryCandidateBuildContext, generatedCandidates, 'row_start_anchors',
+          undefined, undefined, rowIdentityScope)) : null;
+      })()
+      : null;
     // Cross-page reuse: only the immediately following page, only when it has
     // no header candidate of its own, and only under a proof of compatibility.
-    if (!reconstructed && carried && carried.page === page.page_number - 1
+    if (!reconstructed && !segmented && carried && carried.page === page.page_number - 1
       && params.continuationEvidence !== 'spacing_only'
       && unresolvedPricedPage(page)?.reason === 'header_not_found') {
       // A refused attempt leaves no trace: candidates and applied sets merge only on success.
@@ -2980,9 +3132,11 @@ export function buildPagePricedScheduleReconstruction(params: {
         generatedCandidates.push(...scratchGenerated);
       }
     }
+    // A segmented page offers the bottom segment's header: the table that can
+    // continue onto the next page.
     const offered: PricedScheduleHeaderSignature | null = reconstructed ? (reconstructed.inherited_header
       ? (reconstructed.rows.length > 0 && carried ? carried.signature : null)
-      : headerSignatureOf(reconstructed)) : null;
+      : headerSignatureOf(reconstructed)) : segmented?.last ? headerSignatureOf(segmented.last) : null;
     const headerSelections = (params.confirmedHeaderSelections ?? []).filter(selection =>
       selection.candidate.physicalPageNumber === page.page_number);
     const version = params.continuationEvidence === 'spacing_only'
@@ -3026,11 +3180,17 @@ export function buildPagePricedScheduleReconstruction(params: {
         observation_id: candidate.orderedObservationIds[0] as NonNullable<PdfToken['observation_id']>,
         candidate_id: candidate.candidateId, physical_page_number: page.page_number, recovery_applied: false });
     }
+    const inputs = params.continuationEvidence === 'spacing_only' ? []
+      : (params.rulingLineInputs ?? []).filter((input) => input.evidence.physical_page_number === page.page_number
+        && input.evidence.source_sha256 === params.rulingLineSourceSha256);
+    // Ruling evidence covers the whole physical page; each entry moves only its own evidence.
+    const withRulings = (entry: PricedSchedulePage) =>
+      (inputs.length === 1 ? resolveRulingLineOwnership(entry, page, inputs[0]!) : entry);
     if (reconstructed) {
-      const inputs = params.continuationEvidence === 'spacing_only' ? []
-        : (params.rulingLineInputs ?? []).filter((input) => input.evidence.physical_page_number === page.page_number
-          && input.evidence.source_sha256 === params.rulingLineSourceSha256);
-      pages.push(inputs.length === 1 ? resolveRulingLineOwnership(reconstructed, page, inputs[0]!) : reconstructed);
+      pages.push(withRulings(reconstructed));
+    } else if (segmented) {
+      pages.push(...segmented.pages.map(withRulings));
+      unresolvedPages.push(...segmented.unresolved);
     } else if (params.continuationEvidence !== 'spacing_only') {
       const unresolved = unresolvedPricedPage(page);
       if (unresolved) unresolvedPages.push(unresolved);

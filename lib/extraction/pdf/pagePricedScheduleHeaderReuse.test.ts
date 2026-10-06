@@ -111,9 +111,12 @@ describe('proven header signature reuse across continuation pages', () => {
   });
 
   it('B5: never reuses onto a page with header evidence of its own', () => {
-    // Two qualifying headers: still a multi-table page, never read under a third.
+    // Two qualifying headers: a multi-table page, read under its own headers (v4), never a carried one.
     const twoTables = page(8, [header(8, 760), ...body(8, 740, ['Delta', 'Epsilon']), header(8, 660), ...body(8, 640, ['Zeta', 'Eta'])]);
-    expect(reconstruct([sourcePage(), twoTables]).unresolved_pages).toMatchObject([{ physical_page_number: 8, reason: 'multiple_priced_headers' }]);
+    const segmented = reconstruct([sourcePage(), twoTables]).pages.filter((entry) => entry.physical_page_number === 8);
+    expect(segmented.map((entry) => [entry.header_y, entry.table_segment?.segment_index, entry.inherited_header])).toEqual([
+      [760, 0, undefined], [660, 1, undefined],
+    ]);
     // Plausible but unresolved header candidates: still ambiguous.
     const short = (y: number) => line(8, y, [{ x: DESCRIPTION_X, text: 'Description', width: 70 }, { x: CURRENCY_X, text: 'Cost', width: 30 }]);
     const ambiguous = page(8, [short(760), ...body(8, 740, ['Delta', 'Epsilon']), short(680), ...body(8, 660, ['Zeta', 'Eta'])]);

@@ -53,9 +53,9 @@ export const VALUE_READING_POLICY: Readonly<{
  * module for all AI surfaces: a surface that skips it does not exist.
  */
 export const FORGEWING_WORKFLOWS = ['priced_value_reading', 'project_ask', 'case_investigation'] as const;
-export type ForgewingWorkflow = typeof FORGEWING_WORKFLOWS[number];
+export type GatedWorkflow = typeof FORGEWING_WORKFLOWS[number];
 
-export type ForgewingWorkflowPolicy = Readonly<{
+export type GatedWorkflowPolicy = Readonly<{
   qualification: RecoveryQualification;
   qualificationCeiling: RecoveryActivation;
   /** Environment switch requesting activation beneath the master gate. */
@@ -66,7 +66,7 @@ export type ForgewingWorkflowPolicy = Readonly<{
   reviewRequired: boolean;
 }>;
 
-export const FORGEWING_WORKFLOW_POLICIES: Readonly<Record<ForgewingWorkflow, ForgewingWorkflowPolicy>> = Object.freeze({
+export const FORGEWING_WORKFLOW_POLICIES: Readonly<Record<GatedWorkflow, GatedWorkflowPolicy>> = Object.freeze({
   priced_value_reading: Object.freeze({
     ...VALUE_READING_POLICY,
     activationEnv: 'FORGEWING_VALUE_READING_ENABLED',
@@ -96,7 +96,7 @@ export const FORGEWING_WORKFLOW_POLICIES: Readonly<Record<ForgewingWorkflow, For
 
 /** Requested by the workflow's switch beneath the master gate; capped by its policy ceiling. */
 export function forgewingWorkflowActivation(
-  workflow: ForgewingWorkflow,
+  workflow: GatedWorkflow,
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): Readonly<{ masterEnabled: boolean; requested: RecoveryActivation; activation: RecoveryActivation }> {
   const policy = FORGEWING_WORKFLOW_POLICIES[workflow];
@@ -192,7 +192,7 @@ const MAXIMUM_VALUE_READING_DAILY_CAP = 500;
 
 /** A workflow's calls per organization per trailing 24 hours. Default 0: no calls unless configured. */
 export function readForgewingWorkflowDailyCap(
-  workflow: ForgewingWorkflow,
+  workflow: GatedWorkflow,
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): number {
   const raw = env[FORGEWING_WORKFLOW_POLICIES[workflow].dailyCapEnv];
@@ -306,7 +306,7 @@ export async function resolveForgewingWorkflowEligibility(
   admin: SupabaseClient,
   params: Readonly<{
     organizationId: string;
-    workflow: ForgewingWorkflow;
+    workflow: GatedWorkflow;
     contentClasses: readonly AiProviderContentClass[];
     provider?: AiProviderName;
   }>,
@@ -346,7 +346,7 @@ export async function reserveForgewingProviderCall(
     reservedBy: string | null;
     dailyCap: number;
     /** Each workflow spends its own budget. */
-    workflow?: ForgewingWorkflow;
+    workflow?: GatedWorkflow;
   }>,
 ): Promise<ProviderCallReservation> {
   try {

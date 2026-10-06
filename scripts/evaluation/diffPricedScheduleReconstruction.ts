@@ -39,6 +39,8 @@ import { extractDocument } from '@/lib/server/documentExtraction';
 
 type PageSummary = {
   page: number;
+  /** [segment index, segment count] for one table of a page printing several qualifying headers (v4); null otherwise. */
+  segment?: [number, number] | null;
   outcome: string;
   columns: Array<[string, string | null]>;
   rows: Array<{ cells: Record<string, string>; outside_assembly: Array<[number, string]> }>;
@@ -50,7 +52,10 @@ type PageSummary = {
   inherited_from_page: number | null;
   /** Authored lines inside the table attributed to no row (reported, never priced). */
   unassigned_lines: Array<[string, string]>;
-  /** Lines Forgewing would be offered on this page; null when not computed (--pdf, --labels). */
+  /**
+   * Lines Forgewing would be offered on this page; null when not computed (--pdf, --labels).
+   * Counted once per physical page, on its first entry; later segments of the page carry 0.
+   */
   forgewing_eligible_lines: number | null;
 };
 type Dump = { parser_version: string; sources: Record<string, PageSummary[]> };
@@ -65,9 +70,15 @@ function summarizeReconstruction(
   forgewingByPage: ReadonlyMap<number, number> | null,
 ): PageSummary[] {
   const eligible = (page: number) => (forgewingByPage ? forgewingByPage.get(page) ?? 0 : null);
-  return [
+  // Read structurally so this file also runs at checkouts that predate segments.
+  const segmentOf = (entry: object): [number, number] | null => {
+    const segment = (entry as { table_segment?: { segment_index: number; segment_count: number } }).table_segment;
+    return segment ? [segment.segment_index, segment.segment_count] : null;
+  };
+  const summaries: PageSummary[] = [
     ...reconstruction.pages.map((page): PageSummary => ({
       page: page.physical_page_number,
+      segment: segmentOf(page),
       outcome: page.status === 'failed_closed' ? 'failed_closed'
         : page.semantic_status === 'unresolved' ? 'reconstructed_semantics_unresolved' : 'reconstructed',
       columns: page.columns.map((column): [string, string | null] => [column.header_text, column.role]),
@@ -86,6 +97,7 @@ function summarizeReconstruction(
     })),
     ...(reconstruction.unresolved_pages ?? []).map((page): PageSummary => ({
       page: page.physical_page_number,
+      segment: segmentOf(page),
       outcome: `unresolved:${page.reason}`,
       columns: [],
       rows: [],
@@ -96,7 +108,19 @@ function summarizeReconstruction(
       unassigned_lines: [],
       forgewing_eligible_lines: eligible(page.physical_page_number),
     })),
-  ].sort((left, right) => left.page - right.page);
+  ].sort((left, right) => left.page - right.page || (left.segment?.[0] ?? -1) - (right.segment?.[0] ?? -1));
+  const counted = new Set<number>();
+  return summaries.map((summary) => {
+    if (summary.forgewing_eligible_lines == null) return summary;
+    if (counted.has(summary.page)) return { ...summary, forgewing_eligible_lines: 0 };
+    counted.add(summary.page);
+    return summary;
+  });
+}
+
+/** One page, or one table segment of a page, as compare keys it. */
+function summaryKey(summary: PageSummary): string {
+  return summary.segment ? `p${summary.page} table ${summary.segment[0] + 1}/${summary.segment[1]}` : `p${summary.page}`;
 }
 
 type LabelWord = { text: string; box: { x_min: number; x_max: number; y_min: number; y_max: number } };
@@ -197,20 +221,22 @@ function compare(): void {
   let forgewingAfter = 0;
   const residual: string[] = [];
   for (const source of [...new Set([...Object.keys(before.sources), ...Object.keys(after.sources)])].sort()) {
-    const byPage = (pages: PageSummary[] | undefined) => new Map((pages ?? []).map((page) => [page.page, page]));
-    const left = byPage(before.sources[source]);
-    const right = byPage(after.sources[source]);
-    for (const page of [...new Set([...left.keys(), ...right.keys()])].sort((a, b) => a - b)) {
+    const byKey = (pages: PageSummary[] | undefined) => new Map((pages ?? []).map((page) => [summaryKey(page), page]));
+    const left = byKey(before.sources[source]);
+    const right = byKey(after.sources[source]);
+    const order = new Map([...(before.sources[source] ?? []), ...(after.sources[source] ?? [])]
+      .map((summary) => [summaryKey(summary), summary.page * 1000 + (summary.segment?.[0] ?? -1)]));
+    for (const page of [...new Set([...left.keys(), ...right.keys()])].sort((a, b) => order.get(a)! - order.get(b)!)) {
       const was = left.get(page);
       const now = right.get(page);
       forgewingBefore += was?.forgewing_eligible_lines ?? 0;
       forgewingAfter += now?.forgewing_eligible_lines ?? 0;
       if ((now?.forgewing_eligible_lines ?? 0) > 0) {
-        residual.push(`  ${source} p${page}: ${now!.outcome}; ${now!.forgewing_eligible_lines} line(s) for Forgewing`);
+        residual.push(`  ${source} ${page}: ${now!.outcome}; ${now!.forgewing_eligible_lines} line(s) for Forgewing`);
       }
       if (JSON.stringify(was) === JSON.stringify(now)) continue;
       changed += 1;
-      lines.push(`${source} p${page}: ${was?.outcome ?? 'absent'} -> ${now?.outcome ?? 'absent'}`);
+      lines.push(`${source} ${page}: ${was?.outcome ?? 'absent'} -> ${now?.outcome ?? 'absent'}`);
       if (JSON.stringify(was?.columns) !== JSON.stringify(now?.columns)) {
         lines.push(`  columns: ${JSON.stringify(was?.columns ?? [])} -> ${JSON.stringify(now?.columns ?? [])}`);
       }

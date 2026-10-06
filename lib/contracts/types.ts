@@ -206,6 +206,10 @@ export interface ContractRateScheduleRow {
   inherited_header?: Readonly<{
     status: 'carried'; signature_digest: string; source_page: number; carried_from_page: number; continuation_page: number;
   }>;
+  /** Present only for a row read from one table segment of a page printing several qualifying headers (v4). */
+  table_segment?: Readonly<{
+    segment_index: number; segment_count: number; header_y: number; header_observation_ids: readonly string[];
+  }>;
   row_id: string;
   description: string | null;
   unit: string | null;

@@ -609,27 +609,39 @@ describe('generic single-page priced schedule reconstruction', () => {
   // A page holding more than one priced table cannot be read as one table.
   // ---------------------------------------------------------------------------
 
-  it('O: fails closed when a page presents two complete priced tables', () => {
-    const result = reconstructSinglePage([
+  it('O: never reads a page presenting two complete priced tables as one table', () => {
+    const result = buildPagePricedScheduleReconstruction({ layout: layoutOf([page(7, [
       headerLine(7, 720),
       pricedLine(7, 700, { description: 'Alpha service', unit: 'Widget', origin: 'A to B', currency: '$', amount: '12.00' }),
       pricedLine(7, 690, { description: 'Beta service', unit: 'Widget', origin: 'B to C', currency: '$', amount: '3.50' }),
       headerLine(7, 600),
       pricedLine(7, 580, { description: 'Gamma service', unit: 'Gadget', origin: 'C to D', currency: '$', amount: '7.00' }),
       pricedLine(7, 560, { description: 'Delta service', unit: 'Gadget', origin: 'D to E', currency: '$', amount: '9.00' }),
+    ])]) });
+    // v4: one table per header, each read only under its own header.
+    expect(result.pages.map((entry) => [entry.header_y, entry.table_segment?.segment_index,
+      entry.rows.map((row) => cellText(row, 'description'))])).toEqual([
+      [720, 0, ['Alpha service', 'Beta service']],
+      [600, 1, ['Gamma service', 'Delta service']],
     ]);
-    expect(result).toBeNull();
   });
 
-  it('O2: fails closed when a header repeats after a page-layout artifact', () => {
-    const result = reconstructSinglePage([
+  it('O2: never reads rows across a header that repeats after a page-layout artifact', () => {
+    const result = buildPagePricedScheduleReconstruction({ layout: layoutOf([page(7, [
       headerLine(7, 720),
       pricedLine(7, 700, { description: 'Alpha service', unit: 'Widget', origin: 'A to B', currency: '$', amount: '12.00' }),
       line(7, 660, [{ x: DESCRIPTION_X, text: 'continued', width: 60 }]),
       headerLine(7, 640),
       pricedLine(7, 620, { description: 'Beta service', unit: 'Widget', origin: 'B to C', currency: '$', amount: '3.50' }),
+    ])]) });
+    // Each segment holds one priced line only, too few for a table: neither is
+    // read, and both stay open for review, each with its own priced line.
+    expect(result.pages).toEqual([]);
+    expect(result.unresolved_pages!.map((entry) => [entry.table_segment?.segment_index, entry.reason,
+      entry.header_lines.map((line) => line.y), entry.priced_lines.map((line) => line.raw_text)])).toEqual([
+      [0, 'table_segment_without_rows', [720], ['Alpha service Widget A to B $ 12.00']],
+      [1, 'table_segment_without_rows', [640], ['Beta service Widget B to C $ 3.50']],
     ]);
-    expect(result).toBeNull();
   });
 
   it('O3: reconstructs normally when a later line only partially resembles a header', () => {
@@ -648,9 +660,9 @@ describe('generic single-page priced schedule reconstruction', () => {
   });
 
   // O, O2 and O3 are intentional: two qualifying headers (even identical ones)
-  // fail the page closed, and a header-like line with no priced rows of its own
-  // beneath it is harmless. O5 and O6 extend the same rule to a later header
-  // that does not qualify.
+  // are never read as one table (since v4 each governs its own segment), and a
+  // header-like line with no priced rows of its own beneath it is harmless. O5
+  // and O6 extend the boundary to a later header that does not qualify.
 
   it('O5: a later table under a header that does not qualify is never read through the first header', () => {
     // Table B reorders the columns and uses labels outside the vocabulary
@@ -923,7 +935,7 @@ describe('generic single-page priced schedule reconstruction', () => {
     expect(frozen.parser_version).toBe('priced_schedule_reconstruction_v1');
     expect(frozen.pages[0]!.columns.find((column) => column.header_text === 'Amount')!.role).toBe('rate');
     const current = buildPagePricedScheduleReconstruction({ layout: layoutOf([page(7, lines)]) });
-    expect(current.parser_version).toBe('priced_schedule_reconstruction_v3');
+    expect(current.parser_version).toBe('priced_schedule_reconstruction_v4');
     expect(current.pages.flatMap((entry) => entry.columns).some((column) => column.role === 'rate')).toBe(false);
   });
 

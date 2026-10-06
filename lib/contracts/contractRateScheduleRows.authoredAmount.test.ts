@@ -26,7 +26,15 @@ function cell(role: PricedScheduleCell['role'], rawText: string, x: number): Pri
   };
 }
 
-function rateOf(rateText: string): { rate: number | null; confidence: string | undefined } {
+function rateOf(rateText: string, structuredAmount?: string): { rate: number | null; confidence: string | undefined } {
+  const authoredRate = cell('rate', rateText, 100);
+  const rateCell: PricedScheduleCell = structuredAmount == null ? authoredRate : {
+    ...authoredRate,
+    structured_rate: {
+      derivation: 'structured_numeric_rate', amount_text: structuredAmount,
+      amount_source_ref: authoredRate.source_refs[1]!, marker_source_ref: authoredRate.source_refs[0]!,
+    },
+  };
   const reconstruction: PagePricedScheduleReconstruction = {
     parser_version: 'priced_schedule_reconstruction_v3',
     pages: [{
@@ -34,7 +42,7 @@ function rateOf(rateText: string): { rate: number | null; confidence: string | u
       columns: [], rejected_spines: [], unassigned_lines: [],
       rows: [{
         row_index: 0, physical_page_number: PAGE, raw_text: `Operator | Hour | ${rateText}`,
-        cells: [cell('description', 'Operator', 10), cell('unit', 'Hour', 60), cell('rate', rateText, 100)],
+        cells: [cell('description', 'Operator', 10), cell('unit', 'Hour', 60), rateCell],
         x_min: 10, x_max: 140, y_min: 100, y_max: 110,
       }],
     }],
@@ -44,10 +52,15 @@ function rateOf(rateText: string): { rate: number | null; confidence: string | u
 }
 
 describe('authored rate amount is read whole', () => {
+  it('applies the same amount grammar to the existing structure-proven amount path', () => {
+    expect(rateOf('unread-marker 0.085', '0.085')).toEqual({ rate: 0.085, confidence: 'medium' });
+    expect(rateOf('unread-marker 56.0', '56.0')).toEqual({ rate: null, confidence: 'needs_review' });
+  });
+
   it('reads well-formed amounts, with or without a separate currency marker or thousands groups', () => {
     for (const [text, amount] of [
       ['$ 12.00', 12], ['$12.00', 12], ['12.00', 12], ['$1,250.00', 1250], ['$12', 12], ['$0.085', 0.085],
-      ['1,250', 1250],
+      ['1,250', 1250], ['$0.0125', 0.0125],
       // Layout artifacts without digits do not hide a well-formed amount.
       ['] | $10.90 [In', 10.9], ['_| $106.00', 106],
     ] as const) {
@@ -61,6 +74,10 @@ describe('authored rate amount is read whole', () => {
       '$95,00',
       // One decimal digit: previously read as 56 and 160.
       '$56.0', '$160.0',
+      '$0.01250',
+      // Native PDF evidence can contain a digit where the currency glyph was expected.
+      // Do not reinterpret that digit or silently take the first number.
+      '5 100.00', '5 90.00',
       // Trailing punctuation fused to the amount: previously read as 2 and 170.
       '$2:', '$170.00.',
       // Thousands groups that are not groups of three.

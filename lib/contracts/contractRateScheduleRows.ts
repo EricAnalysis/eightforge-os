@@ -1507,6 +1507,10 @@ function buildPagePricedScheduleRows(
           source_page: row.inherited_header.source_page, carried_from_page: row.inherited_header.carried_from_page,
           continuation_page: row.inherited_header.continuation_page,
         } } : {}),
+        ...(row.table_segment ? { table_segment: {
+          segment_index: row.table_segment.segment_index, segment_count: row.table_segment.segment_count,
+          header_y: row.table_segment.header_y, header_observation_ids: row.table_segment.header_observation_ids,
+        } } : {}),
         description: descriptionCell.raw_text,
         unit: unitCell?.raw_text ?? null,
         rate,

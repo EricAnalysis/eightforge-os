@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { hashCanonical } from '@/lib/extraction/domain/hash';
 import type { PdfLayout, PdfLayoutPage, PdfToken } from '@/lib/extraction/pdf/extractText';
 import type { RulingLineEvidence, RulingLineInput } from '@/lib/extraction/pdf/rulingLineEvidence';
-import { resolveRulingLineOwnership } from '@/lib/extraction/pdf/rulingLineOwnership';
+import { initialRulingColumnOwnership, resolveRulingLineOwnership } from '@/lib/extraction/pdf/rulingLineOwnership';
 import { pricedScheduleAssemblyRole } from '@/lib/extraction/pdf/pricedScheduleRoles';
 import { isPagePricedScheduleVersion, LEGACY_PRICED_SCHEDULE_RECONSTRUCTION_VERSION, PAGE_PRICED_SCHEDULE_RECONSTRUCTION_V2, PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION,
   type PricedScheduleReconstructionVersion } from '@/lib/extraction/pdf/pricedScheduleVersion';
@@ -377,7 +377,7 @@ export type PricedScheduleTableEdgeLine = {
  * pricing evidence.
  */
 export type PricedScheduleRejectedSpineReason =
-  /** Carried a rate but lacked the description evidence a row requires. */
+  /** Carried a monetary primitive but lacked proven rate/description cell evidence. */
   | 'insufficient_row_structure'
   /** Was source-backed, but too few independent priced rows survived to publish a table. */
   | 'insufficient_priced_rows'
@@ -1414,8 +1414,10 @@ function columnIndexForToken(token: PdfToken, columns: readonly PricedScheduleCo
 function columnAssignmentsForLine(
   tokens: readonly PdfToken[],
   columns: readonly PricedScheduleColumnBand[],
+  rulingOwnership?: ReadonlyMap<PdfToken, number> | null,
 ): ReadonlyMap<PdfToken, number> {
-  const assignments = new Map(tokens.map((token) => [token, columnIndexForToken(token, columns)]));
+  const assignments = new Map(tokens.map((token) => [token,
+    rulingOwnership?.has(token) ? rulingOwnership.get(token)! : columnIndexForToken(token, columns)]));
   const { sorted, ratios } = tokenGapReading(tokens);
   const clusters = groupTokens(sorted, ratios.map((ratio) => ratio <= HEADER_WORD_GAP_CEILING));
   for (const cluster of clusters) {
@@ -1437,7 +1439,9 @@ function columnAssignmentsForLine(
     const nextOverlap = horizontalOverlap(left, right, columns[firstColumn + 1]!);
     if (!(firstOverlap > nextOverlap
       && firstOverlap >= nextOverlap * COLUMN_CLUSTER_OVERLAP_SEPARATION_FACTOR)) continue;
-    for (const token of cluster.tokens) assignments.set(token, firstColumn);
+    for (const token of cluster.tokens) {
+      if (!rulingOwnership?.has(token)) assignments.set(token, firstColumn);
+    }
   }
   return assignments;
 }
@@ -1775,7 +1779,10 @@ function tableEdgeLine(
   line: RawSourceLine,
   position: PricedScheduleTableEdgeLine['position'],
   columns: readonly PricedScheduleColumnBand[],
+  rulingOwnership?: ReadonlyMap<PdfToken, number> | null,
 ): PricedScheduleTableEdgeLine | null {
+  const membership = (token: PdfToken) => rulingOwnership?.has(token)
+    ? rulingOwnership.get(token)! : columnIndexForToken(token, columns);
   const { sorted, ratios } = tokenGapReading(line.tokens);
   const initialGroups = groupTokens(sorted, ratios.map((ratio) => ratio <= HEADER_WORD_GAP_CEILING));
   // OCR can leave a wider-than-word gap between a marker glyph and amount in
@@ -1785,7 +1792,7 @@ function tableEdgeLine(
   for (const group of initialGroups) {
     const previous = groups.at(-1);
     const containedColumn = (tokens: readonly PdfToken[]) => {
-      const indexes = tokens.map((token) => columnIndexForToken(token, columns));
+      const indexes = tokens.map(membership);
       return indexes[0] != null && indexes[0] >= 0 && indexes.every((index) => index === indexes[0])
         ? indexes[0] : null;
     };
@@ -1802,7 +1809,7 @@ function tableEdgeLine(
     const sourceRefs = group.tokens.map((token) => sourceRefForToken(token));
     const rawText = group.tokens.map((token) => token.text.trim()).filter(Boolean).join(' ');
     if (!rawText || sourceRefs.length === 0) return [];
-    const memberships = group.tokens.map((token) => columnIndexForToken(token, columns));
+    const memberships = group.tokens.map(membership);
     const first = memberships[0] ?? -1;
     const columnIndex = first >= 0 && memberships.every((index) => index === first) ? first : null;
     return [{
@@ -1970,6 +1977,7 @@ function reconstructPage(
   inheritedHeader?: PricedScheduleHeaderSignature,
   /** Scopes recovery row identities to one table segment of a multi-table page (v4). */
   rowIdentityScope?: string,
+  rulingContext?: { layout: PdfLayoutPage; input: RulingLineInput },
 ): PricedSchedulePage | null {
   const rowIdentityPrefix = `page_priced_schedule:p${page.page_number}${rowIdentityScope ? `:${rowIdentityScope}` : ''}`;
   // Frozen 'spacing_only' fixtures keep the legacy vocabulary verbatim.
@@ -2045,6 +2053,10 @@ function reconstructPage(
     if (continuationEvidence !== 'spacing_only' && laterTableBoundaries(page, header.y).length > 0) return null;
   }
 
+  // Bind the entire physical page, even when admission reads a table slice.
+  // Inherited headers have no observed local header cell to map to a grid.
+  const rulingOwnership = continuationEvidence !== 'spacing_only' && !inheritedHeader && rulingContext
+    ? initialRulingColumnOwnership(rulingContext.layout, header.columns, rulingContext.input) : null;
   const banded: BandedToken[] = [];
   const bodyTokens: PdfToken[] = [];
   // Primitive tokens whose geometry does not give any column a strict width
@@ -2062,14 +2074,16 @@ function reconstructPage(
     // Pinned evaluation fixtures ('spacing_only') keep the pre-R5 center-band
     // membership their recorded evidence and candidate identities were built on.
     const assignments = continuationEvidence === 'row_start_anchors'
-      ? columnAssignmentsForLine(line.tokens, header.columns)
+      ? columnAssignmentsForLine(line.tokens, header.columns, rulingOwnership)
       : new Map(line.tokens.map((token) => [token, centerColumnIndexForToken(token, header.columns)]));
     for (const token of line.tokens) {
       // Only content below the header belongs to the schedule body.
       if (token.y >= header.y) continue;
       if (token.text.trim().length === 0) continue;
       bodyTokens.push(token);
-      const baselineColumnIndex = centerColumnIndexForToken(token, header.columns);
+      const provenColumnIndex = rulingOwnership?.get(token);
+      const baselineColumnIndex = provenColumnIndex != null && provenColumnIndex >= 0
+        ? provenColumnIndex : centerColumnIndexForToken(token, header.columns);
       if (baselineColumnIndex >= 0 && !assemblyRole(header.columns[baselineColumnIndex]!.role)) {
         rowStartRoleLess.push({ token, columnIndex: baselineColumnIndex });
       }
@@ -2100,6 +2114,27 @@ function reconstructPage(
   const tableEdgeLines: PricedScheduleTableEdgeLine[] = [];
   const glyphHeight = medianOf(banded.map((entry) => entry.token.height).filter((height) => height > 0));
   const lineTolerance = glyphHeight == null ? 0 : glyphHeight * LINE_MERGE_FRACTION;
+  // An authored monetary primitive whose column cannot be proven is still
+  // evidence of a priced line. Its other cells must not become continuation
+  // text donated to a neighbouring admitted row after that spine disappears.
+  const heldRulingCurrency = rulingOwnership ? ambiguousColumnLines.filter(line =>
+    line.banded.some(entry => entry.role === 'rate' && isRowSpineToken(entry.token))) : [];
+  const onHeldRulingLine = (y: number) => heldRulingCurrency.some(line => Math.abs(line.y - y) <= lineTolerance);
+  const heldRulingLines = heldRulingCurrency.length ? buildSourceLines([
+    ...heldRulingCurrency.flatMap(line => line.banded),
+    ...sourceLines.filter(line => onHeldRulingLine(line.y)).flatMap(line => line.banded),
+  ]) : [];
+  if (heldRulingLines.length) {
+    sourceLines = sourceLines.filter(line => !onHeldRulingLine(line.y));
+    ambiguousColumnLines = ambiguousColumnLines.filter(line => !heldRulingCurrency.includes(line));
+    for (const collection of [roleLess, rowStartRoleLess]) {
+      for (let index = collection.length - 1; index >= 0; index--) {
+        if (!onHeldRulingLine(collection[index]!.token.y)) continue;
+        if (collection === roleLess) ambiguousColumnRoleLess.push(collection[index]!);
+        collection.splice(index, 1);
+      }
+    }
+  }
 
   // Row-start geometry establishes the authored body boundary independently of
   // price recognition. This is intentionally earlier than spine selection: an
@@ -2127,7 +2162,7 @@ function reconstructPage(
         const afterBody = line.y < lowestStartY - lineTolerance
           && lowestStartY - line.y <= maximumEdgeDistance;
         if (!beforeBody && !afterBody) continue;
-        const edge = tableEdgeLine(line, beforeBody ? 'before_body' : 'after_body', header.columns);
+        const edge = tableEdgeLine(line, beforeBody ? 'before_body' : 'after_body', header.columns, rulingOwnership);
         if (!edge) continue;
         // Row-start anchors are not row extents: an authored row can wrap above
         // or below its anchor. A line whose shape a body continuation could have
@@ -2214,6 +2249,7 @@ function reconstructPage(
       y: spine.y,
     });
   };
+  for (const line of heldRulingLines) rejectLines(line, [line], 'insufficient_row_structure');
   const pageResult = (
     status: NonNullable<PricedSchedulePage['status']>,
     rows: readonly PricedScheduleRow[],
@@ -3090,10 +3126,15 @@ export function buildPagePricedScheduleReconstruction(params: {
   // The proven signature the previous physical page offers, if any.
   let carried: { signature: PricedScheduleHeaderSignature; page: number } | null = null;
   for (const page of orderedPages) {
+    const inputs = params.continuationEvidence === 'spacing_only' ? []
+      : (params.rulingLineInputs ?? []).filter((input) => input.evidence.physical_page_number === page.page_number
+        && input.evidence.source_sha256 === params.rulingLineSourceSha256);
+    const rulingContext = inputs.length === 1 ? { layout: page, input: inputs[0]! } : undefined;
     let reconstructed = reconstructPage(
       page, confirmed, confirmedCandidates, appliedConfirmations, appliedCandidates,
       params.recoveryCandidateBuildContext, generatedCandidates,
       params.continuationEvidence ?? 'row_start_anchors',
+      undefined, undefined, undefined, rulingContext,
     );
     // Same-page table segments (v4): a page printing several independently
     // qualifying headers is read one table per header, never as one table.
@@ -3103,7 +3144,7 @@ export function buildPagePricedScheduleReconstruction(params: {
         return segments ? reconstructTableSegments(page, segments, (slice, rowIdentityScope) => reconstructPage(
           slice, confirmed, confirmedCandidates, appliedConfirmations, appliedCandidates,
           params.recoveryCandidateBuildContext, generatedCandidates, 'row_start_anchors',
-          undefined, undefined, rowIdentityScope)) : null;
+          undefined, undefined, rowIdentityScope, rulingContext)) : null;
       })()
       : null;
     // Cross-page reuse: only the immediately following page, only when it has
@@ -3172,7 +3213,8 @@ export function buildPagePricedScheduleReconstruction(params: {
           reason = 'confirmed_header_option_not_offered';
         } else {
           reconstructed = reconstructPage(page, new Map(), [], appliedConfirmations, appliedCandidates,
-            undefined, [], params.continuationEvidence ?? 'row_start_anchors', selection);
+            undefined, [], params.continuationEvidence ?? 'row_start_anchors', selection,
+            undefined, undefined, rulingContext);
           if (!reconstructed?.header_semantics) reason = 'confirmed_recovery_not_applied';
         }
       }
@@ -3180,9 +3222,6 @@ export function buildPagePricedScheduleReconstruction(params: {
         observation_id: candidate.orderedObservationIds[0] as NonNullable<PdfToken['observation_id']>,
         candidate_id: candidate.candidateId, physical_page_number: page.page_number, recovery_applied: false });
     }
-    const inputs = params.continuationEvidence === 'spacing_only' ? []
-      : (params.rulingLineInputs ?? []).filter((input) => input.evidence.physical_page_number === page.page_number
-        && input.evidence.source_sha256 === params.rulingLineSourceSha256);
     // Ruling evidence covers the whole physical page; each entry moves only its own evidence.
     const withRulings = (entry: PricedSchedulePage) =>
       (inputs.length === 1 ? resolveRulingLineOwnership(entry, page, inputs[0]!) : entry);

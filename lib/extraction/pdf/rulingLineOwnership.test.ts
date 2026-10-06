@@ -10,7 +10,8 @@ import {
   type PricedScheduleUnresolvedRoleCell,
 } from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
 import { buildRulingLineInput, rulingLineInputIsIntact } from '@/lib/extraction/pdf/rulingLineEvidence';
-import { resolveRulingLineOwnership } from '@/lib/extraction/pdf/rulingLineOwnership';
+import { initialRulingColumnOwnership, resolveRulingLineOwnership } from '@/lib/extraction/pdf/rulingLineOwnership';
+import { pricingAuthoritativePage, pricingAuthorityDiagnostics } from '@/lib/extraction/pdf/pricedScheduleAuthority';
 
 const SIZE = 600;
 const SOURCE = 'a'.repeat(64);
@@ -138,6 +139,95 @@ function fixture(options: {
 }
 
 describe('ruling-line structural ownership, source-only and resolve-only', () => {
+  it('proves initial physical ownership without consulting header roles or midpoint bands', () => {
+    const f = fixture({ candidate: source('tail', 275, 250, 18) });
+    const before = JSON.stringify(f.layout);
+    const token = f.layout.lines.flatMap(line => line.tokens).find(token => token.text === 'tail')!;
+    const columns = f.page.columns.map(column => ({ ...column, role: null, x_min: null, x_max: null }));
+    expect(initialRulingColumnOwnership(f.layout, columns, f.input)?.get(token)).toBe(0);
+    expect(JSON.stringify(f.layout)).toBe(before);
+  });
+
+  it('uses physical ownership before admission between recognized description and unit columns', () => {
+    const f = fixture({ candidate: source('tail', 275, 250, 18) });
+    const layout = { page_count: 1, pages: [f.layout], gaps: [] };
+    const before = buildPagePricedScheduleReconstruction({ layout });
+    const after = buildPagePricedScheduleReconstruction({ layout, rulingLineInputs: [f.input], rulingLineSourceSha256: SOURCE });
+    expect(before.pages[0].rows[0].cells.find(cell => cell.role === 'unit')?.raw_text).toContain('tail');
+    expect(after.pages[0].rows[0].cells.find(cell => cell.role === 'description')?.raw_text).toBe('lower fragment tail');
+    expect(after.pages[0].rows[0].cells.find(cell => cell.role === 'unit')?.raw_text).toBe('Hour');
+    expect(after.pages[0].rows.map(row => row.cells.find(cell => cell.role === 'rate')))
+      .toEqual(before.pages[0].rows.map(row => row.cells.find(cell => cell.role === 'rate')));
+    expect(pricingAuthorityDiagnostics(after)).toEqual([]);
+    expect(pricingAuthoritativePage(after.pages[0], after.parser_version)?.rows).toHaveLength(2);
+  });
+
+  it('withholds separator-crossing primitives instead of assigning them by midpoint', () => {
+    const f = fixture({ candidate: source('crossing', 290, 250, 25) });
+    const token = f.layout.lines.flatMap(line => line.tokens).find(token => token.text === 'crossing')!;
+    expect(initialRulingColumnOwnership(f.layout, f.page.columns, f.input)?.get(token)).toBe(-1);
+    const after = buildPagePricedScheduleReconstruction({ layout: { page_count: 1, pages: [f.layout], gaps: [] },
+      rulingLineInputs: [f.input], rulingLineSourceSha256: SOURCE });
+    expect(after.pages[0].rows.flatMap(row => row.cells.flatMap(cell => cell.source_refs))
+      .some(ref => ref.text === 'crossing')).toBe(false);
+    expect(after.pages[0].unassigned_lines.flatMap(line => line.source_refs)
+      .some(ref => ref.text === 'crossing')).toBe(true);
+  });
+
+  it('uses only uniquely contained residual ink when an OCR box includes a ruling line', () => {
+    const f = fixture({ candidate: source('border-box', 290, 250, 25) });
+    for (let y = 250; y < 262; y++) for (let x = 290; x < 300; x++) {
+      const pixel = 4 * (y * SIZE + x);
+      f.rgba[pixel] = f.rgba[pixel + 1] = f.rgba[pixel + 2] = 255;
+    }
+    const input = buildRulingLineInput({ sourceSha256: SOURCE, renderSha256: RENDER,
+      physicalPageNumber: 1, width: SIZE, height: SIZE, rgba: f.rgba,
+      tokenGeometry: f.layout.lines.flatMap(line => line.tokens).map(token => ({ text: token.text, bbox: token.ocr_source_geometry!.bbox })) });
+    const token = f.layout.lines.flatMap(line => line.tokens).find(token => token.text === 'border-box')!;
+    expect(initialRulingColumnOwnership(f.layout, f.page.columns, input)?.get(token)).toBe(1);
+    expect(token.ocr_source_geometry!.bbox).toEqual({ x0: 290, y0: 250, x1: 315, y1: 262 });
+  });
+
+  it('holds the whole priced line when ambiguous monetary ownership would donate its description to a neighbour', () => {
+    const f = fixture({ candidate: source('other priced service', 70, 320, 100) });
+    const { layout: page, input } = f.rasterAndLayout(f.page, [source('Hour', 320, 320), source('$31.00', 390, 320, 75)]);
+    const after = buildPagePricedScheduleReconstruction({ layout: { page_count: 1, pages: [page], gaps: [] },
+      rulingLineInputs: [input], rulingLineSourceSha256: SOURCE });
+    expect(after.pages[0].rows.flatMap(row => row.cells.flatMap(cell => cell.source_refs))
+      .some(ref => ref.text === 'other priced service')).toBe(false);
+    const bundles = after.pages[0].rejected_spines.filter(line => line.reason === 'insufficient_row_structure');
+    const held = bundles.flatMap(line => line.source_refs);
+    expect(held.some(ref => ref.text === 'other priced service')).toBe(true);
+    expect(held.some(ref => ref.text === '$31.00')).toBe(true);
+    expect(held.find(ref => ref.text === '$31.00')?.observation_id).toBe('synthetic:$31.00:390:320');
+    expect(after.pages[0].rows.find(row => row.cells.some(cell => cell.raw_text === '$23.00'))
+      ?.cells.find(cell => cell.role === 'description')?.raw_text).toBe('neighbor service');
+  });
+
+  it('requires a complete unique grid and preserves fallback when none is proven', () => {
+    for (const raster of ['none', 'decoration'] as const) {
+      const f = fixture({ raster });
+      expect(initialRulingColumnOwnership(f.layout, f.page.columns, f.input)).toBeNull();
+    }
+    const f = fixture();
+    const conflicting = [f.page.columns[0], { ...f.page.columns[1], header_source_refs: f.page.columns[0].header_source_refs }, f.page.columns[2]];
+    expect(initialRulingColumnOwnership(f.layout, conflicting, f.input)).toBeNull();
+    const foreign = f.page.columns.map(column => ({ ...column,
+      header_source_refs: column.header_source_refs!.map(ref => ({ ...ref, x_max: ref.x_max + 1 })) }));
+    expect(initialRulingColumnOwnership(f.layout, foreign, f.input)).toBeNull();
+  });
+
+  it('requires full physical-page token binding and rejects stale pixels, boxes, and native geometry', () => {
+    const f = fixture();
+    expect(initialRulingColumnOwnership({ ...f.layout, lines: f.layout.lines.slice(1) }, f.page.columns, f.input)).toBeNull();
+    const ink = f.input.ink.slice(); ink[0] ^= 1;
+    expect(initialRulingColumnOwnership(f.layout, f.page.columns, { ...f.input, ink })).toBeNull();
+    const native = { ...f.layout, lines: f.layout.lines.map(line => ({ ...line, tokens: line.tokens.map(token => ({ ...token, source: undefined })) })) };
+    expect(initialRulingColumnOwnership(native, f.page.columns, f.input)).toBeNull();
+    const wrongFrame = { ...f.layout, lines: f.layout.lines.map(line => ({ ...line,
+      tokens: line.tokens.map(token => ({ ...token, ocr_source_geometry: { ...token.ocr_source_geometry!, pixel_width: SIZE + 1 } })) })) };
+    expect(initialRulingColumnOwnership(wrongFrame, f.page.columns, f.input)).toBeNull();
+  });
   it('augments an existing description with source-backed unattached text, without changing prices or row count', () => {
     const f = fixture();
     const raw = JSON.stringify(f.layout);

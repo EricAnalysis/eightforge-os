@@ -81,13 +81,15 @@ function reconstruction(params?: {
   duplicateDescriptionRef?: boolean;
   diagnosticRef?: PricedScheduleCellSourceRef;
   splitRate?: boolean;
+  rateText?: string;
 }): { reconstruction: PagePricedScheduleReconstruction; tokens: PdfToken[] } {
   const includeIds = params?.includeIds !== false;
   const descriptionA = token('item:1', 'Unclassified', 10);
   const descriptionB = token('item:2', 'service', 25);
   const unit = token('item:3', 'CY', 50);
   const route = token('item:4', 'Site to DMS', 70);
-  const rate = token('item:5', params?.splitRate ? '$' : '$12.00', 100);
+  const rateText = params?.rateText ?? '$12.00';
+  const rate = token('item:5', params?.splitRate ? '$' : rateText, 100);
   const rateAmount = params?.splitRate ? token('item:6', '1.00', 112) : null;
   const descriptionRefs = [ref(descriptionA, includeIds), ref(descriptionB, includeIds)];
   if (params?.duplicateDescriptionRef) descriptionRefs.push(ref(descriptionA, includeIds));
@@ -96,7 +98,7 @@ function reconstruction(params?: {
     cell('description', 'Unclassified service', descriptionRefs),
     cell('unit', 'CY', [ref(unit, includeIds)]),
     cell('origin_destination', 'Site to DMS', [ref(route, includeIds)]),
-    cell('rate', params?.splitRate ? '$ 1.00' : '$12.00', [
+    cell('rate', params?.splitRate ? '$ 1.00' : rateText, [
       ref(rate, includeIds),
       ...(rateAmount ? [ref(rateAmount, includeIds)] : []),
     ]),
@@ -176,6 +178,27 @@ function rows(source: ReturnType<typeof built>, layer: unknown = source.layer) {
 }
 
 describe('page-priced schedule exact source-anchor binding', () => {
+  it.each(['$95,00', '$56.0', '5 100.00', '5 90.00', '$12.00 $14.00'])(
+    'retains the row identity and exact bound evidence when refusing %s', (rateText) => {
+      const source = built({ rateText });
+      const before = JSON.stringify(source);
+      const row = rows(source)[0]!;
+      expect(row).toMatchObject({
+        row_id: 'page_priced_schedule:p2:r0', rate: null, rate_amount: null,
+        confidence: 'needs_review', rate_raw: rateText,
+      });
+      expect(row.source_anchor_ids).toEqual(source.layer.observations.slice(0, 5).map((entry) => entry.id).sort());
+      const rateCell = source.reconstruction.pages[0]!.rows[0]!.cells[3]!;
+      expect(row.pricing_cell_evidence?.find((entry) => entry.source_cell_role === 'rate')).toEqual({
+        source_cell_role: 'rate', authored_raw_text: rateText,
+        source_observation_ids: rateCell.source_refs.map((entry) => entry.observation_id),
+      });
+      expect(row.raw_cells).toContain(rateText);
+      expect(row.geometry_refs?.length).toBeGreaterThan(0);
+      expect(JSON.stringify(source)).toBe(before);
+    },
+  );
+
   it('maps one recognized ref to one real EvidenceObject anchor', () => {
     const source = built();
     const oneRef = {

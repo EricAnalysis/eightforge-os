@@ -14,6 +14,7 @@ export const DIAGNOSTIC_CODES = [
   'expected_pricing_page_no_usable_evidence',
   'page_skipped_due_evidence_limit',
   'pricing_page_reconstruction_failed',
+  'priced_header_semantics_unresolved',
   'ruling_line_pricing_authority_withheld',
   'ambiguous_row_assignment',
   'unpriced_row',
@@ -75,6 +76,21 @@ export const DIAGNOSTIC_NEXT_ACTIONS = [
 export const DiagnosticNextActionSchema = z.enum(DIAGNOSTIC_NEXT_ACTIONS);
 export type DiagnosticNextAction = z.infer<typeof DiagnosticNextActionSchema>;
 
+/**
+ * Whether the evidence still needs operator (and Forgewing) attention, which is
+ * separate from `recoverability`. Recoverability says whether an existing typed
+ * recovery mechanism can resolve it; attention says whether it must stay in
+ * front of a person at all. A priced line no recovery type covers is
+ * `not_recoverable` and still needs attention: it is never allowed to drop out
+ * of every queue merely because no mechanism exists for it yet.
+ * - resolution_case: the evidence opens a ResolutionCase.
+ * - diagnostics_panel: recorded on the document's diagnostics panel only
+ *   (recovery machinery, runtime, or evidence another case already covers).
+ */
+export const DIAGNOSTIC_ATTENTIONS = ['resolution_case', 'diagnostics_panel'] as const;
+export const DiagnosticAttentionSchema = z.enum(DIAGNOSTIC_ATTENTIONS);
+export type DiagnosticAttention = z.infer<typeof DiagnosticAttentionSchema>;
+
 export const DiagnosticRecoveryTypeSchema = z.union([
   RecoveryTypeV2Schema,
   z.literal('pricing_rate_single_observation'),
@@ -109,6 +125,7 @@ export const FailureDiagnosticSchema = z.object({
   stage: DiagnosticStageSchema,
   severity: DiagnosticSeveritySchema,
   recoverability: DiagnosticRecoverabilitySchema,
+  attention: DiagnosticAttentionSchema,
   recoveryType: DiagnosticRecoveryTypeSchema.nullable(),
   scope: DiagnosticScopeSchema,
   summary: z.string().min(1).max(1_200),

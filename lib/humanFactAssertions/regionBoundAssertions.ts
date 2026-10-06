@@ -33,6 +33,23 @@ export const RECORD_REGION_BOUND_ASSERTION_RPC = 'record_region_bound_human_fact
 /** A reviewed priced row the schedule should contain but extraction did not produce. */
 export const CONTRACT_RATE_ROW_FACT_KEY = 'contract_rate_row' as const;
 
+/**
+ * An operator's decision that priced evidence extraction recorded is not a
+ * rate or value at all (a subtotal, a heading, a note). It closes the case for
+ * that evidence and nothing else: it is never a fact, never a price and never
+ * read by the Validator. Same ledger, same chain rule, same source binding as
+ * every reviewed value, under its own fact key.
+ */
+export const PRICED_EVIDENCE_DISPOSITION_FACT_KEY = 'priced_evidence_disposition' as const;
+export type PricedEvidenceDisposition = Readonly<{ disposition: 'not_a_rate_or_value' }>;
+
+export function parsePricedEvidenceDisposition(value: unknown): PricedEvidenceDisposition | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  return Object.keys(record).length === 1 && record.disposition === 'not_a_rate_or_value'
+    ? { disposition: 'not_a_rate_or_value' } : null;
+}
+
 export type RegionBoundReviewOrigin =
   | 'operator_entered'
   | 'ai_proposed_operator_approved'
@@ -501,7 +518,9 @@ export function reviewedContractPricingRows(params: {
 export function reviewedDocumentFieldAssertions(
   effective: readonly EffectiveRegionAssertion[],
 ): EffectiveRegionAssertion[] {
-  return effective.filter((entry) => entry.factKey !== CONTRACT_RATE_ROW_FACT_KEY);
+  // A disposition closes a case; it is never a document field.
+  return effective.filter((entry) => entry.factKey !== CONTRACT_RATE_ROW_FACT_KEY
+    && entry.factKey !== PRICED_EVIDENCE_DISPOSITION_FACT_KEY);
 }
 
 export type VerifiedRegionEvidence =
@@ -583,46 +602,86 @@ export function regionAssertionEntryTargets(
   extractionData: unknown,
   sourceDocumentId: string | null = null,
 ): RegionAssertionEntryTarget[] {
-  const current = currentDocumentEvidenceFromExtractionData(extractionData);
   const pdf = asRecord(asRecord(asRecord(asRecord(extractionData)?.extraction)?.content_layers_v1)?.pdf);
   const unresolved = asRecord(pdf?.priced_schedule_reconstruction_v1)?.unresolved_pages;
   if (!Array.isArray(unresolved)) return [];
-  const targets: RegionAssertionEntryTarget[] = [];
-  for (const entry of unresolved) {
+  return pricedLineTargets(extractionData, sourceDocumentId, unresolved.flatMap((entry) => {
     const page = asRecord(entry);
-    const pageNumber = page?.physical_page_number;
-    if (typeof pageNumber !== 'number' || !Array.isArray(page?.priced_lines)) continue;
+    return page && Array.isArray(page.priced_lines)
+      ? page.priced_lines.filter((line) => typeof asRecord(line)?.y === 'number')
+        .map((line) => ({ page: page.physical_page_number, reason: page.reason, line }))
+      : [];
+  }));
+}
+
+/**
+ * Targets for priced evidence extraction found and refused to publish on a
+ * page it did read: rejected or withheld priced lines, and source rows that
+ * carry no readable price. Same identity scheme as unread priced lines (the
+ * page plus a digest of the exact observations), so a review binds the same
+ * way and the same evidence keeps the same anchor across reprocessing.
+ * Deliberately separate from `regionAssertionEntryTargets`, which stays the
+ * unread-page selector.
+ */
+export function withheldPricedLineTargets(
+  extractionData: unknown,
+  sourceDocumentId: string | null = null,
+): RegionAssertionEntryTarget[] {
+  const pdf = asRecord(asRecord(asRecord(asRecord(extractionData)?.extraction)?.content_layers_v1)?.pdf);
+  const reconstruction = asRecord(pdf?.priced_schedule_reconstruction_v1);
+  if (!isSupportedPricedScheduleVersion(reconstruction?.parser_version) || !Array.isArray(reconstruction?.pages)) return [];
+  const seen = new Set<string>();
+  return pricedLineTargets(extractionData, sourceDocumentId, reconstruction.pages.flatMap((entry) => {
+    const page = asRecord(entry);
+    if (!page) return [];
+    const lines = [
+      ...(Array.isArray(page.rejected_spines) ? page.rejected_spines : []),
+      ...(Array.isArray(page.unassigned_lines) ? page.unassigned_lines
+        .filter((line) => asRecord(line)?.reason === 'unpriced_row') : []),
+    ];
+    return lines.map((line) => ({ page: page.physical_page_number, reason: asRecord(line)?.reason, line }));
+  })).filter((target) => (seen.has(target.anchorKey) ? false : (seen.add(target.anchorKey), true)));
+}
+
+function pricedLineTargets(
+  extractionData: unknown,
+  sourceDocumentId: string | null,
+  lines: readonly Readonly<{ page: unknown; reason: unknown; line: unknown }>[],
+): RegionAssertionEntryTarget[] {
+  const current = currentDocumentEvidenceFromExtractionData(extractionData);
+  const targets: RegionAssertionEntryTarget[] = [];
+  for (const entry of lines) {
+    const pageNumber = entry.page;
+    if (typeof pageNumber !== 'number') continue;
     const digest = current.pageRepresentationDigestByPage.get(pageNumber);
     if (!digest) continue;
-    for (const lineEntry of page.priced_lines) {
-      const line = asRecord(lineEntry);
-      const refs = Array.isArray(line?.source_refs) ? line.source_refs.map(asRecord) : [];
-      const ids = refs.flatMap((ref) => typeof ref?.observation_id === 'string' ? [ref.observation_id] : []);
-      const boxes = refs.flatMap((ref) => ref && [ref.x_min, ref.x_max, ref.y_min, ref.y_max].every((n) => typeof n === 'number')
-        ? [{ x_min: ref.x_min as number, x_max: ref.x_max as number, y_min: ref.y_min as number, y_max: ref.y_max as number }]
-        : []);
-      // Only lines whose every token carries an observation identity can be bound exactly.
-      if (ids.length === 0 || ids.length !== refs.length || typeof line?.raw_text !== 'string' || typeof line?.y !== 'number') continue;
-      const anchorKey = `p${pageNumber}:priced_line:${hashCanonical(ids).slice(0, 32)}`;
-      targets.push({
-        anchorKey,
+    const line = asRecord(entry.line);
+    const refs = Array.isArray(line?.source_refs) ? line.source_refs.map(asRecord) : [];
+    const ids = refs.flatMap((ref) => typeof ref?.observation_id === 'string' ? [ref.observation_id] : []);
+    const boxes = refs.flatMap((ref) => ref && [ref.x_min, ref.x_max, ref.y_min, ref.y_max].every((n) => typeof n === 'number')
+      ? [{ x_min: ref.x_min as number, x_max: ref.x_max as number, y_min: ref.y_min as number, y_max: ref.y_max as number }]
+      : []);
+    // Only lines whose every token carries an observation identity can be bound exactly.
+    if (ids.length === 0 || ids.length !== refs.length || typeof line?.raw_text !== 'string') continue;
+    const anchorKey = `p${pageNumber}:priced_line:${hashCanonical(ids).slice(0, 32)}`;
+    targets.push({
+      anchorKey,
+      physicalPageNumber: pageNumber,
+      pageRepresentationDigest: digest,
+      unresolvedReason: typeof entry.reason === 'string' ? entry.reason : 'unresolved',
+      rawText: line.raw_text,
+      sourceObservationIds: ids,
+      sourceRegion: { coordinate_space: 'source', boxes },
+      visual: sourceDocumentId ? pageVisualEvidence({
+        evidenceId: anchorKey,
+        summary: `Page ${pageNumber} · extraction read: ${line.raw_text}`,
+        extractionData,
+        sourceDocumentId,
         physicalPageNumber: pageNumber,
         pageRepresentationDigest: digest,
-        unresolvedReason: typeof page.reason === 'string' ? page.reason : 'unresolved',
-        rawText: line.raw_text,
-        sourceObservationIds: ids,
-        sourceRegion: { coordinate_space: 'source', boxes },
-        visual: sourceDocumentId ? pageVisualEvidence({
-          evidenceId: anchorKey,
-          summary: `Page ${pageNumber} · extraction read: ${line.raw_text}`,
-          extractionData,
-          sourceDocumentId,
-          physicalPageNumber: pageNumber,
-          pageRepresentationDigest: digest,
-          refs: parseDiagnosticSourceRefs(line.source_refs),
-        }) : null,
-      });
-    }
+        refs: parseDiagnosticSourceRefs(line.source_refs),
+      }) : null,
+    });
   }
   return targets;
 }

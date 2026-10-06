@@ -112,6 +112,8 @@ export function DiagnosticsPanel({ documentId }: { documentId: string }) {
           <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[var(--ef-text-muted)]">
             <dt>Severity</dt><dd>{diagnostic.severity}</dd>
             <dt>Recoverability</dt><dd>{diagnostic.recoverability.replaceAll('_', ' ')}</dd>
+            <dt>Attention</dt><dd>{diagnostic.attention === 'resolution_case'
+              ? 'Listed in the project resolution queue' : 'Recorded here only'}</dd>
             <dt>Next</dt><dd>{diagnostic.recommendedNextAction.replaceAll('_', ' ')}</dd>
             {diagnostic.recoveryPolicy ? <>
               <dt>Recovery policy</dt><dd>{policyLabel(diagnostic)}</dd>

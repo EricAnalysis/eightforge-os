@@ -28,6 +28,9 @@ const CANONICAL_TAXONOMY_KEY_BY_ALLOWED_CATEGORY: Record<string, string> = {
   'Specialty Removal': 'specialty_removal',
 };
 
+/** The allowed pricing categories, in taxonomy order. The only categories a reviewed row may confirm. */
+export const ALLOWED_RATE_CATEGORIES: readonly string[] = Object.freeze(Object.keys(CANONICAL_TAXONOMY_KEY_BY_ALLOWED_CATEGORY));
+
 export function canonicalTaxonomyKeyForAllowedCategory(category: string | null | undefined): string | null {
   const normalizedCategory = category?.trim();
   return normalizedCategory ? CANONICAL_TAXONOMY_KEY_BY_ALLOWED_CATEGORY[normalizedCategory] ?? null : null;

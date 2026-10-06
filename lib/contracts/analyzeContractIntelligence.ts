@@ -1,4 +1,5 @@
 import { CLAUSE_PATTERN_LIBRARY_V1_BY_ID } from '@/lib/contracts/clausePatternLibrary.v1';
+import { resolveRateScheduleRowCategory } from '@/lib/contracts/rateScheduleRowCategory';
 import { isSupportedPricedScheduleVersion, LEGACY_PRICED_SCHEDULE_RECONSTRUCTION_VERSION } from '@/lib/extraction/pdf/pricedScheduleVersion';
 import {
   RATE_BASED_CEILING_EVIDENCE_REGEXES,
@@ -58,11 +59,7 @@ import {
 } from '@/lib/extraction/provenance/provenanceCaptureState';
 import { buildContractIssues } from '@/lib/server/buildContractIssues';
 import { evaluateContractCoverage } from '@/lib/server/evaluateContractCoverage';
-import {
-  allowedCategoryForCanonicalTaxonomyKey,
-  canonicalTaxonomyKeyForAllowedCategory,
-  resolveCanonicalRateCategory,
-} from '@/lib/validator/rateTaxonomy';
+import { canonicalTaxonomyKeyForAllowedCategory } from '@/lib/validator/rateTaxonomy';
 
 export type ContractIntelligencePricingAssemblyContext = {
   readonly sourceScope: ContractPricingAssemblySourceScope;
@@ -1084,27 +1081,6 @@ function buildFieldFamilies(
   return {
     families,
     scopeCategoryEvidenceAnchors: findScopeCategoryEvidence(document),
-  };
-}
-
-function resolveRateScheduleRowCategory(row: ContractRateScheduleRow): {
-  resolution: ReturnType<typeof resolveCanonicalRateCategory>;
-  allowedCategory: string | null;
-} {
-  const resolution = resolveCanonicalRateCategory({
-    sourceCategory: row.category ?? row.source_category ?? row.material_type,
-    sourceDescriptors: [
-      row.description,
-      row.rate_raw,
-      row.raw_text,
-      ...(row.raw_cells ?? []),
-    ],
-    existingCanonicalCategory: row.canonical_category,
-    existingConfidence: row.category_confidence,
-  });
-  return {
-    resolution,
-    allowedCategory: allowedCategoryForCanonicalTaxonomyKey(resolution.canonical_category),
   };
 }
 

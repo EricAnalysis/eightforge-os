@@ -82,3 +82,18 @@ export function parseContractRateAuthority(value: unknown): ContractRateAuthorit
 export function rateWithheldByAuthority(authority: ContractRateAuthority | null | undefined): boolean {
   return authority?.status === 'review_required';
 }
+
+/**
+ * An authored amount read whole, or not at all: exactly one numeric token,
+ * optionally currency-marked, with real thousands groups and two to four
+ * decimals. "$95,00", "$56.0", "$2:" and two amounts in one cell are not
+ * numbers. The one rule every reader of a priced amount uses.
+ */
+const AUTHORED_AMOUNT = /^-?[$£€¥]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{2,4})?$/u;
+
+export function readAuthoredAmount(rawText: string): number | null {
+  const numeric = rawText.split(/\s+/u).filter((token) => /\d/u.test(token));
+  if (numeric.length !== 1 || !AUTHORED_AMOUNT.test(numeric[0]!)) return null;
+  const parsed = Number.parseFloat(numeric[0]!.replace(/[^\d.-]/gu, ''));
+  return Number.isFinite(parsed) ? parsed : null;
+}

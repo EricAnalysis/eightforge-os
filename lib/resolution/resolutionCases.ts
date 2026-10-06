@@ -888,8 +888,10 @@ function evidenceAttentionCases(params: {
         projectId: params.projectId,
         documentId,
         physicalPageNumber: target.physicalPageNumber,
-        title: `Scanned rate to confirm · ${label} p.${target.physicalPageNumber}`,
-        problem: `This rate was read from a scan as "${target.candidateRateRaw}". A scanned amount can be well formed and still wrong, so it is not used until a person confirms or corrects it.`,
+        title: `${target.basis === 'scanned_source' ? 'Scanned rate to confirm' : 'Unreadable rate to enter'} · ${label} p.${target.physicalPageNumber}`,
+        problem: target.basis === 'scanned_source'
+          ? `This rate was read from a scan as "${target.candidateRateRaw}". A scanned amount can be well formed and still wrong, so it is not used until a person confirms or corrects it.`
+          : `The rate cell reads "${target.candidateRateRaw}", which is not a whole amount. It is not used until a person enters the amount the page shows.`,
         finding: null,
         previousReviews: [],
         deterministicState: 'The row was reconstructed, but its rate is withheld from pricing and from the Validator.',

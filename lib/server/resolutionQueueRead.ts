@@ -3,18 +3,23 @@ import type { ProjectExecutionItemRow } from '@/lib/executionItems';
 import {
   currentDocumentEvidenceFromExtractionData,
   documentReviewedValueState,
+  withheldPricedLineTargets,
+  reviewRequiredValueTargets,
 } from '@/lib/humanFactAssertions/regionBoundAssertions';
 import { documentPageFrames, type DocumentPageFrames } from '@/lib/recovery/diagnosticVisualEvidence';
 import { recoveryCandidateVisualEvidence } from '@/lib/recovery/recoveryVisualEvidence';
 import type { ProjectDecisionRow } from '@/lib/projectOverview';
 import {
   buildResolutionQueue,
+  type AttentionDiagnostic,
+  type DocumentEvidenceAttention,
   type DocumentReviewedValueState,
   type PendingRecoveryProposal,
   type RecoveryConfirmationOption,
   type ResolutionQueue,
 } from '@/lib/resolution/resolutionCases';
 import { resolveProjectIssueObjects } from '@/lib/resolveProjectIssueObjects';
+import { extractionDocumentDiagnostics, type DocumentDiagnostic } from '@/lib/server/documentDiagnosticsRead';
 import { resolveForgewingEntitlement, type OrganizationForgewingEntitlementResolver } from '@/lib/server/forgewingEntitlement';
 import { readRecoveryReviewQueue, type RecoveryReviewCandidate } from '@/lib/server/forgewingRecoveryReviewRead';
 import { loadRegionBoundAssertionRows, type RegionAssertionClient } from '@/lib/server/regionBoundHumanAssertions';
@@ -73,6 +78,22 @@ function selectableConfirmations(candidate: RecoveryReviewCandidate): RecoveryCo
       }));
 }
 
+function attentionDiagnostic(diagnostic: DocumentDiagnostic): AttentionDiagnostic {
+  return {
+    diagnosticId: diagnostic.diagnosticId,
+    code: diagnostic.code,
+    attention: diagnostic.attention,
+    recoverability: diagnostic.recoverability,
+    recoveryType: diagnostic.recoveryType,
+    severity: diagnostic.severity,
+    summary: diagnostic.summary,
+    physicalPageNumber: diagnostic.scope.physicalPageNumber,
+    observationIds: diagnostic.evidenceRefs.flatMap((ref) => (ref.kind === 'observation' ? [ref.observationId] : [])),
+    visual: diagnostic.visualEvidence,
+    recoveryProposalId: diagnostic.recoveryProposalId,
+  };
+}
+
 export async function readResolutionQueue(
   query: Readonly<{ organizationId: string; projectId: string }>,
   dependencies: Readonly<{
@@ -119,7 +140,7 @@ export async function readResolutionQueue(
       : admin.from('decisions').select(DECISION_SELECT)
         .eq('organization_id', query.organizationId).in('document_id', documentIds),
     documentIds.length === 0 ? { data: [], error: null }
-      : admin.from('document_extractions').select('document_id, created_at, data')
+      : admin.from('document_extractions').select('id, document_id, created_at, data')
         .in('document_id', documentIds).is('field_key', null).order('created_at', { ascending: false }),
     loadRegionBoundAssertionRows(admin, documentIds),
   ]);
@@ -139,8 +160,10 @@ export async function readResolutionQueue(
   });
 
   // The same preferred-extraction choice the Validator and the document route make.
-  const extractionsByDocument = new Map<string, { document_id: string; created_at: string | null; data: Record<string, unknown> | null }[]>();
-  for (const row of rows<{ document_id: string; created_at: string | null; data: Record<string, unknown> | null }>(extractionsRead.data)) {
+  type ExtractionRow = { id?: string; document_id: string; created_at: string | null; data: Record<string, unknown> | null };
+  const extractionsByDocument = new Map<string, ExtractionRow[]>();
+  const preferredExtractionByDocument = new Map<string, ExtractionRow | null>();
+  for (const row of rows<ExtractionRow>(extractionsRead.data)) {
     extractionsByDocument.set(row.document_id, [...(extractionsByDocument.get(row.document_id) ?? []), row]);
   }
   const reviewedValuesByDocument = new Map<string, DocumentReviewedValueState>();
@@ -148,6 +171,7 @@ export async function readResolutionQueue(
   const documentPages = new Map<string, DocumentPageFrames>();
   for (const documentId of documentIds) {
     const preferred = pickPreferredExtractionBlob(extractionsByDocument.get(documentId) ?? []);
+    preferredExtractionByDocument.set(documentId, preferred ?? null);
     extractionDataByDocument.set(documentId, preferred?.data ?? null);
     const frames = documentPageFrames({
       extractionData: preferred?.data ?? null,
@@ -165,6 +189,7 @@ export async function readResolutionQueue(
   }
 
   const recoveryProposals: PendingRecoveryProposal[] = [];
+  const recoveryCandidatesByDocument = new Map<string, RecoveryReviewCandidate[]>();
   if (forgewingEnabled) {
     const readQueue = dependencies.readRecoveryQueue ?? readRecoveryReviewQueue;
     for (const documentId of documentIds) {
@@ -172,6 +197,7 @@ export async function readResolutionQueue(
         { admin: admin as never });
       if (result.status === 'read_failed') return { status: 'read_failed', reason: 'recovery_queue_read_failed' };
       if (result.status !== 'ok') continue;
+      recoveryCandidatesByDocument.set(documentId, [...result.candidates]);
       for (const candidate of result.candidates) {
         recoveryProposals.push({
           proposalId: candidate.proposalId,
@@ -192,6 +218,28 @@ export async function readResolutionQueue(
     }
   }
 
+  // Evidence EightForge knows it could not read, refused to publish or could not
+  // interpret: the same diagnostics the document panel shows, from the same
+  // preferred extraction the rest of the queue reads. EightForge Core.
+  const evidenceAttentionByDocument = new Map<string, DocumentEvidenceAttention>();
+  for (const documentId of documentIds) {
+    const preferred = preferredExtractionByDocument.get(documentId);
+    if (!preferred?.data) continue;
+    const diagnostics = extractionDocumentDiagnostics({
+      organizationId: query.organizationId,
+      sourceDocumentId: documentId,
+      extraction: preferred.data,
+      extractionSnapshotId: String(preferred.id ?? `${documentId}:${preferred.created_at ?? ''}`),
+      occurredAt: new Date(preferred.created_at ? Date.parse(preferred.created_at) || 0 : 0).toISOString(),
+      proposals: recoveryCandidatesByDocument.get(documentId) ?? [],
+    });
+    evidenceAttentionByDocument.set(documentId, {
+      diagnostics: diagnostics.map(attentionDiagnostic),
+      withheldTargets: withheldPricedLineTargets(preferred.data, documentId),
+      reviewRequiredTargets: reviewRequiredValueTargets(preferred.data, documentId),
+    });
+  }
+
   const queue = buildResolutionQueue({
       projectId: query.projectId,
       documents,
@@ -201,6 +249,7 @@ export async function readResolutionQueue(
       recoveryProposals,
       forgewingEnabled,
       documentPages,
+      evidenceAttentionByDocument,
     });
   if (!forgewingEnabled) return { status: 'ok', queue };
   try {

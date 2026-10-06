@@ -14,6 +14,8 @@ function table(params: {
   headers?: string[];
   headerContext?: string[];
   rows: string[][];
+  /** Text-parsing fixtures are native by default; scanned cells are opted into. */
+  source?: 'pdfjs' | 'ocr_fallback';
 }): PdfTable {
   const page = params.page ?? 8;
   const id = params.id ?? `pdf:table:p${page}:t1`;
@@ -32,7 +34,7 @@ function table(params: {
         text,
         x_min: 100 + columnIndex * 180,
         x_max: 240 + columnIndex * 180,
-        source: 'ocr_fallback' as const,
+        source: params.source ?? 'pdfjs',
       })),
       raw_text: cells.join(' | '),
       nearby_text: cells.join(' | '),
@@ -76,6 +78,7 @@ describe('extractExhibitARateTableRows', () => {
       table({
         id: 'pdf:table:p8:t1',
         page: 8,
+        source: 'ocr_fallback',
         rows: [
           ['Vegetative Collect, Remove & Haul', 'ROW to DMS 0-15 Miles', 'Cubic Yard', '$27.00'],
         ],
@@ -1037,10 +1040,14 @@ describe('extractExhibitARateTableRows', () => {
     assert.ok(rows.every((row) => row.page === 2));
     assert.ok(rows.every((row) => !row.row_id.startsWith('rate_row:fallback:')));
     assert.deepEqual(
+      // The price sheet is scanned: every amount is a candidate a person
+      // confirms, read exactly, and none is a published rate yet.
       rows.map((row) => ({
         description: row.description,
         unit: row.unit,
-        rate: row.rate,
+        rate: row.rate_authority?.status === 'review_required' && row.rate == null
+          ? row.rate_authority.candidate_rate
+          : 'published',
         source_kind: row.source_kind,
       })),
       [
@@ -1300,8 +1307,11 @@ describe('extractExhibitARateTableRows', () => {
     };
 
     const rows = extractExhibitARateTableRows([mergedTable]);
-    const survivor = rows.find((row) => row.rate === 316);
+    // Scanned, so 316 is the reviewer's candidate, not a published rate.
+    const survivor = rows.find((row) => row.rate_authority?.status === 'review_required'
+      && row.rate_authority.candidate_rate === 316);
     assert.ok(survivor, 'the rate-bearing line survives as its own row');
+    assert.equal(survivor?.rate, null);
     assert.equal(
       survivor?.confidence,
       'needs_review',
@@ -1309,7 +1319,8 @@ describe('extractExhibitARateTableRows', () => {
     );
     assert.match(survivor?.recovery_reason ?? '', /sibling line/i);
     assert.equal(
-      rows.some((row) => (row.description ?? '').includes('Hazardous Limbs Hanging') && row.rate != null),
+      rows.some((row) => (row.description ?? '').includes('Hazardous Limbs Hanging')
+        && (row.rate != null || (row.rate_authority?.status === 'review_required' && row.rate_authority.candidate_rate != null))),
       false,
       'no row is ever created with a fabricated rate for the dropped sibling line',
     );
@@ -1341,7 +1352,9 @@ describe('extractExhibitARateTableRows', () => {
 
     const [row] = extractExhibitARateTableRows([lowConfidenceTable]);
     assert.ok(row, 'the row is surfaced, not dropped');
-    assert.equal(row?.rate, 20, 'the rate value is never fabricated or auto-corrected by the confidence signal');
+    assert.equal(row?.rate, null, 'a scanned rate is never published, at any OCR confidence');
+    assert.deepEqual(row?.rate_authority, { status: 'review_required', basis: 'scanned_source',
+      candidate_rate: 20, candidate_rate_raw: '$20.00' }, 'the candidate is never fabricated or auto-corrected by the confidence signal');
     assert.equal(row?.rate_ocr_confidence, 0.42);
     assert.equal(
       row?.confidence,
@@ -1350,7 +1363,7 @@ describe('extractExhibitARateTableRows', () => {
     );
   });
 
-  it('leaves a high-confidence rate cell unaffected by the new OCR confidence gate (Mechanism 2)', () => {
+  it('holds a high-confidence scanned rate for review too: OCR confidence is not authority', () => {
     const highConfidenceTable: PdfTable = {
       id: 'pdf:table:p9:t101',
       page_number: 9,
@@ -1376,9 +1389,10 @@ describe('extractExhibitARateTableRows', () => {
 
     const [row] = extractExhibitARateTableRows([highConfidenceTable]);
     assert.ok(row);
-    assert.equal(row?.rate, 200);
+    assert.equal(row?.rate, null);
+    assert.equal(row?.rate_authority?.status === 'review_required' && row.rate_authority.candidate_rate, 200);
     assert.equal(row?.rate_ocr_confidence, 0.97);
-    assert.notEqual(row?.confidence, 'needs_review');
+    assert.equal(row?.confidence, 'needs_review');
   });
 
   it('keeps an ambiguous multi-rate cell as needs_review with no guessed rate (Mechanism 1: incomplete/under-merged row, pre-existing invariant)', () => {

@@ -270,6 +270,26 @@ function reconstructionDiagnostics(params: Readonly<{
     const page = Number(rawPage.physical_page_number);
     const digest = pageDigest.get(page) ?? null;
     if (!Number.isInteger(page) || page < 1 || !digest) continue;
+    // A table read from geometry whose header roles are not recognized prices
+    // nothing. It is recorded, bound to its header evidence, rather than left
+    // to surface only when a header-selection proposal happens to exist.
+    if (rawPage.semantic_status === 'unresolved') {
+      const headerRefs = parseDiagnosticSourceRefs(record(rawPage.header_interpretation)?.source_refs);
+      const refs = evidenceRefs(headerRefs);
+      const ocrGeometry = exactOcrPageGeometry(observationsLayer, page, digest);
+      const diagnostic = buildDiagnostic({ code: 'priced_header_semantics_unresolved',
+        organizationId: params.organizationId, sourceDocumentId: params.sourceDocumentId,
+        sourceArtifactId, physicalPageNumber: page, pageRepresentationDigest: digest,
+        summary: typeof rawPage.header_raw_text === 'string' && rawPage.header_raw_text.trim()
+          ? `Header read as: ${rawPage.header_raw_text}` : undefined,
+        evidenceRefs: refs,
+        visualBoxes: diagnosticSourceBoxes(headerRefs, page, observationsLayer?.canonical_geometry_v1),
+        ocrPixelWidth: ocrGeometry?.width, ocrPixelHeight: ocrGeometry?.height,
+        extractionSnapshotId: params.extractionSnapshotId, occurredAt: params.occurredAt,
+        proposal: params.proposals.find((proposal) => proposal.physicalPageNumber === page
+          && proposal.recoveryType === 'priced_schedule_header_role_selection') ?? null });
+      if (diagnostic) output.push(diagnostic);
+    }
     for (const raw of [...records(rawPage.rejected_spines), ...records(rawPage.unassigned_lines)]) {
       const parsedCode = DiagnosticCodeSchema.safeParse(raw.reason);
       if (!parsedCode.success) continue;
@@ -403,6 +423,25 @@ function extractionCoverageDiagnostics(params: Readonly<{
     }
   }
   return output;
+}
+
+/**
+ * Diagnostics derived from one extraction alone (reconstruction and page
+ * coverage), with no further read. Shared by the document diagnostics read and
+ * the resolution queue, so both see exactly the same evidence.
+ */
+export function extractionDocumentDiagnostics(params: Readonly<{
+  organizationId: string;
+  sourceDocumentId: string;
+  extraction: Record<string, unknown>;
+  extractionSnapshotId: string;
+  occurredAt: string;
+  proposals?: readonly RecoveryReviewCandidate[];
+}>): DocumentDiagnostic[] {
+  return [
+    ...reconstructionDiagnostics({ ...params, proposals: params.proposals ?? [] }),
+    ...extractionCoverageDiagnostics(params),
+  ];
 }
 
 function extractionSourceArtifactId(extraction: Record<string, unknown>): string | null {

@@ -1,6 +1,7 @@
 import type { RecoveryTypeV2 } from '@/lib/extraction/recovery/recoveryCandidateV2';
 import {
   DIAGNOSTIC_CODES,
+  type DiagnosticAttention,
   type DiagnosticCode,
   type DiagnosticNextAction,
   type DiagnosticRecoverability,
@@ -13,10 +14,67 @@ export type FailureRegistryEntry = Readonly<{
   stage: DiagnosticStage;
   severity: DiagnosticSeverity;
   recoverability: DiagnosticRecoverability;
+  attention: DiagnosticAttention;
   recoveryType: DiagnosticRecoveryType | null;
   recommendedNextAction: DiagnosticNextAction;
   summary: string;
 }>;
+
+/**
+ * Attention per code, independent of recoverability. Evidence that EightForge
+ * knows it could not read, refused to publish, or could not interpret opens a
+ * ResolutionCase whatever its recoverability; recovery machinery and runtime
+ * state stay on the diagnostics panel, because the evidence they concern is
+ * already a case of its own.
+ */
+const ATTENTION: Readonly<Record<DiagnosticCode, DiagnosticAttention>> = Object.freeze({
+  // Coverage: EightForge could not read the page sufficiently.
+  page_ocr_required: 'resolution_case',
+  page_ocr_abstained: 'resolution_case',
+  page_ocr_failed: 'resolution_case',
+  page_image_decode_failed: 'resolution_case',
+  page_extraction_coverage_incomplete: 'resolution_case',
+  expected_pricing_page_no_usable_evidence: 'resolution_case',
+  page_skipped_due_evidence_limit: 'resolution_case',
+  // Structure and pricing authority EightForge could not settle.
+  pricing_page_reconstruction_failed: 'resolution_case',
+  priced_header_semantics_unresolved: 'resolution_case',
+  ruling_line_pricing_authority_withheld: 'resolution_case',
+  // Priced lines found and withheld, whatever recovery type exists for them.
+  ambiguous_rate_clusters: 'resolution_case',
+  insufficient_row_structure: 'resolution_case',
+  outside_table_body: 'resolution_case',
+  ambiguous_row_continuation: 'resolution_case',
+  inconsistent_row_pitch: 'resolution_case',
+  insufficient_priced_rows: 'resolution_case',
+  ambiguous_recovery_confirmation: 'resolution_case',
+  recovery_closure_failed: 'resolution_case',
+  unpriced_row: 'resolution_case',
+  // Covered by the withheld rows' own cases, or not pricing evidence.
+  ambiguous_row_assignment: 'diagnostics_panel',
+  unsupported_trailing_line: 'diagnostics_panel',
+  // Recovery machinery: the evidence concerned is its own case.
+  confirmed_recovery_unbound: 'diagnostics_panel',
+  confirmed_recovery_evidence_changed: 'diagnostics_panel',
+  confirmed_recovery_evidence_unverifiable: 'diagnostics_panel',
+  duplicate_recovery_confirmation: 'diagnostics_panel',
+  confirmed_recovery_not_applied: 'diagnostics_panel',
+  confirmed_header_option_not_offered: 'diagnostics_panel',
+  ambiguous_recovery_authority: 'diagnostics_panel',
+  incoherent_recovery_confirmation: 'diagnostics_panel',
+  recovery_source_evidence_unbound: 'diagnostics_panel',
+  recovery_provider_failed: 'diagnostics_panel',
+  recovery_structured_output_invalid: 'diagnostics_panel',
+  recovery_evidence_binding_failed: 'diagnostics_panel',
+  recovery_deterministic_validation_failed: 'diagnostics_panel',
+  recovery_proposal_persist_failed: 'diagnostics_panel',
+  recovery_budget_exhausted: 'diagnostics_panel',
+  recovery_disabled: 'diagnostics_panel',
+  // Runtime state.
+  document_processing_failed: 'diagnostics_panel',
+  source_identity_read_failed: 'diagnostics_panel',
+  recovery_read_failed: 'diagnostics_panel',
+});
 
 const entry = (
   stage: DiagnosticStage,
@@ -25,11 +83,11 @@ const entry = (
   recoveryType: RecoveryTypeV2 | 'pricing_rate_single_observation' | null,
   recommendedNextAction: DiagnosticNextAction,
   summary: string,
-): FailureRegistryEntry => Object.freeze({
+): Omit<FailureRegistryEntry, 'attention'> => Object.freeze({
   stage, severity, recoverability, recoveryType, recommendedNextAction, summary,
 });
 
-export const FAILURE_REGISTRY: Readonly<Record<DiagnosticCode, FailureRegistryEntry>> =
+const BASE_REGISTRY: Readonly<Record<DiagnosticCode, Omit<FailureRegistryEntry, 'attention'>>> =
   Object.freeze({
     page_ocr_required: entry('extraction', 'info', 'not_recoverable', null, 'none',
       'This page requires OCR before extraction coverage is complete.'),
@@ -52,6 +110,9 @@ export const FAILURE_REGISTRY: Readonly<Record<DiagnosticCode, FailureRegistryEn
     pricing_page_reconstruction_failed: entry('reconstruction', 'warning',
       'engineering_diagnostic', null, 'engineering_attention',
       'Pricing evidence was extracted, but the page could not be reconstructed deterministically.'),
+    priced_header_semantics_unresolved: entry('reconstruction', 'warning',
+      'recoverable_after_human_review', 'priced_schedule_header_role_selection', 're_review_current_page',
+      'The priced table structure was read, but a required header role is not recognized, so no row is priced.'),
     ruling_line_pricing_authority_withheld: entry('reconstruction', 'blocking',
       'engineering_diagnostic', null, 'engineering_attention',
       'Page pricing was withheld because ruling-line authority metadata cannot be verified. Structural evidence remains available.'),
@@ -131,7 +192,11 @@ export const FAILURE_REGISTRY: Readonly<Record<DiagnosticCode, FailureRegistryEn
       'reprocess_document', 'The source identity could not be read safely.'),
     recovery_read_failed: entry('runtime', 'warning', 'retryable_runtime_failure', null,
       'retry_read', 'Recovery state could not be read safely.'),
-  } satisfies Record<DiagnosticCode, FailureRegistryEntry>);
+  });
+
+export const FAILURE_REGISTRY: Readonly<Record<DiagnosticCode, FailureRegistryEntry>> = Object.freeze(
+  Object.fromEntries(DIAGNOSTIC_CODES.map((code) => [code,
+    Object.freeze({ ...BASE_REGISTRY[code], attention: ATTENTION[code] })])) as Record<DiagnosticCode, FailureRegistryEntry>);
 
 export function getFailureRegistryEntry(code: DiagnosticCode): FailureRegistryEntry {
   return FAILURE_REGISTRY[code];

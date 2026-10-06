@@ -1,5 +1,7 @@
 import {
   CONTRACT_RATE_ROW_FACT_KEY,
+  PRICED_EVIDENCE_DISPOSITION_FACT_KEY,
+  parsePricedEvidenceDisposition,
   parseReviewedRateRowValue,
   verifyRegionEvidence,
   type HumanFactAssertionRow,
@@ -100,6 +102,11 @@ export function parseRegionAssertionRequest(body: unknown):
     // Final authority over machine rows needs a source-bound target.
     if (factKey === CONTRACT_RATE_ROW_FACT_KEY && observationIds.length === 0) {
       return { ok: false, status: 400, error: 'A reviewed rate row must cite the source observations it reviews' };
+    }
+    if (factKey === PRICED_EVIDENCE_DISPOSITION_FACT_KEY
+      && (!parsePricedEvidenceDisposition(value) || observationIds.length === 0)) {
+      return { ok: false, status: 400,
+        error: 'A disposition must be { "disposition": "not_a_rate_or_value" } and cite the source observations it covers' };
     }
   }
   return {

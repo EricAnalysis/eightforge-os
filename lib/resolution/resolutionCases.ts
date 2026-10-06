@@ -1,4 +1,12 @@
+import type {
+  DiagnosticAttention,
+  DiagnosticCode,
+  DiagnosticRecoverability,
+  DiagnosticRecoveryType,
+} from '@/lib/diagnostics/failureDiagnostic';
 import {
+  CONTRACT_RATE_ROW_FACT_KEY,
+  PRICED_EVIDENCE_DISPOSITION_FACT_KEY,
   formatReviewedValue,
   openRegionAssertionEntryTargets,
   type EffectiveRegionAssertion,
@@ -6,6 +14,7 @@ import {
   type HumanFactAssertionRow,
   type RegionAssertionEntryTarget,
   type ReviewedRateRowValue,
+  type ReviewRequiredValueTarget,
 } from '@/lib/humanFactAssertions/regionBoundAssertions';
 import type { ValueReadingOutcomeCode, ValueReadingOutcomeReason } from '@/lib/server/valueReadingProposals';
 import { getIssueDisplayLabel } from '@/lib/issueDisplayFormatter';
@@ -27,7 +36,11 @@ import type { ValidationEvidence } from '@/types/validator';
  *   human-reviewed value;
  * - human-reviewed values held for re-review (B3);
  * - pending recovery proposals (a Forgewing suggestion source; included only
- *   when the caller says Forgewing is enabled for the organization).
+ *   when the caller says Forgewing is enabled for the organization);
+ * - evidence EightForge knows it could not read, refused to publish, or could
+ *   not interpret: every document diagnostic whose registry attention is
+ *   `resolution_case`, whatever its recoverability. Recoverability says
+ *   whether a recovery mechanism exists; it never decides visibility.
  *
  * The client can only act on what is listed here. Every action is typed and
  * names an existing write path. This model performs no write, and it never
@@ -62,7 +75,17 @@ export type ResolutionCaseKind =
   | 'validator_finding'
   | 'unreadable_priced_line'
   | 'reviewed_value_needs_rereview'
-  | 'recovery_proposal_pending';
+  | 'recovery_proposal_pending'
+  /** A priced line on a page extraction read, found and refused publication (rejected, withheld, or unpriced). */
+  | 'withheld_priced_line'
+  /** Table structure was read but could not be interpreted (header roles unrecognized, page reconstruction failed). */
+  | 'structure_review'
+  /** A published value extraction knows must be reviewed before it can be pricing authority. */
+  | 'review_required_value'
+  /** EightForge could not read a page sufficiently (OCR failed, abstained, skipped, coverage incomplete). */
+  | 'coverage_gap'
+  /** Page pricing was withheld because its authority could not be verified. */
+  | 'pricing_withheld';
 
 /**
  * Which evidence this is for the decision: what the source shows now, what an
@@ -156,6 +179,20 @@ export type ResolutionAction =
       supersedesAssertionId: string | null;
       /** Offered provenance only; the operator must explicitly use the suggestion. */
       forgewingProposalId?: string;
+    }>
+  | Readonly<{
+      /**
+       * The operator decides this evidence is not a rate or value at all. It
+       * closes the case and nothing else: same ledger and chain rule as a
+       * reviewed value, under its own fact key, never a fact or a price.
+       */
+      kind: 'record_disposition';
+      method: 'POST';
+      endpoint: string;
+      factKey: typeof PRICED_EVIDENCE_DISPOSITION_FACT_KEY;
+      disposition: 'not_a_rate_or_value';
+      target: RegionAssertionEntryTarget;
+      supersedesAssertionId: string | null;
     }>
   | Readonly<{
       kind: 'request_value_reading';
@@ -252,12 +289,20 @@ export type ResolutionCase = Readonly<{
   /** Durable explanation only; never a value or authority. */
   valueReadingOutcome?: Readonly<{ code: ValueReadingOutcomeCode; reason: ValueReadingOutcomeReason }> | null;
   actions: readonly ResolutionAction[];
+  /** The diagnostic a case was derived from, verbatim from the registry; absent for other sources. */
+  diagnostic?: Readonly<{
+    code: DiagnosticCode;
+    attention: DiagnosticAttention;
+    recoverability: DiagnosticRecoverability;
+    recoveryType: DiagnosticRecoveryType | null;
+  }>;
   /** Ids of the records this case was derived from. */
   sourceRefs: Readonly<{
     findingId?: string;
     assertionIds?: readonly string[];
     proposalId?: string;
     anchorKey?: string;
+    diagnosticId?: string;
   }>;
 }>;
 
@@ -286,6 +331,34 @@ export type DocumentReviewedValueState = Readonly<{
   effective: readonly EffectiveRegionAssertion[];
   held: readonly HeldRegionAssertion[];
   entryTargets: readonly RegionAssertionEntryTarget[];
+}>;
+
+/**
+ * One document diagnostic as this model reads it: the registry's attention and
+ * recoverability travel with it, and its evidence stays source-bound.
+ */
+export type AttentionDiagnostic = Readonly<{
+  diagnosticId: string;
+  code: DiagnosticCode;
+  attention: DiagnosticAttention;
+  recoverability: DiagnosticRecoverability;
+  recoveryType: DiagnosticRecoveryType | null;
+  severity: 'info' | 'warning' | 'blocking';
+  summary: string;
+  physicalPageNumber: number | null;
+  observationIds: readonly string[];
+  visual: VisualSourceEvidence | null;
+  recoveryProposalId: string | null;
+}>;
+
+/**
+ * Per document: its diagnostics, the targets for priced evidence it withheld,
+ * and the published rows whose scanned amount awaits a person's review.
+ */
+export type DocumentEvidenceAttention = Readonly<{
+  diagnostics: readonly AttentionDiagnostic[];
+  withheldTargets: readonly RegionAssertionEntryTarget[];
+  reviewRequiredTargets?: readonly ReviewRequiredValueTarget[];
 }>;
 
 /** The subset of a recovery review candidate this model reads. */
@@ -324,6 +397,41 @@ const HELD_REASON_TEXT: Record<HeldRegionAssertion['reason'], string> = {
   invalid_asserted_value: 'The reviewed value is incomplete.',
 };
 
+/** Which case a resolution-case diagnostic opens. Every code with case attention has one. */
+export const CASE_KIND_BY_DIAGNOSTIC_CODE: Readonly<Partial<Record<DiagnosticCode, ResolutionCaseKind>>> = Object.freeze({
+  page_ocr_required: 'coverage_gap',
+  page_ocr_abstained: 'coverage_gap',
+  page_ocr_failed: 'coverage_gap',
+  page_image_decode_failed: 'coverage_gap',
+  page_extraction_coverage_incomplete: 'coverage_gap',
+  expected_pricing_page_no_usable_evidence: 'coverage_gap',
+  page_skipped_due_evidence_limit: 'coverage_gap',
+  pricing_page_reconstruction_failed: 'structure_review',
+  priced_header_semantics_unresolved: 'structure_review',
+  ruling_line_pricing_authority_withheld: 'pricing_withheld',
+  ambiguous_rate_clusters: 'withheld_priced_line',
+  insufficient_row_structure: 'withheld_priced_line',
+  outside_table_body: 'withheld_priced_line',
+  ambiguous_row_continuation: 'withheld_priced_line',
+  inconsistent_row_pitch: 'withheld_priced_line',
+  insufficient_priced_rows: 'withheld_priced_line',
+  ambiguous_recovery_confirmation: 'withheld_priced_line',
+  recovery_closure_failed: 'withheld_priced_line',
+  unpriced_row: 'withheld_priced_line',
+});
+
+const WITHHELD_REASON_TEXT: Partial<Record<DiagnosticCode, string>> = {
+  ambiguous_rate_clusters: 'The line carries more than one plausible amount, so no row was published.',
+  insufficient_row_structure: 'The line carries a price but not enough row structure to publish.',
+  outside_table_body: 'The line carries a price but sits outside the table body the accepted rows establish.',
+  ambiguous_row_continuation: 'A neighbouring line could complete this row or the next, so the row was withheld.',
+  inconsistent_row_pitch: 'The line carries a price but does not match the table\'s row spacing.',
+  insufficient_priced_rows: 'Too few priced rows survived for the table to publish, so this one was withheld.',
+  ambiguous_recovery_confirmation: 'More than one confirmation applies to this withheld row.',
+  recovery_closure_failed: 'The confirmed evidence did not close over the reconstructed row.',
+  unpriced_row: 'This table row carries no readable price, so it is not priced.',
+};
+
 const UNRESOLVED_REASON_TEXT: Record<string, string> = {
   multiple_priced_headers: 'The page holds more than one priced table side by side, so it was not read as one.',
   ambiguous_header_candidates: 'More than one line could be the table header; none was chosen.',
@@ -346,9 +454,33 @@ function regionAssertionEndpoint(documentId: string): string {
   return `/api/documents/${documentId}/facts/region-assertions`;
 }
 
-/** The single head of a chain, or null when there is none or it is ambiguous. */
-function chainHead(history: readonly HumanFactAssertionRow[], anchorKey: string): string | null {
-  const chain = history.filter((row) => row.anchor_key === anchorKey);
+function dispositionAction(
+  documentId: string,
+  target: RegionAssertionEntryTarget,
+  history: readonly HumanFactAssertionRow[],
+): ResolutionAction {
+  return {
+    kind: 'record_disposition',
+    method: 'POST',
+    endpoint: regionAssertionEndpoint(documentId),
+    factKey: PRICED_EVIDENCE_DISPOSITION_FACT_KEY,
+    disposition: 'not_a_rate_or_value',
+    target,
+    supersedesAssertionId: chainHead(history, target.anchorKey, PRICED_EVIDENCE_DISPOSITION_FACT_KEY),
+  };
+}
+
+/**
+ * The single head of a chain, or null when there is none or it is ambiguous.
+ * One chain per (document, fact key, anchor), exactly as the record function
+ * enforces: a disposition on an anchor never heads its reviewed-value chain.
+ */
+function chainHead(
+  history: readonly HumanFactAssertionRow[],
+  anchorKey: string,
+  factKey: string = CONTRACT_RATE_ROW_FACT_KEY,
+): string | null {
+  const chain = history.filter((row) => row.anchor_key === anchorKey && row.fact_key === factKey);
   const superseded = new Set(chain.flatMap((row) => (row.supersedes_assertion_id ? [row.supersedes_assertion_id] : [])));
   const heads = chain.filter((row) => !superseded.has(row.id));
   return heads.length === 1 ? heads[0]!.id : null;
@@ -499,6 +631,7 @@ function reviewedValueCases(params: {
   projectId: string;
   documents: ReadonlyMap<string, ResolutionDocument>;
   reviewedValuesByDocument: ReadonlyMap<string, DocumentReviewedValueState>;
+  evidenceAttentionByDocument: ReadonlyMap<string, DocumentEvidenceAttention>;
 }): ResolutionCase[] {
   const cases: ResolutionCase[] = [];
   for (const [documentId, state] of params.reviewedValuesByDocument) {
@@ -532,6 +665,7 @@ function reviewedValueCases(params: {
             target,
             supersedesAssertionId: chainHead(state.history, target.anchorKey),
           },
+          dispositionAction(documentId, target, state.history),
           { kind: 'open_document', href: documentHref(documentId, target.physicalPageNumber) },
         ],
         sourceRefs: { anchorKey: target.anchorKey },
@@ -540,7 +674,13 @@ function reviewedValueCases(params: {
 
     for (const held of state.held) {
       const anchorKey = held.anchorKey;
-      const target = state.entryTargets.find((entry) => entry.anchorKey === anchorKey) ?? null;
+      // A held review binds to whichever current target still presents its anchor.
+      const target = state.entryTargets.find((entry) => entry.anchorKey === anchorKey)
+        ?? params.evidenceAttentionByDocument.get(documentId)?.withheldTargets
+          .find((entry) => entry.anchorKey === anchorKey)
+        ?? params.evidenceAttentionByDocument.get(documentId)?.reviewRequiredTargets
+          ?.find((entry) => entry.anchorKey === anchorKey)
+        ?? null;
       const head = held.assertionIds.length === 1 ? held.assertionIds[0]! : null;
       const page = state.history.find((row) => held.assertionIds.includes(row.id))?.physical_page_number ?? null;
       const actions: ResolutionAction[] = [];
@@ -605,6 +745,174 @@ function reviewedValueCases(params: {
         suggestions: [],
         actions,
         sourceRefs: { assertionIds: held.assertionIds, anchorKey },
+      });
+    }
+  }
+  return cases;
+}
+
+function sameObservations(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length === 0 || left.length !== right.length) return false;
+  const set = new Set(left);
+  return right.every((id) => set.has(id));
+}
+
+/**
+ * Cases for evidence EightForge knows it could not read, refused to publish,
+ * or could not interpret. One case per diagnostic whose registry attention is
+ * `resolution_case`; a withheld priced line is identified by its source
+ * observations (the same anchor scheme as an unread line), so its case and its
+ * review survive reprocessing that leaves the evidence unchanged.
+ */
+function evidenceAttentionCases(params: {
+  projectId: string;
+  documents: ReadonlyMap<string, ResolutionDocument>;
+  reviewedValuesByDocument: ReadonlyMap<string, DocumentReviewedValueState>;
+  evidenceAttentionByDocument: ReadonlyMap<string, DocumentEvidenceAttention>;
+  /** Proposals already listed as their own cases; their evidence is not listed twice. */
+  pendingProposalIds: ReadonlySet<string>;
+}): ResolutionCase[] {
+  const cases: ResolutionCase[] = [];
+  for (const [documentId, attention] of params.evidenceAttentionByDocument) {
+    const label = documentLabel(params.documents, documentId);
+    const state = params.reviewedValuesByDocument.get(documentId);
+    const history = state?.history ?? [];
+    const closedAnchors = new Set([
+      ...(state?.effective ?? []).map((entry) => entry.anchorKey),
+      ...(state?.held ?? []).flatMap((entry) => entry.anchorKey.split(',')),
+    ]);
+    const listedAnchors = new Set<string>();
+    for (const diagnostic of attention.diagnostics) {
+      if (diagnostic.attention !== 'resolution_case') continue;
+      const kind = CASE_KIND_BY_DIAGNOSTIC_CODE[diagnostic.code];
+      if (!kind) continue;
+      if (diagnostic.recoveryProposalId && params.pendingProposalIds.has(diagnostic.recoveryProposalId)) continue;
+      const page = diagnostic.physicalPageNumber;
+      const diagnosticRef = {
+        code: diagnostic.code,
+        attention: diagnostic.attention,
+        recoverability: diagnostic.recoverability,
+        recoveryType: diagnostic.recoveryType,
+      };
+      const pageEvidence: ResolutionEvidenceRef = {
+        documentId,
+        physicalPageNumber: page,
+        observationIds: diagnostic.observationIds,
+        region: null,
+        label: diagnostic.summary,
+        role: 'current',
+        visual: diagnostic.visual,
+        detail: null,
+      };
+      const openDocument: ResolutionAction = { kind: 'open_document', href: documentHref(documentId, page) };
+      if (kind === 'withheld_priced_line') {
+        const target = attention.withheldTargets.find((entry) => entry.physicalPageNumber === page
+          && sameObservations(entry.sourceObservationIds, diagnostic.observationIds)) ?? null;
+        // Reviewed, disposed or held for re-review elsewhere: not open here.
+        if (target && (closedAnchors.has(target.anchorKey) || listedAnchors.has(target.anchorKey))) continue;
+        if (target) listedAnchors.add(target.anchorKey);
+        cases.push({
+          caseId: target ? `withheld:${documentId}:${target.anchorKey}` : `diagnostic:${diagnostic.diagnosticId}`,
+          kind,
+          tier: 'missing_authoritative_value',
+          exposureAmount: null,
+          projectId: params.projectId,
+          documentId,
+          physicalPageNumber: page,
+          title: `${diagnostic.code === 'unpriced_row' ? 'Unpriced row' : 'Withheld priced line'} · ${label}${page != null ? ` p.${page}` : ''}`,
+          problem: WITHHELD_REASON_TEXT[diagnostic.code] ?? diagnostic.summary,
+          finding: null,
+          previousReviews: [],
+          deterministicState: 'Extraction found this line and refused to publish it. It is not used in pricing.',
+          originalSourceText: target?.rawText ?? diagnostic.summary,
+          rootCauseKey: `withheld:${documentId}:${page ?? 'document'}`,
+          evidence: target ? [currentTargetEvidence(documentId, target)] : [pageEvidence],
+          suggestions: [],
+          actions: target ? [
+            {
+              kind: 'enter_reviewed_value',
+              method: 'POST',
+              endpoint: regionAssertionEndpoint(documentId),
+              factKey: 'contract_rate_row',
+              target,
+              supersedesAssertionId: chainHead(history, target.anchorKey),
+            },
+            dispositionAction(documentId, target, history),
+            openDocument,
+          ] : [openDocument],
+          diagnostic: diagnosticRef,
+          sourceRefs: { diagnosticId: diagnostic.diagnosticId, ...(target ? { anchorKey: target.anchorKey } : {}) },
+        });
+        continue;
+      }
+      if (kind !== 'structure_review' && kind !== 'coverage_gap' && kind !== 'pricing_withheld') continue;
+      const titles = { structure_review: 'Table not interpreted', coverage_gap: 'Page not read',
+        pricing_withheld: 'Page pricing withheld' } as const;
+      cases.push({
+        caseId: `diagnostic:${diagnostic.diagnosticId}`,
+        kind,
+        tier: kind === 'coverage_gap' && diagnostic.code !== 'expected_pricing_page_no_usable_evidence'
+          ? 'structural' : 'affects_pricing',
+        exposureAmount: null,
+        projectId: params.projectId,
+        documentId,
+        physicalPageNumber: page,
+        title: `${titles[kind]} · ${label}${page != null ? ` p.${page}` : ''}`,
+        problem: diagnostic.summary,
+        finding: null,
+        previousReviews: [],
+        deterministicState: kind === 'coverage_gap'
+          ? 'EightForge has no usable reading of this page. Nothing on it is priced or checked.'
+          : kind === 'pricing_withheld'
+            ? 'Rows on this page were read but are withheld from pricing until their authority can be verified.'
+            : 'The table on this page was read structurally but not interpreted, so nothing on it is priced.',
+        originalSourceText: null,
+        rootCauseKey: kind === 'coverage_gap' ? `coverage:${documentId}` : `${kind}:${documentId}:${page ?? 'document'}`,
+        evidence: [pageEvidence],
+        suggestions: [],
+        actions: [openDocument],
+        diagnostic: diagnosticRef,
+        sourceRefs: { diagnosticId: diagnostic.diagnosticId },
+      });
+    }
+    // A row reconstruction trusted, whose amount was read from a scan: the
+    // amount is a candidate, withheld from pricing until a person confirms or
+    // corrects it. Closed by an effective (or held) reviewed value on the row.
+    for (const target of attention.reviewRequiredTargets ?? []) {
+      if (closedAnchors.has(target.anchorKey) || listedAnchors.has(target.anchorKey)) continue;
+      listedAnchors.add(target.anchorKey);
+      cases.push({
+        caseId: `review_required:${documentId}:${target.anchorKey}`,
+        kind: 'review_required_value',
+        tier: 'missing_authoritative_value',
+        exposureAmount: null,
+        projectId: params.projectId,
+        documentId,
+        physicalPageNumber: target.physicalPageNumber,
+        title: `${target.basis === 'scanned_source' ? 'Scanned rate to confirm' : 'Unreadable rate to enter'} · ${label} p.${target.physicalPageNumber}`,
+        problem: target.basis === 'scanned_source'
+          ? `This rate was read from a scan as "${target.candidateRateRaw}". A scanned amount can be well formed and still wrong, so it is not used until a person confirms or corrects it.`
+          : `The rate cell reads "${target.candidateRateRaw}", which is not a whole amount. It is not used until a person enters the amount the page shows.`,
+        finding: null,
+        previousReviews: [],
+        deterministicState: 'The row was reconstructed, but its rate is withheld from pricing and from the Validator.',
+        originalSourceText: target.rawText,
+        rootCauseKey: `review_required:${documentId}:${target.physicalPageNumber}`,
+        evidence: [currentTargetEvidence(documentId, target)],
+        suggestions: [],
+        actions: [
+          {
+            kind: 'enter_reviewed_value',
+            method: 'POST',
+            endpoint: regionAssertionEndpoint(documentId),
+            factKey: 'contract_rate_row',
+            target,
+            supersedesAssertionId: chainHead(history, target.anchorKey),
+          },
+          dispositionAction(documentId, target, history),
+          { kind: 'open_document', href: documentHref(documentId, target.physicalPageNumber) },
+        ],
+        sourceRefs: { anchorKey: target.anchorKey },
       });
     }
   }
@@ -692,8 +1000,15 @@ export function buildResolutionQueue(params: {
   forgewingEnabled: boolean;
   /** Current verified pages per document, for page-level evidence. */
   documentPages?: ReadonlyMap<string, DocumentPageFrames>;
+  /** Per document: diagnostics and withheld-evidence targets. EightForge Core, never gated. */
+  evidenceAttentionByDocument?: ReadonlyMap<string, DocumentEvidenceAttention>;
 }): ResolutionQueue {
   const documents = new Map(params.documents.map((document) => [document.id, document] as const));
+  const evidenceAttentionByDocument = params.evidenceAttentionByDocument ?? new Map();
+  const pendingProposalIds = new Set(params.forgewingEnabled
+    ? params.recoveryProposals.filter((proposal) => proposal.reviewState === 'pending_review')
+      .map((proposal) => proposal.proposalId)
+    : []);
   const cases = [
     ...validatorCases({
       projectId: params.projectId, issues: params.issues, evidence: params.evidence,
@@ -701,6 +1016,11 @@ export function buildResolutionQueue(params: {
     }),
     ...reviewedValueCases({
       projectId: params.projectId, documents, reviewedValuesByDocument: params.reviewedValuesByDocument,
+      evidenceAttentionByDocument,
+    }),
+    ...evidenceAttentionCases({
+      projectId: params.projectId, documents, reviewedValuesByDocument: params.reviewedValuesByDocument,
+      evidenceAttentionByDocument, pendingProposalIds,
     }),
     ...(params.forgewingEnabled
       ? recoveryCases({ projectId: params.projectId, documents, proposals: params.recoveryProposals })

@@ -249,6 +249,12 @@ export interface ContractRateScheduleRow {
   // variants). Never used to auto-correct or suppress a rate -- only to gate
   // a needs_review flag when independently low.
   rate_ocr_confidence?: number | null;
+  /**
+   * Whether `rate` is pricing authority. When present it is decisive: a row
+   * whose authority is `review_required` publishes no rate, and no consumer
+   * may re-derive one from `rate_raw` / `raw_text`.
+   */
+  rate_authority?: import('@/lib/contracts/rateAuthority').ContractRateAuthority;
   authoredValueCorrection?: boolean;
   recovery_reason?: string;
   category_requires_review?: boolean;

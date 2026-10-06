@@ -268,6 +268,7 @@ type DecisionProps = {
 export function ResolutionDecisionPane({ entry, forgewingSuggestionsIncluded, saving, submit, onLinked, onSkip }: DecisionProps) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [withdrawReason, setWithdrawReason] = useState('');
+  const [dispositionReason, setDispositionReason] = useState('');
   const [rationale, setRationale] = useState('');
   const [confirmationId, setConfirmationId] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<'approve' | 'correct' | 'override'>('approve');
@@ -278,6 +279,7 @@ export function ResolutionDecisionPane({ entry, forgewingSuggestionsIncluded, sa
 
   const enter = offeredAction(entry, 'enter_reviewed_value');
   const withdraw = offeredAction(entry, 'withdraw_reviewed_value');
+  const disposition = offeredAction(entry, 'record_disposition');
   const recovery = offeredAction(entry, 'review_recovery_proposal');
   const link = offeredAction(entry, 'link_invoice_line_rate');
   const execution = offeredAction(entry, 'resolve_execution_item');
@@ -407,6 +409,19 @@ export function ResolutionDecisionPane({ entry, forgewingSuggestionsIncluded, sa
             {saving ? 'Saving…' : 'Save & next'}
           </button>
         </form>
+      ) : null}
+
+      {disposition ? (
+        <div className="space-y-2" data-testid="evidence-disposition">
+          <textarea aria-label="disposition reason" placeholder="Not a rate or value: what is it instead? (required)"
+            className="w-full rounded border border-white/10 bg-transparent p-2 text-xs text-[var(--ef-text-primary)]"
+            value={dispositionReason} onChange={(event) => setDispositionReason(event.target.value)} />
+          <button type="button" disabled={saving}
+            className="rounded border border-white/10 px-3 py-1 text-xs text-[var(--ef-text-muted)]"
+            onClick={() => void submit({ kind: 'record_disposition', reason: dispositionReason, idempotencyKey: newIdempotencyKey() })}>
+            Not a rate or value & next
+          </button>
+        </div>
       ) : null}
 
       {withdraw ? (

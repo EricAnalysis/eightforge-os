@@ -144,7 +144,59 @@ describe('resolution queue server read (B5-A)', () => {
       forgewingEnabled: true, readRecoveryQueue: vi.fn(async () => ({ status: 'ok' as const, candidates: [] })) });
     expect(result.status).toBe('ok');
     if (result.status !== 'ok') return;
-    expect(result.queue.cases[0]!.actions.map((action) => action.kind)).toEqual(['enter_reviewed_value', 'open_document']);
+    expect(result.queue.cases[0]!.actions.map((action) => action.kind)).toEqual(['enter_reviewed_value', 'record_disposition', 'open_document']);
     expect(result.queue.cases[0]!.suggestions).toEqual([]);
+  });
+});
+
+describe('evidence attention in the resolution queue (Forgewing generalization, phase 1)', () => {
+  // Diagnostics bind to UUID scope, exactly as production identities are.
+  const UORG = '00000000-0000-4000-8000-0000000000a1';
+  const UDOC = '00000000-0000-4000-8000-0000000000d1';
+  it('opens a case for a priced line extraction withheld on a page it read, from the same diagnostics the panel shows', async () => {
+    const withheld = { ...structuredClone(extraction), document_id: UDOC };
+    const pdf = withheld.data.extraction.content_layers_v1.pdf as Record<string, unknown>;
+    pdf.layout_observations_v1 = { source_artifact_id: '00000000-0000-4000-8000-0000000000f1', observations: [
+      { id: 'o1', physical_page_number: 2, raw_text: 'Hauling', metadata: { page_representation_digest: DIGEST } },
+      { id: 'o2', physical_page_number: 2, raw_text: '8.7S', metadata: { page_representation_digest: DIGEST } },
+    ] };
+    pdf.priced_schedule_reconstruction_v1 = { parser_version: 'priced_schedule_reconstruction_v3', pages: [{
+      physical_page_number: 2, status: 'reconstructed', rows: [], columns: [], unassigned_lines: [],
+      rejected_spines: [{ reason: 'inconsistent_row_pitch', physical_page_number: 2, raw_text: 'Hauling TON $ 8.7S',
+        source_refs: [{ observation_id: 'o1', text: 'Hauling', x_min: 1, x_max: 2, y_min: 3, y_max: 4 },
+          { observation_id: 'o2', text: '8.7S', x_min: 5, x_max: 6, y_min: 3, y_max: 4 }] }],
+    }] };
+    const { client, writes } = fakeClient({ documents: [{ id: UDOC, title: 'Contract' }], document_extractions: [withheld] }, UORG);
+    const result = await readResolutionQueue({ organizationId: UORG, projectId: PROJECT }, { admin: client, forgewingEnabled: false });
+    expect(result.status).toBe('ok');
+    if (result.status !== 'ok') return;
+    expect(result.queue.cases).toMatchObject([{ kind: 'withheld_priced_line', documentId: UDOC, physicalPageNumber: 2,
+      originalSourceText: 'Hauling TON $ 8.7S', diagnostic: { code: 'inconsistent_row_pitch', recoverability: 'not_recoverable' } }]);
+    expect(result.queue.cases[0]!.actions.map((action) => action.kind)).toEqual(['enter_reviewed_value', 'record_disposition', 'open_document']);
+    expect(writes).toEqual([]);
+  });
+  it('opens a review-required case for a published row whose rate was read from a scan, and none for a native one', async () => {
+    const run = async (rateSource: 'pdfjs' | 'ocr_fallback') => {
+      const doc = { ...structuredClone(extraction), document_id: UDOC };
+      const pdf = doc.data.extraction.content_layers_v1.pdf as Record<string, unknown>;
+      pdf.layout_observations_v1 = { source_artifact_id: '00000000-0000-4000-8000-0000000000f1', observations: [] };
+      const ref = (id: string, text: string, x: number, source: string) =>
+        ({ observation_id: id, text, x_min: x, x_max: x + 8, y_min: 3, y_max: 4, source });
+      const cell = (role: string, id: string, text: string, x: number, source: string) =>
+        ({ role, raw_text: text, source_refs: [ref(id, text, x, source)], x_min: x, x_max: x + 8, y_min: 3, y_max: 4 });
+      pdf.priced_schedule_reconstruction_v1 = { parser_version: 'priced_schedule_reconstruction_v3', pages: [{
+        physical_page_number: 2, status: 'reconstructed', columns: [], rejected_spines: [], unassigned_lines: [],
+        rows: [{ row_index: 0, physical_page_number: 2, raw_text: 'Hauling | TON | $8.75', x_min: 1, x_max: 120, y_min: 3, y_max: 4,
+          cells: [cell('description', 'o1', 'Hauling', 1, rateSource), cell('unit', 'o2', 'TON', 40, rateSource),
+            cell('rate', 'o3', '$8.75', 80, rateSource)] }],
+      }] };
+      const { client, writes } = fakeClient({ documents: [{ id: UDOC, title: 'Contract' }], document_extractions: [doc] }, UORG);
+      const result = await readResolutionQueue({ organizationId: UORG, projectId: PROJECT }, { admin: client, forgewingEnabled: false });
+      expect(writes).toEqual([]);
+      if (result.status !== 'ok') throw new Error(result.status);
+      return result.queue.cases.filter((entry) => entry.kind === 'review_required_value');
+    };
+    expect(await run('ocr_fallback')).toMatchObject([{ documentId: UDOC, physicalPageNumber: 2, originalSourceText: 'Hauling | TON | $8.75' }]);
+    expect(await run('pdfjs')).toEqual([]);
   });
 });

@@ -66,7 +66,7 @@ describe('B4.4 value readings in the server-derived workspace', () => {
     expect(client.from).not.toHaveBeenCalled();
     expect(loadValueReadingRecords).not.toHaveBeenCalled();
     expect(result.cases[0]!.suggestions).toEqual([]);
-    expect(result.cases[0]!.actions.map((action) => action.kind)).toEqual(['enter_reviewed_value', 'open_document']);
+    expect(result.cases[0]!.actions.map((action) => action.kind)).toEqual(['enter_reviewed_value', 'record_disposition', 'open_document']);
   });
 
   it('offers a non-authoritative proposal and keeps a gated outcome separate from its value', async () => {
@@ -111,7 +111,7 @@ describe('B4.4 value readings in the server-derived workspace', () => {
   it('offers no reading action when the current artifact cannot be verified', async () => {
     const result = await addValueReadingsToResolutionQueue(admin(), { organizationId: ORG, queue: queue(),
       extractionDataByDocument: new Map([[DOC, null]]), assertions: [] });
-    expect(result.cases[0]!.actions.map((action) => action.kind)).toEqual(['enter_reviewed_value', 'open_document']);
+    expect(result.cases[0]!.actions.map((action) => action.kind)).toEqual(['enter_reviewed_value', 'record_disposition', 'open_document']);
   });
 
   it('selects the latest current exact binding deterministically, ignoring foreign and stale outcomes', async () => {

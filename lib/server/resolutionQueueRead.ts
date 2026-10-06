@@ -4,6 +4,7 @@ import {
   currentDocumentEvidenceFromExtractionData,
   documentReviewedValueState,
   withheldPricedLineTargets,
+  reviewRequiredValueTargets,
 } from '@/lib/humanFactAssertions/regionBoundAssertions';
 import { documentPageFrames, type DocumentPageFrames } from '@/lib/recovery/diagnosticVisualEvidence';
 import { recoveryCandidateVisualEvidence } from '@/lib/recovery/recoveryVisualEvidence';
@@ -235,6 +236,7 @@ export async function readResolutionQueue(
     evidenceAttentionByDocument.set(documentId, {
       diagnostics: diagnostics.map(attentionDiagnostic),
       withheldTargets: withheldPricedLineTargets(preferred.data, documentId),
+      reviewRequiredTargets: reviewRequiredValueTargets(preferred.data, documentId),
     });
   }
 

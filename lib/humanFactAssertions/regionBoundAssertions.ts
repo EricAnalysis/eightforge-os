@@ -1,4 +1,5 @@
 import type { ContractPricingAssemblyRow } from '@/lib/contracts/contractPricingAssembly';
+import { evidenceIsScanned } from '@/lib/contracts/rateAuthority';
 import { hashCanonical } from '@/lib/extraction/domain/hash';
 import { pricingAuthoritativePage } from '@/lib/extraction/pdf/pricedScheduleAuthority';
 import type { HumanReviewReceipt } from '@/lib/humanFactAssertions/humanReviewReceipt';
@@ -641,6 +642,67 @@ export function withheldPricedLineTargets(
     ];
     return lines.map((line) => ({ page: page.physical_page_number, reason: asRecord(line)?.reason, line }));
   })).filter((target) => (seen.has(target.anchorKey) ? false : (seen.add(target.anchorKey), true)));
+}
+
+/** A published priced row whose amount was read from a scan, offered for review. */
+export type ReviewRequiredValueTarget = RegionAssertionEntryTarget & Readonly<{
+  /** The rate cell exactly as the scan read it: the reviewer's candidate, never a rate. */
+  candidateRateRaw: string;
+}>;
+
+/**
+ * Targets for priced rows extraction reconstructed on a page it trusts, but
+ * whose amount was read from a scan (Forgewing generalization, phase 2). The
+ * rate is withheld from pricing until a person confirms or corrects it, so
+ * each such row is offered for a reviewed value bound to the row's exact
+ * observations: the same identity scheme as every other priced line, so the
+ * reviewed value supersedes the machine row under B3.1.
+ */
+export function reviewRequiredValueTargets(
+  extractionData: unknown,
+  sourceDocumentId: string | null = null,
+): ReviewRequiredValueTarget[] {
+  const pdf = asRecord(asRecord(asRecord(asRecord(extractionData)?.extraction)?.content_layers_v1)?.pdf);
+  const reconstruction = asRecord(pdf?.priced_schedule_reconstruction_v1);
+  const version = reconstruction?.parser_version;
+  if (!isSupportedPricedScheduleVersion(version) || !Array.isArray(reconstruction?.pages)) return [];
+  const methods = new Map<string, string>();
+  const observations = asRecord(pdf?.layout_observations_v1)?.observations;
+  for (const entry of Array.isArray(observations) ? observations : []) {
+    const observation = asRecord(entry);
+    if (typeof observation?.id === 'string' && typeof observation.source_method === 'string') {
+      methods.set(observation.id, observation.source_method);
+    }
+  }
+  const candidates: { page: number; line: unknown; rateRaw: string }[] = [];
+  for (const entry of reconstruction.pages) {
+    const page = pricingAuthoritativePage(entry as PricedSchedulePage, version);
+    // Exactly the rows pricing would publish: a structure-only page publishes none.
+    if (!page || page.semantic_status === 'unresolved') continue;
+    for (const row of page.rows) {
+      const rate = row.cells.find((cell) => cell.role === 'rate');
+      if (!rate || !row.cells.some((cell) => cell.role === 'description')) continue;
+      if (!evidenceIsScanned(rate.source_refs, methods)) continue;
+      candidates.push({ page: page.physical_page_number, rateRaw: rate.raw_text,
+        line: { raw_text: row.raw_text, source_refs: row.cells.flatMap((cell) => cell.source_refs) } });
+    }
+  }
+  const targets = pricedLineTargets(extractionData, sourceDocumentId,
+    candidates.map((candidate) => ({ page: candidate.page, reason: 'scanned_source', line: candidate.line })));
+  // pricedLineTargets keeps order and drops only unbindable lines; pair by anchor.
+  const rateRawByAnchor = new Map<string, string>(candidates.flatMap((candidate) => {
+    const refs = (asRecord(candidate.line)?.source_refs as unknown[]).map(asRecord);
+    const ids = refs.flatMap((ref) => typeof ref?.observation_id === 'string' ? [ref.observation_id] : []);
+    return ids.length === refs.length && ids.length > 0
+      ? [[`p${candidate.page}:priced_line:${hashCanonical(ids).slice(0, 32)}`, candidate.rateRaw] as const] : [];
+  }));
+  const seen = new Set<string>();
+  return targets.flatMap((target) => {
+    const candidateRateRaw = rateRawByAnchor.get(target.anchorKey);
+    if (candidateRateRaw == null || seen.has(target.anchorKey)) return [];
+    seen.add(target.anchorKey);
+    return [{ ...target, candidateRateRaw }];
+  });
 }
 
 function pricedLineTargets(

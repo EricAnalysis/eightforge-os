@@ -10,6 +10,7 @@ import { resolveCanonicalRateCategory } from '@/lib/validator/rateTaxonomy';
 import { canonicalTaxonomyKeyForAllowedCategory } from '@/lib/contracts/contractPricingAssembly';
 import { collapseWhitespace, normalizeDashCharacters } from '@/lib/contracts/textCleanupPrimitives';
 import type { PhysicalPageCoordinate } from '@/lib/extraction/provenance/physicalPageCoordinate';
+import { decideRateAuthority, evidenceIsScanned } from '@/lib/contracts/rateAuthority';
 import type {
   PagePricedScheduleReconstruction,
   PricedScheduleCell,
@@ -832,7 +833,12 @@ function recoverMissingExhibitATextRows(params: {
   ];
   if (allSourceEntries.length === 0) return [];
 
-  const existingKeys = new Set(params.existingRows.map(rateRecoveryKey));
+  // A table row whose scanned rate is withheld for review is still the row on
+  // the page: key it by its candidate so no authored twin is added beside it.
+  const existingKeys = new Set(params.existingRows.map((row) => rateRecoveryKey(
+    row.rate == null && row.rate_authority?.status === 'review_required'
+      ? { ...row, rate: row.rate_authority.candidate_rate }
+      : row)));
   const entriesByPage = new Map<number, ContractRateScheduleSourceEntry[]>();
   for (const entry of allSourceEntries) {
     if (entry.page == null || normalizeWhitespace(entry.text).length === 0) continue;
@@ -1393,6 +1399,20 @@ function numericRateFromAuthoredText(rawText: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+/** Each persisted layout observation's capture method, by id. */
+function layoutObservationMethods(layer: unknown): Map<string, string> {
+  const methods = new Map<string, string>();
+  const observations = asRecord(layer)?.observations;
+  if (!Array.isArray(observations)) return methods;
+  for (const value of observations) {
+    const observation = asRecord(value);
+    if (observation && typeof observation.id === 'string' && typeof observation.source_method === 'string') {
+      methods.set(observation.id, observation.source_method);
+    }
+  }
+  return methods;
+}
+
 function cellByRole(
   row: PricedSchedulePage['rows'][number],
   role: PricedScheduleCell['role'],
@@ -1436,6 +1456,7 @@ function buildPagePricedScheduleRows(
   if (!reconstruction || !Array.isArray(reconstruction.pages)) return [];
 
   const rows: ContractRateScheduleRow[] = [];
+  const observationMethodById = layoutObservationMethods(persistedLayoutObservations);
   const pages = [...reconstruction.pages].sort(
     (left, right) => left.physical_page_number - right.physical_page_number,
   );
@@ -1459,7 +1480,11 @@ function buildPagePricedScheduleRows(
       // A rate proven by structure rather than a read currency marker names its
       // amount token; the cell's other authored text (an unread marker glyph)
       // is evidence, never part of the number.
-      const rate = numericRateFromAuthoredText(rateCell.structured_rate?.amount_text ?? rateCell.raw_text);
+      const { rate, authority: rateAuthority } = decideRateAuthority({
+        parsedRate: numericRateFromAuthoredText(rateCell.structured_rate?.amount_text ?? rateCell.raw_text),
+        rawText: rateCell.raw_text,
+        scanned: evidenceIsScanned(rateCell.source_refs, observationMethodById),
+      });
 
       const categoryResolution = resolveCanonicalRateCategory({
         sourceCategory: null,
@@ -1505,9 +1530,10 @@ function buildPagePricedScheduleRows(
         material_type: null,
         unit_type: unitCell?.raw_text ?? null,
         rate_amount: rate,
+        rate_authority: rateAuthority,
         source_kind: 'page_priced_schedule',
-        // A row whose authored price marker carries no number is unresolved,
-        // not zero-rated.
+        // A row whose authored price marker carries no number, or whose number
+        // was read from a scan, is unresolved, not zero-rated.
         confidence: rate == null ? 'needs_review' : 'medium',
         raw_cells: row.cells.map((cell: PricedScheduleCell) => cell.raw_text),
         raw_text: row.raw_text,

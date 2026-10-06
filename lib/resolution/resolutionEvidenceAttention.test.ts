@@ -193,3 +193,32 @@ describe('the typed disposition', () => {
     ]).map((entry) => entry.factKey)).toEqual(['contract_number']);
   });
 });
+
+describe('review-required values (Forgewing generalization, phase 2)', () => {
+  const scanned = { ...target('p10:priced_line:scan', ['o1', 'o2'], 10, 'scanned_source'), candidateRateRaw: '$96.00' };
+
+  it('opens a case for a scanned rate, offering only the existing reviewed-value and disposition writes', () => {
+    const queue = build({ attention: { diagnostics: [], withheldTargets: [], reviewRequiredTargets: [scanned] } });
+    expect(queue.cases).toHaveLength(1);
+    const [entry] = queue.cases;
+    expect(entry).toMatchObject({ caseId: `review_required:${DOC}:p10:priced_line:scan`, kind: 'review_required_value',
+      tier: 'missing_authoritative_value', originalSourceText: 'Snow Removal ROW Unit $96.00' });
+    expect(entry!.problem).toContain('"$96.00"');
+    expect(entry!.actions.map((action) => action.kind)).toEqual(['enter_reviewed_value', 'record_disposition', 'open_document']);
+    const enter = buildResolutionActionRequest(entry!, { kind: 'enter_reviewed_value', reason: 'Read from the page',
+      idempotencyKey: 'k1', value: { description: 'Snow Removal ROW', unitType: 'Unit', rate: '96.00' } });
+    expect(enter.ok && enter.request.body).toMatchObject({ factKey: 'contract_rate_row', anchorKey: 'p10:priced_line:scan',
+      sourceObservationIds: ['o1', 'o2'] });
+  });
+
+  it('closes once a person has reviewed the row, and a held review re-binds to it', () => {
+    const effective = [{ anchorKey: 'p10:priced_line:scan' }] as unknown as EffectiveRegionAssertion[];
+    expect(build({ attention: { diagnostics: [], withheldTargets: [], reviewRequiredTargets: [scanned] },
+      reviewed: { effective } }).cases).toEqual([]);
+    const history = [assertionRow('a1', 'p10:priced_line:scan', 'contract_rate_row')];
+    const held = build({ attention: { diagnostics: [], withheldTargets: [], reviewRequiredTargets: [scanned] },
+      reviewed: { history, held: [{ anchorKey: 'p10:priced_line:scan', assertionIds: ['a1'], reason: 'page_representation_changed' }] as never } });
+    expect(held.cases.map((entry) => entry.kind)).toEqual(['reviewed_value_needs_rereview']);
+    expect(held.cases[0]!.actions.map((action) => action.kind)).toContain('enter_reviewed_value');
+  });
+});

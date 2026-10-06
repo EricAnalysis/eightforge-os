@@ -4,6 +4,11 @@ import { normalizeTableCellGeometry, type GeometryCellRef } from '@/lib/extracti
 import { collapseToAlphanumericTokens } from '@/lib/contracts/dedupeKeyNormalization';
 import { normalizeDashCharacters } from '@/lib/contracts/textCleanupPrimitives';
 import {
+  parseContractRateAuthority,
+  rateWithheldByAuthority,
+  type ContractRateAuthority,
+} from '@/lib/contracts/rateAuthority';
+import {
   parseAuthoredPricingDimensions,
   pricingDistanceDisplayLabel,
   pricingRouteDisplayLabel,
@@ -86,6 +91,11 @@ export type ContractPricingAssemblyRow = {
    * values ARE the human-reviewed values, and this receipt says so.
    */
   humanReview?: HumanReviewReceipt;
+  /**
+   * Whether `rate` is pricing authority, carried from the source row. A
+   * `review_required` row has no rate until a person reviews its region.
+   */
+  rateAuthority?: ContractRateAuthority;
   /**
    * The row's own physical identity, verbatim from extraction. NOT unique
    * across documents: two uploads of one PDF mint identical `row_id`s, so this
@@ -2353,7 +2363,12 @@ function typedRowsToRateRows(rows: readonly unknown[] | null | undefined): Contr
       const rowId = stringFromRecord(record, ['row_id', 'id']);
       const category = stringFromRecord(record, ['category', 'material_type', 'material', 'debris_type']);
       const unit = stringFromRecord(record, ['unit', 'unit_type', 'uom']);
-      const rate = numberFromRecord(record, ['rate_amount', 'rate', 'amount', 'price', 'unit_rate']);
+      // A persisted rate authority survives the round trip through the typed
+      // rate table, so a withheld rate stays withheld when re-read.
+      const rateAuthority = parseContractRateAuthority(record.rate_authority);
+      const rate = rateWithheldByAuthority(rateAuthority)
+        ? null
+        : numberFromRecord(record, ['rate_amount', 'rate', 'amount', 'price', 'unit_rate']);
       const rateRaw = stringFromRecord(record, ['rate_raw', 'raw_text']);
       return {
         row_id: rowId?.startsWith('typed_rate_table:')
@@ -2372,6 +2387,7 @@ function typedRowsToRateRows(rows: readonly unknown[] | null | undefined): Contr
         material_type: category,
         unit_type: unit,
         rate_amount: rate,
+        ...(rateAuthority ? { rate_authority: rateAuthority } : {}),
         geometry_refs: geometryRefsFromRecord(record),
       };
     })
@@ -2521,9 +2537,16 @@ export function assembleContractPricingRowsWithCandidates(
       const combinedText = `${sourceDescription} ${rawText}`;
       const classificationText = clean([combinedText, ...(row.raw_cells ?? [])].join(' ')) ?? combinedText;
       const sourceKind = rowSourceKind(row);
-      let rate = sourceKind === 'tdot_appendix_b_stitched_table' && row.rate_amount == null && row.rate == null
+      // A row that carries a rate authority has already decided its rate. A
+      // null there is a withheld or unreadable amount, never an invitation to
+      // read digits back out of the raw text.
+      const rateAuthority = row.rate_authority ?? null;
+      const rateWithheld = rateWithheldByAuthority(rateAuthority);
+      let rate = rateWithheld
         ? null
-        : row.rate_amount ?? row.rate ?? parseContractPricingRate(rawText);
+        : rateAuthority != null || (sourceKind === 'tdot_appendix_b_stitched_table' && row.rate_amount == null && row.rate == null)
+          ? row.rate_amount ?? row.rate ?? null
+          : row.rate_amount ?? row.rate ?? parseContractPricingRate(rawText);
       const focusedText = focusTextAroundRate(classificationText, rate);
       const nativeCategory = refineCategoryByContext(row, resolveCategory(row, focusedText), classificationText);
       const category = nativeCategory ?? sources.selectedCategoryBySourceRow?.get(sourceRowIdentity) ?? null;
@@ -2582,8 +2605,10 @@ export function assembleContractPricingRowsWithCandidates(
           ? correction
           : null;
       const confidencePreservingCorrection = Boolean(correction?.preserveConfidence);
-      const correctedRate = correction?.rate != null && correction.rate !== rate;
-      if (correction?.rate != null) rate = correction.rate;
+      // An authored display correction cannot supply a rate the row's
+      // authority withholds: only a person's reviewed value can.
+      const correctedRate = !rateWithheld && correction?.rate != null && correction.rate !== rate;
+      if (!rateWithheld && correction?.rate != null) rate = correction.rate;
       if (correction?.unit) unit = correction.unit;
       if (correction?.route) route = correction.route;
       if (correction?.description && clean(correction.description) !== sourceDescription && categoryAllowsRouteDistance(category)) {
@@ -2771,6 +2796,7 @@ export function assembleContractPricingRowsWithCandidates(
           sourceKind,
           sourceQuality,
           ...(row.header_semantics ? { headerSemantics: { ...row.header_semantics } } : {}),
+          ...(rateAuthority ? { rateAuthority: { ...rateAuthority } } : {}),
           // `valueCorrection`, not `correction`: asserting that two rows are the
           // same item is not an authored VALUE correction and must not flag the
           // row for authored-rate quarantine.
@@ -2825,6 +2851,7 @@ export function assembleContractPricingRows(
     ).selectedRows.map((row) => ({
       ...row,
       ...(row.headerSemantics ? { headerSemantics: { ...row.headerSemantics } } : {}),
+      ...(row.rateAuthority ? { rateAuthority: { ...row.rateAuthority } } : {}),
       ...(row.pricingDimensions ? { pricingDimensions: { ...row.pricingDimensions } } : {}),
       ...(row.pricingDimensionSources ? { pricingDimensionSources: { ...row.pricingDimensionSources } } : {}),
       ...(row.geometryRefs ? {

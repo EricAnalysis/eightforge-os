@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 import type { PdfLayout, PdfLayoutLine, PdfLayoutPage, PdfToken } from '@/lib/extraction/pdf/extractText';
-import { buildPagePricedScheduleReconstruction } from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
+import { buildPagePricedScheduleReconstruction, pricedScheduleHeaderRoles } from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
 import { buildContractRateScheduleRows } from '@/lib/contracts/contractRateScheduleRows';
 
 /**
@@ -647,6 +647,55 @@ describe('generic single-page priced schedule reconstruction', () => {
     expect(result!.rows).toHaveLength(2);
   });
 
+  // O, O2 and O3 are intentional: two qualifying headers (even identical ones)
+  // fail the page closed, and a header-like line with no priced rows of its own
+  // beneath it is harmless. O5 and O6 extend the same rule to a later header
+  // that does not qualify.
+
+  it('O5: a later table under a header that does not qualify is never read through the first header', () => {
+    // Table B reorders the columns and uses labels outside the vocabulary
+    // ("Item / Service"), so its header does not qualify. Its unit text sits where
+    // table A reads descriptions, and its descriptions where A reads units, so
+    // reading B through A would admit rows with swapped roles. The page fails closed.
+    const result = reconstructSinglePage([
+      headerLine(7, 720),
+      pricedLine(7, 700, { description: 'Alpha service', unit: 'Widget', origin: 'A to B', currency: '$', amount: '12.00' }),
+      pricedLine(7, 690, { description: 'Beta service', unit: 'Widget', origin: 'B to C', currency: '$', amount: '3.50' }),
+      line(7, 600, [
+        { x: DESCRIPTION_X, text: 'UOM', width: 30 },
+        { x: UNIT_X, text: 'Item / Service', width: 80 },
+        { x: ORIGIN_X, text: 'Route', width: 40 },
+        { x: CURRENCY_X, text: 'Unit Price', width: 50 },
+      ]),
+      // B fills every one of A's columns, so before this rule both rows were
+      // admitted as A's rows with "Each" as the description.
+      pricedLine(7, 580, { description: 'Each', unit: 'Gamma service', origin: 'C to D', currency: '$', amount: '7.00' }),
+      pricedLine(7, 560, { description: 'Each', unit: 'Delta service', origin: 'D to E', currency: '$', amount: '9.00' }),
+    ]);
+    expect(result).toBeNull();
+  });
+
+  it('O6: header-like noise without priced rows of its own does not truncate the table', () => {
+    const result = reconstructSinglePage([
+      headerLine(7, 720),
+      pricedLine(7, 700, { description: 'Alpha service', unit: 'Widget', origin: 'A to B', currency: '$', amount: '12.00' }),
+      pricedLine(7, 680, { description: 'Beta service', unit: 'Widget', origin: 'B to C', currency: '$', amount: '3.50' }),
+      // One recognized role only: a note, not a header.
+      line(7, 665, [{ x: DESCRIPTION_X, text: 'Notes', width: 40 }, { x: CURRENCY_X, text: 'Cost', width: 30 }]),
+      pricedLine(7, 650, { description: 'Gamma service', unit: 'Widget', origin: 'C to D', currency: '$', amount: '7.00' }),
+      pricedLine(7, 630, { description: 'Delta service', unit: 'Widget', origin: 'D to E', currency: '$', amount: '9.00' }),
+      // Two recognized roles, but only one priced line beneath it: not a table of its own.
+      line(7, 600, [{ x: UNIT_X, text: 'Unit', width: 30 }, { x: CURRENCY_X, text: 'Cost', width: 30 }]),
+      pricedLine(7, 580, { description: 'Epsilon service', unit: 'Widget', origin: 'E to F', currency: '$', amount: '1.00' }),
+    ]);
+    // Not a table boundary: the page is still read. The note line sits midway
+    // between two rows, so the row-integrity guard withholds those two only.
+    expect(result).not.toBeNull();
+    expect(result!.status).toBe('reconstructed');
+    expect(result!.rows.map((row) => cellText(row, 'rate'))).toEqual(expect.arrayContaining(['$ 12.00', '$ 9.00']));
+    expect(result!.rejected_spines.filter((entry) => entry.reason === 'ambiguous_row_continuation')).toHaveLength(2);
+  });
+
   it('O4: body text reading like column values does not count as a header', () => {
     const result = reconstructSinglePage([
       headerLine(7, 720),
@@ -761,13 +810,121 @@ describe('generic single-page priced schedule reconstruction', () => {
 
   it('S: recognises common compact rate-column labels', () => {
     for (const label of [
-      'Cost', 'Cost ($)', 'Cost($)', 'Total Cost', 'Cost per Unit',
-      'Amount', 'Amount ($)', 'Rate', 'Rate/Unit', 'Unit Price', 'Unit Price ($)',
+      'Cost', 'Cost ($)', 'Cost($)', 'Cost per Unit', 'Rate', 'Rate/Unit', 'Unit Price', 'Unit Price ($)',
     ]) {
       const result = reconstructSinglePage([headerWith(label), ...twoBodyRows]);
       expect(result, `rate label ${label} must establish a rate column`).not.toBeNull();
       expect(result!.rows).toHaveLength(2);
     }
+  });
+
+  it('S1: an amount or total is never the unit rate (v3 collision fix)', () => {
+    // v2 read "Amount" and "Total Cost" as the rate column. Rate and amount are
+    // distinct canonical roles: these labels are unknown now, so they establish
+    // no rate column and the page is not priced from them.
+    for (const label of ['Amount', 'Amount ($)', 'Total Cost']) {
+      expect(pricedScheduleHeaderRoles(label), label).toEqual([]);
+      const result = reconstructSinglePage([headerWith(label), ...twoBodyRows]);
+      expect(result === null || !result.columns.some((column) => column.role === 'rate'), label).toBe(true);
+    }
+    expect(pricedScheduleHeaderRoles('Extended Amount')).toEqual(['amount']);
+  });
+
+  // ---------------------------------------------------------------------------
+  // V: canonical header-role vocabulary (v3). Supporting pricing-table roles
+  // (category, quantity, amount, item_code) count toward the three distinct
+  // roles a header needs; description and rate stay mandatory.
+  // ---------------------------------------------------------------------------
+
+  const threeColumnTable = (labels: readonly [string, string, string], cellsOf: (row: number) => TokenSpec[]) => [
+    line(7, 700, [
+      { x: DESCRIPTION_X, text: labels[0], width: 70 },
+      { x: UNIT_X, text: labels[1], width: 70 },
+      { x: CURRENCY_X, text: labels[2], width: 70 },
+    ]),
+    line(7, 680, cellsOf(0)),
+    line(7, 660, cellsOf(1)),
+  ];
+  const amount = (value: string): TokenSpec[] => [{ x: CURRENCY_X, text: '$', width: 8 }, { x: AMOUNT_X, text: value, width: 40 }];
+
+  it('V1: supporting roles count toward qualification; description and rate stay mandatory', () => {
+    const qualifying: Array<[readonly [string, string, string], (row: number) => TokenSpec[], string[]]> = [
+      [['Category', 'Description', 'Rate'], (row) => [{ x: DESCRIPTION_X, text: 'Group A', width: 60 },
+        { x: UNIT_X, text: `Service ${row}`, width: 80 }, ...amount('12.00')], ['category', 'description', 'rate']],
+      [['Item Number', 'Description', 'Rate'], (row) => [{ x: DESCRIPTION_X, text: `10${row}`, width: 30 },
+        { x: UNIT_X, text: `Service ${row}`, width: 80 }, ...amount('12.00')], ['item_code', 'description', 'rate']],
+      [['Description', 'Qty', 'Rate'], (row) => [{ x: DESCRIPTION_X, text: `Service ${row}`, width: 80 },
+        { x: UNIT_X, text: '4', width: 10 }, ...amount('12.00')], ['description', 'quantity', 'rate']],
+    ];
+    for (const [labels, cellsOf, roles] of qualifying) {
+      const result = reconstructSinglePage(threeColumnTable(labels, cellsOf));
+      expect(result, labels.join(' | ')).toMatchObject({ status: 'reconstructed' });
+      expect(result!.columns.map((column) => column.role)).toEqual(roles);
+      expect(result!.rows).toHaveLength(2);
+    }
+    const extended = reconstructSinglePage([
+      line(7, 700, [{ x: DESCRIPTION_X, text: 'Description', width: 70 }, { x: ORIGIN_X, text: 'Rate', width: 30 },
+        { x: CURRENCY_X, text: 'Extended Amount', width: 80 }]),
+      line(7, 680, [{ x: DESCRIPTION_X, text: 'Service 0', width: 80 }, { x: ORIGIN_X, text: '$', width: 8 },
+        { x: ORIGIN_X + 20, text: '12.00', width: 40 }, { x: AMOUNT_X, text: '48.00', width: 40 }]),
+      line(7, 660, [{ x: DESCRIPTION_X, text: 'Service 1', width: 80 }, { x: ORIGIN_X, text: '$', width: 8 },
+        { x: ORIGIN_X + 20, text: '3.50', width: 40 }, { x: AMOUNT_X, text: '7.00', width: 40 }]),
+    ]);
+    expect(extended).toMatchObject({ status: 'reconstructed' });
+    expect(extended!.columns.map((column) => column.role)).toEqual(['description', 'rate', 'amount']);
+    // The unit rate is the Rate column; the extended amount is never it.
+    expect(extended!.rows.map((row) => cellText(row, 'rate'))).toEqual(['$ 12.00', '$ 3.50']);
+    // No description: never qualifies, however many supporting roles.
+    const noDescription = reconstructSinglePage(threeColumnTable(['Category', 'Qty', 'Rate'], (row) => [
+      { x: DESCRIPTION_X, text: 'Group A', width: 60 }, { x: UNIT_X, text: `${row + 1}`, width: 10 }, ...amount('12.00')]));
+    expect(noDescription === null || (noDescription.rows.length === 0 && noDescription.columns.length === 0)).toBe(true);
+  });
+
+  it('V2: a supporting-role column never changes row assembly', () => {
+    const table = (label: string) => reconstructSinglePage([
+      line(7, 700, [{ x: 10, text: label, width: 35 }, { x: DESCRIPTION_X, text: 'Description', width: 70 },
+        { x: UNIT_X, text: 'Unit of Measure', width: 80 }, { x: CURRENCY_X, text: 'Cost', width: 30 }]),
+      line(7, 680, [{ x: 10, text: 'Group', width: 30 }, { x: DESCRIPTION_X, text: 'Alpha service', width: 100 },
+        { x: UNIT_X, text: 'Widget', width: 60 }, ...amount('12.00')]),
+      line(7, 670, [{ x: 10, text: 'A', width: 8 }]),
+      line(7, 650, [{ x: 10, text: 'Group', width: 30 }, { x: DESCRIPTION_X, text: 'Beta service', width: 100 },
+        { x: UNIT_X, text: 'Widget', width: 60 }, ...amount('3.50')]),
+    ])!;
+    const supporting = table('Category');
+    const unknown = table('Grouping');
+    expect(supporting.columns[0]!.role).toBe('category');
+    expect(unknown.columns[0]!.role).toBeNull();
+    // Rows, cells, role-less cells and diagnostics are identical: only the column's label differs.
+    const strip = (page: typeof supporting) => JSON.stringify({ ...page, columns: page.columns.map((column) => ({ ...column, role: null, header_text: '', header_source_refs: [] })),
+      header_raw_text: '', rows: page.rows.map((row) => ({ ...row, unresolved_role_cells: row.unresolved_role_cells?.map((cell) => ({ ...cell, header_text: '' })) })) });
+    expect(strip(supporting)).toBe(strip(unknown));
+    expect(supporting.rows[0]!.cells.map((cell) => cell.role)).not.toContain('category' as never);
+    expect(supporting.rows[0]!.unresolved_role_cells).toEqual([expect.objectContaining({ role: null, column_index: 0, header_text: 'Category' })]);
+  });
+
+  it('V3: the corpus-observed labels map to exactly one role; everything else is unknown', () => {
+    const observed: Array<[string, string]> = [
+      ['Description', 'description'], ['Equipment Description', 'description'], ['Personnel Description', 'description'],
+      ['Unit', 'unit'], ['Units', 'unit'], ['Unit.', 'unit'],
+      ['Rate', 'rate'], ['Unit Cost', 'rate'], ['Unit Price', 'rate'],
+      ['Category', 'category'], ['Qty', 'quantity'], ['Extended Amount', 'amount'], ['Item Number', 'item_code'],
+    ];
+    for (const [label, role] of observed) expect(pricedScheduleHeaderRoles(label), label).toEqual([role]);
+    // Unknown, never repaired or guessed: OCR fragments, identifiers, unobserved synonyms.
+    for (const label of ['Item', 'Amount', 'Total Cost', 'Line #', 'Sec #', 'Descripti', 'Uni', 'SE', 'Item / Service',
+      'Size Range (inches)', 'Debris Tonnage']) {
+      expect(pricedScheduleHeaderRoles(label), label).toEqual([]);
+    }
+  });
+
+  it('V4: the frozen spacing_only path keeps the legacy vocabulary verbatim', () => {
+    const lines = [headerWith('Amount'), ...twoBodyRows];
+    const frozen = buildPagePricedScheduleReconstruction({ layout: layoutOf([page(7, lines)]), continuationEvidence: 'spacing_only' });
+    expect(frozen.parser_version).toBe('priced_schedule_reconstruction_v1');
+    expect(frozen.pages[0]!.columns.find((column) => column.header_text === 'Amount')!.role).toBe('rate');
+    const current = buildPagePricedScheduleReconstruction({ layout: layoutOf([page(7, lines)]) });
+    expect(current.parser_version).toBe('priced_schedule_reconstruction_v3');
+    expect(current.pages.flatMap((entry) => entry.columns).some((column) => column.role === 'rate')).toBe(false);
   });
 
   it('S2: recognises common compact description and unit labels', () => {
@@ -957,9 +1114,13 @@ describe('generic single-page priced schedule reconstruction', () => {
       line(7, 630, [{ x: DESCRIPTION_X, text: 'orphan fragment', width: 100 }]),
       wrapRow(600, 'Beta service', '3.50'),
     ]);
-    expect(result!.rows).toHaveLength(2);
-    expect(cellText(result!.rows[0]!, 'description')).toBe('Alpha service');
-    expect(cellText(result!.rows[1]!, 'description')).toBe('Beta service');
+    // v3 row integrity: the fragment could complete either row, so neither is
+    // published; with no other row the page fails closed. Nothing is lost.
+    expect(result!.rows).toEqual([]);
+    expect(result!.rejected_spines.map((entry) => [entry.reason, entry.raw_text])).toEqual([
+      ['ambiguous_row_continuation', 'Alpha service Widget A to B $ 12.00'],
+      ['ambiguous_row_continuation', 'Beta service Widget A to B $ 3.50'],
+    ]);
     expect(result!.unassigned_lines).toHaveLength(1);
     expect(result!.unassigned_lines[0]!.reason).toBe('ambiguous_row_assignment');
     expect(result!.unassigned_lines[0]!.raw_text).toBe('orphan fragment');
@@ -975,9 +1136,75 @@ describe('generic single-page priced schedule reconstruction', () => {
       line(7, 629.9, [{ x: DESCRIPTION_X, text: 'borderline fragment', width: 100 }]),
       wrapRow(600, 'Beta service', '3.50'),
     ]);
-    expect(cellText(result!.rows[1]!, 'description')).toBe('Beta service');
-    expect(cellText(result!.rows[0]!, 'description')).toBe('Alpha service');
+    // Not handed to either row, and neither row is published with a meaning it may be missing.
+    expect(result!.rows).toEqual([]);
+    expect(result!.rejected_spines.map((entry) => entry.reason)).toEqual(['ambiguous_row_continuation', 'ambiguous_row_continuation']);
     expect(result!.unassigned_lines.map((entry) => entry.reason)).toEqual(['ambiguous_row_assignment']);
+  });
+
+  // ---------------------------------------------------------------------------
+  // G: v3 row integrity. A row whose meaning an ambiguous continuation line may
+  // complete is withheld, with its neighbour; nothing else changes.
+  // ---------------------------------------------------------------------------
+
+  const fourRows = (fragment: PdfLayoutLine | null) => reconstructSinglePage([
+    wrapHeader(),
+    wrapRow(680, 'Alpha service', '12.00'),
+    // The second row's description wraps; its continuation sits midway to the third row.
+    wrapRow(660, 'Beta service and', '3.50'),
+    ...(fragment ? [fragment] : []),
+    wrapRow(640, 'Gamma service', '7.00'),
+    wrapRow(620, 'Delta service', '9.00'),
+  ])!;
+
+  it('G1: withholds only the rows an ambiguous description line could complete', () => {
+    const clean = fourRows(null);
+    expect(clean.rows.map((row) => cellText(row, 'description'))).toEqual(['Alpha service', 'Beta service and', 'Gamma service', 'Delta service']);
+    const guarded = fourRows(line(7, 650, [{ x: DESCRIPTION_X, text: 'disposal', width: 50 }]));
+    // The candidates are withheld, never published with a meaning they may be missing.
+    expect(guarded.rejected_spines.map((entry) => [entry.reason, entry.raw_text])).toEqual([
+      ['ambiguous_row_continuation', 'Beta service and Widget A to B $ 3.50'],
+      ['ambiguous_row_continuation', 'Gamma service Widget A to B $ 7.00'],
+    ]);
+    // The ambiguous line stays in unresolved evidence.
+    expect(guarded.unassigned_lines.map((entry) => [entry.reason, entry.raw_text])).toEqual([['ambiguous_row_assignment', 'disposal']]);
+    // Rows the line cannot belong to stay deterministic, byte-identical, with their own rate and unit.
+    expect(guarded.rows).toEqual([clean.rows[0], clean.rows[3]]);
+    expect(guarded.rows.map((row) => [cellText(row, 'rate'), cellText(row, 'unit')])).toEqual([['$ 12.00', 'Widget'], ['$ 9.00', 'Widget']]);
+  });
+
+  it('G2: a line clearly nearer one row attaches to it and withholds nothing', () => {
+    const attached = fourRows(line(7, 656, [{ x: DESCRIPTION_X, text: 'disposal', width: 50 }]));
+    expect(attached.rejected_spines).toEqual([]);
+    expect(attached.rows.map((row) => cellText(row, 'description'))).toEqual(['Alpha service', 'Beta service and disposal', 'Gamma service', 'Delta service']);
+  });
+
+  it('G3: ambiguous text in a column outside row semantics does not block pricing', () => {
+    // A role-less reference column: its text never joins row assembly, so it is
+    // reported as unattached evidence and no row is withheld.
+    const page = reconstructSinglePage([
+      line(7, 700, [{ x: 10, text: 'Ref', width: 20 }, { x: DESCRIPTION_X, text: 'Description', width: 70 },
+        { x: UNIT_X, text: 'Unit of Measure', width: 80 }, { x: ORIGIN_X, text: 'Origin/ Destination', width: 90 },
+        { x: CURRENCY_X, text: 'Cost', width: 30 }]),
+      wrapRow(680, 'Alpha service', '12.00'),
+      wrapRow(660, 'Beta service', '3.50'),
+      line(7, 650, [{ x: 10, text: 'n/a', width: 15 }]),
+      wrapRow(640, 'Gamma service', '7.00'),
+    ])!;
+    expect(page.rejected_spines).toEqual([]);
+    expect(page.rows).toHaveLength(3);
+    expect(page.unattached_role_less_tokens?.map((token) => token.text)).toEqual(['n/a']);
+  });
+
+  it('G4: the frozen spacing_only path keeps publishing as recorded', () => {
+    const frozen = buildPagePricedScheduleReconstruction({
+      layout: layoutOf([page(7, [wrapHeader(), wrapRow(680, 'Alpha service', '12.00'), wrapRow(660, 'Beta service and', '3.50'),
+        line(7, 650, [{ x: DESCRIPTION_X, text: 'disposal', width: 50 }]), wrapRow(640, 'Gamma service', '7.00'),
+        wrapRow(620, 'Delta service', '9.00')])]),
+      continuationEvidence: 'spacing_only',
+    }).pages[0]!;
+    expect(frozen.rejected_spines.some((entry) => (entry.reason as string) === 'ambiguous_row_continuation')).toBe(false);
+    expect(frozen.rows).toHaveLength(4);
   });
 
   it('V5: reassembles a three-line wrapped description in authored order', () => {
@@ -1560,35 +1787,35 @@ describe('generic single-page priced schedule reconstruction', () => {
   it('OCR3: an unrecognized label leaves its role unresolved while the table structure survives', () => {
     const result = reconstructSinglePage([
       line(7, 700, [
-        { x: DESCRIPTION_X, text: 'Equipment', width: 45 }, { x: 99, text: 'Description', width: 55 },
+        { x: DESCRIPTION_X, text: 'Plant', width: 45 }, { x: 99, text: 'Description', width: 55 },
         { x: UNIT_X, text: 'Unit', width: 20 },
         { x: 440, text: 'Unit', width: 20 }, { x: 463, text: 'Price', width: 25 },
       ]),
       ...wordLevelBody,
     ]);
     // Structure resolved, semantics not: the table is rebuilt from geometry and
-    // "Equipment Description" stays authored text in a role-less column.
+    // "Plant Description" stays authored text in a role-less column.
     expect(result).toMatchObject({ status: 'reconstructed', semantic_status: 'unresolved' });
     expect(result!.columns.map((column) => [column.header_text, column.role])).toEqual([
-      ['Equipment Description', null], ['Unit', 'unit'], ['Unit Price', 'rate'],
+      ['Plant Description', null], ['Unit', 'unit'], ['Unit Price', 'rate'],
     ]);
     expect(result!.rows).toHaveLength(2);
     expect(result!.rows[0]!.cells.map((cell) => [cell.role, cell.raw_text])).toEqual([['unit', 'Widget'], ['rate', '$12.00']]);
     expect(result!.rows[0]!.unresolved_role_cells).toEqual([expect.objectContaining({
-      role: null, column_index: 0, header_text: 'Equipment Description', raw_text: 'Alpha service',
+      role: null, column_index: 0, header_text: 'Plant Description', raw_text: 'Alpha service',
     })]);
     expect(result!.rows.flatMap((row) => row.cells).some((cell) => cell.role === 'description')).toBe(false);
     // Promoting the column to a role needs a reviewed choice of this option.
     const interpretation = result!.header_interpretation!;
     expect(interpretation).toMatchObject({ status: 'unresolved', reason: 'required_role_missing' });
     expect(interpretation.labels.map((label) => [label.text, label.role])).toEqual([
-      ['Equipment Description', null], ['Unit', 'unit'], ['Unit Price', 'rate'],
+      ['Plant Description', null], ['Unit', 'unit'], ['Unit Price', 'rate'],
     ]);
     expect(interpretation.options).toHaveLength(1);
     const option = interpretation.options![0]!;
     expect(option).toMatchObject({ kind: 'role_assignment', qualifies: true });
     expect(option.labels.map((label) => [label.text, label.role, refTexts(label)])).toEqual([
-      ['Equipment Description', 'description', ['Equipment', 'Description']],
+      ['Plant Description', 'description', ['Plant', 'Description']],
       ['Unit', 'unit', ['Unit']], ['Unit Price', 'rate', ['Unit', 'Price']],
     ]);
   });
@@ -1630,7 +1857,7 @@ describe('generic single-page priced schedule reconstruction', () => {
   it('OCR6: header-like labels with no priced lines below are not a recovery candidate', () => {
     const result = reconstructSinglePage([
       line(7, 700, [
-        { x: DESCRIPTION_X, text: 'Equipment', width: 45 }, { x: 99, text: 'Description', width: 55 },
+        { x: DESCRIPTION_X, text: 'Plant', width: 45 }, { x: 99, text: 'Description', width: 55 },
         { x: UNIT_X, text: 'Unit', width: 20 },
         { x: 440, text: 'Unit', width: 20 }, { x: 463, text: 'Price', width: 25 },
       ]),
@@ -1671,12 +1898,14 @@ describe('generic single-page priced schedule reconstruction', () => {
     expect(JSON.stringify(layout)).toBe(before);
   });
 
-  it('OCR9: the description vocabulary is unchanged: only its generic labels resolve', () => {
-    for (const label of ['Description', 'Item Description', 'Item', 'Description of Work']) {
+  it('OCR9: only observed description labels resolve; a lone "Item" is unknown (v3)', () => {
+    for (const label of ['Description', 'Item Description', 'Description of Work', 'Equipment Description', 'Personnel Description']) {
       const result = reconstructSinglePage([headerWith('Cost', label), ...twoBodyRows]);
       expect(result, `description label ${label} must be recognised`).toMatchObject({ status: 'reconstructed' });
+      expect(result!.semantic_status, label).toBeUndefined();
     }
-    for (const label of ['Equipment Description', 'Heavy Equipment Description']) {
+    // A lone "Item" can mean a code or a description; no meaning is assumed.
+    for (const label of ['Item', 'Heavy Equipment Description']) {
       const result = reconstructSinglePage([headerWith('Cost', label), ...twoBodyRows]);
       expect(result, `${label} must not be given a role`).toMatchObject({ status: 'reconstructed', semantic_status: 'unresolved' });
       expect(result!.columns[0]).toMatchObject({ role: null, header_text: label });
@@ -1755,7 +1984,7 @@ describe('generic single-page priced schedule reconstruction', () => {
 
   it('R2-5: a page whose required role is unresolved yields structure but no pricing facts', () => {
     const recon = buildPagePricedScheduleReconstruction({
-      layout: layoutOf([page(7, [headerWith('Cost', 'Equipment Description'), ...twoBodyRows])]),
+      layout: layoutOf([page(7, [headerWith('Cost', 'Heavy Equipment Description'), ...twoBodyRows])]),
     });
     expect(recon.pages[0]).toMatchObject({ status: 'reconstructed', semantic_status: 'unresolved' });
     expect(recon.pages[0]!.rows).toHaveLength(2);
@@ -2024,7 +2253,7 @@ describe('generic single-page priced schedule reconstruction', () => {
   });
 
   it('R4-6: a page whose header semantics are unresolved is never priced structurally', () => {
-    const lines = structuredTable(middle([{ x: AMOUNT_X, text: '120.00', width: 40 }]), { descriptionLabel: 'Equipment Description' });
+    const lines = structuredTable(middle([{ x: AMOUNT_X, text: '120.00', width: 40 }]), { descriptionLabel: 'Heavy Equipment Description' });
     const result = reconstructSinglePage(lines)!;
     expect(result.semantic_status).toBe('unresolved');
     expect(result.rows.some((row) => rateCellOf(row).structured_rate)).toBe(false);

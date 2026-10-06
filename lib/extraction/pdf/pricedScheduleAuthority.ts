@@ -6,7 +6,7 @@ import type {
 } from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
 import { hashCanonical } from '@/lib/extraction/domain/hash';
 import { RULING_LINE_EVIDENCE_VERSION, RULING_LINE_DETECTOR_VERSION } from '@/lib/extraction/pdf/rulingLineEvidence';
-import { PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION, type PricedScheduleReconstructionVersion } from '@/lib/extraction/pdf/pricedScheduleVersion';
+import { isPagePricedScheduleVersion, type PricedScheduleReconstructionVersion } from '@/lib/extraction/pdf/pricedScheduleVersion';
 
 export type PricingAuthorityIssue =
   | 'missing_ruling_evidence' | 'malformed_ruling_evidence' | 'evidence_digest_mismatch'
@@ -83,7 +83,8 @@ function authorityIssue(page: PricedSchedulePage, version?: PricedScheduleRecons
       || fullRefKey(owners[0]!.source) !== fullRefKey(ref)) return fail('inconsistent_resolution', index);
   }
   if (page.ruling_line_resolution_digest == null) {
-    if (version === PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION) return fail('missing_resolution_digest');
+    // Every page reconstruction (v2 and v3) binds its resolutions by digest; only legacy may omit it.
+    if (isPagePricedScheduleVersion(version)) return fail('missing_resolution_digest');
   } else if (page.ruling_line_resolution_digest !== hashCanonical({ evidence_digest, resolutions })) return fail('resolution_digest_mismatch');
   for (const row of page.rows) {
     const projected = projectRow(page, row, ruleRefs);

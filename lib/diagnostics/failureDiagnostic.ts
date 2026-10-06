@@ -22,6 +22,7 @@ export const DIAGNOSTIC_CODES = [
   'insufficient_row_structure',
   'outside_table_body',
   'inconsistent_row_pitch',
+  'ambiguous_row_continuation',
   'insufficient_priced_rows',
   'ambiguous_recovery_confirmation',
   'recovery_closure_failed',

@@ -89,7 +89,7 @@ describe('durable unresolved priced pages', () => {
     const result = buildPagePricedScheduleReconstruction({ layout: layoutOf(twoTables()) });
     // Current (v2) reconstruction semantics, stored under the historical
     // priced_schedule_reconstruction_v1 envelope key.
-    expect(result.parser_version).toBe('priced_schedule_reconstruction_v2');
+    expect(result.parser_version).toBe('priced_schedule_reconstruction_v3');
     expect(result.pages).toEqual([]);
     expect(result.unresolved_pages).toHaveLength(1);
     const unresolved = result.unresolved_pages![0]!;
@@ -110,6 +110,29 @@ describe('durable unresolved priced pages', () => {
       expect(entry.source_refs.length).toBeGreaterThan(0);
       expect(entry.source_refs.every((ref) => typeof ref.observation_id === 'string')).toBe(true);
     }
+  });
+
+  it('records a page whose later table header does not qualify, with both headers and every priced line', () => {
+    const result = buildPagePricedScheduleReconstruction({ layout: layoutOf([
+      header(720),
+      priced(700, 'Alpha service', '12.00'),
+      priced(690, 'Beta service', '3.50'),
+      line(600, [
+        { x: 50, text: 'UOM', width: 30 },
+        { x: 200, text: 'Item / Service', width: 80 },
+        { x: 450, text: 'Unit Price', width: 50 },
+      ]),
+      priced(580, 'Gamma service', '7.00'),
+      priced(560, 'Delta service', '9.00'),
+    ]) });
+    // No row is read through the first header; nothing disappears either.
+    expect(result.pages).toEqual([]);
+    expect(result.unresolved_pages).toMatchObject([{
+      authority: 'non_authoritative_diagnostic', reason: 'unresolved_later_header', physical_page_number: PAGE,
+    }]);
+    const unresolved = result.unresolved_pages![0]!;
+    expect(unresolved.header_lines.map((entry) => entry.y)).toEqual([720, 600]);
+    expect(unresolved.priced_lines).toHaveLength(4);
   });
 
   it('records a page whose header lines are all plausible but unresolved, choosing none', () => {

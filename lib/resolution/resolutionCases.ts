@@ -328,6 +328,7 @@ const UNRESOLVED_REASON_TEXT: Record<string, string> = {
   multiple_priced_headers: 'The page holds more than one priced table, so it was not read as one.',
   ambiguous_header_candidates: 'More than one line could be the table header; none was chosen.',
   header_not_found: 'Priced lines were found, but no table header.',
+  unresolved_later_header: 'A second table starts below the first under a header that could not be read, so neither was read as one table.',
 };
 
 function documentLabel(documents: ReadonlyMap<string, ResolutionDocument>, id: string | null): string {

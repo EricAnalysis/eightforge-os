@@ -2796,9 +2796,13 @@ function headerSignatureOf(page: PricedSchedulePage): PricedScheduleHeaderSignat
 
 /**
  * Whether a headerless page proves the carried layout: every rate marker on
- * it falls in the carried rate column, rows are published, and no priced line
- * is rejected for a structural reason (row-level ambiguity may still withhold
- * rows). Any contradiction refuses the whole page: nothing is inherited partially.
+ * it falls in the carried rate column, rows are published, and the page reads
+ * completely: no priced line is withheld or rejected, for any reason, and no
+ * authored line is left unattributed. A carried header has no geometry of its
+ * own on the page, so only a page it reads in full can prove it; a page it
+ * reads in part (the real corpus showed a mostly withheld page whose few
+ * admitted rows were wrong) stays unresolved. Any contradiction refuses the
+ * whole page: nothing is inherited partially.
  */
 function inheritedLayoutProof(
   page: PdfLayoutPage,
@@ -2809,8 +2813,7 @@ function inheritedLayoutProof(
   const rateColumn = signature.columns.findIndex((column) => column.role === 'rate');
   const markers = page.lines.flatMap((line) => line.tokens.filter((token) => isRowSpineToken(token)));
   if (rateColumn < 0 || markers.some((token) => centerColumnIndexForToken(token, signature.columns) !== rateColumn)) return null;
-  const rowLevel = new Set<PricedScheduleRejectedSpineReason>(['ambiguous_row_continuation', 'ambiguous_rate_clusters']);
-  if (result.rejected_spines.some((spine) => !rowLevel.has(spine.reason))) return null;
+  if (result.rejected_spines.length > 0 || result.unassigned_lines.length > 0) return null;
   return {
     priced_lines: page.lines.filter((line) => line.tokens.some((token) => isRowSpineToken(token))).length,
     rate_markers_in_rate_column: markers.length,

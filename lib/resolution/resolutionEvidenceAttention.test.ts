@@ -195,7 +195,8 @@ describe('the typed disposition', () => {
 });
 
 describe('review-required values (Forgewing generalization, phase 2)', () => {
-  const scanned = { ...target('p10:priced_line:scan', ['o1', 'o2'], 10, 'scanned_source'), candidateRateRaw: '$96.00' };
+  const scanned = { ...target('p10:priced_line:scan', ['o1', 'o2'], 10, 'scanned_source'), candidateRateRaw: '$96.00',
+    basis: 'scanned_source' as const };
 
   it('opens a case for a scanned rate, offering only the existing reviewed-value and disposition writes', () => {
     const queue = build({ attention: { diagnostics: [], withheldTargets: [], reviewRequiredTargets: [scanned] } });
@@ -220,5 +221,15 @@ describe('review-required values (Forgewing generalization, phase 2)', () => {
       reviewed: { history, held: [{ anchorKey: 'p10:priced_line:scan', assertionIds: ['a1'], reason: 'page_representation_changed' }] as never } });
     expect(held.cases.map((entry) => entry.kind)).toEqual(['reviewed_value_needs_rereview']);
     expect(held.cases[0]!.actions.map((action) => action.kind)).toContain('enter_reviewed_value');
+  });
+
+  it('opens a case for a native rate cell that is not a whole amount, without inventing one', () => {
+    const unreadable = { ...target('p10:priced_line:bad', ['o3'], 10, 'unreadable_amount'), candidateRateRaw: '$95,00',
+      basis: 'unreadable_amount' as const };
+    const [entry] = build({ attention: { diagnostics: [], withheldTargets: [], reviewRequiredTargets: [unreadable] } }).cases;
+    expect(entry).toMatchObject({ kind: 'review_required_value', caseId: `review_required:${DOC}:p10:priced_line:bad` });
+    expect(entry!.title).toContain('Unreadable rate to enter');
+    expect(entry!.problem).toContain('"$95,00"');
+    expect(entry!.actions.map((action) => action.kind)).toEqual(['enter_reviewed_value', 'record_disposition', 'open_document']);
   });
 });

@@ -42,12 +42,17 @@ describe('Forgewing B4.1 gate boundaries', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('only the value-reading engine spends the budget (B4.3)', () => {
+  it('only named provider workflows spend the budget, each its own (B4.3, generalization phase 3)', () => {
     const spenders = production().filter((file) => file !== GATES).filter((file) => {
       const source = code(file);
       return source.includes('reserveForgewingProviderCall') || source.includes('reserve_forgewing_provider_call');
     });
-    expect(spenders).toEqual([path.join('lib', 'server', 'valueReadingEngine.ts')]);
+    // Exactly these. A further spender is a new provider surface and must be
+    // added here deliberately, behind the same gates.
+    expect([...spenders].sort()).toEqual([
+      path.join('app', 'api', 'projects', '[id]', 'ask', 'route.ts'),
+      path.join('lib', 'server', 'valueReadingEngine.ts'),
+    ].sort());
   });
 
   it('no Core path consults a Forgewing gate', () => {

@@ -10,7 +10,7 @@ import { resolveCanonicalRateCategory } from '@/lib/validator/rateTaxonomy';
 import { canonicalTaxonomyKeyForAllowedCategory } from '@/lib/contracts/contractPricingAssembly';
 import { collapseWhitespace, normalizeDashCharacters } from '@/lib/contracts/textCleanupPrimitives';
 import type { PhysicalPageCoordinate } from '@/lib/extraction/provenance/physicalPageCoordinate';
-import { decideRateAuthority, evidenceIsScanned } from '@/lib/contracts/rateAuthority';
+import { decideRateAuthority, evidenceIsScanned, readAuthoredAmount } from '@/lib/contracts/rateAuthority';
 import type {
   PagePricedScheduleReconstruction,
   PricedScheduleCell,
@@ -1390,14 +1390,7 @@ function buildFallbackRowsFromSourceEntries(params: {
  * row stays unresolved and needs review instead. A well-formed amount that a
  * scan misread cannot be detected here, and is not claimed to be.
  */
-const AUTHORED_AMOUNT = /^-?[$£€¥]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{2,4})?$/u;
-
-function numericRateFromAuthoredText(rawText: string): number | null {
-  const numeric = rawText.split(/\s+/u).filter((token) => /\d/u.test(token));
-  if (numeric.length !== 1 || !AUTHORED_AMOUNT.test(numeric[0]!)) return null;
-  const parsed = Number.parseFloat(numeric[0]!.replace(/[^\d.-]/gu, ''));
-  return Number.isFinite(parsed) ? parsed : null;
-}
+const numericRateFromAuthoredText = readAuthoredAmount;
 
 /** Each persisted layout observation's capture method, by id. */
 function layoutObservationMethods(layer: unknown): Map<string, string> {

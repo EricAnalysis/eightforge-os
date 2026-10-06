@@ -4,12 +4,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/server/supabaseAdmin', () => ({ getSupabaseAdmin: () => null }));
 
-import { regionAssertionEntryTargets } from '@/lib/humanFactAssertions/regionBoundAssertions';
+import { regionAssertionEntryTargets, reviewRequiredValueTargets, withheldPricedLineTargets } from '@/lib/humanFactAssertions/regionBoundAssertions';
 import type { ValueReadingEligibility } from '@/lib/server/forgewingGates';
 import {
   buildValueReadingRequest,
+  parsePricedLineCaseId,
   parseUnreadableLineCaseId,
   parseValueReadingOutput,
+  resolveValueReadingTarget,
   runValueReading,
   VALUE_READING_EXECUTION,
   VALUE_READING_OUTPUT_JSON_SCHEMA,
@@ -525,5 +527,51 @@ describe('value-reading request and output contracts (B4.3)', () => {
     expect(Object.keys(full).sort()).toEqual([...schema.required].sort());
     // No unsupported structured-output constraints.
     expect(JSON.stringify(schema)).not.toMatch(/anyOf|oneOf|minimum|maximum|minLength|maxLength|pattern/);
+  });
+});
+
+describe('value reading investigates every priced-line case family (generalization, phase 4)', () => {
+  const ref = (id: string, x: number, y: number, source: string) => ({ observation_id: id, text: id, x_min: x, x_max: x + 1,
+    y_min: y, y_max: y + 1, source });
+  const v3 = () => {
+    const data = extractionData();
+    (data.extraction.content_layers_v1.pdf as Record<string, unknown>).priced_schedule_reconstruction_v1 = {
+      parser_version: 'priced_schedule_reconstruction_v3', pages: [{
+        physical_page_number: 8, status: 'reconstructed', semantic_status: 'resolved', columns: [], unassigned_lines: [],
+        rejected_spines: [{ reason: 'inconsistent_row_pitch', physical_page_number: 8, raw_text: 'Debris CY sia 50',
+          source_refs: [ref('o1', 1, 3, 'ocr_fallback'), ref('o2', 5, 3, 'ocr_fallback')] }],
+        rows: [{ row_index: 0, physical_page_number: 8, raw_text: 'Hauling | $8.75', x_min: 1, x_max: 6, y_min: 5, y_max: 6,
+          cells: [{ role: 'description', raw_text: 'Hauling', source_refs: [ref('o3', 1, 5, 'ocr_fallback')] },
+            { role: 'rate', raw_text: '$8.75', source_refs: [ref('o4', 5, 5, 'ocr_fallback')] }] }],
+      }],
+    };
+    return data;
+  };
+
+  it('parses the three priced-line case families and nothing else', () => {
+    expect(parsePricedLineCaseId(`withheld:${DOC}:p8:priced_line:abc`)).toEqual({ family: 'withheld', documentId: DOC, anchorKey: 'p8:priced_line:abc' });
+    expect(parsePricedLineCaseId(`review_required:${DOC}:p8:priced_line:abc`)?.family).toBe('review_required');
+    expect(parsePricedLineCaseId(`diagnostic:${DOC}:p8:priced_line:abc`)).toBeNull();
+    expect(parsePricedLineCaseId(`withheld:${DOC}:not-an-anchor`)).toBeNull();
+    // The unreadable-only parser is unchanged for its callers.
+    expect(parseUnreadableLineCaseId(`withheld:${DOC}:p8:priced_line:abc`)).toBeNull();
+  });
+
+  it('binds a withheld line and a scanned rate row exactly as their cases do', async () => {
+    const { client } = fake({ extractions: [{ id: 'extraction-1', document_id: DOC, created_at: '2026-10-05T00:00:00Z', data: v3() }] });
+    const withheld = withheldPricedLineTargets(v3(), DOC)[0]!;
+    const scanned = reviewRequiredValueTargets(v3(), DOC)[0]!;
+    for (const [family, target] of [['withheld', withheld], ['review_required', scanned]] as const) {
+      const caseId = `${family}:${DOC}:${target.anchorKey}`;
+      const result = await resolveValueReadingTarget(client, { organizationId: ORG, projectId: PROJECT, caseId });
+      expect(result.ok, family).toBe(true);
+      if (!result.ok) continue;
+      expect(result.target.binding).toMatchObject({ resolutionCaseId: caseId, anchorKey: target.anchorKey,
+        sourceObservationIds: [...target.sourceObservationIds], factKey: 'contract_rate_row' });
+    }
+    // A case id from one family never resolves another family's anchor.
+    const crossed = await resolveValueReadingTarget(client, { organizationId: ORG, projectId: PROJECT,
+      caseId: `withheld:${DOC}:${scanned.anchorKey}` });
+    expect(crossed).toEqual({ ok: false, reason: 'case_not_found' });
   });
 });

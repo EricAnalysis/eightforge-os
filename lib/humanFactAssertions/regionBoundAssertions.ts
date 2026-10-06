@@ -1,4 +1,5 @@
 import type { ContractPricingAssemblyRow } from '@/lib/contracts/contractPricingAssembly';
+import { evidenceIsScanned, readAuthoredAmount } from '@/lib/contracts/rateAuthority';
 import { hashCanonical } from '@/lib/extraction/domain/hash';
 import { pricingAuthoritativePage } from '@/lib/extraction/pdf/pricedScheduleAuthority';
 import type { HumanReviewReceipt } from '@/lib/humanFactAssertions/humanReviewReceipt';
@@ -641,6 +642,74 @@ export function withheldPricedLineTargets(
     ];
     return lines.map((line) => ({ page: page.physical_page_number, reason: asRecord(line)?.reason, line }));
   })).filter((target) => (seen.has(target.anchorKey) ? false : (seen.add(target.anchorKey), true)));
+}
+
+/** A published priced row whose amount was read from a scan, offered for review. */
+export type ReviewRequiredValueTarget = RegionAssertionEntryTarget & Readonly<{
+  /** The rate cell exactly as extraction read it: the reviewer's candidate, never a rate. */
+  candidateRateRaw: string;
+  /** Why the rate is withheld: read from a scan, or native text that is not an amount. */
+  basis: 'scanned_source' | 'unreadable_amount';
+}>;
+
+/**
+ * Targets for priced rows extraction reconstructed on a page it trusts, but
+ * whose amount was read from a scan (Forgewing generalization, phase 2). The
+ * rate is withheld from pricing until a person confirms or corrects it, so
+ * each such row is offered for a reviewed value bound to the row's exact
+ * observations: the same identity scheme as every other priced line, so the
+ * reviewed value supersedes the machine row under B3.1.
+ */
+export function reviewRequiredValueTargets(
+  extractionData: unknown,
+  sourceDocumentId: string | null = null,
+): ReviewRequiredValueTarget[] {
+  const pdf = asRecord(asRecord(asRecord(asRecord(extractionData)?.extraction)?.content_layers_v1)?.pdf);
+  const reconstruction = asRecord(pdf?.priced_schedule_reconstruction_v1);
+  const version = reconstruction?.parser_version;
+  if (!isSupportedPricedScheduleVersion(version) || !Array.isArray(reconstruction?.pages)) return [];
+  const methods = new Map<string, string>();
+  const observations = asRecord(pdf?.layout_observations_v1)?.observations;
+  for (const entry of Array.isArray(observations) ? observations : []) {
+    const observation = asRecord(entry);
+    if (typeof observation?.id === 'string' && typeof observation.source_method === 'string') {
+      methods.set(observation.id, observation.source_method);
+    }
+  }
+  const candidates: { page: number; line: unknown; rateRaw: string; basis: ReviewRequiredValueTarget['basis'] }[] = [];
+  for (const entry of reconstruction.pages) {
+    const page = pricingAuthoritativePage(entry as PricedSchedulePage, version);
+    // Exactly the rows pricing would publish: a structure-only page publishes none.
+    if (!page || page.semantic_status === 'unresolved') continue;
+    for (const row of page.rows) {
+      const rate = row.cells.find((cell) => cell.role === 'rate');
+      if (!rate || !row.cells.some((cell) => cell.role === 'description')) continue;
+      // The same decision the row builder makes (decideRateAuthority): a scanned
+      // amount, or native text that does not read whole as an amount.
+      const basis = evidenceIsScanned(rate.source_refs, methods) ? 'scanned_source' as const
+        : readAuthoredAmount(rate.structured_rate?.amount_text ?? rate.raw_text) == null ? 'unreadable_amount' as const
+          : null;
+      if (!basis) continue;
+      candidates.push({ page: page.physical_page_number, rateRaw: rate.raw_text, basis,
+        line: { raw_text: row.raw_text, source_refs: row.cells.flatMap((cell) => cell.source_refs) } });
+    }
+  }
+  const targets = pricedLineTargets(extractionData, sourceDocumentId,
+    candidates.map((candidate) => ({ page: candidate.page, reason: candidate.basis, line: candidate.line })));
+  // pricedLineTargets keeps order and drops only unbindable lines; pair by anchor.
+  const candidateByAnchor = new Map<string, (typeof candidates)[number]>(candidates.flatMap((candidate) => {
+    const refs = (asRecord(candidate.line)?.source_refs as unknown[]).map(asRecord);
+    const ids = refs.flatMap((ref) => typeof ref?.observation_id === 'string' ? [ref.observation_id] : []);
+    return ids.length === refs.length && ids.length > 0
+      ? [[`p${candidate.page}:priced_line:${hashCanonical(ids).slice(0, 32)}`, candidate] as const] : [];
+  }));
+  const seen = new Set<string>();
+  return targets.flatMap((target) => {
+    const candidate = candidateByAnchor.get(target.anchorKey);
+    if (!candidate || seen.has(target.anchorKey)) return [];
+    seen.add(target.anchorKey);
+    return [{ ...target, candidateRateRaw: candidate.rateRaw, basis: candidate.basis }];
+  });
 }
 
 function pricedLineTargets(

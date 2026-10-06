@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { regionAssertionEntryTargets, verifyRegionEvidence, withheldPricedLineTargets } from '@/lib/humanFactAssertions/regionBoundAssertions';
+import { regionAssertionEntryTargets, reviewRequiredValueTargets, verifyRegionEvidence, withheldPricedLineTargets } from '@/lib/humanFactAssertions/regionBoundAssertions';
 
 const DIGEST = 'a'.repeat(64);
 
@@ -148,5 +148,49 @@ describe('withheld priced-line targets (Forgewing generalization, phase 1)', () 
     expect(targets[0]!.anchorKey).toBe(regionAssertionEntryTargets(data(spine, []))[0]!.anchorKey);
     // The unread-page selector itself is unchanged: it never offers withheld evidence.
     expect(regionAssertionEntryTargets(extraction)).toEqual([]);
+  });
+});
+
+describe('review-required value targets (Forgewing generalization, phase 2)', () => {
+  const ref = (id: string, text: string, x: number, source: 'pdfjs' | 'ocr_fallback') =>
+    ({ observation_id: id, text, x_min: x, x_max: x + 8, y_min: 100, y_max: 110, source });
+  const cell = (role: string, id: string, text: string, x: number, source: 'pdfjs' | 'ocr_fallback') =>
+    ({ role, raw_text: text, source_refs: [ref(id, text, x, source)], x_min: x, x_max: x + 8, y_min: 100, y_max: 110 });
+  const data = (rateSource: 'pdfjs' | 'ocr_fallback', semantic: 'resolved' | 'unresolved' = 'resolved') => {
+    const base = extraction([]);
+    base.extraction.content_layers_v1.pdf.priced_schedule_reconstruction_v1 = {
+      parser_version: 'priced_schedule_reconstruction_v3',
+      pages: [{
+        physical_page_number: 3, status: 'reconstructed', semantic_status: semantic, columns: [],
+        rejected_spines: [], unassigned_lines: [],
+        rows: [{ row_index: 0, physical_page_number: 3, raw_text: 'Haul | CY | $8.75',
+          x_min: 10, x_max: 140, y_min: 100, y_max: 110,
+          cells: [cell('description', 'd1', 'Haul', 10, 'ocr_fallback'), cell('unit', 'u1', 'CY', 60, 'ocr_fallback'),
+            cell('rate', 'r1', '$8.75', 100, rateSource)] }],
+      }],
+    } as never;
+    return base;
+  };
+
+  it('offers a published row whose rate was read from a scan, bound to the whole row', () => {
+    const [target] = reviewRequiredValueTargets(data('ocr_fallback'));
+    expect(target).toMatchObject({ physicalPageNumber: 3, unresolvedReason: 'scanned_source', basis: 'scanned_source',
+      rawText: 'Haul | CY | $8.75', candidateRateRaw: '$8.75', sourceObservationIds: ['d1', 'u1', 'r1'] });
+    expect(target!.anchorKey).toMatch(/^p3:priced_line:[0-9a-f]{32}$/u);
+  });
+
+  it('offers a native rate cell that is not a whole amount, as the row builder withholds it', () => {
+    for (const text of ['$95,00', '$56.0', '$ Call']) {
+      const withText = data('pdfjs');
+      const pdf = withText.extraction.content_layers_v1.pdf as unknown as { priced_schedule_reconstruction_v1: { pages: Array<{ rows: Array<{ cells: Array<{ role: string; raw_text: string }> }> }> } };
+      pdf.priced_schedule_reconstruction_v1.pages[0]!.rows[0]!.cells[2]!.raw_text = text;
+      expect(reviewRequiredValueTargets(withText), text).toMatchObject([{ basis: 'unreadable_amount', candidateRateRaw: text,
+        unresolvedReason: 'unreadable_amount', sourceObservationIds: ['d1', 'u1', 'r1'] }]);
+    }
+  });
+
+  it('offers nothing for a well-formed native rate, or on a page whose semantics are unresolved (it publishes no rows)', () => {
+    expect(reviewRequiredValueTargets(data('pdfjs'))).toEqual([]);
+    expect(reviewRequiredValueTargets(data('ocr_fallback', 'unresolved'))).toEqual([]);
   });
 });

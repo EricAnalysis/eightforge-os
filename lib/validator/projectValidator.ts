@@ -1,4 +1,5 @@
 import { pickPreferredExtractionBlob } from '@/lib/blobExtractionSelection';
+import { parseContractRateAuthority, rateWithheldByAuthority } from '@/lib/contracts/rateAuthority';
 import { rehydratePhysicalPageCoordinate } from '@/lib/extraction/provenance/physicalPageCoordinate';
 import { resolveProvenanceCaptureState } from '@/lib/extraction/provenance/provenanceCaptureState';
 import { canonicalJson } from '@/lib/extraction/domain/hash';
@@ -1880,15 +1881,25 @@ function normalizeRateScheduleItem(
     readRowString(row, ['rate_code', 'code', 'item_code', 'service_code']),
   );
   const unitType = readRowString(row, ['unit_type', 'unit', 'uom']);
-  const rateAmount = toNumber(
-    readRowString(row, ['rate_amount', 'rate_raw'])
-      ?? row.rate_amount
-      ?? row.rate
-      ?? row.amount
-      ?? row.price
-      ?? row.unit_rate
-      ?? null,
-  );
+  // An assembled row's rate is the pricing assembly's decision. When it is
+  // null (withheld for review, unreadable, ambiguous), the Validator must not
+  // read digits back out of the raw text: that would make a scanned or damaged
+  // amount pricing authority by another road.
+  // A persisted row (the typed rate table, the trace) carries its own rate
+  // authority; a withheld rate stays withheld on every road in.
+  const rateAmount = rateWithheldByAuthority(parseContractRateAuthority(row.rate_authority))
+    ? null
+    : row.rate_decided_by_assembly === true
+    ? (typeof row.rate_amount === 'number' && Number.isFinite(row.rate_amount) ? row.rate_amount : null)
+    : toNumber(
+      readRowString(row, ['rate_amount', 'rate_raw'])
+        ?? row.rate_amount
+        ?? row.rate
+        ?? row.amount
+        ?? row.price
+        ?? row.unit_rate
+        ?? null,
+    );
   const materialType = readRowString(row, ['material_type', 'material', 'debris_type']);
   const sourceCategory = readRowString(row, ['source_category', 'category', 'material_type', 'material', 'debris_type']);
   const description =
@@ -2044,6 +2055,8 @@ export function buildRateScheduleItemsWithHumanReview(params: RateScheduleItemsP
     unit_type: row.unit,
     rate: row.rate,
     rate_amount: row.rate,
+    rate_decided_by_assembly: true,
+    rate_authority: row.rateAuthority ?? null,
     page: row.page,
     source_anchor_ids: row.sourceAnchor ? [row.sourceAnchor] : [],
     confidence: row.confidence,

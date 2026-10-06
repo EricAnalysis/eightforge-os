@@ -14,6 +14,7 @@ import {
   type HumanFactAssertionRow,
   type RegionAssertionEntryTarget,
   type ReviewedRateRowValue,
+  type ReviewRequiredValueTarget,
 } from '@/lib/humanFactAssertions/regionBoundAssertions';
 import type { ValueReadingOutcomeCode, ValueReadingOutcomeReason } from '@/lib/server/valueReadingProposals';
 import { getIssueDisplayLabel } from '@/lib/issueDisplayFormatter';
@@ -350,10 +351,14 @@ export type AttentionDiagnostic = Readonly<{
   recoveryProposalId: string | null;
 }>;
 
-/** Per document: its diagnostics, and the targets for priced evidence it withheld. */
+/**
+ * Per document: its diagnostics, the targets for priced evidence it withheld,
+ * and the published rows whose scanned amount awaits a person's review.
+ */
 export type DocumentEvidenceAttention = Readonly<{
   diagnostics: readonly AttentionDiagnostic[];
   withheldTargets: readonly RegionAssertionEntryTarget[];
+  reviewRequiredTargets?: readonly ReviewRequiredValueTarget[];
 }>;
 
 /** The subset of a recovery review candidate this model reads. */
@@ -672,6 +677,8 @@ function reviewedValueCases(params: {
       const target = state.entryTargets.find((entry) => entry.anchorKey === anchorKey)
         ?? params.evidenceAttentionByDocument.get(documentId)?.withheldTargets
           .find((entry) => entry.anchorKey === anchorKey)
+        ?? params.evidenceAttentionByDocument.get(documentId)?.reviewRequiredTargets
+          ?.find((entry) => entry.anchorKey === anchorKey)
         ?? null;
       const head = held.assertionIds.length === 1 ? held.assertionIds[0]! : null;
       const page = state.history.find((row) => held.assertionIds.includes(row.id))?.physical_page_number ?? null;
@@ -865,6 +872,46 @@ function evidenceAttentionCases(params: {
         actions: [openDocument],
         diagnostic: diagnosticRef,
         sourceRefs: { diagnosticId: diagnostic.diagnosticId },
+      });
+    }
+    // A row reconstruction trusted, whose amount was read from a scan: the
+    // amount is a candidate, withheld from pricing until a person confirms or
+    // corrects it. Closed by an effective (or held) reviewed value on the row.
+    for (const target of attention.reviewRequiredTargets ?? []) {
+      if (closedAnchors.has(target.anchorKey) || listedAnchors.has(target.anchorKey)) continue;
+      listedAnchors.add(target.anchorKey);
+      cases.push({
+        caseId: `review_required:${documentId}:${target.anchorKey}`,
+        kind: 'review_required_value',
+        tier: 'missing_authoritative_value',
+        exposureAmount: null,
+        projectId: params.projectId,
+        documentId,
+        physicalPageNumber: target.physicalPageNumber,
+        title: `${target.basis === 'scanned_source' ? 'Scanned rate to confirm' : 'Unreadable rate to enter'} · ${label} p.${target.physicalPageNumber}`,
+        problem: target.basis === 'scanned_source'
+          ? `This rate was read from a scan as "${target.candidateRateRaw}". A scanned amount can be well formed and still wrong, so it is not used until a person confirms or corrects it.`
+          : `The rate cell reads "${target.candidateRateRaw}", which is not a whole amount. It is not used until a person enters the amount the page shows.`,
+        finding: null,
+        previousReviews: [],
+        deterministicState: 'The row was reconstructed, but its rate is withheld from pricing and from the Validator.',
+        originalSourceText: target.rawText,
+        rootCauseKey: `review_required:${documentId}:${target.physicalPageNumber}`,
+        evidence: [currentTargetEvidence(documentId, target)],
+        suggestions: [],
+        actions: [
+          {
+            kind: 'enter_reviewed_value',
+            method: 'POST',
+            endpoint: regionAssertionEndpoint(documentId),
+            factKey: 'contract_rate_row',
+            target,
+            supersedesAssertionId: chainHead(history, target.anchorKey),
+          },
+          dispositionAction(documentId, target, history),
+          { kind: 'open_document', href: documentHref(documentId, target.physicalPageNumber) },
+        ],
+        sourceRefs: { anchorKey: target.anchorKey },
       });
     }
   }

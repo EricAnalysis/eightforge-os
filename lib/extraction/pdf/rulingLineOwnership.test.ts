@@ -80,7 +80,7 @@ function fixture(options: {
       ...(options.roleless ? { unresolved_role_cells: [unresolved(0, [description])] } : {}),
       raw_text: refs.map((ref) => ref.text).join(' | '), ...bounds(refs) };
   });
-  let page: PricedSchedulePage = { status: 'reconstructed', physical_page_number: 1,
+  const page: PricedSchedulePage = { status: 'reconstructed', physical_page_number: 1,
     header_raw_text: headers.map((ref) => ref.text).join(' '), header_y: 470,
     columns, rows, rejected_spines: [], unassigned_lines: [],
     unattached_role_less_tokens: [{ ...candidate, column_index: 0 }] };

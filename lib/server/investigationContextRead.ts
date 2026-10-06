@@ -1,5 +1,6 @@
 import {
   resolveInvestigationContext,
+  type InvestigationContentClass,
   type InvestigationContext,
   type InvestigationPurpose,
   type InvestigationSources,
@@ -23,6 +24,12 @@ import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
  */
 
 export const DEFAULT_INVESTIGATION_TEXT_BUDGET = 12_000;
+
+// Core declares its own content classes (it never consults a gate); the
+// data-policy ledger's classes must be exactly these, or this fails to compile.
+type SameUnion<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : never;
+const CONTENT_CLASSES_MATCH: SameUnion<AiProviderContentClass, InvestigationContentClass> = true;
+void CONTENT_CLASSES_MATCH;
 
 export type InvestigationContextReadResult =
   | Readonly<{ status: 'ok'; resolutionCase: ResolutionCase; context: InvestigationContext }>

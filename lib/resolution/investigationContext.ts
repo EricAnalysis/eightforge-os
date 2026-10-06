@@ -1,6 +1,5 @@
 import { evidenceIsScanned } from '@/lib/contracts/rateAuthority';
 import { hashCanonical } from '@/lib/extraction/domain/hash';
-import type { AiProviderContentClass } from '@/lib/server/forgewingGates';
 import type { ResolutionCase, ResolutionCaseKind } from '@/lib/resolution/resolutionCases';
 
 /**
@@ -40,9 +39,16 @@ export type InvestigationPurpose =
   /** Content would be sent to a provider: the content policy applies. */
   | 'provider_investigation';
 
+/**
+ * What a slice would send, by data-policy class. Declared here, not imported
+ * from the gate module: Core never consults a gate. The server read maps the
+ * ledger's approved classes onto these, and the compiler holds them equal.
+ */
+export type InvestigationContentClass = 'text_excerpts' | 'page_region_images';
+
 export type InvestigationContentPolicy = Readonly<{
   /** Content classes the organization's data-policy ledger approved for this request. */
-  approvedContentClasses: readonly AiProviderContentClass[];
+  approvedContentClasses: readonly InvestigationContentClass[];
 }>;
 
 export type InvestigationBudget = Readonly<{
@@ -51,7 +57,7 @@ export type InvestigationBudget = Readonly<{
 }>;
 
 /** Text slices are text_excerpts; region pictures are page_region_images; ids and labels are metadata. */
-export type InvestigationSliceContentClass = AiProviderContentClass | 'metadata';
+export type InvestigationSliceContentClass = InvestigationContentClass | 'metadata';
 
 export type InvestigationSliceProvenance = Readonly<{
   source:
@@ -61,7 +67,7 @@ export type InvestigationSliceProvenance = Readonly<{
     | 'human_fact_assertions'
     | 'project_validation_findings'
     | 'document_precedence'
-    | 'forgewing_recovery_proposals';
+    | 'forgewing_proposals';
   documentId: string | null;
   physicalPageNumber: number | null;
   recordIds: readonly string[];
@@ -337,7 +343,7 @@ function priorForgewing(resolutionCase: ResolutionCase, sources: InvestigationSo
   return {
     kind: 'prior_forgewing',
     contentClass: 'text_excerpts',
-    provenance: { source: 'forgewing_recovery_proposals', documentId: resolutionCase.documentId,
+    provenance: { source: 'forgewing_proposals', documentId: resolutionCase.documentId,
       physicalPageNumber: resolutionCase.physicalPageNumber, recordIds: prior.map((entry) => entry.proposalId) },
     payload: { proposals: prior, lastOutcome: resolutionCase.valueReadingOutcome ?? null },
   };

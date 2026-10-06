@@ -1,5 +1,5 @@
 import type { ContractPricingAssemblyRow } from '@/lib/contracts/contractPricingAssembly';
-import { evidenceIsScanned } from '@/lib/contracts/rateAuthority';
+import { evidenceIsScanned, readAuthoredAmount } from '@/lib/contracts/rateAuthority';
 import { hashCanonical } from '@/lib/extraction/domain/hash';
 import { pricingAuthoritativePage } from '@/lib/extraction/pdf/pricedScheduleAuthority';
 import type { HumanReviewReceipt } from '@/lib/humanFactAssertions/humanReviewReceipt';
@@ -646,8 +646,10 @@ export function withheldPricedLineTargets(
 
 /** A published priced row whose amount was read from a scan, offered for review. */
 export type ReviewRequiredValueTarget = RegionAssertionEntryTarget & Readonly<{
-  /** The rate cell exactly as the scan read it: the reviewer's candidate, never a rate. */
+  /** The rate cell exactly as extraction read it: the reviewer's candidate, never a rate. */
   candidateRateRaw: string;
+  /** Why the rate is withheld: read from a scan, or native text that is not an amount. */
+  basis: 'scanned_source' | 'unreadable_amount';
 }>;
 
 /**
@@ -674,7 +676,7 @@ export function reviewRequiredValueTargets(
       methods.set(observation.id, observation.source_method);
     }
   }
-  const candidates: { page: number; line: unknown; rateRaw: string }[] = [];
+  const candidates: { page: number; line: unknown; rateRaw: string; basis: ReviewRequiredValueTarget['basis'] }[] = [];
   for (const entry of reconstruction.pages) {
     const page = pricingAuthoritativePage(entry as PricedSchedulePage, version);
     // Exactly the rows pricing would publish: a structure-only page publishes none.
@@ -682,26 +684,31 @@ export function reviewRequiredValueTargets(
     for (const row of page.rows) {
       const rate = row.cells.find((cell) => cell.role === 'rate');
       if (!rate || !row.cells.some((cell) => cell.role === 'description')) continue;
-      if (!evidenceIsScanned(rate.source_refs, methods)) continue;
-      candidates.push({ page: page.physical_page_number, rateRaw: rate.raw_text,
+      // The same decision the row builder makes (decideRateAuthority): a scanned
+      // amount, or native text that does not read whole as an amount.
+      const basis = evidenceIsScanned(rate.source_refs, methods) ? 'scanned_source' as const
+        : readAuthoredAmount(rate.structured_rate?.amount_text ?? rate.raw_text) == null ? 'unreadable_amount' as const
+          : null;
+      if (!basis) continue;
+      candidates.push({ page: page.physical_page_number, rateRaw: rate.raw_text, basis,
         line: { raw_text: row.raw_text, source_refs: row.cells.flatMap((cell) => cell.source_refs) } });
     }
   }
   const targets = pricedLineTargets(extractionData, sourceDocumentId,
-    candidates.map((candidate) => ({ page: candidate.page, reason: 'scanned_source', line: candidate.line })));
+    candidates.map((candidate) => ({ page: candidate.page, reason: candidate.basis, line: candidate.line })));
   // pricedLineTargets keeps order and drops only unbindable lines; pair by anchor.
-  const rateRawByAnchor = new Map<string, string>(candidates.flatMap((candidate) => {
+  const candidateByAnchor = new Map<string, (typeof candidates)[number]>(candidates.flatMap((candidate) => {
     const refs = (asRecord(candidate.line)?.source_refs as unknown[]).map(asRecord);
     const ids = refs.flatMap((ref) => typeof ref?.observation_id === 'string' ? [ref.observation_id] : []);
     return ids.length === refs.length && ids.length > 0
-      ? [[`p${candidate.page}:priced_line:${hashCanonical(ids).slice(0, 32)}`, candidate.rateRaw] as const] : [];
+      ? [[`p${candidate.page}:priced_line:${hashCanonical(ids).slice(0, 32)}`, candidate] as const] : [];
   }));
   const seen = new Set<string>();
   return targets.flatMap((target) => {
-    const candidateRateRaw = rateRawByAnchor.get(target.anchorKey);
-    if (candidateRateRaw == null || seen.has(target.anchorKey)) return [];
+    const candidate = candidateByAnchor.get(target.anchorKey);
+    if (!candidate || seen.has(target.anchorKey)) return [];
     seen.add(target.anchorKey);
-    return [{ ...target, candidateRateRaw }];
+    return [{ ...target, candidateRateRaw: candidate.rateRaw, basis: candidate.basis }];
   });
 }
 

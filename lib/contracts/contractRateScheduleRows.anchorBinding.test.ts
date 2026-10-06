@@ -118,7 +118,7 @@ function reconstruction(params?: {
           row_index: 0,
           physical_page_number: PAGE,
           cells,
-          raw_text: 'Unclassified service CY Site to DMS $12.00',
+          raw_text: `Unclassified service CY Site to DMS ${params?.splitRate ? '$ 1.00' : rateText}`,
           x_min: 10,
           x_max: 110,
           y_min: 100,
@@ -194,6 +194,7 @@ describe('page-priced schedule exact source-anchor binding', () => {
         source_observation_ids: rateCell.source_refs.map((entry) => entry.observation_id),
       });
       expect(row.raw_cells).toContain(rateText);
+      expect(row.raw_text).toContain(rateText);
       expect(row.geometry_refs?.length).toBeGreaterThan(0);
       expect(JSON.stringify(source)).toBe(before);
     },

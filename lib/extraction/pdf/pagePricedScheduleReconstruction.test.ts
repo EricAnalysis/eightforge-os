@@ -634,12 +634,13 @@ describe('generic single-page priced schedule reconstruction', () => {
       headerLine(7, 640),
       pricedLine(7, 620, { description: 'Beta service', unit: 'Widget', origin: 'B to C', currency: '$', amount: '3.50' }),
     ])]) });
-    // Each segment holds one priced line only, too few for a table: each fails
-    // closed on its own, exactly as a single-header page with one priced line does.
-    expect(result.pages.map((entry) => [entry.table_segment?.segment_index, entry.status, entry.rows.length,
-      entry.rejected_spines.map((spine) => spine.reason)])).toEqual([
-      [0, 'failed_closed', 0, ['insufficient_priced_rows']],
-      [1, 'failed_closed', 0, ['insufficient_priced_rows']],
+    // Each segment holds one priced line only, too few for a table: neither is
+    // read, and both stay open for review, each with its own priced line.
+    expect(result.pages).toEqual([]);
+    expect(result.unresolved_pages!.map((entry) => [entry.table_segment?.segment_index, entry.reason,
+      entry.header_lines.map((line) => line.y), entry.priced_lines.map((line) => line.raw_text)])).toEqual([
+      [0, 'table_segment_without_rows', [720], ['Alpha service Widget A to B $ 12.00']],
+      [1, 'table_segment_without_rows', [640], ['Beta service Widget B to C $ 3.50']],
     ]);
   });
 

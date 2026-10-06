@@ -589,12 +589,17 @@ export type PricedScheduleRecoveryDiagnostic = {
  *   it, above priced lines of its own, plainly reads as another table's header
  *   without qualifying. The rows beneath it cannot be proven to share the first
  *   header's columns, so the page is not read through them.
+ * - table_segment_without_rows: one table segment of a page with several
+ *   qualifying headers (v4) published no row (for instance it holds a single
+ *   priced line). Its priced lines stay open for review rather than becoming
+ *   diagnostics only; the page's other segments are read independently.
  */
 export type PricedScheduleUnresolvedPageReason =
   | 'multiple_priced_headers'
   | 'ambiguous_header_candidates'
   | 'header_not_found'
-  | 'unresolved_later_header';
+  | 'unresolved_later_header'
+  | 'table_segment_without_rows';
 
 export type PricedScheduleUnresolvedPageLine = {
   /** Authored text of the line, exactly as read. */
@@ -2880,6 +2885,24 @@ function reconstructTableSegments(
     if (!result) {
       const entry = unresolvedPricedPage(slice);
       if (entry) unresolved.push({ ...entry, table_segment: provenance });
+      last = null;
+      return;
+    }
+    if (result.rows.length === 0) {
+      // Splitting must never take a priced line out of review without reading
+      // it: a segment that publishes no row keeps its lines open, whole.
+      const byVisualOrder = [...segment.lines].sort((left, right) => right.y - left.y);
+      const pricedLines = byVisualOrder.filter((line) => line.tokens.some((token) => isRowSpineToken(token)));
+      if (pricedLines.length > 0) {
+        unresolved.push({
+          authority: 'non_authoritative_diagnostic',
+          reason: 'table_segment_without_rows',
+          physical_page_number: page.page_number,
+          header_lines: byVisualOrder.filter((line) => line.y === segment.headerY).map(unresolvedPageLine),
+          priced_lines: pricedLines.map(unresolvedPageLine),
+          table_segment: provenance,
+        });
+      }
       last = null;
       return;
     }

@@ -242,6 +242,26 @@ describe('same-page table segments (v4)', () => {
     expect(frozen).toEqual({ parser_version: 'priced_schedule_reconstruction_v1', pages: [] });
   });
 
+  it('9: a segment that publishes no row keeps its priced lines open for review; the other segment is read', () => {
+    const result = reconstruct([page(10, [
+      headerA(10, 720),
+      rowA(10, 700, 'Alpha service', 'Ton', '1.00'),
+      // A source row whose price the text layer lost: not a priced line.
+      line(10, 680, [{ x: 50, text: 'Beta service', width: 100 }, { x: 200, text: 'Ton', width: 30 }]),
+      headerB(10, 600),
+      rowB(10, 580, 'Load', 'Gamma service', '3.00'),
+      rowB(10, 560, 'Load', 'Delta service', '4.00'),
+    ])]);
+    expect(result.pages.map((entry) => [entry.table_segment?.segment_index, entry.rows.length])).toEqual([[1, 2]]);
+    // Row indexes start after the unread segment, still unique on the page.
+    expect(result.pages[0]!.rows.map((row) => row.row_index)).toEqual([0, 1]);
+    expect(result.unresolved_pages).toMatchObject([{
+      reason: 'table_segment_without_rows', physical_page_number: 10,
+      header_lines: [{ y: 720 }], priced_lines: [{ raw_text: 'Alpha service Ton $ 1.00' }],
+      table_segment: { segment_index: 0, segment_count: 2, header_y: 720, lower_boundary_y: 600 },
+    }]);
+  });
+
   it('two qualifying headers on one line cannot be split and still fail closed', () => {
     const shared = (y: number) => [
       line(10, y, [{ x: 20, text: 'Description', width: 60 }, { x: 100, text: 'Unit', width: 25 }, { x: 160, text: 'Rate', width: 25 }]),

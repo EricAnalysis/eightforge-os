@@ -203,21 +203,23 @@ function scoreAliasMatch(
 
   let bestScore = 0;
   let bestAlias: string | null = null;
+  const textTokens = new Set(text.split(' '));
 
   for (const alias of aliases) {
     const normalizedAlias = normalizeText(alias);
     if (!normalizedAlias) continue;
+    const aliasTokens = normalizedAlias.split(' ').filter((token) => token.length > 0);
+    const hasLetterToken = aliasTokens.some(token => token.length === 1);
 
     let score = 0;
     if (text === normalizedAlias) {
       score = weights.exact;
-    } else if (text.includes(normalizedAlias)) {
+    } else if (hasLetterToken ? containsNormalizedPhrase(text, normalizedAlias) : text.includes(normalizedAlias)) {
       score = weights.contains;
     } else {
-      const aliasTokens = normalizedAlias.split(' ').filter((token) => token.length > 0);
       if (
         aliasTokens.length > 0
-        && aliasTokens.every((token) => text.includes(token))
+        && aliasTokens.every((token) => token.length === 1 ? textTokens.has(token) : text.includes(token))
       ) {
         score = weights.tokens;
       }

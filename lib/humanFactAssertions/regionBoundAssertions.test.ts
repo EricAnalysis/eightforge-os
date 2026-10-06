@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { regionAssertionEntryTargets, verifyRegionEvidence } from '@/lib/humanFactAssertions/regionBoundAssertions';
+import { regionAssertionEntryTargets, verifyRegionEvidence, withheldPricedLineTargets } from '@/lib/humanFactAssertions/regionBoundAssertions';
 
 const DIGEST = 'a'.repeat(64);
 
@@ -115,5 +115,38 @@ describe('reviewed-value entry targets (B3)', () => {
   it('offers nothing it cannot bind exactly', () => {
     expect(regionAssertionEntryTargets(data(null, [ref('o1', 'Hauling', 10)]))).toEqual([]);
     expect(regionAssertionEntryTargets(data(DIGEST, [ref('o1', 'Hauling', 10), ref(null, 'sia 50', 400)]))).toEqual([]);
+  });
+});
+
+describe('withheld priced-line targets (Forgewing generalization, phase 1)', () => {
+  const ref = (id: string, text: string, x: number) => ({ observation_id: id, text, x_min: x, x_max: x + 10, y_min: 300, y_max: 310 });
+  const data = (unresolvedRefs: unknown[] | null, spineRefs: unknown[], unassigned: unknown[] = []) => ({
+    extraction: { content_layers_v1: { pdf: {
+      page_extraction_coverage_v1: { pages: [{ page_number: 3, page_representation_digest: DIGEST }] },
+      priced_schedule_reconstruction_v1: {
+        parser_version: 'priced_schedule_reconstruction_v3',
+        pages: [{ physical_page_number: 3, status: 'reconstructed', rows: [], columns: [],
+          rejected_spines: [{ reason: 'inconsistent_row_pitch', physical_page_number: 3, raw_text: 'Hauling $ 9.50', source_refs: spineRefs }],
+          unassigned_lines: unassigned }],
+        ...(unresolvedRefs ? { unresolved_pages: [{ authority: 'non_authoritative_diagnostic', reason: 'header_not_found',
+          physical_page_number: 3, header_lines: [], priced_lines: [{ raw_text: 'Hauling $ 9.50', y: 300, source_refs: unresolvedRefs }] }] } : {}),
+      },
+    } } },
+  });
+
+  it('offers rejected spines and unpriced rows, never other unassigned lines, under the unread-line anchor scheme', () => {
+    const spine = [ref('o1', 'Hauling', 10), ref('o2', '9.50', 400)];
+    const extraction = data(null, spine, [
+      { reason: 'unpriced_row', physical_page_number: 3, raw_text: 'Snow Removal 96.00/hr', y: 280, source_refs: [ref('o3', 'Snow', 10)] },
+      { reason: 'unsupported_trailing_line', physical_page_number: 3, raw_text: 'Note', y: 260, source_refs: [ref('o4', 'Note', 10)] },
+    ]);
+    const targets = withheldPricedLineTargets(extraction);
+    expect(targets.map((target) => [target.unresolvedReason, target.sourceObservationIds])).toEqual([
+      ['inconsistent_row_pitch', ['o1', 'o2']], ['unpriced_row', ['o3']],
+    ]);
+    // The same evidence carries the same anchor whether it was unread or withheld.
+    expect(targets[0]!.anchorKey).toBe(regionAssertionEntryTargets(data(spine, []))[0]!.anchorKey);
+    // The unread-page selector itself is unchanged: it never offers withheld evidence.
+    expect(regionAssertionEntryTargets(extraction)).toEqual([]);
   });
 });

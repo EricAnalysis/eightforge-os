@@ -25,6 +25,7 @@ export type ResolutionDecisionInput =
   | Readonly<{ kind: 'request_value_reading'; requestKey: string }>
   | Readonly<{ kind: 'review_value_reading'; disposition: 'rejected' | 'deferred'; rationale: string; idempotencyKey: string }>
   | Readonly<{ kind: 'withdraw_reviewed_value'; reason: string; idempotencyKey: string }>
+  | Readonly<{ kind: 'record_disposition'; reason: string; idempotencyKey: string }>
   | Readonly<{
       kind: 'review_recovery_proposal';
       disposition: 'accepted' | 'modified' | 'rejected' | 'deferred';
@@ -137,6 +138,32 @@ export function buildResolutionActionRequest(
             value: null,
             reason,
             anchorKey: action.anchorKey,
+            physicalPageNumber: action.target.physicalPageNumber,
+            pageRepresentationDigest: action.target.pageRepresentationDigest,
+            sourceObservationIds: action.target.sourceObservationIds,
+            sourceRegion: action.target.sourceRegion,
+            supersedesAssertionId: action.supersedesAssertionId,
+            idempotencyKey: input.idempotencyKey,
+          },
+        },
+      };
+    }
+    case 'record_disposition': {
+      const action = offeredAction(resolutionCase, 'record_disposition');
+      if (!action) return refuse('This case does not offer a disposition.');
+      const reason = input.reason.trim();
+      if (!reason) return refuse('A reason is required: say what this evidence is instead.');
+      return {
+        ok: true,
+        request: {
+          method: action.method,
+          url: action.endpoint,
+          body: {
+            factKey: action.factKey,
+            status: 'active',
+            value: { disposition: action.disposition },
+            reason,
+            anchorKey: action.target.anchorKey,
             physicalPageNumber: action.target.physicalPageNumber,
             pageRepresentationDigest: action.target.pageRepresentationDigest,
             sourceObservationIds: action.target.sourceObservationIds,

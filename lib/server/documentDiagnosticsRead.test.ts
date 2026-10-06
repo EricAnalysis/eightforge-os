@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { diagnosticId } from '@/lib/diagnostics/diagnosticIdentity';
 import { buildRulingLineInput } from '@/lib/extraction/pdf/rulingLineEvidence';
-import { DIAGNOSTIC_SEVERITY_RANK, readDocumentDiagnostics,
+import { DIAGNOSTIC_SEVERITY_RANK, extractionDocumentDiagnostics, readDocumentDiagnostics,
   type DiagnosticReadClient, type DiagnosticReadQuery }
   from '@/lib/server/documentDiagnosticsRead';
 
@@ -763,5 +763,29 @@ describe('document diagnostics read model', () => {
     if (result.status !== 'ok') return;
     expect(result.diagnostics.some((entry) => entry.code === 'recovery_provider_failed')).toBe(false);
     expect(result.diagnostics.some((entry) => entry.code === 'ambiguous_row_assignment')).toBe(true);
+  });
+});
+
+describe('evidence attention in document diagnostics (Forgewing generalization, phase 1)', () => {
+  it('records a table whose header roles are unresolved, bound to its header evidence, with case attention', () => {
+    const snapshot = structuredClone(extraction);
+    const pdf = snapshot.data.extraction.content_layers_v1.pdf as unknown as Record<string, unknown>;
+    pdf.priced_schedule_reconstruction_v1 = { parser_version: 'priced_schedule_reconstruction_v3', pages: [{
+      physical_page_number: 7, status: 'reconstructed', semantic_status: 'unresolved', header_raw_text: 'Category Descripti Unit Rate',
+      header_interpretation: { status: 'unresolved', source_refs: [{ observation_id: 'obs-header', text: 'Descripti',
+        x_min: 10, x_max: 40, y_min: 100, y_max: 112, source: 'ocr_fallback' }] },
+      rows: [], columns: [], rejected_spines: [], unassigned_lines: [] }] };
+    const diagnostics = extractionDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC,
+      extraction: snapshot.data as unknown as Record<string, unknown>, extractionSnapshotId: 'snap', occurredAt: '2026-10-06T00:00:00.000Z' });
+    expect(diagnostics).toMatchObject([{ code: 'priced_header_semantics_unresolved', attention: 'resolution_case',
+      recoverability: 'recoverable_after_human_review', recoveryType: 'priced_schedule_header_role_selection',
+      summary: 'Header read as: Category Descripti Unit Rate', scope: { physicalPageNumber: 7 },
+      evidenceRefs: [{ kind: 'observation', observationId: 'obs-header' }] }]);
+  });
+
+  it('carries the registry attention on every diagnostic it builds', () => {
+    const diagnostics = extractionDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC,
+      extraction: extraction.data as unknown as Record<string, unknown>, extractionSnapshotId: 'snap', occurredAt: '2026-10-06T00:00:00.000Z' });
+    expect(diagnostics.map((entry) => [entry.code, entry.attention])).toEqual([['ambiguous_row_assignment', 'diagnostics_panel']]);
   });
 });

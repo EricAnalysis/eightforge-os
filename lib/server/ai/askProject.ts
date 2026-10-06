@@ -11,6 +11,7 @@ export const ASK_PROJECT_CLAUDE_SYSTEM_PROMPT = [
   'Do not claim a decision, finding, execution item, audit event, document, schema, or fact has changed.',
   'Preserve evidence references when available, including document ids, fact ids, anchor ids, pages, validator finding ids, and decision ids.',
   'Treat canonical project truth as the only authority. Surfaces read canonical truth; they never produce it.',
+  'retrieval.reviewedTruth.effective holds human-reviewed values: they are applied project truth and outrank any extracted value for the same evidence. Values in retrieval.reviewedTruth.held are not applied; say so if you mention them.',
 ].join('\n');
 
 function extractTextContent(content: Array<{ type: string; text?: string }>): string {

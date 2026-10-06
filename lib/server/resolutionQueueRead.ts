@@ -44,7 +44,19 @@ export type ResolutionQueueReadResult =
   | Readonly<{ status: 'not_configured' }>
   | Readonly<{ status: 'not_found' }>
   | Readonly<{ status: 'read_failed'; reason: string }>
-  | Readonly<{ status: 'ok'; queue: ResolutionQueue }>;
+  | Readonly<{
+      status: 'ok';
+      queue: ResolutionQueue;
+      /**
+       * What the cases were derived from, per document: the preferred
+       * extraction and the resolved reviewed-value state. Server-side only
+       * (investigation context composes from it); never serialized.
+       */
+      sources?: Readonly<{
+        extractionDataByDocument: ReadonlyMap<string, unknown>;
+        reviewedValuesByDocument: ReadonlyMap<string, DocumentReviewedValueState>;
+      }>;
+    }>;
 
 type Query = PromiseLike<{ data: unknown; error: { message?: string } | null }> & {
   eq(column: string, value: unknown): Query;
@@ -251,12 +263,13 @@ export async function readResolutionQueue(
       documentPages,
       evidenceAttentionByDocument,
     });
-  if (!forgewingEnabled) return { status: 'ok', queue };
+  const sources = { extractionDataByDocument, reviewedValuesByDocument };
+  if (!forgewingEnabled) return { status: 'ok', queue, sources };
   try {
-    return { status: 'ok', queue: await addValueReadingsToResolutionQueue(admin as never,
+    return { status: 'ok', sources, queue: await addValueReadingsToResolutionQueue(admin as never,
       { organizationId: query.organizationId, queue, extractionDataByDocument, assertions: assertionRead.rows }) };
   } catch {
     // Optional Forgewing reads fail closed while manual Core review remains available.
-    return { status: 'ok', queue };
+    return { status: 'ok', queue, sources };
   }
 }

@@ -3,6 +3,10 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   decideForgewingDataPolicy,
   decideValueReadingEligibility,
+  FORGEWING_WORKFLOW_POLICIES,
+  forgewingWorkflowActivation,
+  readForgewingWorkflowDailyCap,
+  resolveForgewingWorkflowEligibility,
   readValueReadingDailyCap,
   VALUE_READING_POLICY,
   valueReadingActivation,
@@ -154,5 +158,52 @@ describe('durable call budget (B4.1)', () => {
     await expect(reserveForgewingProviderCall(rpcReturning([{ reserved: true }]) as never, params)).resolves.toEqual({ status: 'failed' });
     await expect(reserveForgewingProviderCall({ rpc: () => { throw new Error('down'); } } as never, params))
       .resolves.toEqual({ status: 'failed' });
+  });
+});
+
+describe('one gate module for every Forgewing workflow (generalization, phase 3)', () => {
+  const live = { FORGEWING_SHADOW_ENABLED: '1' };
+
+  it('gives each workflow its own switch and cap, beneath the one master gate', () => {
+    expect(forgewingWorkflowActivation('project_ask', { FORGEWING_PROJECT_ASK_ENABLED: '1' }))
+      .toEqual({ masterEnabled: false, requested: 'disabled', activation: 'disabled' });
+    expect(forgewingWorkflowActivation('project_ask', { ...live, FORGEWING_PROJECT_ASK_ENABLED: '1' }))
+      .toEqual({ masterEnabled: true, requested: 'enabled', activation: 'enabled' });
+    // Asking for Ask never activates value reading, and case investigation stays unqualified.
+    expect(forgewingWorkflowActivation('priced_value_reading', { ...live, FORGEWING_PROJECT_ASK_ENABLED: '1' }).activation).toBe('disabled');
+    expect(forgewingWorkflowActivation('case_investigation', { ...live, FORGEWING_CASE_INVESTIGATION_ENABLED: '1' }).activation).toBe('disabled');
+    expect(FORGEWING_WORKFLOW_POLICIES.case_investigation).toMatchObject({ qualification: 'unqualified', reviewRequired: true });
+    expect(readForgewingWorkflowDailyCap('project_ask', { FORGEWING_PROJECT_ASK_DAILY_CAP: '20', FORGEWING_VALUE_READING_DAILY_CAP: '3' })).toBe(20);
+    expect(readForgewingWorkflowDailyCap('project_ask', {})).toBe(0);
+  });
+
+  it('runs every gate in order for Ask: entitlement, data policy, then budget', async () => {
+    const env = { ...live, FORGEWING_PROJECT_ASK_ENABLED: '1', FORGEWING_PROJECT_ASK_DAILY_CAP: '5' };
+    const resolveDataPolicy = vi.fn(async () => approved);
+    const notEntitled = await resolveForgewingWorkflowEligibility({} as never,
+      { organizationId: ORG, workflow: 'project_ask', contentClasses: ['text_excerpts'] },
+      { env, resolveEntitlement: async () => ({ entitled: false, reason: 'no_entitlement' }), resolveDataPolicy });
+    expect(notEntitled).toEqual({ eligible: false, reason: 'no_entitlement' });
+    expect(resolveDataPolicy).not.toHaveBeenCalled();
+    const denied = await resolveForgewingWorkflowEligibility({} as never,
+      { organizationId: ORG, workflow: 'project_ask', contentClasses: ['text_excerpts'] },
+      { env, resolveEntitlement: async () => entitled,
+        resolveDataPolicy: async () => ({ approved: false, reason: 'not_approved', contentClass: 'text_excerpts' }) });
+    expect(denied).toMatchObject({ eligible: false, reason: 'data_policy_not_approved' });
+    const noCap = await resolveForgewingWorkflowEligibility({} as never,
+      { organizationId: ORG, workflow: 'project_ask', contentClasses: ['text_excerpts'] },
+      { env: { ...live, FORGEWING_PROJECT_ASK_ENABLED: '1' }, resolveEntitlement: async () => entitled, resolveDataPolicy });
+    expect(noCap).toEqual({ eligible: false, reason: 'budget_not_configured' });
+    await expect(resolveForgewingWorkflowEligibility({} as never,
+      { organizationId: ORG, workflow: 'project_ask', contentClasses: ['text_excerpts'] },
+      { env, resolveEntitlement: async () => entitled, resolveDataPolicy }))
+      .resolves.toEqual({ eligible: true, entitlementEventId: 'ent-1', dataPolicyEventIds: ['dp-1'], dailyCap: 5 });
+  });
+
+  it('spends each workflow budget in its own ledger type', async () => {
+    const client = { rpc: vi.fn(async () => ({ data: [{ reserved: true, reservation_id: 'r', used_in_window: 1 }], error: null })) };
+    await reserveForgewingProviderCall(client as never, { organizationId: ORG, requestDigestSha256: 'b'.repeat(64),
+      reservedBy: null, dailyCap: 2, workflow: 'project_ask' });
+    expect(client.rpc).toHaveBeenCalledWith('reserve_forgewing_provider_call', expect.objectContaining({ p_recovery_type: 'project_ask' }));
   });
 });

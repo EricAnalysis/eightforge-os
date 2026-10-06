@@ -46,13 +46,70 @@ export const VALUE_READING_POLICY: Readonly<{
   reviewRequired: true,
 });
 
+/**
+ * Every Forgewing workflow that may send content to a provider, each with its
+ * own policy, activation switch, daily cap and budget ledger, behind the same
+ * gates in the same order (Forgewing generalization, phase 3). One gate
+ * module for all AI surfaces: a surface that skips it does not exist.
+ */
+export const FORGEWING_WORKFLOWS = ['priced_value_reading', 'project_ask', 'case_investigation'] as const;
+export type ForgewingWorkflow = typeof FORGEWING_WORKFLOWS[number];
+
+export type ForgewingWorkflowPolicy = Readonly<{
+  qualification: RecoveryQualification;
+  qualificationCeiling: RecoveryActivation;
+  /** Environment switch requesting activation beneath the master gate. */
+  activationEnv: string;
+  /** Environment daily cap (calls per organization per trailing 24 hours). */
+  dailyCapEnv: string;
+  /** Whether what the provider returns is a proposal a person must review. */
+  reviewRequired: boolean;
+}>;
+
+export const FORGEWING_WORKFLOW_POLICIES: Readonly<Record<ForgewingWorkflow, ForgewingWorkflowPolicy>> = Object.freeze({
+  priced_value_reading: Object.freeze({
+    ...VALUE_READING_POLICY,
+    activationEnv: 'FORGEWING_VALUE_READING_ENABLED',
+    dailyCapEnv: 'FORGEWING_VALUE_READING_DAILY_CAP',
+  }),
+  // Ask answers an operator's question from project truth. It proposes no
+  // value and writes nothing, so it needs no value-reading qualification; it
+  // still sends customer content, so it passes every data and budget gate.
+  project_ask: Object.freeze({
+    qualification: 'production_qualified',
+    qualificationCeiling: 'enabled',
+    activationEnv: 'FORGEWING_PROJECT_ASK_ENABLED',
+    dailyCapEnv: 'FORGEWING_PROJECT_ASK_DAILY_CAP',
+    reviewRequired: false,
+  }),
+  // Provider-backed case investigation is wired but unqualified: deterministic
+  // investigation runs for every case without a provider; a model's reading of
+  // a case waits for a benchmark the way value reading did (B4.6).
+  case_investigation: Object.freeze({
+    qualification: 'unqualified',
+    qualificationCeiling: 'disabled',
+    activationEnv: 'FORGEWING_CASE_INVESTIGATION_ENABLED',
+    dailyCapEnv: 'FORGEWING_CASE_INVESTIGATION_DAILY_CAP',
+    reviewRequired: true,
+  }),
+});
+
+/** Requested by the workflow's switch beneath the master gate; capped by its policy ceiling. */
+export function forgewingWorkflowActivation(
+  workflow: ForgewingWorkflow,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): Readonly<{ masterEnabled: boolean; requested: RecoveryActivation; activation: RecoveryActivation }> {
+  const policy = FORGEWING_WORKFLOW_POLICIES[workflow];
+  const masterEnabled = readRecoveryOperationalConfig(env, { context: workflow }).masterEnabled;
+  const requested: RecoveryActivation = masterEnabled && env[policy.activationEnv] === '1' ? 'enabled' : 'disabled';
+  return { masterEnabled, requested, activation: minimumRecoveryActivation(policy.qualificationCeiling, requested) };
+}
+
 /** Requested by FORGEWING_VALUE_READING_ENABLED=1 beneath the master gate; capped by the policy ceiling. */
 export function valueReadingActivation(
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): Readonly<{ masterEnabled: boolean; requested: RecoveryActivation; activation: RecoveryActivation }> {
-  const masterEnabled = readRecoveryOperationalConfig(env, { context: 'value_reading' }).masterEnabled;
-  const requested: RecoveryActivation = masterEnabled && env.FORGEWING_VALUE_READING_ENABLED === '1' ? 'enabled' : 'disabled';
-  return { masterEnabled, requested, activation: minimumRecoveryActivation(VALUE_READING_POLICY.qualificationCeiling, requested) };
+  return forgewingWorkflowActivation('priced_value_reading', env);
 }
 
 export const FORGEWING_DATA_POLICY_EVENTS_TABLE = 'organization_forgewing_data_policy_events';
@@ -133,15 +190,23 @@ export async function resolveForgewingDataPolicy(
 const DEFAULT_VALUE_READING_DAILY_CAP = 0;
 const MAXIMUM_VALUE_READING_DAILY_CAP = 500;
 
-/** Calls per organization per trailing 24 hours. Default 0: no calls unless configured. */
-export function readValueReadingDailyCap(
+/** A workflow's calls per organization per trailing 24 hours. Default 0: no calls unless configured. */
+export function readForgewingWorkflowDailyCap(
+  workflow: ForgewingWorkflow,
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): number {
-  const raw = env.FORGEWING_VALUE_READING_DAILY_CAP;
+  const raw = env[FORGEWING_WORKFLOW_POLICIES[workflow].dailyCapEnv];
   if (raw == null || raw.trim() === '') return DEFAULT_VALUE_READING_DAILY_CAP;
   const parsed = Number(raw);
   return Number.isSafeInteger(parsed) && parsed >= 0 && parsed <= MAXIMUM_VALUE_READING_DAILY_CAP
     ? parsed : DEFAULT_VALUE_READING_DAILY_CAP;
+}
+
+/** Calls per organization per trailing 24 hours. Default 0: no calls unless configured. */
+export function readValueReadingDailyCap(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): number {
+  return readForgewingWorkflowDailyCap('priced_value_reading', env);
 }
 
 export type ValueReadingEligibility =
@@ -228,9 +293,33 @@ export async function resolveValueReadingEligibility(
     resolveDataPolicy?: typeof resolveForgewingDataPolicy;
   }> = {},
 ): Promise<ValueReadingEligibility> {
+  return resolveForgewingWorkflowEligibility(admin, { ...params, workflow: 'priced_value_reading' }, dependencies);
+}
+
+/**
+ * Whether a workflow may send exactly these content classes to a provider for
+ * this organization: kill switch, workflow policy, entitlement, data policy,
+ * daily cap, in that order, reading only as far as needed. A yes still needs
+ * a reservation from the workflow's durable budget at call time.
+ */
+export async function resolveForgewingWorkflowEligibility(
+  admin: SupabaseClient,
+  params: Readonly<{
+    organizationId: string;
+    workflow: ForgewingWorkflow;
+    contentClasses: readonly AiProviderContentClass[];
+    provider?: AiProviderName;
+  }>,
+  dependencies: Readonly<{
+    env?: Readonly<Record<string, string | undefined>>;
+    resolveEntitlement?: OrganizationForgewingEntitlementResolver;
+    resolveDataPolicy?: typeof resolveForgewingDataPolicy;
+  }> = {},
+): Promise<ValueReadingEligibility> {
   const env = dependencies.env ?? process.env;
-  const gate = valueReadingActivation(env);
-  const base = { masterEnabled: gate.masterEnabled, activation: gate.activation, dailyCap: readValueReadingDailyCap(env) };
+  const gate = forgewingWorkflowActivation(params.workflow, env);
+  const base = { masterEnabled: gate.masterEnabled, activation: gate.activation,
+    dailyCap: readForgewingWorkflowDailyCap(params.workflow, env) };
   const early = decideValueReadingEligibility({ ...base, entitlement: null, dataPolicy: null });
   if (!early.eligible && (early.reason === 'kill_switch_off' || early.reason === 'activation_disabled')) return early;
   const entitlement = await (dependencies.resolveEntitlement ?? resolveForgewingEntitlement)(admin, params.organizationId);
@@ -256,12 +345,14 @@ export async function reserveForgewingProviderCall(
     requestDigestSha256: string;
     reservedBy: string | null;
     dailyCap: number;
+    /** Each workflow spends its own budget. */
+    workflow?: ForgewingWorkflow;
   }>,
 ): Promise<ProviderCallReservation> {
   try {
     const { data, error } = await admin.rpc(RESERVE_FORGEWING_PROVIDER_CALL_RPC, {
       p_organization_id: params.organizationId,
-      p_recovery_type: 'priced_value_reading',
+      p_recovery_type: params.workflow ?? 'priced_value_reading',
       p_request_digest_sha256: params.requestDigestSha256,
       p_reserved_by: params.reservedBy,
       p_daily_cap: params.dailyCap,

@@ -1372,11 +1372,25 @@ function buildFallbackRowsFromSourceEntries(params: {
   return [...deduped.values()];
 }
 
-/** Authored non-numeric price markers must never become a number. */
+/**
+ * The one amount an authored price cell states, read whole. The cell must carry
+ * exactly one token with digits, and that token must read as an amount: an
+ * optional currency symbol, digits with thousands groups only in threes, and an
+ * optional decimal part of two to four digits.
+ *
+ * Anything else is not a number: "$95,00", "$56.0", "$2:", "$170.00." or two
+ * amounts in one cell. Reading the first digits out of such text (95,00 as
+ * 9500, $2: as 2) turns damaged evidence into a confident wrong rate, so the
+ * row stays unresolved and needs review instead. A well-formed amount that a
+ * scan misread cannot be detected here, and is not claimed to be.
+ */
+const AUTHORED_AMOUNT = /^-?[$£€¥]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{2,4})?$/u;
+
 function numericRateFromAuthoredText(rawText: string): number | null {
-  const match = rawText.match(/-?[\d,]+(?:\.\d+)?/);
-  if (!match) return null;
-  return parseNumber(match[0]);
+  const numeric = rawText.split(/\s+/u).filter((token) => /\d/u.test(token));
+  if (numeric.length !== 1 || !AUTHORED_AMOUNT.test(numeric[0]!)) return null;
+  const parsed = Number.parseFloat(numeric[0]!.replace(/[^\d.-]/gu, ''));
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function cellByRole(

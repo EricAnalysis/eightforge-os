@@ -138,7 +138,7 @@ describe('proven header signature reuse across continuation pages', () => {
     expect(result.pages.some((entry) => entry.inherited_header)).toBe(false);
   });
 
-  it('B7: row integrity still applies on an inherited page, and withheld rows do not refuse the proof', () => {
+  it('B7: a carried header is proven only by a page it reads completely; a withheld row refuses it', () => {
     const wrapped = page(8, [
       priced(8, 760, 'Delta service and', '1.00'),
       line(8, 750, [{ x: DESCRIPTION_X, text: 'disposal', width: 50 }]),
@@ -146,10 +146,12 @@ describe('proven header signature reuse across continuation pages', () => {
       priced(8, 720, 'Zeta service', '3.00'),
       priced(8, 700, 'Eta service', '4.00'),
     ]);
-    const inherited = reconstruct([sourcePage(), wrapped]).pages[1]!;
-    expect(inherited.inherited_header!.proof).toMatchObject({ rows_published: 2, rows_withheld: 2 });
-    expect(inherited.rejected_spines.map((entry) => entry.reason)).toEqual(['ambiguous_row_continuation', 'ambiguous_row_continuation']);
-    expect(inherited.unassigned_lines.map((entry) => entry.raw_text)).toEqual(['disposal']);
+    // Read under the carried header, the wrap line would withhold two rows: the
+    // page is only partly read, so it proves nothing and stays unresolved whole.
+    const result = reconstruct([sourcePage(), wrapped]);
+    expect(result.pages.map((entry) => entry.physical_page_number)).toEqual([7]);
+    expect(result.unresolved_pages!.map((entry) => [entry.physical_page_number, entry.reason, entry.priced_lines.length]))
+      .toEqual([[8, 'header_not_found', 4]]);
   });
 
   it('B8: the frozen spacing_only path never reuses a header', () => {

@@ -55,6 +55,7 @@ describe('askProjectWithClaude', () => {
         decisions: [],
         documents: [],
         relationships: [],
+        reviewedTruth: { source: 'human_fact_assertions', status: 'ok', effective: [], held: [] },
         rawData: {
           validatorContext: null,
           totalDocumentCount: 0,

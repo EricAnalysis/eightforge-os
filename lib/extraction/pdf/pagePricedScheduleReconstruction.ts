@@ -83,16 +83,17 @@ const LEGACY_COLUMN_ROLE_PATTERNS: HeaderVocabulary = [
 
 /**
  * The canonical header-role vocabulary (v3). Exact matches after normalization
- * only: no fuzzy matching, no repair of OCR fragments ("Descripti", "Uni"), and
+ * only: no fuzzy matching, no general repair of OCR fragments ("Descripti"), and
  * never a role from a column's position. New aliases are only those observed in
- * the extraction corpus. Corrected collisions: "amount" and "total cost" no
+ * the extraction corpus, including the exact OCR header label "Uni" for unit.
+ * Source text and provenance stay unchanged. Corrected collisions: "amount" and "total cost" no
  * longer read as the unit rate (rate and amount stay distinct), and a lone
  * "item" is unknown rather than assumed to be a description. A label matching
  * more than one role is ambiguous and fails closed.
  */
 const COLUMN_ROLE_PATTERNS: HeaderVocabulary = [
   ['description', /^(?:description(?:\s+of\s+(?:work|works|service|services))?|item\s+description|equipment\s+description|personnel\s+description|service|classification|scope\s+of\s+work|work\s+item)$/i],
-  ['unit', /^(?:unit(?:\s+of\s+measure(?:ment)?)?|units|uom|u\s*\/\s*m|measure|measurement)$/i],
+  ['unit', /^(?:uni|unit(?:\s+of\s+measure(?:ment)?)?|units|uom|u\s*\/\s*m|measure|measurement)$/i],
   ['origin_destination', /^(?:origin\s*\/?\s*destination|origin|destination|from\s*\/?\s*to|route|haul\s+route)$/i],
   ['rate', /^(?:cost(?:\s+per\s+unit)?|rate(?:\s*\/\s*unit)?|unit\s+price|unit\s+cost|price|charge)$/i],
   ['category', /^category$/i],

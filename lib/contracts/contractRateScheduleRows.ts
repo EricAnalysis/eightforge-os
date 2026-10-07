@@ -6,7 +6,8 @@ import {
   extractCleanStructuralRateRows,
   extractExhibitARateTableRows,
 } from '@/lib/contracts/exhibitARateTableRows';
-import { resolveCanonicalRateCategory } from '@/lib/validator/rateTaxonomy';
+import { resolveCanonicalRateCategory,
+  canonicalTaxonomyKeyForAllowedCategory as exactSourceCategoryKey } from '@/lib/validator/rateTaxonomy';
 import { canonicalTaxonomyKeyForAllowedCategory } from '@/lib/contracts/contractPricingAssembly';
 import { collapseWhitespace, normalizeDashCharacters } from '@/lib/contracts/textCleanupPrimitives';
 import type { PhysicalPageCoordinate } from '@/lib/extraction/provenance/physicalPageCoordinate';
@@ -14,6 +15,7 @@ import { decideRateAuthority, evidenceIsScanned, readAuthoredAmount } from '@/li
 import type {
   PagePricedScheduleReconstruction,
   PricedScheduleCell,
+  PricedScheduleCellSourceRef,
   PricedSchedulePage,
 } from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
 import {
@@ -1413,6 +1415,30 @@ function cellByRole(
   return row.cells.find((cell) => cell.role === role) ?? null;
 }
 
+/** Consume only the Category column already proven by this row's reconstruction. */
+function sourceCategoryEvidence(
+  page: PricedSchedulePage,
+  row: PricedSchedulePage['rows'][number],
+): ContractRateScheduleRow['source_category_evidence'] | null {
+  const categoryColumns = page.columns.flatMap((column, index) => column.role === 'category' ? [index] : []);
+  if (categoryColumns.length !== 1) return null;
+  const columnIndex = categoryColumns[0]!;
+  const candidates = (row.unresolved_role_cells ?? []).filter((cell) => cell.column_index === columnIndex);
+  if (candidates.length !== 1) return null;
+  const cell = candidates[0]!;
+  if (cell.header_text !== page.columns[columnIndex]!.header_text
+    || !cell.raw_text.trim() || cell.source_refs.length === 0) return null;
+  // The pricing projection removes ruling-only ownership from accepted cells.
+  // Supporting cells must not bypass that same existing trust boundary.
+  const refKey = (ref: PricedScheduleCellSourceRef) => ref.observation_id ? `id:${ref.observation_id}`
+    : JSON.stringify([ref.text, ref.x_min, ref.x_max, ref.y_min, ref.y_max,
+      ref.source ?? null, ref.confidence ?? null]);
+  const ruleRefs = new Set((page.ruling_line_resolutions ?? []).map((resolution) => refKey(resolution.source_ref)));
+  if (cell.source_refs.some((ref) => ruleRefs.has(refKey(ref)))) return null;
+  return { column_index: columnIndex, header_text: cell.header_text,
+    raw_text: cell.raw_text, source_refs: cell.source_refs };
+}
+
 function geometryRefsForPricedScheduleRow(
   page: PricedSchedulePage,
   row: PricedSchedulePage['rows'][number],
@@ -1470,6 +1496,7 @@ function buildPagePricedScheduleRows(
 
       const unitCell = cellByRole(row, 'unit');
       const originDestinationCell = cellByRole(row, 'origin_destination');
+      const categoryEvidence = sourceCategoryEvidence(structuralPage, row);
       // A rate proven by structure rather than a read currency marker names its
       // amount token; the cell's other authored text (an unread marker glyph)
       // is evidence, never part of the number.
@@ -1479,15 +1506,16 @@ function buildPagePricedScheduleRows(
         scanned: evidenceIsScanned(rateCell.source_refs, observationMethodById),
       });
 
+      const sourceCategoryKey = exactSourceCategoryKey(categoryEvidence?.raw_text);
       const categoryResolution = resolveCanonicalRateCategory({
-        sourceCategory: null,
+        sourceCategory: categoryEvidence?.raw_text ?? null,
         sourceDescriptors: [
           descriptionCell.raw_text,
           unitCell?.raw_text ?? null,
           originDestinationCell?.raw_text ?? null,
         ],
-        existingCanonicalCategory: null,
-        existingConfidence: null,
+        existingCanonicalCategory: sourceCategoryKey,
+        existingConfidence: sourceCategoryKey ? 1 : null,
       });
       const rowId = `page_priced_schedule:p${page.physical_page_number}:r${row.row_index}`;
       const boundEvidence = resolvePdfLayoutObservationEvidence({
@@ -1515,8 +1543,9 @@ function buildPagePricedScheduleRows(
         unit: unitCell?.raw_text ?? null,
         rate,
         origin_destination: originDestinationCell?.raw_text ?? null,
-        category: null,
-        source_category: null,
+        category: categoryEvidence?.raw_text ?? null,
+        source_category: categoryEvidence?.raw_text ?? null,
+        ...(categoryEvidence ? { source_category_evidence: categoryEvidence } : {}),
         canonical_category: categoryResolution.canonical_category,
         category_confidence: categoryResolution.category_confidence,
         page: page.physical_page_number,

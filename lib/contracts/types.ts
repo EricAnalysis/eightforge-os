@@ -220,6 +220,13 @@ export interface ContractRateScheduleRow {
   origin_destination?: string | null;
   category: string | null;
   source_category?: string | null;
+  /** The row's own supporting Category cell; never amount or pricing-anchor evidence. */
+  source_category_evidence?: Readonly<{
+    column_index: number;
+    header_text: string;
+    raw_text: string;
+    source_refs: readonly import('@/lib/extraction/pdf/pagePricedScheduleReconstruction').PricedScheduleCellSourceRef[];
+  }>;
   canonical_category?: string | null;
   category_confidence?: number | null;
   page: number | null;

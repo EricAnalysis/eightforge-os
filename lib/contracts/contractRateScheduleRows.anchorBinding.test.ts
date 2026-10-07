@@ -177,6 +177,93 @@ function rows(source: ReturnType<typeof built>, layer: unknown = source.layer) {
   });
 }
 
+function withCategory(rawText = 'C&D Collect, Remove & Haul') {
+  const source = built();
+  const categoryToken = token('category:1', rawText, 1);
+  const categoryCell = {
+    ...cell('description', rawText, [ref(categoryToken)]),
+    role: null,
+    column_index: 0,
+    header_text: 'Category',
+  } as const;
+  const page = source.reconstruction.pages[0]!;
+  const reconstructionWithCategory: PagePricedScheduleReconstruction = {
+    ...source.reconstruction,
+    pages: [{ ...page, columns: [{ role: 'category', header_text: 'Category', x_min: null, x_max: 10 }],
+      rows: [{ ...page.rows[0]!, unresolved_role_cells: [categoryCell] }] }],
+  };
+  const tokens = [...source.tokens, categoryToken];
+  return { ...source, tokens, reconstruction: reconstructionWithCategory,
+    layer: buildPdfLayoutObservationsLayer({ layout: layout(tokens), reconstruction: reconstructionWithCategory, context }) };
+}
+
+describe('page-priced supporting category evidence', () => {
+  it('preserves printed category text and refs without changing pricing evidence or row identity', () => {
+    const source = withCategory();
+    const before = JSON.stringify(source);
+    const row = rows(source)[0]!;
+    const baseline = rows(built())[0]!;
+    expect(row).toMatchObject({ category: 'C&D Collect, Remove & Haul',
+      source_category: 'C&D Collect, Remove & Haul', canonical_category: 'construction_demolition',
+      category_resolution_status: 'resolved' });
+    expect(row.source_category_evidence).toEqual({ column_index: 0, header_text: 'Category', raw_text: 'C&D Collect, Remove & Haul',
+        source_refs: source.reconstruction.pages[0]!.rows[0]!.unresolved_role_cells![0]!.source_refs });
+    const categoryFields = ['category', 'source_category', 'source_category_evidence',
+      'canonical_category', 'category_confidence', 'category_resolution_status'];
+    const withoutCategory = (value: typeof row) => Object.fromEntries(Object.entries(value)
+      .filter(([key]) => !categoryFields.includes(key)));
+    expect(withoutCategory(row)).toEqual(withoutCategory(baseline));
+    expect(JSON.stringify(source)).toBe(before);
+  });
+
+  it.each([
+    ['Management & Reduction', 'management_reduction'], ['Final Disposal', 'final_disposal'],
+    ['Equipment', 'equipment'], ['Personnel', 'personnel'], ['Specialty Removal', 'specialty_removal'],
+  ])(
+    'uses the existing taxonomy for the supporting label %s', (label, exactCategory) => {
+      expect(rows(withCategory(label))[0]).toMatchObject({ source_category: label,
+        canonical_category: exactCategory });
+    },
+  );
+
+  it.each(['unknown_role', 'duplicate_header', 'duplicate_cell', 'wrong_header', 'missing_refs', 'missing_cell', 'blank_text'])(
+    'does not infer category from %s', (variant) => {
+      const source = withCategory();
+      const page = source.reconstruction.pages[0]!;
+      const row = page.rows[0]!;
+      const category = row.unresolved_role_cells![0]!;
+      source.reconstruction = { ...source.reconstruction, pages: [{ ...page,
+        columns: variant === 'unknown_role' ? [{ ...page.columns[0]!, role: null }]
+          : variant === 'duplicate_header' ? [page.columns[0]!, page.columns[0]!] : page.columns,
+        rows: [{ ...row, unresolved_role_cells: variant === 'missing_cell' ? []
+          : variant === 'duplicate_cell' ? [category, category]
+            : [{ ...category, ...(variant === 'wrong_header' ? { header_text: 'Service' } : {}),
+              ...(variant === 'blank_text' ? { raw_text: '   ' } : {}),
+              ...(variant === 'missing_refs' ? { source_refs: [] } : {}) }] }],
+      }] };
+      expect(rows(source)[0]).toMatchObject({ category: null, source_category: null, canonical_category: null });
+      expect(rows(source)[0]!.source_category_evidence).toBeUndefined();
+    },
+  );
+
+  it('keeps unsupported category text as evidence without inventing an allowed category', () => {
+    expect(rows(withCategory('Remove'))[0]).toMatchObject({ source_category: 'Remove', canonical_category: null,
+      category_resolution_status: 'requires_review' });
+  });
+
+  it('does not carry a category into a neighboring row with no supporting cell', () => {
+    const source = withCategory();
+    const page = source.reconstruction.pages[0]!;
+    source.reconstruction = { ...source.reconstruction, pages: [{ ...page,
+      rows: [page.rows[0]!, { ...page.rows[0]!, row_index: 1, unresolved_role_cells: [] }],
+    }] };
+    const result = rows(source);
+    expect(result[0]!.canonical_category).toBe('construction_demolition');
+    expect(result[1]).toMatchObject({ category: null, source_category: null, canonical_category: null });
+    expect(result[1]!.source_category_evidence).toBeUndefined();
+  });
+});
+
 describe('page-priced schedule exact source-anchor binding', () => {
   it.each(['$95,00', '$56.0', '5 100.00', '5 90.00', '$12.00 $14.00'])(
     'retains the row identity and exact bound evidence when refusing %s', (rateText) => {

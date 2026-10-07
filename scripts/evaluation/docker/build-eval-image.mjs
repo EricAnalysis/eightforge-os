@@ -23,9 +23,14 @@ const commit = run('git', ['rev-parse', '--verify', `${requested}^{commit}`]);
 if (run('git', ['status', '--porcelain', '--untracked-files=no'])) {
   process.stderr.write(`note: the working tree has uncommitted changes; the image is built from ${commit} only\n`);
 }
-const tag = `eightforge-eval:${commit.slice(0, 12)}`;
-const args = ['build', '--file', 'Dockerfile.eval', '--build-arg', `SOURCE_COMMIT=${commit}`,
-  '--tag', tag, '--tag', 'eightforge-eval:local'];
+const nodeImage = process.env.EIGHTFORGE_EVAL_NODE_IMAGE;
+// The canonical image is tagged :<commit12> and :local. A runtime-parity audit
+// variant (another Node image) gets its own tag and never replaces :local.
+const tag = nodeImage
+  ? `eightforge-eval:${commit.slice(0, 12)}-${process.env.EIGHTFORGE_EVAL_NODE_TAG ?? 'node-variant'}`
+  : `eightforge-eval:${commit.slice(0, 12)}`;
+const args = ['build', '--file', 'Dockerfile.eval', '--build-arg', `SOURCE_COMMIT=${commit}`, '--tag', tag,
+  ...(nodeImage ? ['--build-arg', `NODE_IMAGE=${nodeImage}`] : ['--tag', 'eightforge-eval:local'])];
 for (const name of ['HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy']) {
   if (process.env[name]) args.push('--build-arg', name);
 }
@@ -45,4 +50,4 @@ if (archiveCode !== 0 || buildCode !== 0) {
   process.exit(1);
 }
 const imageId = run('docker', ['image', 'inspect', '--format', '{{.Id}}', tag]);
-process.stdout.write(`\nbuilt ${tag} (also eightforge-eval:local) from ${commit}\nEIGHTFORGE_EVAL_IMAGE_ID=${imageId}\n`);
+process.stdout.write(`\nbuilt ${tag}${nodeImage ? '' : ' (also eightforge-eval:local)'} from ${commit}\nEIGHTFORGE_EVAL_IMAGE_ID=${imageId}\n`);

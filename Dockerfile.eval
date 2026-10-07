@@ -16,7 +16,14 @@
 # canvas binary and the tesseract WebAssembly core are the same on every host
 # (the constant --platform is deliberate, hence the check skip above).
 
-FROM --platform=linux/amd64 public.ecr.aws/docker/library/node:20.19.5-bookworm-slim@sha256:9e70124bd00f47dd023e349cd587132ae61892acc0e47ed641416c3e18f401c3 AS node
+# The canonical Node runtime: the production major (Vercel 24.x, package.json
+# engines), exact release pinned. Node selects the tesseract WebAssembly core
+# (Node 24 loads relaxed-SIMD), so evaluation must run production's major.
+# Overridable only for runtime-parity audits (EIGHTFORGE_EVAL_NODE_IMAGE in
+# build-eval-image.mjs); the manifest records the version that ran.
+ARG NODE_IMAGE=public.ecr.aws/docker/library/node:24.21.0-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20
+
+FROM --platform=linux/amd64 ${NODE_IMAGE} AS node
 
 FROM --platform=linux/amd64 public.ecr.aws/docker/library/python:3.13.7-slim-bookworm@sha256:adafcc17694d715c905b4c7bebd96907a1fd5cf183395f0ebc4d3428bd22d92d
 
@@ -40,7 +47,7 @@ RUN apt-get update \
       fonts-liberation2=2.1.5-1 \
  && rm -rf /var/lib/apt/lists/*
 
-# Node from the pinned official image (CI pins major 20; this pins the exact release).
+# Node from the pinned official image (production and CI pin major 24; this pins the exact release).
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
 COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \

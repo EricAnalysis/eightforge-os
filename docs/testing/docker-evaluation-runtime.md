@@ -12,13 +12,13 @@ Validator, Forgewing, ResolutionCase, Supabase or deployment behavior.
 
 | Layer | Pin |
 |---|---|
-| Node | `node:20.19.5-bookworm-slim` by digest (CI pins major 20) |
+| Node | `node:24.21.0-bookworm-slim` by digest (production and CI: major 24; see `docs/decisions/NODE_RUNTIME_ALIGNMENT.md`) |
 | Python | `python:3.13.7-slim-bookworm` by digest (CI: 3.13) |
 | Python deps | `requirements-test.txt` (PyMuPDF 1.28.0) |
 | npm deps | `package-lock.json` via `npm ci` |
 | Platform | `linux/amd64` on every host |
 | Fonts | `fontconfig 2.14.1-4`, `fonts-dejavu-core 2.37-6`, `fonts-liberation2 2.1.5-1` |
-| OCR | tesseract.js / core / `@tesseract.js-data/eng` from the lockfile; the selected core build is recorded |
+| OCR | tesseract.js / core / `@tesseract.js-data/eng` from the lockfile; the core build Node selects (`relaxedsimd-lstm` on 24) is recorded |
 | Locale | `LANG=LC_ALL=C.UTF-8`, `TZ=UTC`, `PYTHONUTF8=1` |
 | Source | `git archive` of one commit (committed blob bytes; nothing untracked) |
 
@@ -28,6 +28,16 @@ Docker official images: same digests, no anonymous pull limit).
 No credentials enter the image or the container: no `env_file`, and the runner
 refuses database, provider, Linear, GitHub and Vercel credentials. Customer
 PDFs are never in the image; they are mounted read-only at run time.
+
+## Runtime-parity audits
+
+To compare another Node runtime on identical source, build a variant (tagged
+`eightforge-eval:<commit12>-<tag>`, never `:local`):
+
+```bash
+EIGHTFORGE_EVAL_NODE_IMAGE=<image@digest> EIGHTFORGE_EVAL_NODE_TAG=node20 \
+  node scripts/evaluation/docker/build-eval-image.mjs
+```
 
 ## Build
 

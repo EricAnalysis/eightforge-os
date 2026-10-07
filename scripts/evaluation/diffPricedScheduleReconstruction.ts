@@ -4,7 +4,7 @@
  * Dump what the reconstruction makes of a corpus at the current checkout:
  *
  *   npx vite-node --config vitest.config.ts scripts/evaluation/diffPricedScheduleReconstruction.ts -- \
- *     dump --out <file.json> [--document <pdf>[,<pdf>...]] [--pdf <pdf>[,...]] [--labels <labels.json>[,...]]
+ *     dump --out <file.json> [--document <pdf>[,<pdf>...]] [--payload <capture.json>[,...]] [--pdf <pdf>[,...]] [--labels <labels.json>[,...]]
  *
  * Run the same dump at two checkouts (for example main and a branch; copy this
  * file into the other checkout), then:
@@ -17,6 +17,8 @@
  *   as an upload is extracted. It also counts the lines Forgewing would be
  *   offered on each page, through the same regionAssertionEntryTargets() the
  *   resolution queue and value-reading engine use. This is the real measure.
+ * - --payload reads a pinned evaluation capture (runPinnedEvaluation.ts): the
+ *   payload extractDocument() already produced, summarized exactly as --document.
  * - --pdf runs only the native text layout through the reconstruction (no OCR).
  * - --labels builds a page layout from a benchmark label file's words, an
  *   approximation of OCR words.
@@ -171,8 +173,14 @@ async function summarizeDocument(file: string): Promise<{ parser_version: string
   const payload = await extractDocument({
     id: sourceDocumentId, title: path.basename(file), name: path.basename(file), document_type: 'contract', storage_path: file,
   }, toArrayBuffer(bytes), 'application/pdf', path.basename(file), { sourceDocumentId, sourceArtifactId });
-  const reconstruction = (payload.extraction as { content_layers_v1?: { pdf?: { priced_schedule_reconstruction_v1?: unknown } } })
-    .content_layers_v1?.pdf?.priced_schedule_reconstruction_v1 as PagePricedScheduleReconstruction | undefined;
+  return summarizePayload(payload, sourceDocumentId);
+}
+
+/** The same summary, from an extraction payload already produced by extractDocument(). */
+function summarizePayload(payload: unknown, sourceDocumentId: string): { parser_version: string; pages: PageSummary[] } {
+  const extraction = (payload as { extraction?: unknown }).extraction;
+  const reconstruction = (extraction as { content_layers_v1?: { pdf?: { priced_schedule_reconstruction_v1?: unknown } } } | undefined)
+    ?.content_layers_v1?.pdf?.priced_schedule_reconstruction_v1 as PagePricedScheduleReconstruction | undefined;
   const forgewing = new Map<number, number>();
   for (const target of regionAssertionEntryTargets(payload, sourceDocumentId)) {
     forgewing.set(target.physicalPageNumber, (forgewing.get(target.physicalPageNumber) ?? 0) + 1);
@@ -194,6 +202,14 @@ async function dump(): Promise<void> {
     const summary = await summarizeDocument(file);
     result.parser_version = summary.parser_version;
     result.sources[`document:${path.basename(file)}`] = summary.pages;
+  }
+  // A pinned evaluation capture (scripts/evaluation/runPinnedEvaluation.ts): the
+  // payload extractDocument() produced, keyed exactly as --document keys it.
+  for (const file of (arg('--payload') ?? '').split(',').filter(Boolean)) {
+    const capture = JSON.parse(readFileSync(file, 'utf8')) as { source_file: string; document_id: string; data: unknown };
+    const summary = summarizePayload(capture.data, capture.document_id);
+    result.parser_version = summary.parser_version;
+    result.sources[`document:${capture.source_file}`] = summary.pages;
   }
   for (const file of (arg('--pdf') ?? '').split(',').filter(Boolean)) {
     const layout = await loadPdfLayout(toArrayBuffer(readFileSync(file)));

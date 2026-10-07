@@ -7,7 +7,7 @@ import type { InventoryClass, InventoryEntry, ResolutionEvidenceInventory } from
 function entry(identity: string, inventoryClass: InventoryClass, documentLabel = 'Golden', alsoUnresolved: string[] = []): InventoryEntry {
   return { identity, inventoryClass, documentLabel, documentId: `doc-${documentLabel}`, physicalPageNumber: 1,
     caseId: `case:${identity}`, caseKind: 'review_required_value', tier: 'missing_authoritative_value',
-    rootCauseKey: 'r', diagnosticCode: null, alsoUnresolved, originalSourceText: null };
+    rootCauseKey: 'r', diagnosticCode: null, alsoUnresolved, originalSourceText: null, readingRegion: null };
 }
 function inventory(entries: InventoryEntry[]): ResolutionEvidenceInventory {
   return { schema: 'resolution_evidence_inventory_v1', documents: [{ documentId: 'd', label: 'Golden' }], entries,

@@ -21,6 +21,7 @@ import {
   type AiProviderContentClass,
   type ValueReadingEligibility,
 } from '@/lib/server/forgewingGates';
+import { canonicalBoxesForObservations } from '@/lib/recovery/visualSourceEvidence';
 import { loadRegionBoundAssertionRows } from '@/lib/server/regionBoundHumanAssertions';
 import {
   buildValueReadingProposal,
@@ -171,18 +172,8 @@ export function buildValueReadingCropSpec(target: ValueReadingTarget): ValueRead
     || visual.sourceDocumentId !== binding.sourceDocumentId
     || visual.physicalPageNumber !== binding.physicalPageNumber
     || visual.pageRepresentationDigest !== binding.pageRepresentationDigest) return null;
-  const ids = [...new Set(binding.sourceObservationIds)].sort();
-  if (ids.length === 0) return null;
-  const canonicalBoxes: CanonicalBox[] = [];
-  for (const id of ids) {
-    const matches = visual.boxes.filter((box) => box.observationId === id);
-    const canonical = matches[0]?.canonicalBoundingBox;
-    if (matches.length !== 1 || !canonical || canonical.coordinate_space !== 'canonical_v1'
-      || ![canonical.x_min, canonical.x_max, canonical.y_min, canonical.y_max].every(Number.isFinite)
-      || canonical.x_max <= canonical.x_min || canonical.y_max <= canonical.y_min) return null;
-    canonicalBoxes.push({ coordinate_space: 'canonical_v1', x_min: canonical.x_min, x_max: canonical.x_max,
-      y_min: canonical.y_min, y_max: canonical.y_max });
-  }
+  const canonicalBoxes = canonicalBoxesForObservations(visual, binding.sourceObservationIds);
+  if (!canonicalBoxes) return null;
   return {
     renderer: VALUE_READING_EXECUTION.cropRenderer,
     organizationId: binding.organizationId,

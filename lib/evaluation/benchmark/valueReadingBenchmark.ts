@@ -149,8 +149,17 @@ export function normalizeReadingText(text: string): string {
     .toLowerCase();
 }
 
-/** Every labelled priced row on the page, with the reason any row is not a target. */
-export function valueReadingBenchmarkTargets(labels: BenchmarkPageLabels, page: ValueReadingBenchmarkPage): Readonly<{
+/**
+ * Every labelled priced row on the page, with the reason any row is not a target.
+ *
+ * By default each target's crop is its labelled row (B4.6). `cropBoxes` may
+ * name, per row, the region production would crop instead (B4.6.1: the case's
+ * own reading region); truth is still the labelled row, and which page values
+ * the crop shows is computed from the region actually drawn.
+ */
+export function valueReadingBenchmarkTargets(labels: BenchmarkPageLabels, page: ValueReadingBenchmarkPage, options: Readonly<{
+  cropBoxes?: (rowKey: string) => readonly CanonicalBox[] | undefined;
+}> = {}): Readonly<{
   targets: readonly ValueReadingBenchmarkTarget[];
   skipped: readonly Readonly<{ rowKey: string; reason: string }>[];
 }> {
@@ -208,8 +217,9 @@ export function valueReadingBenchmarkTargets(labels: BenchmarkPageLabels, page: 
       skipped.push({ rowKey: row.rowKey, reason: `rate cell is not one amount: ${rate.text}` });
       continue;
     }
-    const boxes = present.map((cell) => ({ coordinate_space: 'canonical_v1' as const, x_min: cell.box.x_min,
-      x_max: cell.box.x_max, y_min: cell.box.y_min, y_max: cell.box.y_max }));
+    const boxes = options.cropBoxes?.(row.rowKey)?.map((box) => ({ ...box }))
+      ?? present.map((cell) => ({ coordinate_space: 'canonical_v1' as const, x_min: cell.box.x_min,
+        x_max: cell.box.x_max, y_min: cell.box.y_min, y_max: cell.box.y_max }));
     // The region the crop shows: the row's boxes, padded exactly as the renderer pads them.
     const pad = VALUE_READING_EXECUTION.cropPaddingPoints;
     const region = { x_min: Math.min(...boxes.map((box) => box.x_min)) - pad, x_max: Math.max(...boxes.map((box) => box.x_max)) + pad,
@@ -383,7 +393,8 @@ function percentile(values: readonly number[], p: number): number | null {
 export type ValueReadingClassStatus = 'qualified' | 'qualified_low_coverage' | 'failed';
 
 export type ValueReadingClassSummary = Readonly<{
-  evidenceClass: ValueReadingEvidenceClass | 'all';
+  /** The evidence class, 'all', or a B4.6.1 qualification class key (task:evidence class). */
+  evidenceClass: ValueReadingEvidenceClass | 'all' | `${string}:${ValueReadingEvidenceClass}`;
   rows: number;
   outcomes: Readonly<Record<ValueReadingOutcome, number>>;
   accuracy: Readonly<{

@@ -17,6 +17,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { BENCHMARK_PAGES, bindBenchmarkLabels, parseBenchmarkLabels } from '@/lib/evaluation/benchmark/benchmarkContract';
+import { benchmarkSourceFrame } from '@/lib/evaluation/benchmark/benchmarkSourceFrame';
 import {
   applyValueReadingAdjudications,
   decideValueReadingActivation,
@@ -34,7 +35,6 @@ import {
   VALUE_READING_BENCHMARK_CEILINGS,
   type ValueReadingBenchmarkDocument,
 } from '@/lib/evaluation/benchmark/valueReadingBenchmarkRun';
-import { buildCanonicalPageFrame } from '@/lib/extraction/geometry/canonicalPageFrame';
 import {
   createClaudeValueReadingProvider,
   isValueReadingProviderConfigured,
@@ -78,19 +78,6 @@ function numberFlag(args: Map<string, string | true>, flag: string): number | nu
   return value;
 }
 
-async function sourceFrame(bytes: Uint8Array, physicalPageNumber: number) {
-  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
-  const document = await pdfjs.getDocument({ data: new Uint8Array(bytes), isEvalSupported: false }).promise;
-  try {
-    const page = await document.getPage(physicalPageNumber);
-    const frame = buildCanonicalPageFrame({ view: page.view, rotation: page.rotate, userUnit: page.userUnit });
-    if (!frame) throw new Error(`page ${physicalPageNumber} has no canonical frame`);
-    return { ...frame, view: [...frame.view] as [number, number, number, number] };
-  } finally {
-    await document.destroy();
-  }
-}
-
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const live = args.get('--execute-provider') === true;
@@ -123,7 +110,7 @@ async function main(): Promise<void> {
     const labelBytes = readFileSync(`lib/evaluation/benchmark/labels/${spec.pageKey}.labels.json`);
     const binding = bindBenchmarkLabels(parseBenchmarkLabels(labelBytes), { pageKey: spec.pageKey, sha256,
       byteLength: bytes.byteLength, physicalPageNumber: spec.physicalPageNumber,
-      frame: await sourceFrame(bytes, spec.physicalPageNumber) });
+      frame: await benchmarkSourceFrame(bytes, spec.physicalPageNumber) });
     const { targets, skipped } = valueReadingBenchmarkTargets(binding.labels, page);
     const cleared = clearance.find((entry) => entry.documentKey === spec.documentKey)!;
     sources.set(spec.pageKey, bytes);

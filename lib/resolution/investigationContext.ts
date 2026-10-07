@@ -104,6 +104,8 @@ export type InvestigationContext = Readonly<{
   omissions: readonly InvestigationOmission[];
   /** Digest of exactly what would be transmitted; the reuse key for a provider investigation. */
   transmittedDigest: string;
+  /** Digest of every slice read, transmitted or not: the same evidence always yields the same digest. */
+  readDigest: string;
 }>;
 
 /** Which slices a case kind uses, in transmission priority order. */
@@ -116,6 +118,8 @@ export const RELEVANT_SLICES: Readonly<Record<ResolutionCaseKind, readonly Inves
   structure_review: ['case_evidence', 'page_structure', 'neighbouring_rows', 'prior_forgewing'],
   coverage_gap: ['case_evidence', 'page_structure', 'document_relationships'],
   pricing_withheld: ['case_evidence', 'page_structure', 'document_relationships', 'validator_findings'],
+  // The row's own text and its neighbours' are the evidence for its category; never another row's category.
+  category_review: ['case_evidence', 'source_text', 'neighbouring_rows', 'page_structure', 'human_reviewed_values', 'prior_forgewing'],
   validator_finding: ['case_evidence', 'validator_findings', 'human_reviewed_values', 'document_relationships', 'deterministic_impact'],
 });
 
@@ -177,15 +181,30 @@ function caseEvidence(resolutionCase: ResolutionCase): Candidate {
   };
 }
 
-function sourceText(resolutionCase: ResolutionCase, pdf: Record<string, unknown> | null): Candidate | null {
-  const ids = [...new Set(resolutionCase.evidence.filter((entry) => entry.role === 'current')
-    .flatMap((entry) => entry.observationIds))];
-  const observations = asRecord(pdf?.layout_observations_v1)?.observations;
+// One extraction serves every case on its document: index it once per read.
+const observationIndexCache = new WeakMap<object, Map<string, Record<string, unknown>>>();
+function observationIndex(pdf: Record<string, unknown> | null): Map<string, Record<string, unknown>> {
+  const layer = asRecord(pdf?.layout_observations_v1);
+  if (!layer) return new Map();
+  const cached = observationIndexCache.get(layer);
+  if (cached) return cached;
   const byId = new Map<string, Record<string, unknown>>();
-  for (const value of Array.isArray(observations) ? observations : []) {
+  for (const value of Array.isArray(layer.observations) ? layer.observations : []) {
     const observation = asRecord(value);
     if (observation && typeof observation.id === 'string') byId.set(observation.id, observation);
   }
+  observationIndexCache.set(layer, byId);
+  return byId;
+}
+
+function sourceText(resolutionCase: ResolutionCase, pdf: Record<string, unknown> | null): Candidate | null {
+  const ids = [...new Set(resolutionCase.evidence.filter((entry) => entry.role === 'current')
+    .flatMap((entry) => entry.observationIds))];
+  const byId = observationIndex(pdf);
+  // The case's own reconstructed row, when it is one: its rate cell is the candidate.
+  const idSet = new Set(ids);
+  const ownRow = pageRows(reconstructionPage(pdf, resolutionCase.physicalPageNumber))
+    .find((row) => row.observationIds.length > 0 && row.observationIds.every((id) => idSet.has(id))) ?? null;
   const tokens = ids.flatMap((id) => {
     const observation = byId.get(id);
     return observation && typeof observation.raw_text === 'string'
@@ -197,7 +216,12 @@ function sourceText(resolutionCase: ResolutionCase, pdf: Record<string, unknown>
     contentClass: 'text_excerpts',
     provenance: { source: 'layout_observations_v1', documentId: resolutionCase.documentId,
       physicalPageNumber: resolutionCase.physicalPageNumber, recordIds: tokens.map((token) => token.observationId) },
-    payload: { originalSourceText: resolutionCase.originalSourceText, tokens },
+    payload: {
+      originalSourceText: resolutionCase.originalSourceText,
+      tokens,
+      caseRow: ownRow ? { rowIndex: ownRow.rowIndex, rawText: ownRow.rawText, rateText: ownRow.rateText,
+        rateRead: ownRow.rateScanned ? 'scanned_candidate' : 'native' } : null,
+    },
   };
 }
 
@@ -210,8 +234,18 @@ function reconstructionPage(pdf: Record<string, unknown> | null, page: number | 
     .find((entry) => entry?.physical_page_number === page) ?? null;
 }
 
+const pageRowsCache = new WeakMap<object, PageRow[]>();
 function pageRows(page: Record<string, unknown> | null): PageRow[] {
-  const rows = Array.isArray(page?.rows) ? page.rows : [];
+  if (!page) return [];
+  const cached = pageRowsCache.get(page);
+  if (cached) return cached;
+  const parsed = parsePageRows(page);
+  pageRowsCache.set(page, parsed);
+  return parsed;
+}
+
+function parsePageRows(page: Record<string, unknown>): PageRow[] {
+  const rows = Array.isArray(page.rows) ? page.rows : [];
   return rows.flatMap((value) => {
     const row = asRecord(value);
     if (!row || typeof row.raw_text !== 'string' || typeof row.row_index !== 'number') return [];
@@ -416,5 +450,7 @@ export function resolveInvestigationContext(
     slices,
     omissions,
     transmittedDigest: hashCanonical({ version: 'investigation_context_v1', caseId: resolutionCase.caseId, transmitted }),
+    readDigest: hashCanonical({ version: 'investigation_context_v1', caseId: resolutionCase.caseId,
+      read: slices.map((slice) => ({ kind: slice.kind, provenance: slice.provenance, payload: slice.payload })) }),
   };
 }

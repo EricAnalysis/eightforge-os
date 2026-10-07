@@ -299,6 +299,35 @@ export function ResolutionDecisionPane({ entry, forgewingSuggestionsIncluded, sa
         <p className="text-xs text-[var(--ef-text-secondary)]">{entry.finding.recommendedAction}</p>
       ) : null}
 
+      {entry.investigation ? (
+        <section className="space-y-2 rounded border border-white/10 p-3" data-testid="case-investigation">
+          <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--ef-text-muted)]">
+            EightForge investigation · Not a decision
+          </p>
+          <p className="text-xs text-[var(--ef-text-primary)]">{entry.investigation.diagnosis}</p>
+          {entry.investigation.findings.length > 0 ? (
+            <ul className="list-disc space-y-1 pl-4 text-xs text-[var(--ef-text-secondary)]">
+              {entry.investigation.findings.map((finding) => <li key={finding.code}>{finding.text}</li>)}
+            </ul>
+          ) : null}
+          <ol className="space-y-1 text-xs text-[var(--ef-text-secondary)]">
+            {entry.investigation.options.map((option) => (
+              <li key={`${option.rank}:${option.label}`}>
+                <span className="text-[var(--ef-text-primary)]">{option.rank}. {option.label}</span>
+                {' '}— {option.rationale}
+                {option.prefill && enter ? (
+                  <button type="button" disabled={saving}
+                    className="ml-2 rounded border border-white/10 px-2 py-0.5 text-[var(--ef-text-primary)]"
+                    onClick={() => setForm((current) => ({ ...current, rate: option.prefill!.rate }))}>
+                    Copy amount to draft
+                  </button>
+                ) : null}
+              </li>
+            ))}
+          </ol>
+        </section>
+      ) : null}
+
       {showReading ? (
         <section className="space-y-2 rounded border border-[var(--ef-purple-primary-a30)] p-3" data-testid="forgewing-value-reading">
           <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--ef-text-muted)]">

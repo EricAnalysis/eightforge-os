@@ -1,5 +1,5 @@
 import type { ContractRateScheduleRow } from './types';
-import { pricingAuthoritativePage, pricingAuthorityDiagnostics, type PricingAuthorityDiagnostic } from '@/lib/extraction/pdf/pricedScheduleAuthority';
+import { pricingAuthoritativePage, pricingAuthorityDiagnostics, pricedScheduleSourceRefKey, type PricingAuthorityDiagnostic } from '@/lib/extraction/pdf/pricedScheduleAuthority';
 import type { PdfTable } from '@/lib/extraction/pdf/extractTables';
 import { normalizeTableCellGeometry, type GeometryCellRef } from '@/lib/extraction/tableGeometry';
 import {
@@ -15,7 +15,6 @@ import { decideRateAuthority, evidenceIsScanned, readAuthoredAmount } from '@/li
 import type {
   PagePricedScheduleReconstruction,
   PricedScheduleCell,
-  PricedScheduleCellSourceRef,
   PricedSchedulePage,
 } from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
 import {
@@ -1430,11 +1429,8 @@ function sourceCategoryEvidence(
     || !cell.raw_text.trim() || cell.source_refs.length === 0) return null;
   // The pricing projection removes ruling-only ownership from accepted cells.
   // Supporting cells must not bypass that same existing trust boundary.
-  const refKey = (ref: PricedScheduleCellSourceRef) => ref.observation_id ? `id:${ref.observation_id}`
-    : JSON.stringify([ref.text, ref.x_min, ref.x_max, ref.y_min, ref.y_max,
-      ref.source ?? null, ref.confidence ?? null]);
-  const ruleRefs = new Set((page.ruling_line_resolutions ?? []).map((resolution) => refKey(resolution.source_ref)));
-  if (cell.source_refs.some((ref) => ruleRefs.has(refKey(ref)))) return null;
+  const ruleRefs = new Set((page.ruling_line_resolutions ?? []).map((resolution) => pricedScheduleSourceRefKey(resolution.source_ref)));
+  if (cell.source_refs.some((ref) => ruleRefs.has(pricedScheduleSourceRefKey(ref)))) return null;
   return { column_index: columnIndex, header_text: cell.header_text,
     raw_text: cell.raw_text, source_refs: cell.source_refs };
 }

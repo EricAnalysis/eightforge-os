@@ -69,7 +69,7 @@ function authorityIssue(page: PricedSchedulePage, version?: PricedScheduleRecons
       || !Number.isInteger(resolution.column_index) || resolution.column_index < 0
       || !Array.isArray(resolution.rule_ids) || !resolution.rule_ids.length
       || resolution.rule_ids.some((id: unknown) => typeof id !== 'string' || !id)) return fail('malformed_resolutions', index);
-    const key = refKey(ref);
+    const key = pricedScheduleSourceRefKey(ref);
     if (ruleRefs.has(key)) return fail('duplicate_resolution', index);
     ruleRefs.add(key);
     if (resolution.rule_ids.some((id: string) => !ruleIds.has(id)) || !Array.isArray(page.rows) || !Array.isArray(page.columns))
@@ -77,7 +77,7 @@ function authorityIssue(page: PricedSchedulePage, version?: PricedScheduleRecons
     const owners = page.rows.flatMap((row: PricedScheduleRow) => [
       ...(row.cells ?? []).map(cell => ({ cell, col: page.columns.findIndex(column => column.role === cell.role) })),
       ...(row.unresolved_role_cells ?? []).map(cell => ({ cell, col: cell.column_index })),
-    ].flatMap(({ cell, col }) => (cell.source_refs ?? []).filter(source => refKey(source) === key)
+    ].flatMap(({ cell, col }) => (cell.source_refs ?? []).filter(source => pricedScheduleSourceRefKey(source) === key)
       .map(source => ({ row, col, source }))));
     if (owners.length !== 1 || owners[0]!.row.row_index !== resolution.row_index || owners[0]!.col !== resolution.column_index
       || fullRefKey(owners[0]!.source) !== fullRefKey(ref)) return fail('inconsistent_resolution', index);
@@ -114,7 +114,7 @@ export function pricingAuthorityDiagnostics(
 
 // Observation identity takes precedence: changing a restated box must not promote
 // the same rule-owned observation. Legacy refs bind their complete source shape.
-function refKey(ref: PricedScheduleCellSourceRef): string {
+export function pricedScheduleSourceRefKey(ref: PricedScheduleCellSourceRef): string {
   return ref.observation_id ? `id:${ref.observation_id}` : fullRefKey(ref);
 }
 function fullRefKey(ref: PricedScheduleCellSourceRef): string {
@@ -136,14 +136,14 @@ export function pricingAuthoritativeRow(
   version?: PricedScheduleReconstructionVersion,
 ): PricedScheduleRow | null {
   if (authorityIssue(page, version)) return null;
-  return projectRow(page, row, new Set((page.ruling_line_resolutions ?? []).map(resolution => refKey(resolution.source_ref))));
+  return projectRow(page, row, new Set((page.ruling_line_resolutions ?? []).map(resolution => pricedScheduleSourceRefKey(resolution.source_ref))));
 }
 
 /** Internal pricing view: validate before row scoping, never persist as structure. */
 export function pricingAuthoritativePage(page: PricedSchedulePage, version: PricedScheduleReconstructionVersion): PricedSchedulePage | null {
   if (authorityIssue(page, version)) return null;
   if (!page.ruling_line_resolutions) return page;
-  const refs = new Set(page.ruling_line_resolutions.map(resolution => refKey(resolution.source_ref)));
+  const refs = new Set(page.ruling_line_resolutions.map(resolution => pricedScheduleSourceRefKey(resolution.source_ref)));
   const { ruling_line_evidence: _evidence, ruling_line_resolutions: _resolutions,
     ruling_line_resolution_digest: _digest, ...base } = page;
   return { ...base, rows: page.rows.map(row => projectRow(page, row, refs)!) };
@@ -152,13 +152,13 @@ export function pricingAuthoritativePage(page: PricedSchedulePage, version: Pric
 function projectRow(page: PricedSchedulePage, row: PricedScheduleRow, ruleRefs: ReadonlySet<string>): PricedScheduleRow | null {
   const resolutions = page.ruling_line_resolutions ?? [];
   const affected = resolutions.some((resolution) => resolution.row_index === row.row_index)
-    || row.cells.some((cell) => cell.source_refs.some((ref) => ruleRefs.has(refKey(ref))));
+    || row.cells.some((cell) => cell.source_refs.some((ref) => ruleRefs.has(pricedScheduleSourceRefKey(ref))));
   if (!affected) return row;
   const cells = row.cells.flatMap((cell) => {
     // A structured amount must not survive removal of the source that proves it.
-    if (cell.structured_rate && (ruleRefs.has(refKey(cell.structured_rate.amount_source_ref))
-      || (cell.structured_rate.marker_source_ref && ruleRefs.has(refKey(cell.structured_rate.marker_source_ref))))) return [];
-    const refs = cell.source_refs.filter((ref) => !ruleRefs.has(refKey(ref)));
+    if (cell.structured_rate && (ruleRefs.has(pricedScheduleSourceRefKey(cell.structured_rate.amount_source_ref))
+      || (cell.structured_rate.marker_source_ref && ruleRefs.has(pricedScheduleSourceRefKey(cell.structured_rate.marker_source_ref))))) return [];
+    const refs = cell.source_refs.filter((ref) => !ruleRefs.has(pricedScheduleSourceRefKey(ref)));
     if (refs.length === cell.source_refs.length) return [cell];
     if (!refs.length) return [];
     return [{ ...cell, source_refs: refs,

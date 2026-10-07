@@ -37,6 +37,20 @@ export function OrchestratorClient() {
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  // A Forgewing friction signal links here prefilled (codes, counts and record
+  // ids only). Prefill fills the form; nothing is sent until a person submits.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const prefilledQuestion = params.get('question');
+    if (prefilledQuestion) setQuestion(prefilledQuestion);
+    const prefilledCategory = params.get('rootCauseCategory');
+    if (prefilledCategory && ORCHESTRATOR_ROOT_CAUSE_CATEGORIES.some((category) => category.key === prefilledCategory)) {
+      setRootCauseCategory(prefilledCategory);
+    }
+    const prefilledEvidence = params.get('evidenceLinks');
+    if (prefilledEvidence) setEvidenceLinks(prefilledEvidence);
+  }, []);
+
   useEffect(() => {
     let active = true;
 

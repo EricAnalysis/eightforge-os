@@ -309,6 +309,12 @@ export type ResolutionCase = Readonly<{
   /** Durable explanation only; never a value or authority. */
   valueReadingOutcome?: Readonly<{ code: ValueReadingOutcomeCode; reason: ValueReadingOutcomeReason }> | null;
   actions: readonly ResolutionAction[];
+  /**
+   * EightForge's own deterministic investigation of this case, attached
+   * automatically (Forgewing generalization, phase 4). Explanation and ranked
+   * options over the case's own actions only; never a value or authority.
+   */
+  investigation?: import('@/lib/resolution/caseInvestigation').CaseInvestigation;
   /** The diagnostic a case was derived from, verbatim from the registry; absent for other sources. */
   diagnostic?: Readonly<{
     code: DiagnosticCode;

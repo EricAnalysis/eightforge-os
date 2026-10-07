@@ -173,6 +173,10 @@ describe('evidence attention in the resolution queue (Forgewing generalization, 
     expect(result.queue.cases).toMatchObject([{ kind: 'withheld_priced_line', documentId: UDOC, physicalPageNumber: 2,
       originalSourceText: 'Hauling TON $ 8.7S', diagnostic: { code: 'inconsistent_row_pitch', recoverability: 'not_recoverable' } }]);
     expect(result.queue.cases[0]!.actions.map((action) => action.kind)).toEqual(['enter_reviewed_value', 'record_disposition', 'open_document']);
+    // Every case arrives already investigated, locally and without writing.
+    expect(result.queue.cases[0]!.investigation).toMatchObject({ method: 'deterministic',
+      findings: [{ code: 'line_carries_no_amount' }], options: [{ rank: 1, actionKind: 'record_disposition' },
+        { rank: 2, actionKind: 'enter_reviewed_value' }, { rank: 3, actionKind: 'open_document' }] });
     expect(writes).toEqual([]);
   });
   it('opens a review-required case for a published row whose rate was read from a scan, and none for a native one', async () => {

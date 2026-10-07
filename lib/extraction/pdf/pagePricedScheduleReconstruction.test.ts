@@ -917,16 +917,79 @@ describe('generic single-page priced schedule reconstruction', () => {
   it('V3: the corpus-observed labels map to exactly one role; everything else is unknown', () => {
     const observed: Array<[string, string]> = [
       ['Description', 'description'], ['Equipment Description', 'description'], ['Personnel Description', 'description'],
-      ['Unit', 'unit'], ['Units', 'unit'], ['Unit.', 'unit'],
+      ['Unit', 'unit'], ['Units', 'unit'], ['Unit.', 'unit'], ['Uni', 'unit'],
       ['Rate', 'rate'], ['Unit Cost', 'rate'], ['Unit Price', 'rate'],
       ['Category', 'category'], ['Qty', 'quantity'], ['Extended Amount', 'amount'], ['Item Number', 'item_code'],
     ];
     for (const [label, role] of observed) expect(pricedScheduleHeaderRoles(label), label).toEqual([role]);
     // Unknown, never repaired or guessed: OCR fragments, identifiers, unobserved synonyms.
-    for (const label of ['Item', 'Amount', 'Total Cost', 'Line #', 'Sec #', 'Descripti', 'Uni', 'SE', 'Item / Service',
+    for (const label of ['Item', 'Amount', 'Total Cost', 'Line #', 'Sec #', 'Descripti', 'Un', 'SE', 'Item / Service',
       'Size Range (inches)', 'Debris Tonnage']) {
       expect(pricedScheduleHeaderRoles(label), label).toEqual([]);
     }
+  });
+
+  it('recognizes only the normalized standalone Uni header alias and preserves its evidence', () => {
+    for (const label of ['Uni', ' Unit ', ' uni ']) {
+      expect(pricedScheduleHeaderRoles(label)).toEqual(['unit']);
+    }
+    for (const label of ['University', 'Uniform', 'Unique', 'Un', 'Unl', 'Uni description', 'The Uni', 'UniUnit']) {
+      expect(pricedScheduleHeaderRoles(label), label).toEqual([]);
+    }
+    const observationId = 'observed-unit-header' as PdfToken['observation_id'];
+    const header = headerWith('Cost', 'Description', 'Uni');
+    const unitToken = header.tokens.find((entry) => entry.text === 'Uni')!;
+    unitToken.observation_id = observationId;
+    const result = reconstructSinglePage([header, ...twoBodyRows])!;
+    const column = result.columns.find((entry) => entry.role === 'unit')!;
+    expect(column.header_text).toBe('Uni');
+    expect(column.header_source_refs).toEqual([expect.objectContaining({
+      text: 'Uni', observation_id: observationId,
+    })]);
+    expect(result.header_raw_text).toBe(header.text);
+    expect(result.rows).toHaveLength(2);
+    expect(result.rows.map((row) => cellText(row, 'unit'))).toEqual(['Widget', 'Widget']);
+    const normal = reconstructSinglePage([headerWith('Cost', 'Description', 'Unit'), ...twoBodyRows])!;
+    expect(result.rows).toEqual(normal.rows);
+    expect(result.rejected_spines).toEqual(normal.rejected_spines);
+    expect(result.unassigned_lines).toEqual(normal.unassigned_lines);
+  });
+
+  it('does not apply the Uni header alias to description or unrecognized-column body text', () => {
+    const result = reconstructSinglePage([
+      headerWith('Cost', 'Description', 'Grouping'),
+      pricedLine(7, 680, { description: 'Uni', unit: 'Uni', origin: 'A to B', currency: '$', amount: '12.00' }),
+      pricedLine(7, 660, { description: 'Beta service', unit: 'Uni', origin: 'B to C', currency: '$', amount: '3.50' }),
+    ])!;
+    expect(result.columns.some((column) => column.role === 'unit')).toBe(false);
+    expect(result.header_raw_text).not.toContain('Uni');
+    expect(result.rows).toHaveLength(2);
+    expect(cellText(result.rows[0]!, 'description')).toBe('Uni');
+    expect(result.rows.every((row) => cellText(row, 'unit') === null)).toBe(true);
+    expect(result.rows[0]!.unresolved_role_cells).toContainEqual(expect.objectContaining({
+      column_index: 1, role: null, raw_text: 'Uni',
+    }));
+  });
+
+  it('fails closed when Uni and Unit would create duplicate unit columns', () => {
+    const result = reconstructSinglePage([
+      line(7, 700, [
+        { x: DESCRIPTION_X, text: 'Description', width: 70 },
+        { x: UNIT_X, text: 'Uni', width: 30 },
+        { x: ORIGIN_X, text: 'Unit', width: 30 },
+        { x: CURRENCY_X, text: 'Cost', width: 30 },
+      ]), ...twoBodyRows,
+    ])!;
+    expect(result).toMatchObject({ status: 'failed_closed', columns: [], rows: [] });
+    expect(result.header_interpretation).toMatchObject({ status: 'unresolved', reason: 'duplicate_role' });
+  });
+
+  it('keeps the Uni alias out of the frozen legacy header vocabulary', () => {
+    const result = buildPagePricedScheduleReconstruction({
+      layout: layoutOf([page(7, [headerWith('Cost', 'Description', 'Uni'), ...twoBodyRows])]),
+      continuationEvidence: 'spacing_only',
+    });
+    expect(result.pages[0]!.columns.find((column) => column.header_text === 'Uni')!.role).toBeNull();
   });
 
   it('V4: the frozen spacing_only path keeps the legacy vocabulary verbatim', () => {

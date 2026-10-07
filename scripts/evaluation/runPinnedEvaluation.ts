@@ -29,7 +29,11 @@ import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 
-import { buildResolutionEvidenceInventory, type InventoryDocumentInput } from '@/lib/evaluation/resolutionEvidenceInventory';
+import {
+  buildResolutionEvidenceInventory,
+  offlineDocumentId,
+  type InventoryDocumentInput,
+} from '@/lib/evaluation/resolutionEvidenceInventory';
 import {
   parseCorpusPins,
   stripVolatileExtractionFields,
@@ -179,8 +183,8 @@ function writeCanonical(file: string, value: unknown): string {
 async function extractPinned(corpus: string, pin: CorpusPin): Promise<{ capture: Record<string, unknown>; removed: string[] }> {
   const bytes = readFileSync(path.join(corpus, pin.file));
   const sha = sha256Hex(new Uint8Array(bytes));
-  // The reconstruction diff's identities, so captures and its --document dumps agree.
-  const sourceDocumentId = `local-diff-document-${sha.slice(0, 24)}`;
+  // UUID-shaped like a production document id; diagnostics refuse any other shape.
+  const sourceDocumentId = offlineDocumentId(sha);
   const sourceArtifactId = `${sha.slice(0, 8)}-${sha.slice(8, 12)}-4${sha.slice(13, 16)}-8${sha.slice(17, 20)}-${sha.slice(20, 32)}`;
   const payload = await extractDocument({
     // The corpus-relative name, never the host path: the payload records it.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildResolutionEvidenceInventory, INVENTORY_CLASSES } from '@/lib/evaluation/resolutionEvidenceInventory';
+import { buildResolutionEvidenceInventory, INVENTORY_CLASSES, offlineDocumentId } from '@/lib/evaluation/resolutionEvidenceInventory';
 import { documentReviewedValueState } from '@/lib/humanFactAssertions/regionBoundAssertions';
 import { buildResolutionQueue } from '@/lib/resolution/resolutionCases';
 import { documentEvidenceAttention } from '@/lib/server/documentEvidenceAttention';
@@ -74,6 +74,18 @@ describe('resolution evidence inventory', () => {
     const b = buildResolutionEvidenceInventory(input('2026-10-08T12:00:00Z', 'extraction-b'));
     expect(a.entries.map((entry) => entry.identity)).toEqual(b.entries.map((entry) => entry.identity));
     for (const entry of a.entries) expect(entry.identity).toMatch(new RegExp(`^${DOC}:p4:priced_line:[0-9a-f]{32}$`));
+  });
+
+  it('refuses a non-UUID document id instead of silently dropping its diagnostics', () => {
+    expect(() => buildResolutionEvidenceInventory([{ documentId: 'local-document-1', label: 'Contract',
+      extraction: { created_at: null, data: extractionData(rows()) } }])).toThrow(/not a UUID/);
+  });
+
+  it('derives a deterministic, UUID-shaped offline document id from the source bytes', () => {
+    const id = offlineDocumentId('a'.repeat(64));
+    expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-8[0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(offlineDocumentId('a'.repeat(64))).toBe(id);
+    expect(offlineDocumentId('b'.repeat(64))).not.toBe(id);
   });
 
   it('never invents reviewed truth: an empty extraction yields an empty inventory', () => {

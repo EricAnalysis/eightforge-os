@@ -1,4 +1,4 @@
-import { hashCanonical } from '@/lib/extraction/domain/hash';
+import { hashCanonical, sha256Hex } from '@/lib/extraction/domain/hash';
 import { documentReviewedValueState } from '@/lib/humanFactAssertions/regionBoundAssertions';
 import {
   buildResolutionQueue,
@@ -81,6 +81,19 @@ export type ResolutionEvidenceInventory = Readonly<{
 
 const OFFLINE_ORGANIZATION_ID = '00000000-0000-0000-0000-000000000000';
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * A deterministic, UUID-shaped document id for an offline source, derived from
+ * its bytes. Production document ids are UUIDs, and diagnostics refuse any
+ * other shape, so an offline id must be one too or every diagnostic-derived
+ * case (withheld lines, structure, coverage) silently disappears.
+ */
+export function offlineDocumentId(sourceSha256: string): string {
+  const hash = sha256Hex(`eightforge-offline-document:${sourceSha256}`);
+  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-8${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
+}
+
 function caseIdentity(entry: ResolutionCase): string {
   if (entry.sourceRefs.anchorKey) return `${entry.documentId}:${entry.sourceRefs.anchorKey}`;
   // Page-level evidence: the diagnostic code and its observations, never the
@@ -105,6 +118,12 @@ function emptyCounts(): Record<InventoryClass, number> {
 export function buildResolutionEvidenceInventory(
   documents: readonly InventoryDocumentInput[],
 ): ResolutionEvidenceInventory {
+  // Fail loudly: a non-UUID id would make diagnostics drop silently and undercount every class they feed.
+  for (const document of documents) {
+    if (!UUID_PATTERN.test(document.documentId)) {
+      throw new Error(`${document.label}: document id ${document.documentId} is not a UUID; use offlineDocumentId()`);
+    }
+  }
   const attentionByDocument = new Map<string, DocumentEvidenceAttention>();
   const reviewedValuesByDocument = new Map<string, DocumentReviewedValueState>();
   for (const document of documents) {

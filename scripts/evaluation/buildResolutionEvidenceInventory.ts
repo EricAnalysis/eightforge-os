@@ -25,6 +25,7 @@ import { sha256Hex } from '@/lib/extraction/domain/hash';
 import {
   buildResolutionEvidenceInventory,
   INVENTORY_CLASSES,
+  offlineDocumentId,
   type InventoryDocumentInput,
 } from '@/lib/evaluation/resolutionEvidenceInventory';
 import { extractDocument } from '@/lib/server/documentExtraction';
@@ -52,7 +53,7 @@ async function fromDocument(spec: string): Promise<InventoryDocumentInput> {
   const bytes = readFileSync(file);
   const sha = sha256Hex(new Uint8Array(bytes));
   if (pinned && pinned.toLowerCase() !== sha) throw new Error(`${label}: source sha256 ${sha} does not match pin ${pinned}`);
-  const sourceDocumentId = `local-inventory-document-${sha.slice(0, 24)}`;
+  const sourceDocumentId = offlineDocumentId(sha);
   // A deterministic UUID-shaped artifact id derived from the source bytes, as the reconstruction diff does.
   const sourceArtifactId = `${sha.slice(0, 8)}-${sha.slice(8, 12)}-4${sha.slice(13, 16)}-8${sha.slice(17, 20)}-${sha.slice(20, 32)}`;
   const payload = await extractDocument({
@@ -68,7 +69,8 @@ function fromExtraction(spec: string): InventoryDocumentInput {
   const wrapped = parsed && typeof parsed.data === 'object' && parsed.data !== null && !('extraction' in parsed);
   const data = (wrapped ? parsed.data : parsed) as Record<string, unknown>;
   const sha = sha256Hex(new TextEncoder().encode(JSON.stringify(data)));
-  const documentId = typeof parsed.document_id === 'string' ? parsed.document_id : `local-inventory-extraction-${sha.slice(0, 24)}`;
+  // A stored or captured payload keeps its own (UUID) document id; anything else is derived like one.
+  const documentId = typeof parsed.document_id === 'string' ? parsed.document_id : offlineDocumentId(sha);
   return { documentId, label, extraction: {
     id: wrapped && typeof parsed.id === 'string' ? parsed.id : `local:${sha}`,
     created_at: wrapped && typeof parsed.created_at === 'string' ? parsed.created_at : null,

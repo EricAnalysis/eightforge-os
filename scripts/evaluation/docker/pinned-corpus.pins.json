@@ -1,0 +1,20 @@
+{
+  "schema": "eightforge_eval_corpus_pins_v1",
+  "documents": [
+    {
+      "label": "Golden",
+      "file": "golden.pdf",
+      "sha256": "922161a533bb6b8c1afb52cb9536044c8a6836bed62401634f4f505025631e8f"
+    },
+    {
+      "label": "Hillsdale",
+      "file": "hillsdale.pdf",
+      "sha256": "596adaccf865625723dc832f5206a8f690eb17d96921ef185df35b113c767537"
+    },
+    {
+      "label": "DN",
+      "file": "dn.pdf",
+      "sha256": "69247bff02744276b75f2cb0d4c00610e8614bd5822d2d10ae2ad35564c3b272"
+    }
+  ]
+}

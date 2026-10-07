@@ -54,7 +54,10 @@ the proxy only listens on the host, `EIGHTFORGE_EVAL_BUILD_NETWORK=host`.
 ## Pins
 
 A pins file names each pinned PDF by label, plain corpus file name and exact
-SHA-256. The run refuses a missing file, a mismatched hash, a traversal path or
+SHA-256. The file name is part of every capture (the payload records it), so
+every machine must use the same pins file: the canonical pinned corpus is
+`scripts/evaluation/docker/pinned-corpus.pins.json` (`golden.pdf`,
+`hillsdale.pdf`, `dn.pdf`). Name the PDFs exactly so in the corpus directory. The run refuses a missing file, a mismatched hash, a traversal path or
 a duplicate. Keep the pins for customer documents outside the repository with
 the corpus; `scripts/evaluation/docker/smoke.pins.json` pins the committed
 smoke fixture.

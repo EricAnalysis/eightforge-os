@@ -56,6 +56,12 @@ Shared semantic helpers should be used whenever a rule crosses more than one sur
 
 Presentation layers may adapt shape, language, and emphasis for operator clarity. They may not create alternate derivation paths for business meaning.
 
+## External Projections
+
+EightForge records are canonical; external engineering systems receive projections of them and never become a second source of truth.
+
+EightForge Linear projection delivery (`lib/server/linearProjectionDelivery.ts`: claim, confirm, fail, withdraw, keyed by the approved engineering request's idempotency key) is the sole write path for creating or state-changing Linear engineering issues. Agent tooling, including any future MCP access to Linear, may read issues and add comments, but must not become an independent issue-creation or state-mutation path. A Linear issue that EightForge did not claim and confirm is not an EightForge work item.
+
 ## Migration Safety
 
 Database migrations are schema history and must remain replay-safe. They should apply cleanly on a fresh database, on Supabase preview branches, and on existing production databases.
@@ -78,5 +84,6 @@ Before implementing a Forge change, ask:
 - Is business logic in a shared reasoning helper instead of a UI component?
 - Will every surface use the same semantic helper for this rule?
 - Will every migration replay on an empty database and in preview without production-only data?
+- Does anything write to Linear other than EightForge projection delivery?
 
 Extract once. Reason once. Validate once. Project everywhere. Audit everything.

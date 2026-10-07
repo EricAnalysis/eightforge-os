@@ -4,6 +4,42 @@ import { describe, it } from 'vitest';
 import { resolveCanonicalRateCategory } from '@/lib/validator/rateTaxonomy';
 
 describe('rate taxonomy', () => {
+  it('does not infer C&D from incidental letters inside unrelated words', () => {
+    for (const text of [
+      'Operations Supervisor (with cell phone, computer, and pickup truck)',
+      'computer and pickup',
+      'public and debris',
+      'public demolition',
+      'Cubic Yard',
+      'Electronic Debris Removal and Disposal',
+    ]) {
+      for (const input of [{ sourceDescriptors: [text] }, { sourceCategory: text }]) {
+        const result = resolveCanonicalRateCategory(input);
+        assert.equal(result.canonical_category, null, text);
+        assert.equal(result.basis, 'unresolved', text);
+        assert.equal(result.matched_alias, null, text);
+      }
+    }
+  });
+
+  it('matches existing C&D aliases as whole normalized phrases', () => {
+    for (const text of ['C&D', 'C and D', 'Construction & Demolition', 'Collect C&D debris']) {
+      assert.equal(resolveCanonicalRateCategory({ sourceCategory: text }).canonical_category, 'construction_demolition', text);
+      assert.equal(resolveCanonicalRateCategory({ sourceDescriptors: [text] }).canonical_category, 'construction_demolition', text);
+    }
+  });
+
+  it('preserves whole-token matching for permuted construction and demolition words', () => {
+    const result = resolveCanonicalRateCategory({ sourceDescriptors: ['Demolition and construction work'] });
+    assert.equal(result.canonical_category, 'construction_demolition');
+    assert.equal(result.category_confidence, 0.74);
+  });
+
+  it('preserves existing plural and stem coverage for longer aliases', () => {
+    for (const text of ['Hazardous Trees', 'Hanging Limbs', 'Stumps']) {
+      assert.equal(resolveCanonicalRateCategory({ sourceDescriptors: [text] }).canonical_category, 'tree_operations', text);
+    }
+  });
   it('maps contract, invoice, and ticket descriptors into shared canonical categories', () => {
     assert.equal(
       resolveCanonicalRateCategory({

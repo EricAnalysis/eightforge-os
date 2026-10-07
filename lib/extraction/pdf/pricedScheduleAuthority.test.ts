@@ -62,6 +62,23 @@ function fixture() {
 }
 
 describe('ruling structure cannot promote pricing authority', () => {
+  it('does not promote a ruling-only supporting Category cell into category evidence', () => {
+    const f = fixture();
+    const page: PricedSchedulePage = { ...f.enriched,
+      columns: f.enriched.columns.map((column, index) => index === 3
+        ? { ...column, role: 'category', header_text: 'Category' } : column),
+      rows: f.enriched.rows.map((row) => ({ ...row,
+        unresolved_role_cells: row.unresolved_role_cells!.map((cell) => ({ ...cell, header_text: 'Category' })),
+      })),
+    };
+    const result = buildContractRateScheduleRowsWithDiagnostics({ rateTable: null,
+      pricedScheduleReconstruction: f.reconstruction(page) });
+    expect(result.diagnostics).toEqual([]);
+    expect(result.rows).toEqual(buildContractRateScheduleRows({ rateTable: null,
+      pricedScheduleReconstruction: f.reconstruction(f.base) }));
+    expect(result.rows[0]!.source_category_evidence).toBeUndefined();
+  });
+
   it.each(['priced_schedule_reconstruction_v1', 'priced_schedule_reconstruction_v2'] as const)(
     'keeps valid %s records readable without rewriting historical metadata', (parser_version) => {
       const f = fixture(), page = { ...f.enriched, ...(parser_version.endsWith('v1') ? { ruling_line_resolution_digest: undefined } : {}) };

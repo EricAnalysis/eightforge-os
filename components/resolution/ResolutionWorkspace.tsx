@@ -299,6 +299,35 @@ export function ResolutionDecisionPane({ entry, forgewingSuggestionsIncluded, sa
         <p className="text-xs text-[var(--ef-text-secondary)]">{entry.finding.recommendedAction}</p>
       ) : null}
 
+      {entry.investigation ? (
+        <section className="space-y-2 rounded border border-white/10 p-3" data-testid="case-investigation">
+          <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--ef-text-muted)]">
+            EightForge investigation · Not a decision
+          </p>
+          <p className="text-xs text-[var(--ef-text-primary)]">{entry.investigation.diagnosis}</p>
+          {entry.investigation.findings.length > 0 ? (
+            <ul className="list-disc space-y-1 pl-4 text-xs text-[var(--ef-text-secondary)]">
+              {entry.investigation.findings.map((finding) => <li key={finding.code}>{finding.text}</li>)}
+            </ul>
+          ) : null}
+          <ol className="space-y-1 text-xs text-[var(--ef-text-secondary)]">
+            {entry.investigation.options.map((option) => (
+              <li key={`${option.rank}:${option.label}`}>
+                <span className="text-[var(--ef-text-primary)]">{option.rank}. {option.label}</span>
+                {' '}— {option.rationale}
+                {option.prefill && enter ? (
+                  <button type="button" disabled={saving}
+                    className="ml-2 rounded border border-white/10 px-2 py-0.5 text-[var(--ef-text-primary)]"
+                    onClick={() => setForm((current) => ({ ...current, rate: option.prefill!.rate }))}>
+                    Copy amount to draft
+                  </button>
+                ) : null}
+              </li>
+            ))}
+          </ol>
+        </section>
+      ) : null}
+
       {showReading ? (
         <section className="space-y-2 rounded border border-[var(--ef-purple-primary-a30)] p-3" data-testid="forgewing-value-reading">
           <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--ef-text-muted)]">
@@ -393,13 +422,35 @@ export function ResolutionDecisionPane({ entry, forgewingSuggestionsIncluded, sa
           <p className="col-span-2 text-xs text-[var(--ef-text-muted)]">
             Enter what the source shows. It is recorded as human-reviewed and never rewrites what extraction read.
           </p>
-          {(['description', 'unit', 'rate', 'category'] as const).map((field) => (
-            <input key={field} aria-label={field}
-              placeholder={field === 'category' ? 'category (optional)' : field}
+          {enter.currentValue ? (
+            <button type="button" className="col-span-2 rounded border border-white/10 px-2 py-1 text-xs text-[var(--ef-text-primary)]"
+              onClick={() => setForm((current) => ({ ...current,
+                description: enter.currentValue?.description ?? current.description,
+                unit: enter.currentValue?.unitType ?? current.unit,
+                rate: enter.currentValue?.rate != null ? String(enter.currentValue.rate) : current.rate }))}>
+              Copy what extraction read into the draft
+            </button>
+          ) : null}
+          {(['description', 'unit', 'rate'] as const).map((field) => (
+            <input key={field} aria-label={field} placeholder={field}
               className="rounded border border-white/10 bg-transparent p-2 text-xs text-[var(--ef-text-primary)]"
               value={form[field]}
               onChange={(event) => setForm((current) => ({ ...current, [field]: event.target.value }))} />
           ))}
+          {enter.category?.required ? (
+            <select aria-label="category" required
+              className="rounded border border-white/10 bg-transparent p-2 text-xs text-[var(--ef-text-primary)]"
+              value={form.category}
+              onChange={(event) => setForm((current) => ({ ...current, category: event.target.value }))}>
+              <option value="">Choose the category (required)</option>
+              {enter.category.options.map((option) => <option key={option} value={option}>{option}</option>)}
+            </select>
+          ) : (
+            <input aria-label="category" placeholder="category (optional)"
+              className="rounded border border-white/10 bg-transparent p-2 text-xs text-[var(--ef-text-primary)]"
+              value={form.category}
+              onChange={(event) => setForm((current) => ({ ...current, category: event.target.value }))} />
+          )}
           <textarea aria-label="reason" placeholder="Why this value (required)"
             className="col-span-2 rounded border border-white/10 bg-transparent p-2 text-xs text-[var(--ef-text-primary)]"
             value={form.reason}

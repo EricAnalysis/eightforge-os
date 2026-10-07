@@ -2868,3 +2868,29 @@ export function assembleContractPricingRows(
       } : {}),
     }));
 }
+
+/**
+ * How pricing classifies each of these authoritative rate-schedule rows, as
+ * plain per-row facts: whether any of its visible candidates carries a
+ * category, and whether it has a visible candidate at all. The dual-view
+ * assembly and its candidates stay inside this module; callers learn only
+ * these two booleans, by source index. `allowedCategoryOf` is the caller's
+ * category fallback, exactly as contract intelligence supplies it.
+ */
+export function pricedRowCategoryCoverage(
+  rows: readonly ContractRateScheduleRow[],
+  scope: ContractPricingAssemblySourceScope,
+  allowedCategoryOf: (row: ContractRateScheduleRow) => string | null,
+): readonly Readonly<{ categorized: boolean; visible: boolean }>[] {
+  const selectedCategoryBySourceRow = new Map(rows.flatMap((row, sourceIndex) => {
+    const category = allowedCategoryOf(row);
+    return category ? [[contractPricingSourceRowIdentity(row, sourceIndex, scope, 'authoritative_rate_schedule'), category] as const] : [];
+  }));
+  const assembly = assembleContractPricingRowsWithCandidates(rows, scope, { selectedCategoryBySourceRow });
+  return rows.map((row, sourceIndex) => {
+    const lookup = lookupContractPricingCandidates(assembly.candidatesBySourceRow,
+      { row, sourceIndex, sourceScope: scope, inputRole: 'authoritative_rate_schedule' });
+    const candidates = lookup.state === 'candidates' ? lookup.candidates : [];
+    return { categorized: candidates.some((candidate) => Boolean(candidate.category)), visible: candidates.length > 0 };
+  });
+}

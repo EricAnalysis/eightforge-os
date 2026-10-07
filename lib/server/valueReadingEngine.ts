@@ -9,7 +9,9 @@ import {
   CONTRACT_RATE_ROW_FACT_KEY,
   documentReviewedValueState,
   openRegionAssertionEntryTargets,
+  reviewRequiredValueTargets,
   verifyRegionEvidence,
+  withheldPricedLineTargets,
   type RegionAssertionEntryTarget,
   type SourceRegion,
 } from '@/lib/humanFactAssertions/regionBoundAssertions';
@@ -115,10 +117,38 @@ export type ValueReadingRequest = Readonly<{
   requestDigestSha256: string;
 }>;
 
+/**
+ * The priced-line case families a value reading may investigate, by the case
+ * id prefix the resolution queue gives them. All three bind to the same
+ * `p{page}:priced_line:{hash}` anchor scheme and the same reviewed-value write,
+ * so a reading is a proposal on exactly the evidence a person would review.
+ */
+export const VALUE_READING_CASE_FAMILIES = ['unreadable', 'withheld', 'review_required'] as const;
+export type ValueReadingCaseFamily = typeof VALUE_READING_CASE_FAMILIES[number];
+
+export function parsePricedLineCaseId(caseId: string):
+  Readonly<{ family: ValueReadingCaseFamily; documentId: string; anchorKey: string }> | null {
+  const match = /^(unreadable|withheld|review_required):([0-9a-f-]{36}):(p\d+:priced_line:.+)$/.exec(caseId);
+  return match ? { family: match[1] as ValueReadingCaseFamily, documentId: match[2]!, anchorKey: match[3]! } : null;
+}
+
 /** The case id the resolution queue gives an unreadable priced line. */
 export function parseUnreadableLineCaseId(caseId: string): Readonly<{ documentId: string; anchorKey: string }> | null {
-  const match = /^unreadable:([0-9a-f-]{36}):(.+)$/.exec(caseId);
-  return match ? { documentId: match[1]!, anchorKey: match[2]! } : null;
+  const parsed = parsePricedLineCaseId(caseId);
+  return parsed?.family === 'unreadable' ? { documentId: parsed.documentId, anchorKey: parsed.anchorKey } : null;
+}
+
+/** The family's entry targets on the current extraction, as the queue derives them. */
+function familyEntryTargets(
+  family: ValueReadingCaseFamily,
+  extractionData: unknown,
+  documentId: string,
+  state: ReturnType<typeof documentReviewedValueState>,
+): readonly RegionAssertionEntryTarget[] {
+  if (family === 'unreadable') return state.entryTargets;
+  return family === 'withheld'
+    ? withheldPricedLineTargets(extractionData, documentId)
+    : reviewRequiredValueTargets(extractionData, documentId);
 }
 
 const SHA256_HEX = /^[0-9a-f]{64}$/;
@@ -297,7 +327,7 @@ export async function resolveValueReadingTarget(
   admin: ValueReadingEngineClient,
   query: Readonly<{ organizationId: string; projectId: string; caseId: string }>,
 ): Promise<Readonly<{ ok: true; target: ValueReadingTarget } | { ok: false; reason: ValueReadingTargetRefusal }>> {
-  const parsed = parseUnreadableLineCaseId(query.caseId);
+  const parsed = parsePricedLineCaseId(query.caseId);
   if (!parsed) return { ok: false, reason: 'case_not_found' };
   const document = await admin.from('documents').select('id, organization_id, project_id')
     .eq('id', parsed.documentId).maybeSingle();
@@ -318,9 +348,11 @@ export async function resolveValueReadingTarget(
     documentId: parsed.documentId, organizationId: query.organizationId,
     rows: assertions.rows, extractionData: preferred.data,
   });
-  const entryTarget = openRegionAssertionEntryTargets(state).find((target) => target.anchorKey === parsed.anchorKey);
+  const familyTargets = familyEntryTargets(parsed.family, preferred.data, parsed.documentId, state);
+  const entryTarget = openRegionAssertionEntryTargets({ ...state, entryTargets: familyTargets })
+    .find((target) => target.anchorKey === parsed.anchorKey);
   if (!entryTarget) {
-    return { ok: false, reason: state.entryTargets.some((target) => target.anchorKey === parsed.anchorKey)
+    return { ok: false, reason: familyTargets.some((target) => target.anchorKey === parsed.anchorKey)
       ? 'target_not_open' : 'case_not_found' };
   }
   // The artifact and observations verified exactly as the B3 record path verifies them,
@@ -332,7 +364,7 @@ export async function resolveValueReadingTarget(
     sourceObservationIds: entryTarget.sourceObservationIds,
   });
   if (evidence.status !== 'verified' || !evidence.sourceArtifactId) return { ok: false, reason: 'source_artifact_unknown' };
-  const samePage = state.entryTargets.filter((target) => target.physicalPageNumber === entryTarget.physicalPageNumber);
+  const samePage = familyTargets.filter((target) => target.physicalPageNumber === entryTarget.physicalPageNumber);
   const index = samePage.findIndex((target) => target.anchorKey === entryTarget.anchorKey);
   const half = Math.floor(VALUE_READING_EXECUTION.maxNeighbouringLines / 2);
   const neighbouringLineTexts = samePage

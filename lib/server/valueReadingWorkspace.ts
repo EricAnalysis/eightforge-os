@@ -17,6 +17,9 @@ const REASONS: readonly ValueReadingOutcomeReason[] = ['proposal_recorded', 'req
   'provider_error', 'invalid_json', 'invalid_proposal', 'proposal_value_validation_failed', 'binding_changed',
   'region_image_unavailable', 'write_failed', 'gate_lookup_failed', 'reservation_failed'];
 
+/** The case kinds a value reading investigates: every priced line a person can review a value for. */
+const VALUE_READING_CASE_KINDS: ReadonlySet<string> = new Set(['unreadable_priced_line', 'withheld_priced_line', 'review_required_value']);
+
 /** Adds only non-authoritative readings to cases the Core queue already derived. */
 export async function addValueReadingsToResolutionQueue(
   admin: ValueReadingClient,
@@ -30,7 +33,7 @@ export async function addValueReadingsToResolutionQueue(
   const { queue, organizationId } = params;
   if (!queue.forgewingSuggestionsIncluded) return queue;
   const documentIds = [...new Set(queue.cases.flatMap((entry) =>
-    entry.kind === 'unreadable_priced_line' && entry.documentId ? [entry.documentId] : []))];
+    VALUE_READING_CASE_KINDS.has(entry.kind) && entry.documentId ? [entry.documentId] : []))];
   if (documentIds.length === 0) return queue;
   const records = await loadValueReadingRecords(admin, { organizationId, documentIds });
   const outcomesRead = await admin.from(VALUE_READING_OUTCOMES_TABLE)
@@ -40,7 +43,7 @@ export async function addValueReadingsToResolutionQueue(
   if (outcomesRead.error) throw new Error('Value-reading outcomes unavailable');
   const outcomes = (Array.isArray(outcomesRead.data) ? outcomesRead.data : []) as Record<string, unknown>[];
   const cases = queue.cases.map((entry) => {
-    if (entry.kind !== 'unreadable_priced_line' || !entry.documentId) return entry;
+    if (!VALUE_READING_CASE_KINDS.has(entry.kind) || !entry.documentId) return entry;
     const enter = entry.actions.find((action) => action.kind === 'enter_reviewed_value');
     if (!enter || enter.kind !== 'enter_reviewed_value') return entry;
     const target = enter.target;

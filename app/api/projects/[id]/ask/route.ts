@@ -1,7 +1,13 @@
+import { createHash } from 'node:crypto';
 import { NextResponse } from 'next/server';
-import { askProjectWithClaude } from '@/lib/server/ai/askProject';
+import { ASK_PROJECT_CLAUDE_SYSTEM_PROMPT, askProjectWithClaude } from '@/lib/server/ai/askProject';
+import { getClaudeModel } from '@/lib/server/ai/claudeClient';
 import { buildAskProjectContext } from '@/lib/server/ai/askProjectContext';
 import { getActorContext } from '@/lib/server/getActorContext';
+import {
+  reserveForgewingProviderCall,
+  resolveForgewingWorkflowEligibility,
+} from '@/lib/server/forgewingGates';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 
 export const runtime = 'nodejs';
@@ -9,6 +15,11 @@ export const runtime = 'nodejs';
 const MAX_QUESTION_LENGTH = 1200;
 const AI_NOT_CONFIGURED_CODE = 'ai_not_configured';
 const AI_NOT_CONFIGURED_MESSAGE = 'AI assistance is not configured.';
+const AI_NOT_PERMITTED_CODE = 'forgewing_not_permitted';
+const AI_BUDGET_EXHAUSTED_CODE = 'forgewing_budget_exhausted';
+
+/** Ask sends project truth as text. Nothing else is transmitted. */
+const ASK_CONTENT_CLASSES = ['text_excerpts'] as const;
 
 type ProjectRow = {
   id: string;
@@ -81,6 +92,29 @@ export async function POST(
     return NextResponse.json({ error: 'Project context scope mismatch' }, { status: 500 });
   }
 
+  // Ask sends customer content to a provider, so it passes the same gates as
+  // every Forgewing workflow before any context is built: kill switch, policy,
+  // entitlement, data-processing authorization, daily cap.
+  const eligibility = await resolveForgewingWorkflowEligibility(admin, {
+    organizationId: actor.actor.organizationId,
+    workflow: 'project_ask',
+    contentClasses: ASK_CONTENT_CLASSES,
+  });
+  if (!eligibility.eligible) {
+    return NextResponse.json(
+      { error: 'AI assistance is not enabled for this organization.', code: AI_NOT_PERMITTED_CODE, reason: eligibility.reason },
+      { status: 403 },
+    );
+  }
+
+  // Never spend budget on a call that cannot be made.
+  if (isAiNotConfiguredError()) {
+    return NextResponse.json(
+      { error: AI_NOT_CONFIGURED_MESSAGE, code: AI_NOT_CONFIGURED_CODE },
+      { status: 500 },
+    );
+  }
+
   try {
     const context = await buildAskProjectContext({
       admin,
@@ -92,6 +126,28 @@ export async function POST(
 
     if (context.project.id !== projectId || context.scope.projectId !== projectId) {
       return NextResponse.json({ error: 'Project context scope mismatch' }, { status: 500 });
+    }
+
+    // One slot of the organization's durable Ask budget, bound to the exact
+    // request, immediately before the provider call.
+    const requestDigestSha256 = createHash('sha256').update(JSON.stringify([
+      'project_ask_v1', getClaudeModel(), ASK_PROJECT_CLAUDE_SYSTEM_PROMPT, question, context,
+    ])).digest('hex');
+    const reservation = await reserveForgewingProviderCall(admin, {
+      organizationId: actor.actor.organizationId,
+      requestDigestSha256,
+      reservedBy: actor.actor.actorId,
+      dailyCap: eligibility.dailyCap,
+      workflow: 'project_ask',
+    });
+    if (reservation.status === 'budget_exhausted') {
+      return NextResponse.json(
+        { error: 'The daily AI assistance budget for this organization is used up.', code: AI_BUDGET_EXHAUSTED_CODE },
+        { status: 429 },
+      );
+    }
+    if (reservation.status !== 'reserved') {
+      return NextResponse.json({ error: 'AI assistance is temporarily unavailable.' }, { status: 503 });
     }
 
     const answer = await askProjectWithClaude({ question, context });

@@ -44,6 +44,7 @@ describe('buildAskProjectContext', () => {
         validation_status: 'BLOCKED',
         validation_summary_json: null,
       },
+      readReviewedTruth: async () => ({ status: 'ok', effective: [], held: [] }),
     });
 
     assert.equal(context.contextSource, 'canonical_project_truth_retrieval');

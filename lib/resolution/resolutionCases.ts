@@ -4,6 +4,8 @@ import type {
   DiagnosticRecoverability,
   DiagnosticRecoveryType,
 } from '@/lib/diagnostics/failureDiagnostic';
+import type { CategoryReviewTarget } from '@/lib/contracts/categoryReview';
+import { ALLOWED_RATE_CATEGORIES } from '@/lib/validator/rateTaxonomy';
 import {
   CONTRACT_RATE_ROW_FACT_KEY,
   PRICED_EVIDENCE_DISPOSITION_FACT_KEY,
@@ -85,7 +87,12 @@ export type ResolutionCaseKind =
   /** EightForge could not read a page sufficiently (OCR failed, abstained, skipped, coverage incomplete). */
   | 'coverage_gap'
   /** Page pricing was withheld because its authority could not be verified. */
-  | 'pricing_withheld';
+  | 'pricing_withheld'
+  /**
+   * A priced row whose category deterministic extraction refused to guess.
+   * Pricing cannot use it without one, so a person confirms the category.
+   */
+  | 'category_review';
 
 /**
  * Which evidence this is for the decision: what the source shows now, what an
@@ -179,6 +186,13 @@ export type ResolutionAction =
       supersedesAssertionId: string | null;
       /** Offered provenance only; the operator must explicitly use the suggestion. */
       forgewingProposalId?: string;
+      /**
+       * Present when the row's category is unresolved: the reviewed row must
+       * name one of exactly these allowed categories. Never pre-selected.
+       */
+      category?: Readonly<{ required: true; options: readonly string[] }>;
+      /** The row as extraction read it, offered as the draft's starting point; never applied by itself. */
+      currentValue?: Readonly<{ description: string | null; unitType: string | null; rate: number | null }>;
     }>
   | Readonly<{
       /**
@@ -286,9 +300,21 @@ export type ResolutionCase = Readonly<{
   rootCauseKey: string;
   evidence: readonly ResolutionEvidenceRef[];
   suggestions: readonly ResolutionSuggestion[];
+  /**
+   * Other facts of the same row this case's decision must also settle. A
+   * reviewed row is one decision, so a second case for the same evidence is
+   * never opened; the existing case says what else it covers.
+   */
+  alsoUnresolved?: readonly 'category'[];
   /** Durable explanation only; never a value or authority. */
   valueReadingOutcome?: Readonly<{ code: ValueReadingOutcomeCode; reason: ValueReadingOutcomeReason }> | null;
   actions: readonly ResolutionAction[];
+  /**
+   * EightForge's own deterministic investigation of this case, attached
+   * automatically (Forgewing generalization, phase 4). Explanation and ranked
+   * options over the case's own actions only; never a value or authority.
+   */
+  investigation?: import('@/lib/resolution/caseInvestigation').CaseInvestigation;
   /** The diagnostic a case was derived from, verbatim from the registry; absent for other sources. */
   diagnostic?: Readonly<{
     code: DiagnosticCode;
@@ -359,6 +385,8 @@ export type DocumentEvidenceAttention = Readonly<{
   diagnostics: readonly AttentionDiagnostic[];
   withheldTargets: readonly RegionAssertionEntryTarget[];
   reviewRequiredTargets?: readonly ReviewRequiredValueTarget[];
+  /** Published priced rows whose category both deterministic classifiers left unresolved. */
+  categoryReviewTargets?: readonly CategoryReviewTarget[];
 }>;
 
 /** The subset of a recovery review candidate this model reads. */
@@ -908,6 +936,69 @@ function evidenceAttentionCases(params: {
             factKey: 'contract_rate_row',
             target,
             supersedesAssertionId: chainHead(history, target.anchorKey),
+          },
+          dispositionAction(documentId, target, history),
+          { kind: 'open_document', href: documentHref(documentId, target.physicalPageNumber) },
+        ],
+        sourceRefs: { anchorKey: target.anchorKey },
+      });
+    }
+    // A published priced row whose category both deterministic classifiers
+    // left unresolved. Pricing drops or keeps it uncategorised; a person
+    // confirms the category through the same reviewed row as any value.
+    for (const target of attention.categoryReviewTargets ?? []) {
+      if (closedAnchors.has(target.anchorKey)) continue;
+      const categoryRequirement = { required: true as const, options: ALLOWED_RATE_CATEGORIES };
+      if (listedAnchors.has(target.anchorKey)) {
+        // The same row already has a case: its one reviewed row settles both
+        // facts, so that case also requires the category instead of a second case.
+        const index = cases.findIndex((entry) => entry.documentId === documentId && entry.sourceRefs.anchorKey === target.anchorKey);
+        if (index >= 0) {
+          const existing = cases[index]!;
+          cases[index] = {
+            ...existing,
+            alsoUnresolved: [...new Set([...(existing.alsoUnresolved ?? []), 'category' as const])],
+            problem: `${existing.problem} Its category is also unresolved, so the reviewed row must name one.`,
+            actions: existing.actions.map((action) => action.kind === 'enter_reviewed_value'
+              ? { ...action, category: categoryRequirement } : action),
+          };
+        }
+        continue;
+      }
+      listedAnchors.add(target.anchorKey);
+      const read = target.current.description ? `"${target.current.description}"` : 'this row';
+      cases.push({
+        caseId: `category_review:${documentId}:${target.anchorKey}`,
+        kind: 'category_review',
+        tier: target.pricingState === 'excluded_from_pricing' ? 'missing_authoritative_value' : 'affects_pricing',
+        exposureAmount: null,
+        projectId: params.projectId,
+        documentId,
+        physicalPageNumber: target.physicalPageNumber,
+        title: `Category to confirm · ${label} p.${target.physicalPageNumber}`,
+        problem: target.reason === 'no_category_evidence'
+          ? `Nothing printed on ${read} names a pricing category, and extraction does not guess one.`
+          : `The wording of ${read} matches a taxonomy category (${target.resolvedTaxonomyKey}) that is not an allowed pricing category.`,
+        finding: null,
+        previousReviews: [],
+        deterministicState: target.pricingState === 'excluded_from_pricing'
+          ? 'The row was read, but without a category it is not used in pricing or by the Validator.'
+          : 'The row is in pricing without a category, so category-based checks cannot use it.',
+        originalSourceText: target.rawText,
+        rootCauseKey: `category_review:${documentId}:${target.physicalPageNumber}`,
+        evidence: [currentTargetEvidence(documentId, target)],
+        suggestions: [],
+        actions: [
+          {
+            kind: 'enter_reviewed_value',
+            method: 'POST',
+            endpoint: regionAssertionEndpoint(documentId),
+            factKey: 'contract_rate_row',
+            target,
+            supersedesAssertionId: chainHead(history, target.anchorKey),
+            category: categoryRequirement,
+            currentValue: { description: target.current.description, unitType: target.current.unit,
+              rate: target.rateWithheld ? null : target.current.rate },
           },
           dispositionAction(documentId, target, history),
           { kind: 'open_document', href: documentHref(documentId, target.physicalPageNumber) },

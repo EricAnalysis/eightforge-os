@@ -51,6 +51,7 @@ describe('Forgewing B4.1 gate boundaries', () => {
     // added here deliberately, behind the same gates.
     expect([...spenders].sort()).toEqual([
       path.join('app', 'api', 'projects', '[id]', 'ask', 'route.ts'),
+      path.join('lib', 'server', 'caseInvestigationRunner.ts'),
       path.join('lib', 'server', 'valueReadingEngine.ts'),
     ].sort());
   });

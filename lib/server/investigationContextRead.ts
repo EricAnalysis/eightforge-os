@@ -3,8 +3,8 @@ import {
   type InvestigationContentClass,
   type InvestigationContext,
   type InvestigationPurpose,
-  type InvestigationSources,
 } from '@/lib/resolution/investigationContext';
+import { buildInvestigationSources } from '@/lib/server/investigationSources';
 import type { ResolutionCase } from '@/lib/resolution/resolutionCases';
 import { loadProjectDocumentPrecedenceSnapshot, type ProjectDocumentPrecedenceSnapshot } from '@/lib/server/documentPrecedence';
 import {
@@ -45,20 +45,6 @@ export type InvestigationContextDependencies = Readonly<{
   forgewingEnabled?: boolean;
 }>;
 
-function relationshipsFor(snapshot: ProjectDocumentPrecedenceSnapshot, documentId: string): InvestigationSources['documentRelationships'] {
-  const resolved = snapshot.families.flatMap((family) => family.documents).find((document) => document.id === documentId) ?? null;
-  return {
-    family: resolved?.family ?? null,
-    isGoverning: resolved?.is_governing ?? null,
-    governingDocumentId: resolved?.governing_document_id ?? null,
-    governingReason: resolved?.governing_reason ?? null,
-    relationships: snapshot.relationships
-      .filter((entry) => entry.source_document_id === documentId || entry.target_document_id === documentId)
-      .map((entry) => ({ id: entry.id ?? null, type: entry.relationship_type,
-        sourceDocumentId: entry.source_document_id, targetDocumentId: entry.target_document_id })),
-  };
-}
-
 /** Each content class approved on its own: the context transmits whatever the ledger approved. */
 async function approvedContentClasses(
   admin: ResolutionReadClient,
@@ -90,34 +76,22 @@ export async function readInvestigationContext(
   if (!resolutionCase) return { status: 'not_found' };
   const documentId = resolutionCase.documentId;
 
-  const reviewed = documentId ? read.sources?.reviewedValuesByDocument.get(documentId) ?? null : null;
-  let documentRelationships: InvestigationSources['documentRelationships'] = null;
+  let precedence: ProjectDocumentPrecedenceSnapshot | null = null;
   if (documentId) {
     try {
-      const snapshot = await (dependencies.loadPrecedence
+      precedence = await (dependencies.loadPrecedence
         ?? ((params) => loadProjectDocumentPrecedenceSnapshot(admin as never, params)))(
         { organizationId: query.organizationId, projectId: query.projectId });
-      documentRelationships = relationshipsFor(snapshot, documentId);
     } catch {
       // Relationships are context, not authority: their absence is recorded as an omission.
-      documentRelationships = null;
+      precedence = null;
     }
   }
-
-  const sources: InvestigationSources = {
-    extractionData: documentId ? read.sources?.extractionDataByDocument.get(documentId) ?? null : null,
-    reviewedTruth: reviewed ? {
-      effective: reviewed.effective.map((entry) => ({ anchorKey: entry.anchorKey, factKey: entry.factKey, value: entry.value,
-        assertionId: entry.provenance.assertionId, physicalPageNumber: entry.provenance.physicalPageNumber })),
-      held: reviewed.held.map((entry) => ({ anchorKey: entry.anchorKey, factKey: entry.factKey, reason: entry.reason,
-        assertionIds: entry.assertionIds })),
-    } : null,
-    findings: read.queue.cases
-      .filter((entry) => entry.kind === 'validator_finding' && entry.finding && entry.documentId === documentId)
-      .map((entry) => ({ id: entry.finding!.checkKey, ruleId: entry.finding!.ruleId, severity: entry.finding!.severity,
-        summary: entry.problem, documentId: entry.documentId })),
-    documentRelationships,
-  };
+  const sources = buildInvestigationSources({
+    resolutionCase, cases: read.queue.cases, precedence,
+    extractionDataByDocument: read.sources?.extractionDataByDocument,
+    reviewedValuesByDocument: read.sources?.reviewedValuesByDocument,
+  });
 
   const approved = query.purpose === 'provider_investigation'
     ? await approvedContentClasses(admin, query.organizationId,

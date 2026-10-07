@@ -1,4 +1,8 @@
 import { pickPreferredExtractionBlob } from '@/lib/blobExtractionSelection';
+import { investigateCase } from '@/lib/resolution/caseInvestigation';
+import { resolveInvestigationContext } from '@/lib/resolution/investigationContext';
+import { loadProjectDocumentPrecedenceSnapshot, type ProjectDocumentPrecedenceSnapshot } from '@/lib/server/documentPrecedence';
+import { buildInvestigationSources } from '@/lib/server/investigationSources';
 import type { ProjectExecutionItemRow } from '@/lib/executionItems';
 import {
   currentDocumentEvidenceFromExtractionData,
@@ -113,6 +117,7 @@ export async function readResolutionQueue(
     forgewingEnabled?: boolean;
     resolveEntitlement?: OrganizationForgewingEntitlementResolver;
     readRecoveryQueue?: typeof readRecoveryReviewQueue;
+    loadPrecedence?: (query: { organizationId: string; projectId: string }) => Promise<ProjectDocumentPrecedenceSnapshot>;
   }> = {},
 ): Promise<ResolutionQueueReadResult> {
   const admin = dependencies.admin === undefined
@@ -264,12 +269,46 @@ export async function readResolutionQueue(
       evidenceAttentionByDocument,
     });
   const sources = { extractionDataByDocument, reviewedValuesByDocument };
-  if (!forgewingEnabled) return { status: 'ok', queue, sources };
-  try {
-    return { status: 'ok', sources, queue: await addValueReadingsToResolutionQueue(admin as never,
-      { organizationId: query.organizationId, queue, extractionDataByDocument, assertions: assertionRead.rows }) };
-  } catch {
-    // Optional Forgewing reads fail closed while manual Core review remains available.
-    return { status: 'ok', queue, sources };
+  let withReadings = queue;
+  if (forgewingEnabled) {
+    try {
+      withReadings = await addValueReadingsToResolutionQueue(admin as never,
+        { organizationId: query.organizationId, queue, extractionDataByDocument, assertions: assertionRead.rows });
+    } catch {
+      // Optional Forgewing reads fail closed while manual Core review remains available.
+      withReadings = queue;
+    }
   }
+  return { status: 'ok', sources, queue: await investigateQueue(admin, query, withReadings, sources, dependencies.loadPrecedence) };
+}
+
+/**
+ * Every case arrives already investigated: EightForge's deterministic
+ * investigation reads each case's context locally, sends nothing anywhere and
+ * writes nothing, so it runs for every organization with no gate. Precedence
+ * is context, not authority: if it cannot be read, its absence is recorded.
+ */
+async function investigateQueue(
+  admin: ResolutionReadClient,
+  query: Readonly<{ organizationId: string; projectId: string }>,
+  queue: ResolutionQueue,
+  sources: Readonly<{ extractionDataByDocument: ReadonlyMap<string, unknown>; reviewedValuesByDocument: ReadonlyMap<string, DocumentReviewedValueState> }>,
+  loadPrecedence?: (query: { organizationId: string; projectId: string }) => Promise<ProjectDocumentPrecedenceSnapshot>,
+): Promise<ResolutionQueue> {
+  let precedence: ProjectDocumentPrecedenceSnapshot | null = null;
+  try {
+    precedence = await (loadPrecedence ?? ((params) => loadProjectDocumentPrecedenceSnapshot(admin as never, params)))(query);
+  } catch {
+    precedence = null;
+  }
+  return {
+    ...queue,
+    cases: queue.cases.map((resolutionCase) => {
+      const context = resolveInvestigationContext(resolutionCase, buildInvestigationSources({
+        resolutionCase, cases: queue.cases, precedence, ...sources,
+      }), { purpose: 'deterministic_investigation', contentPolicy: { approvedContentClasses: [] },
+        budget: { maxTransmittedTextChars: 0 } });
+      return { ...resolutionCase, investigation: investigateCase(resolutionCase, context) };
+    }),
+  };
 }

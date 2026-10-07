@@ -80,6 +80,11 @@ export function buildResolutionActionRequest(
         return refuse('The selected visual reading is no longer offered. Refresh this case.');
       }
       const category = input.value.category?.trim();
+      // An unresolved category is decided here by a person, from the offered
+      // allowed categories only: never free text, never left blank.
+      if (action.category?.required && (!category || !action.category.options.includes(category))) {
+        return refuse('Choose the category this row belongs to.');
+      }
       return {
         ok: true,
         request: {

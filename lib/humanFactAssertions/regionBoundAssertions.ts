@@ -712,7 +712,13 @@ export function reviewRequiredValueTargets(
   });
 }
 
-function pricedLineTargets(
+/**
+ * Region-assertion targets for priced evidence lines, by the shared anchor
+ * scheme (page plus a digest of the exact observations). Every selector of
+ * priced evidence builds its targets here, so the same evidence always has
+ * the same anchor whichever case presents it.
+ */
+export function pricedLineTargets(
   extractionData: unknown,
   sourceDocumentId: string | null,
   lines: readonly Readonly<{ page: unknown; reason: unknown; line: unknown }>[],

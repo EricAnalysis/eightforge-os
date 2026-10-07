@@ -1,4 +1,5 @@
 import { pickPreferredExtractionBlob } from '@/lib/blobExtractionSelection';
+import { categoryReviewTargets } from '@/lib/contracts/categoryReview';
 import type { ProjectExecutionItemRow } from '@/lib/executionItems';
 import {
   currentDocumentEvidenceFromExtractionData,
@@ -249,6 +250,7 @@ export async function readResolutionQueue(
       diagnostics: diagnostics.map(attentionDiagnostic),
       withheldTargets: withheldPricedLineTargets(preferred.data, documentId),
       reviewRequiredTargets: reviewRequiredValueTargets(preferred.data, documentId),
+      categoryReviewTargets: categoryReviewTargets(preferred.data, documentId),
     });
   }
 

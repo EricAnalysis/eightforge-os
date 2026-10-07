@@ -1,4 +1,4 @@
-import { categoryReviewTargets } from '@/lib/contracts/categoryReview';
+import { pricedRowCategoryEvidence } from '@/lib/contracts/categoryReview';
 import {
   reviewRequiredValueTargets,
   withheldPricedLineTargets,
@@ -44,10 +44,12 @@ export function documentEvidenceAttention(params: Readonly<{
     occurredAt: new Date(extraction.created_at ? Date.parse(extraction.created_at) || 0 : 0).toISOString(),
     proposals: params.proposals ?? [],
   });
+  const pricedRows = pricedRowCategoryEvidence(extraction.data, documentId);
   return {
     diagnostics: diagnostics.map(attentionDiagnostic),
     withheldTargets: withheldPricedLineTargets(extraction.data, documentId),
     reviewRequiredTargets: reviewRequiredValueTargets(extraction.data, documentId),
-    categoryReviewTargets: categoryReviewTargets(extraction.data, documentId),
+    categoryReviewTargets: pricedRows.categoryReviewTargets,
+    machineRowsByAnchor: pricedRows.machineRowsByAnchor,
   };
 }

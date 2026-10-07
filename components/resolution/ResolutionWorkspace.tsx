@@ -97,7 +97,9 @@ export function valueReadingDraft(entry: ResolutionCase, proposalId: string) {
     && suggestion.proposalId === proposalId);
   if (suggestions.length !== 1 || suggestions[0]?.source !== 'forgewing_value_reading') return null;
   const row = suggestions[0].rateRow;
-  return { description: row.description, unit: row.unit_type, rate: String(row.rate_amount), category: row.category ?? '' };
+  // A category outside the offered list stays out of the draft; the person chooses one.
+  const category = row.category && enter.category?.options.includes(row.category) ? row.category : '';
+  return { description: row.description, unit: row.unit_type, rate: String(row.rate_amount), category };
 }
 
 async function accessToken(): Promise<string | null> {
@@ -427,7 +429,8 @@ export function ResolutionDecisionPane({ entry, forgewingSuggestionsIncluded, sa
               onClick={() => setForm((current) => ({ ...current,
                 description: enter.currentValue?.description ?? current.description,
                 unit: enter.currentValue?.unitType ?? current.unit,
-                rate: enter.currentValue?.rate != null ? String(enter.currentValue.rate) : current.rate }))}>
+                rate: enter.currentValue?.rate != null ? String(enter.currentValue.rate) : current.rate,
+                category: enter.currentValue?.category ?? current.category }))}>
               Copy what extraction read into the draft
             </button>
           ) : null}
@@ -437,20 +440,14 @@ export function ResolutionDecisionPane({ entry, forgewingSuggestionsIncluded, sa
               value={form[field]}
               onChange={(event) => setForm((current) => ({ ...current, [field]: event.target.value }))} />
           ))}
-          {enter.category?.required ? (
-            <select aria-label="category" required
-              className="rounded border border-white/10 bg-transparent p-2 text-xs text-[var(--ef-text-primary)]"
-              value={form.category}
-              onChange={(event) => setForm((current) => ({ ...current, category: event.target.value }))}>
-              <option value="">Choose the category (required)</option>
-              {enter.category.options.map((option) => <option key={option} value={option}>{option}</option>)}
-            </select>
-          ) : (
-            <input aria-label="category" placeholder="category (optional)"
-              className="rounded border border-white/10 bg-transparent p-2 text-xs text-[var(--ef-text-primary)]"
-              value={form.category}
-              onChange={(event) => setForm((current) => ({ ...current, category: event.target.value }))} />
-          )}
+          {/* Categories come only from the allowed list the server offers; never free text. */}
+          <select aria-label="category" required={enter.category?.required ?? false}
+            className="rounded border border-white/10 bg-transparent p-2 text-xs text-[var(--ef-text-primary)]"
+            value={form.category}
+            onChange={(event) => setForm((current) => ({ ...current, category: event.target.value }))}>
+            <option value="">{enter.category?.required ? 'Choose the category (required)' : 'No category'}</option>
+            {(enter.category?.options ?? []).map((option) => <option key={option} value={option}>{option}</option>)}
+          </select>
           <textarea aria-label="reason" placeholder="Why this value (required)"
             className="col-span-2 rounded border border-white/10 bg-transparent p-2 text-xs text-[var(--ef-text-primary)]"
             value={form.reason}

@@ -85,6 +85,15 @@ export function buildResolutionActionRequest(
       if (action.category?.required && (!category || !action.category.options.includes(category))) {
         return refuse('Choose the category this row belongs to.');
       }
+      if (category && action.category && !action.category.options.includes(category)) {
+        return refuse('Choose a category from the allowed list.');
+      }
+      // A reviewed row replaces the machine row whole: leaving the category
+      // blank would silently drop the one extraction already resolved.
+      const machineCategory = action.currentValue?.category;
+      if (!category && machineCategory) {
+        return refuse(`This row has a category (${machineCategory}). Keep it or choose another.`);
+      }
       return {
         ok: true,
         request: {

@@ -17,6 +17,7 @@ vi.mock('@/components/validator/ManualRateLinkResolutionPanel', () => ({
 
 import { ResolutionDecisionPane, ResolutionEvidencePane, resolutionDecisionIdentity, valueReadingDraft } from '@/components/resolution/ResolutionWorkspace';
 import type { ResolutionAction, ResolutionCase } from '@/lib/resolution/resolutionCases';
+import { ALLOWED_RATE_CATEGORIES } from '@/lib/validator/rateTaxonomy';
 
 const TARGET = {
   anchorKey: 'p8:priced_line:abc', physicalPageNumber: 8, pageRepresentationDigest: 'a'.repeat(64),
@@ -39,9 +40,10 @@ function resolutionCase(overrides: Partial<ResolutionCase>): ResolutionCase {
 const enter: ResolutionAction = {
   kind: 'enter_reviewed_value', method: 'POST', endpoint: '/api/documents/doc-1/facts/region-assertions',
   factKey: 'contract_rate_row', target: TARGET, supersedesAssertionId: null,
+  category: { required: false, options: ALLOWED_RATE_CATEGORIES },
 };
 const reading = { source: 'forgewing_value_reading' as const, proposalId: 'reading-1', proposedValue: 'Hauling · CY · 14.5',
-  rateRow: { description: 'Hauling', unit_type: 'CY', rate_amount: 14.5, category: 'hauling' }, uncalibratedCertainty: null };
+  rateRow: { description: 'Hauling', unit_type: 'CY', rate_amount: 14.5, category: 'Equipment' }, uncalibratedCertainty: null };
 const requestReading: ResolutionAction = { kind: 'request_value_reading', method: 'POST', endpoint: '/value-reading' };
 const reviewReading: ResolutionAction = { kind: 'review_value_reading', method: 'POST', endpoint: '/value-reading-review',
   proposalId: 'reading-1', proposalDigestSha256: 'b'.repeat(64), dispositions: ['rejected', 'deferred'] };
@@ -103,7 +105,9 @@ describe('Resolution Workspace rendering (B5-B)', () => {
 
   it('copies every structured field only from the single reading offered for reviewed-value entry', () => {
     const entry = resolutionCase({ actions: [{ ...enter, forgewingProposalId: 'reading-1' }], suggestions: [reading] });
-    expect(valueReadingDraft(entry, 'reading-1')).toEqual({ description: 'Hauling', unit: 'CY', rate: '14.5', category: 'hauling' });
+    expect(valueReadingDraft(entry, 'reading-1')).toEqual({ description: 'Hauling', unit: 'CY', rate: '14.5', category: 'Equipment' });
+    // A category outside the allowed list never enters the draft; the person chooses one.
+    expect(valueReadingDraft({ ...entry, suggestions: [{ ...reading, rateRow: { ...reading.rateRow, category: 'hauling' } }] }, 'reading-1')?.category).toBe('');
     expect(valueReadingDraft({ ...entry, suggestions: [{ ...reading, rateRow: { ...reading.rateRow, category: null } }] }, 'reading-1')?.category).toBe('');
     expect(valueReadingDraft(entry, 'invented')).toBeNull();
     expect(valueReadingDraft({ ...entry, actions: [enter] }, 'reading-1')).toBeNull();
@@ -145,6 +149,17 @@ describe('Resolution Workspace rendering (B5-B)', () => {
     const findingOnly = decision(resolutionCase({ kind: 'validator_finding', actions: [{ kind: 'open_in_validator', href: '/v' }] }));
     expect(findingOnly).not.toContain('Save &amp; next');
     expect(findingOnly).toContain('Open in Validator');
+  });
+
+  it('offers categories only from the server-listed allowed list, never as free text', () => {
+    const optional = decision(resolutionCase({ actions: [enter] }));
+    expect(optional).toMatch(/<select[^>]*aria-label="category"/);
+    expect(optional).not.toMatch(/<input[^>]*aria-label="category"/);
+    expect(optional).toContain('No category');
+    for (const option of ALLOWED_RATE_CATEGORIES) expect(optional).toContain(`>${option.replaceAll('&', '&amp;')}</option>`);
+    const required = decision(resolutionCase({ actions: [{ ...enter, category: { required: true, options: ALLOWED_RATE_CATEGORIES } }] }));
+    expect(required).toContain('Choose the category (required)');
+    expect(required).not.toContain('No category');
   });
 
   it('shows no Forgewing area in Core, and never invents a suggestion', () => {

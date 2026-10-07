@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { categoryReviewTargets } from '@/lib/contracts/categoryReview';
+import { categoryReviewTargets, pricedRowCategoryEvidence } from '@/lib/contracts/categoryReview';
 import { assembleContractPricingRows } from '@/lib/contracts/contractPricingAssembly';
 import { buildContractRateScheduleRows } from '@/lib/contracts/contractRateScheduleRows';
 import type { PagePricedScheduleReconstruction } from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
@@ -125,6 +125,22 @@ describe('category review', () => {
     const rows = buildContractRateScheduleRows({ rateTable: null, pricedScheduleReconstruction: reconstruction });
     expect(assembleContractPricingRows(rows).map((entry) => [entry.category, entry.rate]))
       .toEqual([['Vegetative Collect, Remove & Haul', 8.5]]);
+  });
+
+  it('keys every published row\'s machine values, category included, by the same anchor the cases use', () => {
+    const { data } = extraction([vegetative(), uncategorised(), scannedUncategorised()]);
+    const evidence = pricedRowCategoryEvidence(data, DOC);
+    expect(evidence.categoryReviewTargets).toEqual(categoryReviewTargets(data, DOC));
+    const rows = [...evidence.machineRowsByAnchor.values()];
+    expect(rows.map((entry) => [entry.description, entry.allowedCategory, entry.rateWithheld])).toEqual([
+      ['Vegetative Collect, Remove & Haul ROW to DMS', 'Vegetative Collect, Remove & Haul', false],
+      ['Mobilization of crews', null, false],
+      ['Permit fee', null, true],
+    ]);
+    // Every category case binds to a machine row under the identical anchor.
+    for (const target of evidence.categoryReviewTargets) {
+      expect(evidence.machineRowsByAnchor.get(target.anchorKey)?.rowId).toBe(target.rowId);
+    }
   });
 
   it('6: never makes a row pricing authority: rows and pricing are identical with or without the case', () => {

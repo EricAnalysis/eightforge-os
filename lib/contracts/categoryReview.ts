@@ -50,40 +50,71 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
 
+/** A published priced row as the machine read it, keyed by its evidence anchor. */
+export type MachinePricedRow = Readonly<{
+  rowId: string;
+  description: string | null;
+  unit: string | null;
+  rate: number | null;
+  /** True when the rate is withheld for review: it is a candidate, never a value to copy. */
+  rateWithheld: boolean;
+  /** The allowed pricing category the shared taxonomy resolves for the row, or null. */
+  allowedCategory: string | null;
+}>;
+
+export type PricedRowCategoryEvidence = Readonly<{
+  categoryReviewTargets: readonly CategoryReviewTarget[];
+  /** Every published, source-bound priced row by anchor: the draft's starting point, never a decision. */
+  machineRowsByAnchor: ReadonlyMap<string, MachinePricedRow>;
+}>;
+
 export function categoryReviewTargets(
   extractionData: unknown,
   sourceDocumentId: string | null = null,
 ): CategoryReviewTarget[] {
+  return [...pricedRowCategoryEvidence(extractionData, sourceDocumentId).categoryReviewTargets];
+}
+
+/**
+ * One pass over the document's published priced rows: the rows whose category
+ * stays unresolved (category review targets), and every row's machine values
+ * keyed by the shared priced-line anchor, so a review of the same row can start
+ * from what extraction read, category included.
+ */
+export function pricedRowCategoryEvidence(
+  extractionData: unknown,
+  sourceDocumentId: string | null = null,
+): PricedRowCategoryEvidence {
+  const empty: PricedRowCategoryEvidence = { categoryReviewTargets: [], machineRowsByAnchor: new Map() };
   const pdf = asRecord(asRecord(asRecord(asRecord(extractionData)?.extraction)?.content_layers_v1)?.pdf);
   const reconstruction = asRecord(pdf?.priced_schedule_reconstruction_v1) as PagePricedScheduleReconstruction | null;
   if (!reconstruction || !isSupportedPricedScheduleVersion(reconstruction.parser_version)
-    || !Array.isArray(reconstruction.pages)) return [];
+    || !Array.isArray(reconstruction.pages)) return empty;
 
   // The document's published priced rows, by the production row builder.
   const rows = buildContractRateScheduleRows({ rateTable: null, pricedScheduleReconstruction: reconstruction,
     pricedScheduleLayoutObservations: pdf?.layout_observations_v1 })
     .filter((row) => row.source_kind === 'page_priced_schedule');
-  if (rows.length === 0) return [];
+  if (rows.length === 0) return empty;
 
   // Pricing over exactly these rows, with the category fallback contract
   // intelligence supplies: whether pricing would give each row a category.
   const coverage = pricedRowCategoryCoverage(rows, { documentId: sourceDocumentId ?? 'category-review', sourceVersionIdentity: null },
     (row) => resolveRateScheduleRowCategory(row).allowedCategory);
 
-  const unresolved = new Map<string, { row: (typeof rows)[number]; reason: CategoryReviewReason;
-    taxonomyKey: string | null; inPricing: boolean }>();
+  const byRowId = new Map<string, { row: (typeof rows)[number]; allowedCategory: string | null;
+    unresolved: { reason: CategoryReviewReason; taxonomyKey: string | null; inPricing: boolean } | null }>();
   rows.forEach((row, sourceIndex) => {
     if (!row.rate_raw?.trim()) return;
     const { resolution, allowedCategory } = resolveRateScheduleRowCategory(row);
-    if (allowedCategory || coverage[sourceIndex]!.categorized) return;
-    unresolved.set(row.row_id, {
-      row,
-      reason: resolution.canonical_category ? 'category_outside_allowed_set' : 'no_category_evidence',
+    const unresolved = allowedCategory || coverage[sourceIndex]!.categorized ? null : {
+      reason: resolution.canonical_category ? 'category_outside_allowed_set' as const : 'no_category_evidence' as const,
       taxonomyKey: resolution.canonical_category,
       inPricing: coverage[sourceIndex]!.visible,
-    });
+    };
+    byRowId.set(row.row_id, { row, allowedCategory, unresolved });
   });
-  if (unresolved.size === 0) return [];
+  if (byRowId.size === 0) return empty;
 
   // Bind each to its source row's exact observations, as every priced-line case does.
   const entries: { page: number; line: unknown; rowId: string }[] = [];
@@ -92,7 +123,7 @@ export function categoryReviewTargets(
     if (!page || page.semantic_status === 'unresolved') continue;
     for (const sourceRow of page.rows) {
       const rowId = `page_priced_schedule:p${page.physical_page_number}:r${sourceRow.row_index}`;
-      if (!unresolved.has(rowId)) continue;
+      if (!byRowId.has(rowId)) continue;
       entries.push({ page: page.physical_page_number, rowId,
         line: { raw_text: sourceRow.raw_text, source_refs: sourceRow.cells.flatMap((cell) => cell.source_refs) } });
     }
@@ -107,19 +138,26 @@ export function categoryReviewTargets(
       ? [[`p${entry.page}:priced_line:${hashCanonical(ids).slice(0, 32)}`, entry.rowId] as const] : [];
   }));
   const seen = new Set<string>();
-  return targets.flatMap((target) => {
+  const categoryTargets: CategoryReviewTarget[] = [];
+  const machineRowsByAnchor = new Map<string, MachinePricedRow>();
+  for (const target of targets) {
     const rowId = rowIdByAnchor.get(target.anchorKey);
-    if (!rowId || seen.has(target.anchorKey)) return [];
+    if (!rowId || seen.has(target.anchorKey)) continue;
     seen.add(target.anchorKey);
-    const { row, reason, taxonomyKey, inPricing } = unresolved.get(rowId)!;
-    return [{
+    const { row, allowedCategory, unresolved } = byRowId.get(rowId)!;
+    const rateWithheld = rateWithheldByAuthority(row.rate_authority);
+    machineRowsByAnchor.set(target.anchorKey, { rowId, description: row.description, unit: row.unit,
+      rate: row.rate, rateWithheld, allowedCategory });
+    if (!unresolved) continue;
+    categoryTargets.push({
       ...target,
       rowId,
-      reason,
-      resolvedTaxonomyKey: reason === 'category_outside_allowed_set' ? taxonomyKey : null,
+      reason: unresolved.reason,
+      resolvedTaxonomyKey: unresolved.reason === 'category_outside_allowed_set' ? unresolved.taxonomyKey : null,
       current: { description: row.description, unit: row.unit, rate: row.rate, rateRaw: row.rate_raw },
-      rateWithheld: rateWithheldByAuthority(row.rate_authority),
-      pricingState: inPricing ? 'in_pricing_without_category' as const : 'excluded_from_pricing' as const,
-    }];
-  });
+      rateWithheld,
+      pricingState: unresolved.inPricing ? 'in_pricing_without_category' as const : 'excluded_from_pricing' as const,
+    });
+  }
+  return { categoryReviewTargets: categoryTargets, machineRowsByAnchor };
 }

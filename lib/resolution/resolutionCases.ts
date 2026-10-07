@@ -4,7 +4,7 @@ import type {
   DiagnosticRecoverability,
   DiagnosticRecoveryType,
 } from '@/lib/diagnostics/failureDiagnostic';
-import type { CategoryReviewTarget } from '@/lib/contracts/categoryReview';
+import type { CategoryReviewTarget, MachinePricedRow } from '@/lib/contracts/categoryReview';
 import { ALLOWED_RATE_CATEGORIES } from '@/lib/validator/rateTaxonomy';
 import {
   CONTRACT_RATE_ROW_FACT_KEY,
@@ -187,12 +187,18 @@ export type ResolutionAction =
       /** Offered provenance only; the operator must explicitly use the suggestion. */
       forgewingProposalId?: string;
       /**
-       * Present when the row's category is unresolved: the reviewed row must
-       * name one of exactly these allowed categories. Never pre-selected.
+       * The categories a reviewed row may name: exactly the allowed pricing
+       * categories, never free text. Required when the row's category is
+       * unresolved; never pre-selected.
        */
-      category?: Readonly<{ required: true; options: readonly string[] }>;
-      /** The row as extraction read it, offered as the draft's starting point; never applied by itself. */
-      currentValue?: Readonly<{ description: string | null; unitType: string | null; rate: number | null }>;
+      category: Readonly<{ required: boolean; options: readonly string[] }>;
+      /**
+       * The row as extraction read it, offered as the draft's starting point;
+       * never applied by itself. `category` is the allowed category the
+       * machine row already carries: a review keeps it unless the operator
+       * chooses another, so confirming a value never silently drops it.
+       */
+      currentValue?: Readonly<{ description: string | null; unitType: string | null; rate: number | null; category?: string | null }>;
     }>
   | Readonly<{
       /**
@@ -387,6 +393,8 @@ export type DocumentEvidenceAttention = Readonly<{
   reviewRequiredTargets?: readonly ReviewRequiredValueTarget[];
   /** Published priced rows whose category both deterministic classifiers left unresolved. */
   categoryReviewTargets?: readonly CategoryReviewTarget[];
+  /** Every published, source-bound priced row as the machine read it, by anchor. */
+  machineRowsByAnchor?: ReadonlyMap<string, MachinePricedRow>;
 }>;
 
 /** The subset of a recovery review candidate this model reads. */
@@ -480,6 +488,22 @@ function documentHref(documentId: string, page: number | null): string {
 
 function regionAssertionEndpoint(documentId: string): string {
   return `/api/documents/${documentId}/facts/region-assertions`;
+}
+
+/** The category control every reviewed row offers: the allowed categories only. */
+function categoryControl(required: boolean): Readonly<{ required: boolean; options: readonly string[] }> {
+  return { required, options: ALLOWED_RATE_CATEGORIES };
+}
+
+/** What extraction read for this anchor's published row, as the draft's starting point. */
+function machineCurrentValue(
+  attention: DocumentEvidenceAttention | undefined,
+  anchorKey: string,
+): NonNullable<Extract<ResolutionAction, { kind: 'enter_reviewed_value' }>['currentValue']> | undefined {
+  const row = attention?.machineRowsByAnchor?.get(anchorKey);
+  return row ? { description: row.description, unitType: row.unit,
+    // A withheld rate is a candidate for the reviewer to confirm, never a value to copy.
+    rate: row.rateWithheld ? null : row.rate, category: row.allowedCategory } : undefined;
 }
 
 function dispositionAction(
@@ -692,6 +716,7 @@ function reviewedValueCases(params: {
             factKey: 'contract_rate_row',
             target,
             supersedesAssertionId: chainHead(state.history, target.anchorKey),
+            category: categoryControl(false),
           },
           dispositionAction(documentId, target, state.history),
           { kind: 'open_document', href: documentHref(documentId, target.physicalPageNumber) },
@@ -721,6 +746,9 @@ function reviewedValueCases(params: {
           factKey: 'contract_rate_row',
           target,
           supersedesAssertionId: chainHead(state.history, anchorKey),
+          category: categoryControl(false),
+          ...(machineCurrentValue(params.evidenceAttentionByDocument.get(documentId), anchorKey)
+            ? { currentValue: machineCurrentValue(params.evidenceAttentionByDocument.get(documentId), anchorKey) } : {}),
         });
       }
       // Withdrawal is bound to the current target like any other review, so it
@@ -864,6 +892,7 @@ function evidenceAttentionCases(params: {
               factKey: 'contract_rate_row',
               target,
               supersedesAssertionId: chainHead(history, target.anchorKey),
+              category: categoryControl(false),
             },
             dispositionAction(documentId, target, history),
             openDocument,
@@ -936,6 +965,8 @@ function evidenceAttentionCases(params: {
             factKey: 'contract_rate_row',
             target,
             supersedesAssertionId: chainHead(history, target.anchorKey),
+            category: categoryControl(false),
+            ...(machineCurrentValue(attention, target.anchorKey) ? { currentValue: machineCurrentValue(attention, target.anchorKey) } : {}),
           },
           dispositionAction(documentId, target, history),
           { kind: 'open_document', href: documentHref(documentId, target.physicalPageNumber) },
@@ -948,7 +979,7 @@ function evidenceAttentionCases(params: {
     // confirms the category through the same reviewed row as any value.
     for (const target of attention.categoryReviewTargets ?? []) {
       if (closedAnchors.has(target.anchorKey)) continue;
-      const categoryRequirement = { required: true as const, options: ALLOWED_RATE_CATEGORIES };
+      const categoryRequirement = categoryControl(true);
       if (listedAnchors.has(target.anchorKey)) {
         // The same row already has a case: its one reviewed row settles both
         // facts, so that case also requires the category instead of a second case.

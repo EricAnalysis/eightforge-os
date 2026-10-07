@@ -9,6 +9,7 @@ import {
 } from '@/lib/humanFactAssertions/regionBoundAssertions';
 import type { RecordRegionAssertionInput } from '@/lib/server/regionBoundHumanAssertions';
 import { VALUE_READING_PROPOSAL_ID_PATTERN } from '@/lib/server/valueReadingProposals';
+import { ALLOWED_RATE_CATEGORIES } from '@/lib/validator/rateTaxonomy';
 
 /**
  * The region-bound assertion write contract (B3), shared by the record route
@@ -98,6 +99,13 @@ export function parseRegionAssertionRequest(body: unknown):
     if (value === undefined || value === null) return { ok: false, status: 400, error: 'value is required' };
     if (factKey === CONTRACT_RATE_ROW_FACT_KEY && !parseReviewedRateRowValue(value)) {
       return { ok: false, status: 400, error: 'A reviewed rate row needs description, unit_type and a numeric rate_amount' };
+    }
+    // New reviewed rows name an allowed pricing category or none; free text
+    // would leave the row uncategorized in pricing while looking decided.
+    const category = (value as Record<string, unknown>).category;
+    if (factKey === CONTRACT_RATE_ROW_FACT_KEY && category !== undefined && category !== null
+      && !(typeof category === 'string' && (!category.trim() || ALLOWED_RATE_CATEGORIES.includes(category.trim())))) {
+      return { ok: false, status: 400, error: 'A reviewed rate row category must be one of the allowed pricing categories' };
     }
     // Final authority over machine rows needs a source-bound target.
     if (factKey === CONTRACT_RATE_ROW_FACT_KEY && observationIds.length === 0) {

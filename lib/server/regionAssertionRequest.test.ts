@@ -47,3 +47,18 @@ describe('region assertion request: cited value-reading proposals (B4.2)', () =>
     expect(JSON.stringify(parsed)).not.toMatch(/ai_proposed_operator/);
   });
 });
+
+describe('region assertion request: reviewed rate row category', () => {
+  it('accepts an allowed pricing category, or none', () => {
+    for (const category of ['Equipment', ' Final Disposal ', undefined, null, '', '  ']) {
+      expect(parseRegionAssertionRequest({ ...BODY, value: { ...BODY.value, category } }).ok).toBe(true);
+    }
+  });
+
+  it('refuses a new reviewed row whose category is outside the allowed list', () => {
+    for (const category of ['hauling', 'equipment', 'vegetative_removal', 7, {}]) {
+      expect(parseRegionAssertionRequest({ ...BODY, value: { ...BODY.value, category } }))
+        .toMatchObject({ ok: false, status: 400, error: 'A reviewed rate row category must be one of the allowed pricing categories' });
+    }
+  });
+});

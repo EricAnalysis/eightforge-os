@@ -20,6 +20,7 @@ import {
   type PendingRecoveryProposal,
 } from '@/lib/resolution/resolutionCases';
 import { parseRegionAssertionRequest } from '@/lib/server/regionAssertionRequest';
+import { ALLOWED_RATE_CATEGORIES } from '@/lib/validator/rateTaxonomy';
 
 /**
  * Evidence attention (Forgewing generalization, phase 1). Whether evidence
@@ -221,6 +222,26 @@ describe('review-required values (Forgewing generalization, phase 2)', () => {
       reviewed: { history, held: [{ anchorKey: 'p10:priced_line:scan', assertionIds: ['a1'], reason: 'page_representation_changed' }] as never } });
     expect(held.cases.map((entry) => entry.kind)).toEqual(['reviewed_value_needs_rereview']);
     expect(held.cases[0]!.actions.map((action) => action.kind)).toContain('enter_reviewed_value');
+  });
+
+  it('offers the allowed categories on every reviewed-value entry, starting from the machine row with its category', () => {
+    const machineRowsByAnchor = new Map([['p10:priced_line:scan', { rowId: 'page_priced_schedule:p10:r3',
+      description: 'Snow Removal ROW', unit: 'Unit', rate: 96, rateWithheld: true, allowedCategory: 'Equipment' }]]);
+    const [entry] = build({ attention: { diagnostics: [], withheldTargets: [], reviewRequiredTargets: [scanned],
+      machineRowsByAnchor } }).cases;
+    const enter = entry!.actions.find((action) => action.kind === 'enter_reviewed_value');
+    expect(enter).toMatchObject({ category: { required: false, options: ALLOWED_RATE_CATEGORIES },
+      // A withheld rate is a candidate for the person to read, never a value copied into the draft.
+      currentValue: { description: 'Snow Removal ROW', unitType: 'Unit', rate: null, category: 'Equipment' } });
+    // Keeping the reviewed row's category is enforced before any request exists.
+    expect(buildResolutionActionRequest(entry!, { kind: 'enter_reviewed_value', reason: 'Read from the page', idempotencyKey: 'k1',
+      value: { description: 'Snow Removal ROW', unitType: 'Unit', rate: '96.00' } }))
+      .toEqual({ ok: false, reason: 'This row has a category (Equipment). Keep it or choose another.' });
+    // Without machine evidence there is no starting draft, but the allowed list is still offered.
+    const [bare] = build({ attention: { diagnostics: [], withheldTargets: [], reviewRequiredTargets: [scanned] } }).cases;
+    const bareEnter = bare!.actions.find((action) => action.kind === 'enter_reviewed_value');
+    expect(bareEnter).toMatchObject({ category: { required: false, options: ALLOWED_RATE_CATEGORIES } });
+    expect(bareEnter && 'currentValue' in bareEnter).toBe(false);
   });
 
   it('opens a case for a native rate cell that is not a whole amount, without inventing one', () => {

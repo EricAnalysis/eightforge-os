@@ -7,6 +7,7 @@ import {
   nextCaseIdAfterSave,
 } from '@/lib/resolution/resolutionActionRequest';
 import type { ResolutionAction, ResolutionCase } from '@/lib/resolution/resolutionCases';
+import { ALLOWED_RATE_CATEGORIES } from '@/lib/validator/rateTaxonomy';
 
 const TARGET = {
   anchorKey: 'p8:priced_line:abc', physicalPageNumber: 8, pageRepresentationDigest: 'a'.repeat(64),
@@ -26,6 +27,7 @@ function resolutionCase(actions: ResolutionAction[], overrides: Partial<Resoluti
 const enter: ResolutionAction = {
   kind: 'enter_reviewed_value', method: 'POST', endpoint: '/api/documents/doc-1/facts/region-assertions',
   factKey: 'contract_rate_row', target: TARGET, supersedesAssertionId: 'head-1',
+  category: { required: false, options: ALLOWED_RATE_CATEGORIES },
 };
 const withdraw: ResolutionAction = {
   kind: 'withdraw_reviewed_value', method: 'POST', endpoint: '/api/documents/doc-1/facts/region-assertions',
@@ -122,6 +124,26 @@ describe('resolution action requests (B5-B)', () => {
     }
     expect(buildResolutionActionRequest(resolutionCase([enter]),
       { kind: 'enter_reviewed_value', value, reason: '  ', idempotencyKey: 'k' }).ok).toBe(false);
+  });
+
+  it('sends only an allowed category, and never drops the category extraction already resolved', () => {
+    const send = (action: typeof enter, category: string) => buildResolutionActionRequest(resolutionCase([action]),
+      { kind: 'enter_reviewed_value', value: { ...value, category }, reason: 'r', idempotencyKey: 'k' });
+    const allowed = send(enter, ' Equipment ');
+    expect(allowed.ok && (allowed.request.body as { value: unknown }).value)
+      .toEqual({ description: 'Hauling', unit_type: 'CY', rate_amount: 14.5, category: 'Equipment' });
+    expect(send(enter, 'hauling')).toEqual({ ok: false, reason: 'Choose a category from the allowed list.' });
+    expect(send(enter, '').ok).toBe(true);
+
+    const required = { ...enter, category: { required: true, options: ALLOWED_RATE_CATEGORIES } };
+    expect(send(required, '')).toEqual({ ok: false, reason: 'Choose the category this row belongs to.' });
+    expect(send(required, 'Personnel').ok).toBe(true);
+
+    const machine = { ...enter, currentValue: { description: 'Hauling', unitType: 'CY', rate: 14.5, category: 'Equipment' } };
+    expect(send(machine, '')).toEqual({ ok: false, reason: 'This row has a category (Equipment). Keep it or choose another.' });
+    expect(send(machine, 'Equipment').ok).toBe(true);
+    expect(send(machine, 'Personnel').ok).toBe(true);
+    expect(send({ ...machine, currentValue: { ...machine.currentValue, category: null } }, '').ok).toBe(true);
   });
 
   it('withdraws by superseding the listed head against the current target', () => {

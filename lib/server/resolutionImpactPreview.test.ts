@@ -17,6 +17,7 @@ import { recordRegionBoundAssertion, type RegionAssertionClient } from '@/lib/se
 import { previewResolutionImpact, type ValidatorRun } from '@/lib/server/resolutionImpactPreview';
 import type { ValidatorSourceHypothesis, ValidatorSourceReads } from '@/lib/validator/projectValidator';
 import type { ValidationFinding, ValidatorResult } from '@/types/validator';
+import { ALLOWED_RATE_CATEGORIES } from '@/lib/validator/rateTaxonomy';
 
 const ORG = 'org-1';
 const ACTOR = 'actor-1';
@@ -53,6 +54,7 @@ function baseCase(overrides: Partial<ResolutionCase>): ResolutionCase {
 const enterAction: ResolutionAction = {
   kind: 'enter_reviewed_value', method: 'POST', endpoint: `/api/documents/${DOC}/facts/region-assertions`,
   factKey: 'contract_rate_row', target: TARGET, supersedesAssertionId: null,
+  category: { required: false, options: ALLOWED_RATE_CATEGORIES },
 };
 
 function finding(checkKey: string, overrides: Partial<ValidationFinding> = {}): ValidationFinding {

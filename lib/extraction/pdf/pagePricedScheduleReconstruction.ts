@@ -2257,6 +2257,11 @@ function reconstructPage(
       crosses: bands.size > 1 || uncertain.length > 0 };
   };
   const structuralTokens = new Set<PdfToken>();
+  // A column position alone cannot make a fragment priced. Reuse the parser's
+  // authored rate-cluster recognition, without inferring or repairing a value.
+  const hasPricedBandMinimum = (entries: readonly BandedToken[]) =>
+    entries.some(entry => entry.role === 'description' && entry.token.text.trim().length > 0)
+    && buildSourceLines(entries).some(line => rateLikeClusterCount(line) > 0);
   const reportStructural = (entries: readonly BandedToken[]) => {
     for (const entry of entries) {
       if (structuralTokens.has(entry.token)) continue;
@@ -2280,7 +2285,7 @@ function reconstructPage(
       reportStructural([...partition.uncertain, ...partition.unproven]);
       for (const entries of partition.bands.values()) {
         const split = buildSourceLines(entries);
-        if (!REQUIRED_ROLES.every(role => entries.some(entry => entry.role === role))) {
+        if (!hasPricedBandMinimum(entries)) {
           reportStructural(entries);
           continue;
         }
@@ -2646,11 +2651,30 @@ function reconstructPage(
 
   const assembled = eligibleSpineLines.map((spine) => {
     const index = spineIndex.get(spine)!;
-    const lines = [spine, ...attached.get(spine)!].sort((left, right) => right.y - left.y);
+    const structured = structuredRates.get(spine) ?? null;
+    let lines = [spine, ...attached.get(spine)!].sort((left, right) => right.y - left.y);
+    const partition = partitionLines(lines);
+    if (partition.crosses && partition.uncertain.length === 0 && partition.unproven.length === 0) {
+      const pricedBands = [...partition.bands.values()].filter(hasPricedBandMinimum);
+      const retained = pricedBands.length === 1 ? pricedBands[0]! : null;
+      const retainsSpineProof = retained?.some(entry => entry.role === 'rate'
+        && (structured ? entry.token === structured.amount
+          : spine.tokens.includes(entry.token) && isRowSpineToken(entry.token)));
+      // Confirmed continuations keep the exact reviewed line and target
+      // context; rebuilding their lines would lose applied-candidate closure.
+      if (retained && retainsSpineProof && !lines.some(line => continuationCandidateByLine.has(line))) {
+        // One proven priced band plus structural fragments is still one row.
+        // Detach whole observations before building cells or applying any
+        // admission/confirmation gates. Never publish a second priced band.
+        for (const entries of partition.bands.values()) {
+          if (entries !== retained) reportStructural(entries);
+        }
+        lines = buildSourceLines(retained).sort((left, right) => right.y - left.y);
+      }
+    }
     const contributed = lines.flatMap((line) => line.banded);
     // A structured rate is unambiguous only while the row's rate column holds
     // exactly the tokens that proved it.
-    const structured = structuredRates.get(spine) ?? null;
     const rateTokens = contributed.filter((entry) => entry.role === 'rate').map((entry) => entry.token);
     const ambiguous = structured
       ? rateTokens.length !== (structured.marker ? 2 : 1) || !rateTokens.includes(structured.amount)

@@ -19,8 +19,8 @@ function fixture(options: { broken?: boolean; fragmented?: boolean; slope?: numb
     width: 40, height, source: 'ocr_fallback', observation_id: `synthetic:${text}` as PdfToken['observation_id'],
     ocr_source_geometry: { bbox: { x0: x, x1: x + 40, y0: top, y1: top + height }, pixel_width: size, pixel_height: size } });
   const headers = [make('Description', 70, options.headerRuleOverlap ? 99 : 130, options.headerRuleOverlap ? 40 : 12), make('Unit', 320, 130), make('Rate', 430, 130)];
-  const upper = make('upper value', 430, options.padded ? 275 : 260, options.padded ? 30 : 12),
-    lower = make('lower value', 430, options.padded ? 297 : 330, options.padded ? 30 : 12);
+  const upper = make('upper value', 430, options.padded ? 275 : 260, options.padded ? 33 : 12),
+    lower = make('lower value', 430, options.padded ? 305 : 330, options.padded ? 30 : 12);
   const tall = make('stacked observation', 430, options.sparseTall ? 245 : 280, options.sparseTall ? 66 : 50), footer = make('footer', 430, 450);
   const overlap = make('minor rule overlap', 430, 290, 11);
   const tokens = [...headers, tall, footer,
@@ -102,7 +102,7 @@ describe('ruling row-band containment', () => {
   });
 });
 
-function reconstructionFixture(mode: 'tall' | 'bundle' | 'supporting' | 'fragment') {
+function reconstructionFixture(mode: 'tall' | 'bundle' | 'supporting' | 'fragment' | 'orphan') {
   const size = 600;
   const rgba = new Uint8Array(size * size * 4).fill(255);
   const paint = (x: number, y: number) => { const i = 4 * (y * size + x); rgba[i] = rgba[i + 1] = rgba[i + 2] = 0; };
@@ -115,9 +115,10 @@ function reconstructionFixture(mode: 'tall' | 'bundle' | 'supporting' | 'fragmen
   const supporting = mode === 'supporting' ? token('structural fragment', 220, 384, 80) : null;
   if (supporting) tokens.push(token('Equipment', 220, 130), supporting);
   const target = token('$19.00', 430, 240, mode === 'tall' ? 55 : 12);
-  tokens.push(token('Service alpha', 70, 240), token('Hour', 320, 240), target);
+  tokens.push(token('Service alpha', 70, mode === 'orphan' ? 280 : 240), token('Hour', 320, 240), target);
+  if (mode === 'orphan') tokens.push(token('27.00', 430, 280));
   if (mode === 'bundle') tokens.push(token('Service beta', 70, 280), token('Day', 320, 280), token('27.00', 430, 280));
-  if (mode === 'fragment') tokens.push(token('rule fragment', 430, 280));
+  if (mode === 'fragment') tokens.push(token('rule fragment', 430, 280), token('wrapped fragment', 70, 280));
   for (const [index, top] of [340, 440].entries()) tokens.push(token(`Service ${index}`, 70, top), token('Each', 320, top), token(`$${30 + index}.00`, 430, top));
   const byY = new Map<number, PdfToken[]>();
   for (const entry of tokens) byY.set(entry.y, [...(byY.get(entry.y) ?? []), entry]);
@@ -131,14 +132,29 @@ function reconstructionFixture(mode: 'tall' | 'bundle' | 'supporting' | 'fragmen
 }
 
 describe('reconstruction row-band closure', () => {
-  it('reports a split rate-column fragment without description as structural evidence', () => {
+  it('never substitutes another band for the original spine proof when detaching fragments', () => {
+    const f = reconstructionFixture('orphan');
+    const page = buildPagePricedScheduleReconstruction({ layout: f.layout, rulingLineInputs: [f.input],
+      rulingLineSourceSha256: 'a'.repeat(64) }).pages[0]!;
+    expect(page.rows.flatMap(row => row.cells).some(cell => cell.raw_text === '27.00')).toBe(false);
+    expect(page.rejected_spines.some(line => line.source_refs.some(ref => ref.text === '27.00'))).toBe(true);
+    expect(page.rejected_spines.some(line => line.source_refs.some(ref => ref.observation_id === f.target.observation_id))).toBe(false);
+    expect(page.unassigned_lines.flatMap(line => line.source_refs)
+      .filter(ref => ref.observation_id === f.target.observation_id)).toHaveLength(1);
+  });
+  it('keeps a description and rate-column artifact structural and preserves the one priced band', () => {
     const f = reconstructionFixture('fragment');
     const page = buildPagePricedScheduleReconstruction({ layout: f.layout, rulingLineInputs: [f.input],
       rulingLineSourceSha256: 'a'.repeat(64) }).pages[0]!;
     const fragment = f.layout.pages[0]!.lines.flatMap(line => line.tokens).find(token => token.text === 'rule fragment')!;
     expect(page.rejected_spines.flatMap(line => line.source_refs).some(ref => ref.observation_id === fragment.observation_id)).toBe(false);
     expect(page.unassigned_lines.flatMap(line => line.source_refs).filter(ref => ref.observation_id === fragment.observation_id)).toHaveLength(1);
-    expect(page.rejected_spines.some(line => line.source_refs.some(ref => ref.text === 'Service alpha'))).toBe(true);
+    expect(page.rows.some(row => row.cells.some(cell => cell.raw_text === 'Service alpha'))).toBe(true);
+    expect(page.rows.flatMap(row => row.cells.flatMap(cell => cell.source_refs))
+      .some(ref => ref.observation_id === fragment.observation_id)).toBe(false);
+    const descriptionFragment = f.layout.pages[0]!.lines.flatMap(line => line.tokens).find(token => token.text === 'wrapped fragment')!;
+    expect(page.unassigned_lines.flatMap(line => line.source_refs)
+      .filter(ref => ref.observation_id === descriptionFragment.observation_id)).toHaveLength(1);
   });
   it('keeps a cross-band supporting observation out of every published row', () => {
     const f = reconstructionFixture('supporting');

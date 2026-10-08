@@ -4,7 +4,7 @@ import { pricedScheduleAssemblyRole } from '@/lib/extraction/pdf/pricedScheduleR
 import { rulingLineInputIsIntact, rulingTokenGeometryDigest, type RulingLineInput, type RulingLineRule } from '@/lib/extraction/pdf/rulingLineEvidence';
 
 const ordinate = (rule: RulingLineRule, x: number) => rule.slope * x + rule.intercept;
-const RULE_CLIP_TEXT_HEIGHT_FRACTION = 0.25;
+const RULE_CLIP_TEXT_HEIGHT_FRACTION = 3 / 8;
 function median(values: number[]): number {
   const sorted = values.sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
@@ -118,7 +118,7 @@ export function rulingRowBands(
       const top = supported[index], bottom = supported[index + 1];
       if (!top?.length || !bottom?.length) continue;
       // Membership requires the centre inside the same band across the whole
-      // word width. Allow clipping by rule radius + 1/4 median text height;
+      // word width. Allow clipping by rule radius + 3/8 median text height;
       // this is padding tolerance, never permission to split or trim evidence.
       const centre = (box.y0 + box.y1) / 2;
       const padding = RULE_CLIP_TEXT_HEIGHT_FRACTION * (textHeights.get(index) ?? fallbackTextHeight);

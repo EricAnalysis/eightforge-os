@@ -225,3 +225,26 @@ describe('Resolution Workspace rendering (B5-B)', () => {
       .toContain('$1,250.00 at stake');
   });
 });
+
+describe('Resolution Workspace clarity', () => {
+  it('says that leaving a case unresolved saves nothing', () => {
+    expect(decision(resolutionCase({ actions: [enter] }))).toContain('Skips for now; nothing is saved.');
+  });
+
+  it('states the fixed impact of a disposition: no price and no finding change', () => {
+    const disposition: ResolutionAction = { kind: 'record_disposition', method: 'POST',
+      endpoint: '/api/documents/doc-1/facts/region-assertions', factKey: 'priced_evidence_disposition',
+      disposition: 'not_a_rate_or_value', target: TARGET,
+      supersedesAssertionId: null };
+    expect(decision(resolutionCase({ actions: [disposition] }))).toContain('Changes no price and no finding');
+  });
+
+  it('explains page conditions, which have no decision to record, and only for them', () => {
+    for (const kind of ['structure_review', 'coverage_gap', 'pricing_withheld'] as const) {
+      const html = decision(resolutionCase({ kind, actions: [{ kind: 'open_document', href: '/platform/documents/doc-1?page=8' }] }));
+      expect(html).toContain('data-testid="resolution-page-condition"');
+      expect(html).not.toContain('Save &amp; next');
+    }
+    expect(decision(resolutionCase({ actions: [enter] }))).not.toContain('resolution-page-condition');
+  });
+});

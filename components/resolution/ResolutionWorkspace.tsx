@@ -20,6 +20,12 @@ import type {
   ResolutionQueue,
 } from '@/lib/resolution/resolutionCases';
 import { selectDeepLinkedCase, type ResolutionDeepLink } from '@/lib/resolution/resolutionDeepLink';
+import {
+  CASE_KIND_LABEL,
+  PAGE_CONDITION_KINDS,
+  summarizeResolutionQueue,
+  type ResolutionQueueSummary,
+} from '@/lib/resolution/resolutionQueueSummary';
 import { supabase } from '@/lib/supabaseClient';
 
 /**
@@ -464,6 +470,10 @@ export function ResolutionDecisionPane({ entry, forgewingSuggestionsIncluded, sa
 
       {disposition ? (
         <div className="space-y-2" data-testid="evidence-disposition">
+          {/* A disposition is never a document field (regionBoundAssertions), so its impact is fixed: none. */}
+          <p className="text-[10px] text-[var(--ef-text-faint)]">
+            Changes no price and no finding: the line stays out of pricing, and this case closes.
+          </p>
           <textarea aria-label="disposition reason" placeholder="Not a rate or value: what is it instead? (required)"
             className="w-full rounded border border-white/10 bg-transparent p-2 text-xs text-[var(--ef-text-primary)]"
             value={dispositionReason} onChange={(event) => setDispositionReason(event.target.value)} />
@@ -553,10 +563,19 @@ export function ResolutionDecisionPane({ entry, forgewingSuggestionsIncluded, sa
         </div>
       ) : null}
 
+      {PAGE_CONDITION_KINDS.has(entry.kind) ? (
+        <p className="text-xs text-[var(--ef-text-secondary)]" data-testid="resolution-page-condition">
+          There is no decision to record here: this is a condition of the page, not a value. Open the document to
+          inspect it. The case closes only when a new analysis of the document no longer reports it.
+        </p>
+      ) : null}
+
       <div className="flex flex-wrap gap-3 border-t border-white/5 pt-3 text-xs">
-        <button type="button" onClick={onSkip} className="text-[var(--ef-text-muted)] underline">
+        <button type="button" onClick={onSkip} className="text-[var(--ef-text-muted)] underline"
+          title="Moves to the next case. Nothing is saved; this case stays open.">
           Leave unresolved
         </button>
+        <span className="text-[10px] text-[var(--ef-text-faint)]">Skips for now; nothing is saved.</span>
         {openValidator ? (
           <Link href={openValidator.href} className="text-[var(--ef-purple-primary)] hover:underline">Open in Validator</Link>
         ) : null}
@@ -565,6 +584,16 @@ export function ResolutionDecisionPane({ entry, forgewingSuggestionsIncluded, sa
         ) : null}
       </div>
     </div>
+  );
+}
+
+/** Open cases by kind, so the operator sees the shape of the work before starting it. */
+export function ResolutionQueueSummaryLine({ summary }: { summary: ResolutionQueueSummary }) {
+  return (
+    <p className="text-[11px] text-[var(--ef-text-muted)]" data-testid="resolution-queue-summary">
+      {summary.total} open: {summary.byKind.map((entry) => `${entry.count} ${entry.label.toLowerCase()}`).join(' · ')}
+      {summary.alsoCategory > 0 ? ` · ${summary.alsoCategory} also need a category` : ''}
+    </p>
   );
 }
 
@@ -691,7 +720,7 @@ export function ResolutionWorkspace({ projectId, link }: { projectId: string; li
         </div>
         {queue.cases.length === 0 ? (
           <p className="text-xs text-[var(--ef-text-muted)]">Nothing to resolve.</p>
-        ) : null}
+        ) : <ResolutionQueueSummaryLine summary={summarizeResolutionQueue(queue.cases)} />}
         {queue.groups.map((group) => (
           <section key={group.rootCauseKey} className="rounded border border-white/5 p-2">
             <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-muted)]">
@@ -712,7 +741,13 @@ export function ResolutionWorkspace({ projectId, link }: { projectId: string; li
                       className={`w-full rounded px-2 py-1 text-left text-xs ${caseId === selectedId
                         ? 'bg-[var(--ef-purple-primary-a30)] text-[var(--ef-text-primary)]'
                         : 'text-[var(--ef-text-secondary)] hover:bg-white/5'}`}>
+                      <span className="mr-1 text-[10px] uppercase tracking-[0.08em] text-[var(--ef-text-muted)]">
+                        {CASE_KIND_LABEL[entry.kind]}
+                      </span>
                       {entry.title}
+                      {entry.kind !== 'category_review' && entry.alsoUnresolved?.includes('category') ? (
+                        <span className="ml-1 text-[10px] text-[var(--ef-warning)]">+ category</span>
+                      ) : null}
                     </button>
                   </li>
                 );

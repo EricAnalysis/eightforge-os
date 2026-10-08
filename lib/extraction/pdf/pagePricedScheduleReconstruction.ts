@@ -2280,7 +2280,7 @@ function reconstructPage(
       reportStructural([...partition.uncertain, ...partition.unproven]);
       for (const entries of partition.bands.values()) {
         const split = buildSourceLines(entries);
-        if (!entries.some(entry => entry.role === 'rate')) {
+        if (!REQUIRED_ROLES.every(role => entries.some(entry => entry.role === role))) {
           reportStructural(entries);
           continue;
         }

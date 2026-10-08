@@ -4,7 +4,7 @@ import { buildPagePricedScheduleReconstruction, type PricedScheduleColumnBand } 
 import { buildRulingLineInput } from '@/lib/extraction/pdf/rulingLineEvidence';
 import { rulingRowBands } from '@/lib/extraction/pdf/rulingRowBands';
 
-function fixture(options: { broken?: boolean; fragmented?: boolean; slope?: number; headerRuleOverlap?: boolean } = {}) {
+function fixture(options: { broken?: boolean; fragmented?: boolean; slope?: number; headerRuleOverlap?: boolean; padded?: boolean; sparseTall?: boolean } = {}) {
   const size = 600;
   const rgba = new Uint8Array(size * size * 4).fill(255);
   const paint = (x: number, y: number) => { const i = 4 * (y * size + x); rgba[i] = rgba[i + 1] = rgba[i + 2] = 0; };
@@ -19,10 +19,14 @@ function fixture(options: { broken?: boolean; fragmented?: boolean; slope?: numb
     width: 40, height, source: 'ocr_fallback', observation_id: `synthetic:${text}` as PdfToken['observation_id'],
     ocr_source_geometry: { bbox: { x0: x, x1: x + 40, y0: top, y1: top + height }, pixel_width: size, pixel_height: size } });
   const headers = [make('Description', 70, options.headerRuleOverlap ? 99 : 130, options.headerRuleOverlap ? 40 : 12), make('Unit', 320, 130), make('Rate', 430, 130)];
-  const upper = make('upper value', 430, 260), lower = make('lower value', 430, 330);
-  const tall = make('stacked observation', 430, 280, 50), footer = make('footer', 430, 450);
+  const upper = make('upper value', 430, options.padded ? 275 : 260, options.padded ? 30 : 12),
+    lower = make('lower value', 430, options.padded ? 297 : 330, options.padded ? 30 : 12);
+  const tall = make('stacked observation', 430, options.sparseTall ? 245 : 280, options.sparseTall ? 66 : 50), footer = make('footer', 430, 450);
   const overlap = make('minor rule overlap', 430, 290, 11);
-  const tokens = [...headers, upper, lower, tall, footer, overlap];
+  const tokens = [...headers, tall, footer,
+    ...(options.sparseTall ? [make('sparse description', 70, 260)] : [upper, lower, overlap]),
+    ...(options.padded ? [make('upper text', 70, 240, 20), make('upper unit', 320, 240, 20),
+      make('lower text', 70, 340, 20)] : [])];
   const columns: PricedScheduleColumnBand[] = headers.map((token, index) => ({ role: index === 0 ? 'description' : index === 1 ? 'unit' : 'rate',
     x_min: index === 0 ? null : index === 1 ? 300 : 400, x_max: index === 0 ? 300 : index === 1 ? 400 : null,
     header_text: token.text, header_source_refs: [{ text: token.text, observation_id: token.observation_id,
@@ -47,9 +51,22 @@ describe('ruling row-band containment', () => {
     expect(bands.has(f.footer)).toBe(false);
     expect(JSON.stringify(f.layout)).toBe(before);
   });
-  it('allows only the measured rule radius for a minor separator overlap', () => {
+  it('allows the measured rule radius for a minor separator overlap', () => {
     const f = fixture();
     expect(rulingRowBands(f.layout, f.columns, f.input)!.get(f.overlap)).toBe(0);
+  });
+  it('owns padded adjacent OCR boxes by their centres despite rule clipping and overlap', () => {
+    const f = fixture({ padded: true });
+    const before = JSON.stringify(f.layout);
+    const bands = rulingRowBands(f.layout, f.columns, f.input)!;
+    expect(bands.get(f.upper)).toBe(0);
+    expect(bands.get(f.lower)).toBe(1);
+    expect(bands.get(f.tall)).toBeNull();
+    expect(JSON.stringify(f.layout)).toBe(before);
+  });
+  it('does not let a stacked rate inflate its own clipping tolerance in a sparse band', () => {
+    const f = fixture({ sparseTall: true });
+    expect(rulingRowBands(f.layout, f.columns, f.input)!.get(f.tall)).toBeNull();
   });
   it('locates the exact observed header by its center when its OCR box includes a rule', () => {
     const f = fixture({ headerRuleOverlap: true });
@@ -85,7 +102,7 @@ describe('ruling row-band containment', () => {
   });
 });
 
-function reconstructionFixture(mode: 'tall' | 'bundle' | 'supporting') {
+function reconstructionFixture(mode: 'tall' | 'bundle' | 'supporting' | 'fragment') {
   const size = 600;
   const rgba = new Uint8Array(size * size * 4).fill(255);
   const paint = (x: number, y: number) => { const i = 4 * (y * size + x); rgba[i] = rgba[i + 1] = rgba[i + 2] = 0; };
@@ -100,6 +117,7 @@ function reconstructionFixture(mode: 'tall' | 'bundle' | 'supporting') {
   const target = token('$19.00', 430, 240, mode === 'tall' ? 55 : 12);
   tokens.push(token('Service alpha', 70, 240), token('Hour', 320, 240), target);
   if (mode === 'bundle') tokens.push(token('Service beta', 70, 280), token('Day', 320, 280), token('27.00', 430, 280));
+  if (mode === 'fragment') tokens.push(token('rule fragment', 430, 280));
   for (const [index, top] of [340, 440].entries()) tokens.push(token(`Service ${index}`, 70, top), token('Each', 320, top), token(`$${30 + index}.00`, 430, top));
   const byY = new Map<number, PdfToken[]>();
   for (const entry of tokens) byY.set(entry.y, [...(byY.get(entry.y) ?? []), entry]);
@@ -113,6 +131,15 @@ function reconstructionFixture(mode: 'tall' | 'bundle' | 'supporting') {
 }
 
 describe('reconstruction row-band closure', () => {
+  it('reports a split rate-column fragment without description as structural evidence', () => {
+    const f = reconstructionFixture('fragment');
+    const page = buildPagePricedScheduleReconstruction({ layout: f.layout, rulingLineInputs: [f.input],
+      rulingLineSourceSha256: 'a'.repeat(64) }).pages[0]!;
+    const fragment = f.layout.pages[0]!.lines.flatMap(line => line.tokens).find(token => token.text === 'rule fragment')!;
+    expect(page.rejected_spines.flatMap(line => line.source_refs).some(ref => ref.observation_id === fragment.observation_id)).toBe(false);
+    expect(page.unassigned_lines.flatMap(line => line.source_refs).filter(ref => ref.observation_id === fragment.observation_id)).toHaveLength(1);
+    expect(page.rejected_spines.some(line => line.source_refs.some(ref => ref.text === 'Service alpha'))).toBe(true);
+  });
   it('keeps a cross-band supporting observation out of every published row', () => {
     const f = reconstructionFixture('supporting');
     const page = buildPagePricedScheduleReconstruction({ layout: f.layout, rulingLineInputs: [f.input],

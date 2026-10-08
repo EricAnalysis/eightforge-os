@@ -4,6 +4,12 @@ import { pricedScheduleAssemblyRole } from '@/lib/extraction/pdf/pricedScheduleR
 import { rulingLineInputIsIntact, rulingTokenGeometryDigest, type RulingLineInput, type RulingLineRule } from '@/lib/extraction/pdf/rulingLineEvidence';
 
 const ordinate = (rule: RulingLineRule, x: number) => rule.slope * x + rule.intercept;
+const RULE_CLIP_TEXT_HEIGHT_FRACTION = 0.25;
+function median(values: number[]): number {
+  const sorted = values.sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length ? sorted.length % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid]! : 0;
+}
 function groups(rules: readonly RulingLineRule[], x: number): RulingLineRule[][] {
   const result: RulingLineRule[][] = [];
   for (const rule of [...rules].sort((a, b) => ordinate(a, x) - ordinate(b, x))) {
@@ -81,6 +87,24 @@ export function rulingRowBands(
   });
   if (candidates.length !== 1) return null;
   const { h, headerBand } = candidates[0]!;
+  // OCR word boxes include rule ink and padding. Estimate each band's text
+  // height from observations already contained within its rule radii. A
+  // crossing box cannot inflate the tolerance used to classify itself.
+  const heights = new Map<number, number[]>();
+  for (const token of tokens) {
+    const box = token.ocr_source_geometry!.bbox;
+    if (![box.x0, box.x1, box.y0, box.y1].every(Number.isFinite) || box.x1 <= box.x0 || box.y1 <= box.y0) continue;
+    const centre = (box.y0 + box.y1) / 2;
+    for (let index = headerBand + 1; index < h.length - 1; index++) {
+      const top = intervalBoundaries(h[index]!, box.x0, box.x1), bottom = intervalBoundaries(h[index + 1]!, box.x0, box.x1);
+      if (top && bottom && top.every(edge => centre > edge.y && box.y0 >= edge.y - edge.radius)
+        && bottom.every(edge => centre < edge.y && box.y1 <= edge.y + edge.radius)) {
+        heights.set(index, [...(heights.get(index) ?? []), box.y1 - box.y0]);
+      }
+    }
+  }
+  const textHeights = new Map([...heights].map(([index, values]) => [index, median(values)]));
+  const fallbackTextHeight = median([...heights.values()].flat());
   const result = new Map<PdfToken, number | null>();
   for (const token of tokens) {
     const box = token.ocr_source_geometry!.bbox;
@@ -93,14 +117,23 @@ export function rulingRowBands(
     for (let index = headerBand + 1; index < h.length - 1; index++) {
       const top = supported[index], bottom = supported[index + 1];
       if (!top?.length || !bottom?.length) continue;
-      const ceiling = Math.max(...top.map(edge => edge.y - edge.radius));
-      const floor = Math.min(...bottom.map(edge => edge.y + edge.radius));
-      if (box.y0 >= ceiling && box.y1 <= floor) hits.push(index - headerBand - 1);
+      // Membership requires the centre inside the same band across the whole
+      // word width. Allow clipping by rule radius + 1/4 median text height;
+      // this is padding tolerance, never permission to split or trim evidence.
+      const centre = (box.y0 + box.y1) / 2;
+      const padding = RULE_CLIP_TEXT_HEIGHT_FRACTION * (textHeights.get(index) ?? fallbackTextHeight);
+      const ceiling = Math.max(...top.map(edge => edge.y - edge.radius - padding));
+      const floor = Math.min(...bottom.map(edge => edge.y + edge.radius + padding));
+      if (top.every(edge => centre > edge.y) && bottom.every(edge => centre < edge.y)
+        && box.y0 >= ceiling && box.y1 <= floor) hits.push(index - headerBand - 1);
     }
     if (hits.length === 1) result.set(token, hits[0]!);
     else if (hits.length > 1 || supported.slice(headerBand + 1).every(edges => edges != null)
-      || supported.slice(headerBand + 1).some(edges => edges?.every(edge =>
-        box.y0 < edge.y - edge.radius && box.y1 > edge.y + edge.radius))) result.set(token, null);
+      || supported.slice(headerBand + 1).some((edges, offset) => edges?.every(edge => {
+        const index = headerBand + 1 + offset;
+        const padding = RULE_CLIP_TEXT_HEIGHT_FRACTION * Math.max(textHeights.get(index - 1) ?? fallbackTextHeight, textHeights.get(index) ?? fallbackTextHeight);
+        return box.y0 < edge.y - edge.radius - padding && box.y1 > edge.y + edge.radius + padding;
+      }))) result.set(token, null);
   }
   return result;
 }

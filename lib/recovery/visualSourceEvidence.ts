@@ -56,3 +56,29 @@ export type VisualSourceEvidence = RecoveryVisualSourceEvidence | DiagnosticVisu
 export function visualSourceEvidenceIdentity(evidence: VisualSourceEvidence): string {
   return evidence.kind === 'diagnostic' ? evidence.diagnosticId : evidence.candidateId;
 }
+
+/**
+ * The canonical boxes of a line's source observations: exactly one valid
+ * canonical_v1 box per observation, sorted by observation id. Null when any
+ * observation lacks one, so an unproven region is never drawn. The value-reading
+ * crop and offline qualification both use it, so qualification measures the
+ * region production would send.
+ */
+export function canonicalBoxesForObservations(
+  evidence: Pick<VisualSourceEvidenceBase, 'boxes'>,
+  sourceObservationIds: readonly string[],
+): CanonicalBox[] | null {
+  const ids = [...new Set(sourceObservationIds)].sort();
+  if (ids.length === 0) return null;
+  const canonicalBoxes: CanonicalBox[] = [];
+  for (const id of ids) {
+    const matches = evidence.boxes.filter((box) => box.observationId === id);
+    const canonical = matches[0]?.canonicalBoundingBox;
+    if (matches.length !== 1 || !canonical || canonical.coordinate_space !== 'canonical_v1'
+      || ![canonical.x_min, canonical.x_max, canonical.y_min, canonical.y_max].every(Number.isFinite)
+      || canonical.x_max <= canonical.x_min || canonical.y_max <= canonical.y_min) return null;
+    canonicalBoxes.push({ coordinate_space: 'canonical_v1', x_min: canonical.x_min, x_max: canonical.x_max,
+      y_min: canonical.y_min, y_max: canonical.y_max });
+  }
+  return canonicalBoxes;
+}

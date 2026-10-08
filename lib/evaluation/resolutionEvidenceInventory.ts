@@ -1,5 +1,7 @@
 import { hashCanonical, sha256Hex } from '@/lib/extraction/domain/hash';
+import type { CanonicalBox } from '@/lib/extraction/geometry/canonicalPageFrame';
 import { documentReviewedValueState } from '@/lib/humanFactAssertions/regionBoundAssertions';
+import { canonicalBoxesForObservations } from '@/lib/recovery/visualSourceEvidence';
 import {
   buildResolutionQueue,
   type DocumentEvidenceAttention,
@@ -61,6 +63,13 @@ export type InventoryEntry = Readonly<{
   /** Other facts the same decision must settle (a value case that also needs its category). */
   alsoUnresolved: readonly string[];
   originalSourceText: string | null;
+  /**
+   * The region a value reading of this case would crop: the case's entry
+   * target, through the same canonical-box rule the production crop uses.
+   * Null for page-level cases, and when the geometry is not proven (production
+   * would not draw it either). Geometry only, never text.
+   */
+  readingRegion: Readonly<{ physicalPageNumber: number; anchorKey: string; canonicalBoxes: readonly CanonicalBox[] }> | null;
 }>;
 
 export type ResolutionEvidenceInventory = Readonly<{
@@ -109,6 +118,19 @@ function classify(entry: ResolutionCase, attention: DocumentEvidenceAttention | 
     return target?.basis === 'unreadable_amount' ? 'unreadable_native_amount' : 'scanned_review_required_value';
   }
   return (INVENTORY_CLASS_BY_KIND as Partial<Record<ResolutionCaseKind, InventoryClass>>)[entry.kind] ?? null;
+}
+
+function readingRegion(entry: ResolutionCase): InventoryEntry['readingRegion'] {
+  const enter = entry.actions.find((action) => action.kind === 'enter_reviewed_value');
+  if (!enter || enter.kind !== 'enter_reviewed_value') return null;
+  const { target } = enter;
+  const visual = target.visual;
+  // The same identity checks the production crop makes before drawing.
+  if (!visual || visual.sourceDocumentId !== entry.documentId || visual.physicalPageNumber !== target.physicalPageNumber
+    || visual.pageRepresentationDigest !== target.pageRepresentationDigest) return null;
+  const canonicalBoxes = canonicalBoxesForObservations(visual, target.sourceObservationIds);
+  return canonicalBoxes
+    ? { physicalPageNumber: target.physicalPageNumber, anchorKey: target.anchorKey, canonicalBoxes } : null;
 }
 
 function emptyCounts(): Record<InventoryClass, number> {
@@ -169,6 +191,7 @@ export function buildResolutionEvidenceInventory(
       diagnosticCode: entry.diagnostic?.code ?? null,
       alsoUnresolved: [...(entry.alsoUnresolved ?? [])],
       originalSourceText: entry.originalSourceText,
+      readingRegion: readingRegion(entry),
     });
   }
   entries.sort((a, b) => a.documentLabel.localeCompare(b.documentLabel)

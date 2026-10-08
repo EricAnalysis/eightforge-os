@@ -6,6 +6,7 @@ import Link from 'next/link';
 
 import { resolutionWorkspaceHref } from '@/lib/resolution/resolutionDeepLink';
 import { supabase } from '@/lib/supabaseClient';
+import { ALLOWED_RATE_CATEGORIES } from '@/lib/validator/rateTaxonomy';
 import type {
   EffectiveRegionAssertion,
   HeldRegionAssertion,
@@ -229,16 +230,26 @@ export function ReviewedValuesPanel({ documentId, projectId = null, onChanged }:
               ) : null}
               {openAnchor === target.anchorKey ? (
                 <div className="mt-2 grid grid-cols-2 gap-2">
-                  {(['description', 'unit', 'rate', 'category'] as const).map((field) => (
+                  {(['description', 'unit', 'rate'] as const).map((field) => (
                     <input
                       key={field}
                       aria-label={field}
-                      placeholder={field === 'category' ? 'category (optional)' : field}
+                      placeholder={field}
                       className="rounded border border-white/10 bg-transparent p-2 text-xs text-[var(--ef-text-primary)]"
                       value={form[field]}
                       onChange={(event) => setForm((current) => ({ ...current, [field]: event.target.value }))}
                     />
                   ))}
+                  {/* The allowed pricing categories only, as the server enforces; never free text. */}
+                  <select
+                    aria-label="category"
+                    className="rounded border border-white/10 bg-transparent p-2 text-xs text-[var(--ef-text-primary)]"
+                    value={form.category}
+                    onChange={(event) => setForm((current) => ({ ...current, category: event.target.value }))}
+                  >
+                    <option value="">No category</option>
+                    {ALLOWED_RATE_CATEGORIES.map((option) => <option key={option} value={option}>{option}</option>)}
+                  </select>
                   <textarea
                     aria-label="reason"
                     placeholder="Why this value (required)"

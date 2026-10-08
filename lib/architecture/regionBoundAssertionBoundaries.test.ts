@@ -29,6 +29,16 @@ describe('B3 region-bound human review boundaries', () => {
     expect(source).not.toMatch(/forgewing_recovery_proposals|forgewing_recovery_proposal_reviews/);
   });
 
+  it('every reviewed rate row entry offers the allowed categories only, never free-text category', () => {
+    for (const file of ['components/resolution/ResolutionWorkspace.tsx', 'components/documents/ReviewedValuesPanel.tsx']) {
+      const source = read(file);
+      expect(source).toMatch(/<select[^>]*\s+aria-label="category"/);
+      expect(source).not.toMatch(/<input[^>]*\s+aria-label="category"/);
+      // Nor a text input generated for the category field.
+      expect(source).not.toMatch(/'category'\] as const\)\.map/);
+    }
+  });
+
   it('never chooses an AI origin: manual entry is operator_entered, a cited proposal only ai_proposed', () => {
     const adapter = read('lib/server/regionBoundHumanAssertions.ts');
     expect(adapter).toMatch(/p_review_origin: input\.forgewingProposalId \? 'ai_proposed' : 'operator_entered'/);

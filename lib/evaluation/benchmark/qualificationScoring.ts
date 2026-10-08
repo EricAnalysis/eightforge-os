@@ -73,8 +73,15 @@ export type QualificationDecision = Readonly<{
   classes: readonly QualificationClassDecision[];
   /** Zero-tolerance failures anywhere on the corpus: they fail every class. */
   corpusSafetyFailures: readonly string[];
-  /** Classes that may be proposed for operator-assist activation: never more than this. */
-  activatable: readonly string[];
+  /** Classes (task x evidence class) that met every hard bar. */
+  qualifiedClasses: readonly string[];
+  /**
+   * Tasks that may be proposed for operator-assist activation. Production gates
+   * reading by case family (the task), not by evidence class, so a task is
+   * activatable only when every one of its evidence classes qualified: a class
+   * that is unlabelled, unbindable, too small or failed blocks its task.
+   */
+  activatable: readonly QualificationTask[];
   /** True while any disagreement awaits a human ruling. */
   provisional: boolean;
   authorityInvariants: typeof VALUE_READING_AUTHORITY_INVARIANTS;
@@ -118,7 +125,7 @@ export function decideQualification(params: Readonly<{
   ].filter((entry): entry is string => entry !== null);
 
   const order = (key: string) => QUALIFICATION_TASKS.indexOf(key.split(':')[0] as QualificationTask);
-  const classes = [...groups].sort(([a], [b]) => order(a) - order(b) || a.localeCompare(b)).map(([key, bindings]) => {
+  const classes: QualificationClassDecision[] = [...groups].sort(([a], [b]) => order(a) - order(b) || a.localeCompare(b)).map(([key, bindings]) => {
     const [task, evidenceClass] = key.split(':') as [QualificationTask, ValueReadingEvidenceClass | 'unclassified'];
     const bound = bindings.filter((binding) => binding.status === 'bound');
     const unlabelled = bindings.filter((binding) => binding.status === 'unlabelled_page').length;
@@ -175,13 +182,18 @@ export function decideQualification(params: Readonly<{
   });
 
   const provisional = overall.unadjudicatedDisagreements > 0;
+  const qualified = (entry: QualificationClassDecision) => entry.status === 'qualified' || entry.status === 'qualified_low_coverage';
+  const qualifiedClasses = provisional ? [] : classes.filter(qualified).map((entry) => entry.key);
   return {
     version: QUALIFICATION_DECISION_VERSION,
     taxonomyVersion: QUALIFICATION_TAXONOMY_VERSION,
     classes,
     corpusSafetyFailures,
-    activatable: provisional ? [] : classes
-      .filter((entry) => entry.status === 'qualified' || entry.status === 'qualified_low_coverage').map((entry) => entry.key),
+    qualifiedClasses,
+    activatable: QUALIFICATION_TASKS.filter((task) => {
+      const ofTask = classes.filter((entry) => entry.task === task);
+      return ofTask.length > 0 && ofTask.every((entry) => qualifiedClasses.includes(entry.key));
+    }),
     provisional,
     authorityInvariants: VALUE_READING_AUTHORITY_INVARIANTS,
   };

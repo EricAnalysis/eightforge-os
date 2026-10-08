@@ -160,12 +160,25 @@ describe('B4.6.1 decision: each workflow class alone, against source truth', () 
     const decision = decideQualification({ bindings, records: correct });
     expect(decision.classes).toEqual([expect.objectContaining({ key: 'confirm_scanned_amount:dense_scanned_ocr_priced_schedule',
       status: 'qualified', cases: min, bound: min })]);
-    expect(decision.activatable).toEqual(['confirm_scanned_amount:dense_scanned_ocr_priced_schedule']);
+    expect(decision.qualifiedClasses).toEqual(['confirm_scanned_amount:dense_scanned_ocr_priced_schedule']);
+    expect(decision.activatable).toEqual(['confirm_scanned_amount']);
     // A dry run renders but reads nothing: never a decision.
     const dry = decideQualification({ bindings, records: correct.map((entry) => ({ ...entry, failureReason: 'dry_run',
       outcome: 'failed' as const, fields: null })) });
     expect(dry.classes[0]).toMatchObject({ status: 'not_run' });
     expect(dry.activatable).toEqual([]);
+  });
+
+  it('never activates a task while any of its evidence classes is undecided: production gates by task', () => {
+    // The dense-scan class qualifies, but the same task has price-sheet cases on an unlabelled page.
+    const elsewhere = [...bound, ...Array.from({ length: min }, (_, index) =>
+      entry(`p${index}`, 'scanned_review_required_value', boxesOf(labelTargets[0]!.rowKey), 10, '00000000-0000-4000-8000-0000000000aa'))];
+    const withElsewhere = bindQualificationTargets({ inventories: [inventory(elsewhere)], labelledPages: [labelled] }).bindings;
+    const decision = decideQualification({ bindings: withElsewhere, records: correct,
+      evidenceClassOfPage: new Map([['DN:10', 'ocr_price_sheet']]) });
+    expect(decision.qualifiedClasses).toEqual(['confirm_scanned_amount:dense_scanned_ocr_priced_schedule']);
+    expect(decision.classes.map((entry) => [entry.key, entry.status])).toContainEqual(['confirm_scanned_amount:ocr_price_sheet', 'needs_labels']);
+    expect(decision.activatable).toEqual([]);
   });
 
   it('fails every class on one zero-tolerance failure anywhere, with its owner', () => {

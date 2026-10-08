@@ -310,7 +310,8 @@ async function main(): Promise<void> {
       + `${Object.keys(entry.failuresByOwner).length ? ` | owners ${JSON.stringify(entry.failuresByOwner)}` : ''}`
       + `${entry.reasons.length ? ` | ${entry.reasons.join('; ')}` : ''}`),
     ...decision.corpusSafetyFailures.map((text) => `  CORPUS SAFETY FAILURE: ${text}`),
-    `  activatable: ${decision.activatable.length ? decision.activatable.join(', ') : 'none'}${decision.provisional ? ' (PROVISIONAL)' : ''}`,
+    `  qualified classes: ${decision.qualifiedClasses.length ? decision.qualifiedClasses.join(', ') : 'none'}`,
+    `  activatable tasks: ${decision.activatable.length ? decision.activatable.join(', ') : 'none'}${decision.provisional ? ' (PROVISIONAL)' : ''}`,
     `  artifacts: ${runDirectory}`].join('\n') + '\n');
 }
 

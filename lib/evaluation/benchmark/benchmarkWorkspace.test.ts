@@ -68,6 +68,19 @@ const allPages: readonly BenchmarkWorkspacePage[] = [
     frame: { ...FRAME, view: [0, 0, 612, 792], width: 612 },
     render: { file: 'page.png', scale: 2, pixelWidth: 1224, pixelHeight: 1584 },
   },
+  { ...page, pageKey: 'golden-p10', physicalPageNumber: 10 },
+  { ...page, pageKey: 'golden-p11', physicalPageNumber: 11 },
+  {
+    ...page,
+    pageKey: 'hillsdale-p1',
+    documentKey: 'hillsdale',
+    characterization: 'native_price_sheet',
+    sha256: '596adaccf865625723dc832f5206a8f690eb17d96921ef185df35b113c767537',
+    byteLength: 3_227_431,
+    physicalPageNumber: 1,
+    frame: { ...FRAME, view: [0, 0, 611, 792], width: 611 },
+    render: { file: 'page.png', scale: 2, pixelWidth: 1222, pixelHeight: 1584 },
+  },
 ];
 
 describe('workspace geometry', () => {

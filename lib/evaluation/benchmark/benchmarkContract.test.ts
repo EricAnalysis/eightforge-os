@@ -64,12 +64,13 @@ describe('benchmark label template', () => {
     expect(parsed.labelsSha256).toMatch(/^[a-f0-9]{64}$/);
   });
 
-  it('pins the four frozen benchmark pages and locates them by env var', () => {
+  it('pins the frozen benchmark pages and locates them by env var', () => {
     expect(BENCHMARK_PAGES.map((page) => page.pageKey))
-      .toEqual(['golden-p8', 'hillsdale-p3', 'dn-p106', 'dn-p107']);
+      .toEqual(['golden-p8', 'hillsdale-p3', 'dn-p106', 'dn-p107', 'golden-p10', 'golden-p11', 'hillsdale-p1']);
     expect(BENCHMARK_PAGES.map((page) => page.sourceEnvVar)).toEqual([
       'GOLDEN_CORPUS_ROOT', 'MIXED_MODE_HILLSDALE_PRICE_SHEET_PDF',
       'DN_PRICED_SCHEDULE_SOURCE_PDF', 'DN_PRICED_SCHEDULE_SOURCE_PDF',
+      'GOLDEN_CORPUS_ROOT', 'GOLDEN_CORPUS_ROOT', 'MIXED_MODE_HILLSDALE_PRICE_SHEET_PDF',
     ]);
     expect(BENCHMARK_PAGES.every((page) => /^[a-f0-9]{64}$/.test(page.sha256))).toBe(true);
   });

@@ -92,3 +92,7 @@ contract row, never another line's category.
 - Withdraw restores the taxonomy result.
 - Architecture: no consumer reads `invoice_line_category` except through
   `effectiveInvoiceLineCompletion`.
+
+## Status (2026-10-09)
+
+Not started. This document is the design of record. `CROSS_DOCUMENT_CATEGORY_NEEDS_REVIEW` findings still open only in the Validator.

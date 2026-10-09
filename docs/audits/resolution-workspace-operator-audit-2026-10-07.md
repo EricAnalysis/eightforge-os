@@ -91,3 +91,17 @@ category before it uses the linked row). See
    extraction.
 3. Load reduction (F2, F3).
 4. Invoice-line category review (F4).
+
+## Status (2026-10-09)
+
+- **F1: fixed (#174).**
+  - The category is a select over the allowed pricing categories, prefilled from the machine row's category.
+  - The server refuses a category outside the allowed set.
+  - The action request asks the operator to keep or change an existing category.
+- **F2: partly done (#176).** The queue header shows counts by case kind and how many value cases also need a category. Counts by document and a queue filter are not built.
+- **F3: open.** The table default category is still only the design in `docs/design/category-review-load-reduction.md`, Part 2.
+- **F4: open.** Invoice-line category review is still only the design in `docs/design/invoice-line-category-review.md`.
+- **F5: two of three done (#176).**
+  - "Leave unresolved" now says it skips for now and saves nothing.
+  - Value cases that also need a category carry a "+ category" marker.
+  - Still open: re-analyzing the three schedule documents in production so the queue reflects current extraction.

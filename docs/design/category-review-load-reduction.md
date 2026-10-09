@@ -104,3 +104,11 @@ evidence being shown. The number of reviewed assertions is unchanged.
   documents.
 - Bulk confirmation of standalone cases writes one assertion per ticked row;
   a stale row is refused alone.
+
+## Status (2026-10-09)
+
+- **Part 1: built (#174).**
+- **Part 3: partly built.**
+  - Built: counts by kind, the "+ category" marker (#176), and the per-case friction mapping of unresolved categories to `mapping_issue`.
+  - Not built: counts by document, and aggregation of category requirements per table.
+- **Part 2 (table default category): not started.**

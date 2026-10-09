@@ -1,4 +1,4 @@
-import type { ResolutionCase, ResolutionCaseKind } from '@/lib/resolution/resolutionCases';
+import type { ResolutionCase, ResolutionCaseKind, ResolutionQueue } from '@/lib/resolution/resolutionCases';
 
 /**
  * What the operator is looking at, at a glance: open cases by kind, from the
@@ -31,18 +31,44 @@ export type ResolutionQueueSummary = Readonly<{
   byKind: readonly Readonly<{ kind: ResolutionCaseKind; label: string; count: number }>[];
   /** Value cases whose one reviewed row must also name a category. */
   alsoCategory: number;
+  byDocument: readonly Readonly<{ documentId: string | null; label: string; count: number }>[];
 }>;
 
 export function summarizeResolutionQueue(cases: readonly ResolutionCase[]): ResolutionQueueSummary {
   const kinds = new Map<ResolutionCaseKind, number>();
+  const documents = new Map<string | null, { documentId: string | null; label: string; count: number }>();
   for (const entry of cases) {
     kinds.set(entry.kind, (kinds.get(entry.kind) ?? 0) + 1);
+    const existing = documents.get(entry.documentId);
+    if (existing) existing.count += 1;
+    else documents.set(entry.documentId, { documentId: entry.documentId,
+      label: entry.documentId === null ? 'Project-level work' : entry.documentLabel || 'Document', count: 1 });
   }
   const order = Object.keys(CASE_KIND_LABEL) as ResolutionCaseKind[];
   return {
     total: cases.length,
+    byDocument: [...documents.values()],
     byKind: [...kinds].sort(([a, countA], [b, countB]) => countB - countA || order.indexOf(a) - order.indexOf(b))
       .map(([kind, count]) => ({ kind, label: CASE_KIND_LABEL[kind], count })),
     alsoCategory: cases.filter((entry) => entry.kind !== 'category_review' && entry.alsoUnresolved?.includes('category')).length,
   };
+}
+
+/** Display filter only: original cases, actions and server ordering are retained. */
+export function filterResolutionQueue(queue: ResolutionQueue, documentId: string | null | undefined): ResolutionQueue {
+  if (documentId === undefined) return queue;
+  const cases = queue.cases.filter((entry) => entry.documentId === documentId);
+  const byId = new Map(cases.map((entry) => [entry.caseId, entry]));
+  const groups = queue.groups.flatMap((group) => {
+    const members = group.caseIds.flatMap((id) => byId.has(id) ? [byId.get(id)!] : []);
+    if (members.length === 0) return [];
+    const amounts = members.flatMap((entry) => entry.exposureAmount === null ? [] : [entry.exposureAmount]);
+    return [{ ...group, tier: members[0]!.tier, caseIds: members.map((entry) => entry.caseId),
+      findingCount: members.filter((entry) => entry.kind === 'validator_finding').length,
+      exposureAmount: amounts.length ? amounts.reduce((sum, amount) => sum + amount, 0) : null }];
+  });
+  const countsByTier = { ...queue.countsByTier };
+  for (const tier of Object.keys(countsByTier) as (keyof typeof countsByTier)[]) countsByTier[tier] = 0;
+  for (const entry of cases) countsByTier[entry.tier] += 1;
+  return { ...queue, cases, groups, countsByTier };
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { SourceEvidencePage } from '@/components/recovery/SourceEvidencePage';
 import { ResolutionImpactSection } from '@/components/resolution/ResolutionImpactSection';
@@ -24,6 +24,7 @@ import {
   CASE_KIND_LABEL,
   PAGE_CONDITION_KINDS,
   summarizeResolutionQueue,
+  filterResolutionQueue,
   type ResolutionQueueSummary,
 } from '@/lib/resolution/resolutionQueueSummary';
 import { supabase } from '@/lib/supabaseClient';
@@ -599,6 +600,28 @@ export function ResolutionQueueSummaryLine({ summary }: { summary: ResolutionQue
   );
 }
 
+export function ResolutionDocumentFilter({ summary, documentId, onChange }: {
+  summary: ResolutionQueueSummary;
+  documentId: string | null | undefined;
+  onChange: (documentId: string | null | undefined) => void;
+}) {
+  const value = documentId === undefined ? '' : documentId === null ? '__project__' : documentId;
+  return <label className="block text-xs text-[var(--ef-text-secondary)]">
+    Document
+    <select aria-label="Filter resolution queue by document" value={value}
+      className="mt-1 block w-full rounded border border-white/10 bg-[var(--ef-background-secondary)] p-2"
+      onChange={(event) => onChange(event.target.value === '' ? undefined
+        : event.target.value === '__project__' ? null : event.target.value)}>
+      <option value="">All documents ({summary.total})</option>
+      {documentId !== undefined && !summary.byDocument.some((entry) => entry.documentId === documentId)
+        ? <option value={value}>Selected document (0)</option> : null}
+      {summary.byDocument.map((entry) => <option key={entry.documentId ?? '__project__'} value={entry.documentId ?? '__project__'}>
+        {entry.label} ({entry.count})
+      </option>)}
+    </select>
+  </label>;
+}
+
 export function ResolutionWorkspace({ projectId, link }: { projectId: string; link: ResolutionDeepLink }) {
   const [queue, setQueue] = useState<ResolutionQueue | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -607,6 +630,9 @@ export function ResolutionWorkspace({ projectId, link }: { projectId: string; li
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [decisionRevision, setDecisionRevision] = useState(0);
+  const [documentFilter, setDocumentFilter] = useState<string | null | undefined>(undefined);
+  // Async writes/refreshes must use the operator's current display filter.
+  const documentFilterRef = useRef<string | null | undefined>(undefined);
 
   const fetchQueue = useCallback(async (): Promise<ResolutionQueue | null> => {
     const token = await accessToken();
@@ -636,9 +662,10 @@ export function ResolutionWorkspace({ projectId, link }: { projectId: string; li
     return () => { cancelled = true; };
   }, [fetchQueue, initialLink]);
 
-  const casesById = useMemo(() => new Map((queue?.cases ?? []).map((entry) => [entry.caseId, entry])), [queue]);
+  const visibleQueue = useMemo(() => queue ? filterResolutionQueue(queue, documentFilter) : null, [queue, documentFilter]);
+  const casesById = useMemo(() => new Map((visibleQueue?.cases ?? []).map((entry) => [entry.caseId, entry])), [visibleQueue]);
   // The queue renders group by group, so that is the operator's order.
-  const order = useMemo(() => (queue?.groups ?? []).flatMap((group) => group.caseIds), [queue]);
+  const order = useMemo(() => (visibleQueue?.groups ?? []).flatMap((group) => group.caseIds), [visibleQueue]);
   const selected = selectedId ? casesById.get(selectedId) ?? null : null;
 
   const advanceAfterSave = useCallback(async (savedCaseId: string) => {
@@ -648,9 +675,9 @@ export function ResolutionWorkspace({ projectId, link }: { projectId: string; li
     setSelectedId(nextCaseIdAfterSave({
       previousOrder,
       savedCaseId,
-      refreshedOrder: refreshed.groups.flatMap((group) => group.caseIds),
+      refreshedOrder: filterResolutionQueue(refreshed, documentFilterRef.current).groups.flatMap((group) => group.caseIds),
     }));
-  }, [fetchQueue, order]);
+  }, [fetchQueue, order, documentFilter]);
 
   const submit = useCallback(async (entry: ResolutionCase, input: ResolutionDecisionInput) => {
     setNotice(null);
@@ -675,7 +702,7 @@ export function ResolutionWorkspace({ projectId, link }: { projectId: string; li
     if (outcome === 'saved') {
       if (input.kind === 'request_value_reading' || input.kind === 'review_value_reading') {
         const refreshed = await fetchQueue();
-        if (refreshed) setSelectedId(entry.caseId);
+        if (refreshed && filterResolutionQueue(refreshed, documentFilterRef.current).cases.some((candidate) => candidate.caseId === entry.caseId)) setSelectedId(entry.caseId);
         return;
       }
       await advanceAfterSave(entry.caseId);
@@ -687,17 +714,17 @@ export function ResolutionWorkspace({ projectId, link }: { projectId: string; li
       setDecisionRevision((revision) => revision + 1);
       const previousOrder = order;
       const refreshed = await fetchQueue();
-      if (refreshed && !refreshed.cases.some((candidate) => candidate.caseId === entry.caseId)) {
+      if (refreshed && !filterResolutionQueue(refreshed, documentFilterRef.current).cases.some((candidate) => candidate.caseId === entry.caseId)) {
         setSelectedId(nextCaseIdAfterSave({ previousOrder, savedCaseId: entry.caseId,
-          refreshedOrder: refreshed.groups.flatMap((group) => group.caseIds) }));
-      } else {
+          refreshedOrder: filterResolutionQueue(refreshed, documentFilterRef.current).groups.flatMap((group) => group.caseIds) }));
+      } else if (refreshed) {
         setSelectedId(entry.caseId);
       }
       setNotice(`${body?.error ?? 'This case changed.'} The case has been refreshed; review it again.`);
       return;
     }
     setNotice(body?.error ?? 'The decision was not recorded.');
-  }, [advanceAfterSave, fetchQueue, order]);
+  }, [advanceAfterSave, fetchQueue, order, documentFilter]);
 
   const skip = useCallback(() => {
     if (!selectedId || order.length === 0) return;
@@ -723,7 +750,19 @@ export function ResolutionWorkspace({ projectId, link }: { projectId: string; li
         {queue.cases.length === 0 ? (
           <p className="text-xs text-[var(--ef-text-muted)]">Nothing to resolve.</p>
         ) : <ResolutionQueueSummaryLine summary={summarizeResolutionQueue(queue.cases)} />}
-        {queue.groups.map((group) => (
+        <ResolutionDocumentFilter summary={summarizeResolutionQueue(queue.cases)} documentId={documentFilter}
+          onChange={(filter) => {
+            documentFilterRef.current = filter;
+            setDocumentFilter(filter);
+            setNotice(null);
+            const filtered = filterResolutionQueue(queue, filter);
+            const visibleIds = filtered.groups.flatMap((group) => group.caseIds);
+            setSelectedId(selectedId && visibleIds.includes(selectedId) ? selectedId : visibleIds[0] ?? null);
+          }} />
+        {documentFilter !== undefined ? <p className="text-xs text-[var(--ef-text-muted)]">
+          {visibleQueue?.cases.length ?? 0} shown of {queue.cases.length} open
+        </p> : null}
+        {(visibleQueue?.groups ?? []).map((group) => (
           <section key={group.rootCauseKey} className="rounded border border-white/5 p-2">
             <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-muted)]">
               {TIER_LABEL[group.tier]}

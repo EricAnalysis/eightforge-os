@@ -11,25 +11,30 @@ export const PAGE_PRICED_SCHEDULE_RECONSTRUCTION_V2 = 'priced_schedule_reconstru
  */
 export const PAGE_PRICED_SCHEDULE_RECONSTRUCTION_V3 = 'priced_schedule_reconstruction_v3';
 /**
- * v4 (current): v3, plus same-page table segments. A page printing more than
+ * v4: v3, plus same-page table segments. A page printing more than
  * one independently qualifying priced-table header is read as one table per
  * header, each segment only against its own header, instead of failing whole.
  */
-export const PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION = 'priced_schedule_reconstruction_v4';
+export const PAGE_PRICED_SCHEDULE_RECONSTRUCTION_V4 = 'priced_schedule_reconstruction_v4';
+/** v5: intact observations must stay within one proven ruled row band. */
+export const PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION = 'priced_schedule_reconstruction_v5';
 export type PricedScheduleReconstructionVersion =
   | typeof LEGACY_PRICED_SCHEDULE_RECONSTRUCTION_VERSION
   | typeof PAGE_PRICED_SCHEDULE_RECONSTRUCTION_V2
   | typeof PAGE_PRICED_SCHEDULE_RECONSTRUCTION_V3
+  | typeof PAGE_PRICED_SCHEDULE_RECONSTRUCTION_V4
   | typeof PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION;
 
 export function isSupportedPricedScheduleVersion(value: unknown): value is PricedScheduleReconstructionVersion {
   return value === LEGACY_PRICED_SCHEDULE_RECONSTRUCTION_VERSION || isPagePricedScheduleVersion(value);
 }
 
-/** A page reconstruction (v2, v3 or v4), as opposed to the legacy spacing-only one. */
+/** A page reconstruction, as opposed to the legacy spacing-only one. */
 export function isPagePricedScheduleVersion(value: unknown): value is
   typeof PAGE_PRICED_SCHEDULE_RECONSTRUCTION_V2 | typeof PAGE_PRICED_SCHEDULE_RECONSTRUCTION_V3
+  | typeof PAGE_PRICED_SCHEDULE_RECONSTRUCTION_V4
   | typeof PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION {
   return value === PAGE_PRICED_SCHEDULE_RECONSTRUCTION_V2 || value === PAGE_PRICED_SCHEDULE_RECONSTRUCTION_V3
+    || value === PAGE_PRICED_SCHEDULE_RECONSTRUCTION_V4
     || value === PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION;
 }

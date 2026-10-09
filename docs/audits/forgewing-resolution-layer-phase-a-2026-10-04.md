@@ -192,3 +192,33 @@ Each step is its own PR with its own gates. Steps marked **Core** ship to both t
   - D5: an entitlement table or a column?
   - G11: are customer data-handling terms confirmed?
 - *Inferred, not verified here:* `document_relationships` creation is operator-only. No automatic writer was found by name search, but writers outside `lib/server/projectAdmin.ts` and the precedence route were not exhaustively traced.
+
+## 9. Status (2026-10-09)
+
+This audit is a Phase A snapshot. Its proposals have since been decided and built on `main`. The record of what landed, so the open questions above are not read as still open:
+
+- **D2: decided. Extend `human_fact_assertions`.** `20261004160000_human_fact_assertions_region_bound.sql` adds:
+  - `source_binding = 'region_bound'`;
+  - the page-representation digest binding;
+  - the `needs_review` status;
+  - review origins `operator_entered`, `ai_proposed_operator_approved` and `ai_proposed_operator_modified`.
+  - It remains the only ledger that produces human-reviewed truth.
+- **D3: decided. A separate proposal table.** `20261004220000_forgewing_value_reading_proposals.sql` and the migrations after it hold the proposals.
+  - The proposals are `non_authoritative`.
+  - Using a proposal writes a `human_fact_assertions` row through `record_region_bound_human_fact_assertion`, and the proposal row is never mutated.
+- **D5: decided. An append-only entitlement event table, not a column.** `20261004200000_organization_forgewing_entitlements.sql` holds the events. The latest event per organization wins; no event means not entitled. It is ANDed with the deployment kill switch (`lib/server/forgewingGates.ts`).
+- **G11: answered in code, not in contracts.** `20261004210000_forgewing_data_policy_and_call_budget.sql` adds per-organization data-policy events, keyed per provider and content class.
+  - Each event must cite the terms it rests on.
+  - The default is deny, and nothing in the product grants approval.
+  - Whether a given customer's terms permit sending content is still a business decision, recorded per organization through that ledger.
+- **Phase B steps landed:**
+  - B1, entitlement and gates;
+  - B2, durable unresolved priced-page evidence;
+  - B3, region-bound reviewed values with operator entry;
+  - B4.1–B4.3, the data policy, call budgets, proposals and execution engine;
+  - B5, the ResolutionCase read model and Resolution Workspace queue, with typed actions and the queue summary.
+- **Still open:**
+  - B4.6.1 qualification. Value reading stays inactive until a class qualifies; see `docs/runbooks/b461-qualification.md`.
+  - B6, Validator explanations and narrative.
+  - B7, missing-document detection beyond the `missing_document_or_link` case kind.
+  - B8, improvement signals.

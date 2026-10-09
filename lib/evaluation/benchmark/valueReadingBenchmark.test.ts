@@ -178,6 +178,31 @@ describe('B4.6 scoring: a confident wrong value is the unsafe outcome', () => {
     const golden = valueReadingBenchmarkTargets(labels('golden-p8'), page('golden-p8')).targets[0]!;
     expect(golden.supportedCategories).toEqual(['vegetative collect, remove & haul from unincorporated neighborhoods']);
   });
+
+  it('scores a production crop only on what it shows: a category outside the crop is not truth, and reading one is an invention', () => {
+    const goldenLabels = labels('golden-p8');
+    const cells = new Map((goldenLabels.cells.items ?? []).map((cell) => [cell.labelId, cell]));
+    const row = (goldenLabels.rows.items ?? []).find((entry) => entry.rowKey === 'r-0003')!;
+    const rowCells = row.orderedCellLabelIds.map((id) => cells.get(id)!);
+    const box = (cell: (typeof rowCells)[number]) => ({ ...cell.box, coordinate_space: 'canonical_v1' as const });
+    // What production draws for this row: its description, unit and rate cells, not the category column.
+    const withoutCategory = rowCells.filter((cell) => cell.columnName !== 'Category').map(box);
+    const target = valueReadingBenchmarkTargets(goldenLabels, page('golden-p8'),
+      { cropBoxes: (rowKey) => (rowKey === 'r-0003' ? withoutCategory : undefined) })
+      .targets.find((entry) => entry.rowKey === 'r-0003')!;
+    expect(target.truth.category).toBeNull();
+    expect(target.supportedCategories).toEqual([]);
+    const reading = (category: string | null) => ({ kind: 'value' as const, rateRow: { description: target.truth.description,
+      unit_type: target.truth.unit, rate_amount: target.truth.rate, category } });
+    expect(scoreValueReading(target, reading(null))).toMatchObject({ outcome: 'correct', inventions: [] });
+    expect(scoreValueReading(target, reading('Vegetative Collect, Remove & Haul from Unincorporated Neighborhoods')).inventions)
+      .toEqual(['category']);
+    // A crop that does show the category cell keeps it as truth.
+    const shown = valueReadingBenchmarkTargets(goldenLabels, page('golden-p8'),
+      { cropBoxes: (rowKey) => (rowKey === 'r-0003' ? rowCells.map(box) : undefined) })
+      .targets.find((entry) => entry.rowKey === 'r-0003')!;
+    expect(shown.truth.category).toBe('Vegetative Collect, Remove & Haul from Unincorporated Neighborhoods');
+  });
 });
 
 const record = (overrides: Partial<ValueReadingBenchmarkRecord>): ValueReadingBenchmarkRecord => ({

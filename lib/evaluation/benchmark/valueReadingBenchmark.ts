@@ -187,6 +187,7 @@ export function valueReadingBenchmarkTargets(labels: BenchmarkPageLabels, page: 
   });
   // A section heading: a body row whose every cell is unnamed (DN "ROADWAY ITEMS").
   let sectionHeading: string | null = null;
+  let sectionHeadingBoxes: readonly Readonly<{ x_min: number; x_max: number; y_min: number; y_max: number }>[] = [];
   const targets: ValueReadingBenchmarkTarget[] = [];
   const skipped: { rowKey: string; reason: string }[] = [];
   for (const row of labels.rows.items ?? []) {
@@ -198,6 +199,7 @@ export function valueReadingBenchmarkTargets(labels: BenchmarkPageLabels, page: 
     const present = rowCells as NonNullable<(typeof rowCells)[number]>[];
     if (!present.some((cell) => cell.isHeader) && present.every((cell) => cell.columnName === null)) {
       sectionHeading = present.map((cell) => cell.text).join(' ');
+      sectionHeadingBoxes = present.map((cell) => cell.box);
       skipped.push({ rowKey: row.rowKey, reason: 'section heading' });
       continue;
     }
@@ -239,11 +241,20 @@ export function valueReadingBenchmarkTargets(labels: BenchmarkPageLabels, page: 
       const y = (box.y_min + box.y_max) / 2;
       return x >= outer.x_min && x <= outer.x_max && y >= outer.y_min && y <= outer.y_max;
     };
+    // A production crop (B4.6.1) is scored only on what it shows: the row's category is truth only
+    // when its cell is visible in the crop, and a category is supported only by evidence the crop
+    // shows, so a category read from outside the crop is an invention. The labelled-row crop (B4.6)
+    // always shows the row's cells and keeps its rule.
+    const production = Boolean(options.cropBoxes?.(row.rowKey));
+    const categoryCell = page.columns.category === null ? null
+      : present.find((cell) => cell.columnName === page.columns.category) ?? null;
+    const categoryShown = !production || (categoryCell !== null && visible(categoryCell.box));
+    const headingShown = !production || (sectionHeadingBoxes.length > 0 && sectionHeadingBoxes.some((box) => visible(box)));
     targets.push({
       pageKey: page.pageKey,
       evidenceClass: page.evidenceClass,
       rowKey: row.rowKey,
-      truth: { description: description.text, unit: unit.text, rate: amount, category: category.text },
+      truth: { description: description.text, unit: unit.text, rate: amount, category: categoryShown ? category.text : null },
       boxes,
       pageOtherValues: [
         ...cellAmounts.filter((entry) => entry.cell.labelId !== rateCell.labelId).map((entry): PageValue => ({
@@ -254,7 +265,8 @@ export function valueReadingBenchmarkTargets(labels: BenchmarkPageLabels, page: 
           amount: entry.amount, source: 'word', labelId: entry.word.labelId, rowKey: null, columnName: null,
           inCrop: visible(entry.word.box) })),
       ],
-      supportedCategories: [...new Set([category.text, sectionHeading].flatMap((text) => (text ? [normalizeReadingText(text)] : [])))],
+      supportedCategories: [...new Set([categoryShown ? category.text : null, headingShown ? sectionHeading : null]
+        .flatMap((text) => (text ? [normalizeReadingText(text)] : [])))],
     });
   }
   return { targets, skipped };

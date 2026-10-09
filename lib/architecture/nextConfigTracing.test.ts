@@ -22,6 +22,12 @@ const excludes = (nextConfig.outputFileTracingExcludes ?? {}) as Record<string, 
 const REQUIRED_RUNTIME_FILES = [
   'node_modules/@tesseract.js-data/eng/4.0.0/eng.traineddata.gz',
   'node_modules/tesseract.js/src/index.js',
+  // The OCR core Node 24 loads (default OEM) and the detector that selects it.
+  'node_modules/tesseract.js/src/worker-script/node/getCore.js',
+  'node_modules/tesseract.js-core/tesseract-core-relaxedsimd-lstm.js',
+  'node_modules/tesseract.js-core/tesseract-core-relaxedsimd-lstm.wasm',
+  'node_modules/tesseract.js-core/tesseract-core-relaxedsimd-lstm.wasm.js',
+  'node_modules/wasm-feature-detect/dist/cjs/index.cjs',
   'node_modules/@napi-rs/canvas/index.js',
   'node_modules/@napi-rs/canvas-linux-x64-gnu/skia.linux-x64-gnu.node',
   'node_modules/pdf-parse/lib/pdf-parse.js',

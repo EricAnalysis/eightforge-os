@@ -17,12 +17,15 @@ export const PAGE_PRICED_SCHEDULE_RECONSTRUCTION_V3 = 'priced_schedule_reconstru
  */
 export const PAGE_PRICED_SCHEDULE_RECONSTRUCTION_V4 = 'priced_schedule_reconstruction_v4';
 /** v5: intact observations must stay within one proven ruled row band. */
-export const PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION = 'priced_schedule_reconstruction_v5';
+export const PAGE_PRICED_SCHEDULE_RECONSTRUCTION_V5 = 'priced_schedule_reconstruction_v5';
+/** v6: source-proven insurance limit regions are not headerless priced schedules. */
+export const PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION = 'priced_schedule_reconstruction_v6';
 export type PricedScheduleReconstructionVersion =
   | typeof LEGACY_PRICED_SCHEDULE_RECONSTRUCTION_VERSION
   | typeof PAGE_PRICED_SCHEDULE_RECONSTRUCTION_V2
   | typeof PAGE_PRICED_SCHEDULE_RECONSTRUCTION_V3
   | typeof PAGE_PRICED_SCHEDULE_RECONSTRUCTION_V4
+  | typeof PAGE_PRICED_SCHEDULE_RECONSTRUCTION_V5
   | typeof PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION;
 
 export function isSupportedPricedScheduleVersion(value: unknown): value is PricedScheduleReconstructionVersion {
@@ -33,8 +36,10 @@ export function isSupportedPricedScheduleVersion(value: unknown): value is Price
 export function isPagePricedScheduleVersion(value: unknown): value is
   typeof PAGE_PRICED_SCHEDULE_RECONSTRUCTION_V2 | typeof PAGE_PRICED_SCHEDULE_RECONSTRUCTION_V3
   | typeof PAGE_PRICED_SCHEDULE_RECONSTRUCTION_V4
+  | typeof PAGE_PRICED_SCHEDULE_RECONSTRUCTION_V5
   | typeof PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION {
   return value === PAGE_PRICED_SCHEDULE_RECONSTRUCTION_V2 || value === PAGE_PRICED_SCHEDULE_RECONSTRUCTION_V3
     || value === PAGE_PRICED_SCHEDULE_RECONSTRUCTION_V4
+    || value === PAGE_PRICED_SCHEDULE_RECONSTRUCTION_V5
     || value === PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION;
 }

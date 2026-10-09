@@ -60,12 +60,13 @@ describe('resolution workspace boundaries (B5-B)', () => {
     expect(workspace).not.toMatch(/valueReadingEngine|createValueReadingProposal|runValueReading/);
   });
 
-  it('keeps reading selection in a human draft and request/review refresh on the same case', () => {
+  it('keeps reading selection in a human draft and refresh on the same case when still displayed', () => {
     const workspace = code(WORKSPACE);
     expect(workspace).toContain('setForm((current) => ({ ...current, ...draft }))');
     expect(workspace).toContain('setSelectedReadingId(suggestion.proposalId)');
     expect(workspace).toContain("input.kind === 'request_value_reading' || input.kind === 'review_value_reading'");
-    expect(workspace).toContain('if (refreshed) setSelectedId(entry.caseId)');
+    // A filter change during the request must not reopen a hidden document.
+    expect(workspace).toContain('if (refreshed && filterResolutionQueue(refreshed, documentFilterRef.current).cases.some((candidate) => candidate.caseId === entry.caseId)) setSelectedId(entry.caseId)');
     expect(workspace).toContain('setDecisionRevision((revision) => revision + 1)');
     expect(workspace).toContain('resolutionDecisionIdentity(selected, queue.forgewingSuggestionsIncluded)');
   });

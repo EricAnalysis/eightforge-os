@@ -119,6 +119,15 @@ CI must confirm the final committed head before merge. Positive notes: no
 schema, parser, qualification contract, provider request or canonical write
 semantics changed, and client material remains outside Git.
 
+Initial PR CI type-check and Vercel passed, but full Vitest found one stale
+architecture source assertion: it required unconditional reading-case selection
+after refresh. The intended filter change now permits same-case selection only
+while that case remains displayed under the current filter. Update that single
+assertion to require the visibility guard; retain draft/action/authority checks.
+Initial run 37985685092 had 499 passing files / 5,999 passing tests, one failed
+test, 15 skipped files / 92 skipped tests. This is a real assertion mismatch,
+not timeout noise; no product code or gate was weakened to rescue CI.
+
 F3 requires exact existing table/header identity projected into the case before
 session draft defaults can safely be applied. A page number alone is not a
 table identity. F4 requires reviewed invoice-category consumption; the generic

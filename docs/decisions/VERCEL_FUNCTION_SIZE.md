@@ -27,8 +27,12 @@ counting only files a Vercel checkout contains):
      never sets `version`, so the default v1.10.100 is the only one loaded);
    - evaluation routes only: their repository data.
 2. `vercel.json` `ignoreCommand` (`scripts/vercel/ignore-build.sh`): skip a
-   deployment when a commit changes only documentation, tests or offline
-   evaluation tooling. Any other change, or any git error, builds as before.
+   deployment when nothing but documentation, tests or offline evaluation
+   tooling changed since the last successful deployment
+   (`VERCEL_GIT_PREVIOUS_SHA`). Comparing only the newest commit with its
+   parent skipped the preview of a code PR whose last commit was docs-only
+   (#179); comparing against the last deployment does not. No previous
+   deployment, a commit missing from the clone, or any git error builds.
 
 Result: **841 MB → 574 MB** traced per deployment (−32%), with fewer
 deployments created. Every file dropped against a baseline build was checked

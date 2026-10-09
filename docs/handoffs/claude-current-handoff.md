@@ -2,11 +2,23 @@
 
 ## 1. Current main and repository state
 
-Implementation main at this snapshot: `9bccfd197051f188732d3cf0103b2b4745e7bfe7`. PR #185 merged at `a347d45`; PR #186 at `c3786f074c5074f034bc9d3b18971aab3dfd42a9`; PR #187 at the current main above. All three had green CI before merge. PR #187 had two successful full-vitest checks and successful Vercel checks; Supabase Preview was skipped. No active implementation PR remains. [Documentation PR #188](https://github.com/EricAnalysis/eightforge-os/pull/188) publishes this handoff from `codex/claude-backlog-handoff`, based on that main; CI/merge status must be refreshed because this file cannot record its own later merge. No unpushed or uncommitted implementation work remains.
+Implementation main at this snapshot: `3c0e056b46d21af4797e6e042122bdbd519fa2f6`.
+Verified starting main: `35072862b3a7754c821bc97daaad4646e574a60f`, including
+merged documentation PR #188. PR #185 merged at `a347d45`; #186 at
+`c3786f074c5074f034bc9d3b18971aab3dfd42a9`; #187 at
+`9bccfd197051f188732d3cf0103b2b4745e7bfe7`. All had green CI before merge.
+Current continuation [PR #189](https://github.com/EricAnalysis/eightforge-os/pull/189)
+merged at the implementation main above, after two full-vitest jobs and Vercel
+passed at exact head `d49f320847050f408f76ef81a4718e9f0aca06a8` on
+`codex/runtime-operator-continuation`. Supabase Preview was skipped. No open
+implementation PR remains. This documentation publication is on
+`codex/runtime-operator-handoff`, based on that main. Refresh its PR status:
+the file cannot record its own later merge SHA. All implementation work is pushed.
 
 Work in `C:/Users/ADMS Thompson/.codex/worktrees/b461-contract-continuation/eightforge-os`.
 Its node_modules junction uses the existing primary dependencies; do not reinstall
-on the nearly full C: drive (about 58 MB free at this handoff).
+unnecessarily. This continuation observed about 3.52 GB free, improving from
+the prior 58 MB snapshot; no dependency install or disk cleanup was performed.
 The primary `C:/Dev/eightforge-os` checkout remains on
 `codex/e3-dual-ai-delegated-approval` with unrelated dirty benchmark/Docker work.
 Preserve it. Both commits on that older branch were proven patch-equivalent to
@@ -42,6 +54,18 @@ D: A zero-call decoder probe identified missing local wasmUrl as the reason
 for JBIG2 fallback warnings. Sample crop bytes agree, but timing advantage
 reverses between fresh-process repetitions. No optimization was adopted and no
 latency-ready request identity exists yet. See section 4.
+
+E: PR #189 records runtime/deployment observation in extraction payloads,
+forwards validated caller authorization to the existing job processor, adds F2
+document counts/filtering and explains four existing required-source rule IDs
+(a bounded B6 increment). No schema, parser, canonical write authority or
+qualification contract changed. Native fingerprints remain not_observed.
+
+F: Read-only production preflight resolved exact IDs/source hashes, v2 persisted
+reconstructions and unrelated historical running jobs. Exact proposed actions,
+preconditions and rollback implications are in
+`docs/audits/production-reanalysis-preparation-2026-10-09.md`. No production
+re-analysis, stale-job repair, environment mutation or manual deployment ran.
 
 ## 3. Qualification state
 
@@ -152,6 +176,40 @@ separately measured. The saved nonstreaming provider time aggregates those
 provider stages. Preliminary mixed-process timings are invalid because of
 global decoder cache. No renderer/request change was adopted.
 
+New source-bound lifecycle probe, separately from WASM: read
+`docs/audits/b461-crop-lifecycle-2026-10-09.md` and local LIFECYCLE-AUDIT.md.
+Fresh/session modes each matched six immutable live PNG hashes. Six-crop wall
+time was 5306.63/2293.23 ms; mean crop 882.99/379.89 ms; the first session crop
+was slower. This proves sampled local warm reuse, not production qualification.
+Request-local caching cannot improve today's single-case production request.
+A bounded cross-request cache must verify org/document/artifact/access and
+fresh source SHA every request before admission/hit, bind exact page/render
+identity, guard in-flight leases and safely evict/destroy entries. Cold/hit/miss
+timing must remain visible; no prewarming out of qualification cost. No cache
+or diagnostic observer was implemented. No latency-ready identity or paid rerun.
+
+Probe manifest is lifecycle-artifact-hashes.json in the local latency root.
+LIFECYCLE-AUDIT.md SHA-256
+`8b7a8780913b44a1f9aaf1e65b4d6461e18b05f32f91058cbf2ee198a84bb476`;
+fresh JSON `8309f44184c866a295d21a21e0fb0c1df15f9f6a2fbcc3a282883281bec67d47`;
+session JSON `c25fe8fc96048a988bd06e33af60ba7ba8f3e6adfc982b5de1f1f71f1b56d75b`.
+
+PR #189 local proof: 23 affected files / 143 tests passed, exit 0; after refining
+async current-filter selection, three affected UI/filter files / 18 tests
+passed. Final TypeScript no-emit with incremental disabled passed. This is not
+a local full-suite claim. Primary-agent Core/UX/document review found no
+blocking finding; a final review subagent could not start because of the
+session agent-thread limit. No independent approval is claimed for #189.
+Initial CI found a stale source assertion requiring unconditional reading-case
+selection; the updated assertion requires the intended current-filter guard.
+That architecture file plus three UI/filter files then passed 25 tests. Initial
+failed CI is preserved in the audit, not represented as a clean full-suite pass.
+Final stale-action refresh guard preserves current selection when reload fails;
+the four affected files again passed 25 tests. Final-head CI runs 37986419326
+and 37986412029 both passed type-check/full Vitest. The first reported 500
+passing files / 6,000 passing tests, 15 skipped files / 92 skipped tests,
+88.78 s. Vercel and Preview Comments passed. No local full-suite rerun.
+
 ## 5. Remaining work and dependencies
 
 Exact next task: authentic independent Claude source review for Golden p10,
@@ -170,12 +228,14 @@ score saved execution. F follows finalized labels, valid current captures,
 bindings and sufficient eligible class sizes. Refresh the whole v6 queue only
 when needed; source parity differences must be reported raw, never normalized.
 
-G/H: read-only runtime/job audit and prepare exact production IDs, versions,
-rollback and before/after expectations. Stop only before an actual unauthorized
+G/H: exact production preflight and runtime observation now prepared; complete
+native runtime fingerprints, effective duration inspection and job claim/lease/
+expiry investigation. Stop only before an actual unauthorized
 production write/deploy, authority redesign, ambiguous human decision or access
 boundary. I: reachable deployed UI headless verification. J: F3 table default
 category, F2 document counts/filter, F4 invoice-line category review and G2
-page disposition through existing typed paths. K: relevant qualified classes
+page disposition through existing typed paths; F2 implemented in #189.
+K: relevant qualified classes
 gate Forgewing proposals; deterministic B6/B7 work can proceed independently.
 Do not start a parallel improvement authority for B8.
 
@@ -213,6 +273,16 @@ kept in the restricted post-transcription continuation notes.
 Known exclusions remain Golden p8 r-0006 and Golden p10 exact withheld anchor;
 DN p110 intentionally has no priced-row labels.
 
+Additional source-native geometry/cell candidates and pending ambiguity notes
+are in the same external source package, bound by geometry-artifact-manifest.json.
+They are comparison inputs, not finalized reviewer geometry or authority. Read
+answer-bearing files only AFTER independent source transcription. Native
+geometry SHA-256 `138c092ea7f63a0e3dedb9809ccb3f40a1cdb705633eec9dda7ad270e87b1010`;
+cell candidate SHA `5482e5f020161d0ffc4ceb68acf2dc23c055c9089a325ebba44b9447fe5bdc36`;
+pending-cell decision SHA
+`43a614b061086a1eb88db45aec7a8060211f13bfaac8a8f822b4873e6d08fe5c`.
+True ambiguity remains human_required without changing literal proposals.
+
 Reused Golden renders at
 `C:/Users/ADMS Thompson/.codex/tmp/pdf-v2-v3-v4-comparison-20261006/Golden-p10.png`
 and Golden-p11.png; only missing Hillsdale p1 was rendered anew in proposal root.
@@ -223,22 +293,55 @@ repositories; never upload client PDFs/proposals to GitHub.
 
 ## 7. Production state
 
-Current code emits reconstruction v6; this continuation did not query production
-extractions or verify the three stale schedule document IDs. Their reported
-staleness is prior context, not a live production fact. Offline inventory UUIDs
-are not authorized production targets. No re-analysis, database mutation,
-manual deployment or activation was performed. Normal PR preview checks ran;
-production deployment status was not independently inspected.
-Runtime identity recording, maxDuration and stuck-job investigation remain
-unaudited/unimplemented here. Verify existing implementation first before edits.
+Read-only Supabase/Vercel inspection verified live, decisioned documents in
+organization `11111111-1111-1111-1111-111111111111`. Their latest October 5
+payloads contain nested reconstruction v2; current source emits v6. Exact
+artifact/project IDs/source hashes are in the production preparation audit.
+
+| Source | Production document ID | Latest extraction ID |
+| --- | --- | --- |
+| Golden | c8b779f2-0084-4f5e-b587-c96fe44c7bd9 | a92feea5-15e3-4bab-840b-804135e6886b |
+| Hillsdale | f75b65b5-74f9-4f1e-a8af-4d0f36d81c4e | 260cfe57-7305-4848-b301-f21816a71282 |
+| DN | 257883ae-9fbf-4920-8f15-8410c387ffa2 | f3f20a7b-66bf-4884-835c-30e769d9762a |
+
+All three artifact hashes match pinned PDFs. Active human_fact_assertions count
+zero per document; do not infer all recovery records absent. No queued jobs;
+three historical running jobs are documented separately, including a deleted
+document. No historical causation claim or bulk cleanup. Job processing still
+lacks atomic claim/lease/heartbeat reconciliation.
+
+Latest READY production deployment inspected:
+`dpl_2NNXXDs9hyi7b46AK3GBmf4boh8U`, revision
+`9bccfd197051f188732d3cf0103b2b4745e7bfe7`, Node 24.x. Refresh after merges.
+Available metadata did not expose effective duration, plan or Fluid Compute
+status; no maxDuration was guessed/set. Runtime observation in #189 records
+Node/ABI/V8/platform/architecture/validated deployment revision/environment,
+but native fingerprints remain not_observed.
+The final owner-scoped deployment-detail API also omitted these settings;
+the managed checkout has no .vercel project metadata. Effective duration
+remains an access/observation gap, not proof of a timeout cause.
+
+Proposed action: authenticated `POST /api/documents/process` with each exact
+document ID, serially, after approval and refreshed preflight. It recomputes
+canonical facts, decisions/workflow and validation; restoring an old extraction
+alone is not rollback. Production provider flags remain unverified;
+deterministic org mode alone does not guarantee no provider transmission.
+Do not misuse recovery_reprocess to bypass provider work. No production
+re-analysis, stale-job mutation, manual deployment or activation occurred.
 
 ## 8. Operator / Forgewing state
 
 No qualified classes; all value-reading tasks remain inactive. B1–B5 landed is
 the user's reported baseline; this turn did not re-audit every phase. Resolution
-Workspace F3/F2/F4/G2 gaps remain tasks to verify, not newly proven defects.
-No deployed browser verification was performed. No B6/B7/B8 implementation was
-started. Deterministic Core rule-ID explanations and missing-document/reference
+Workspace F2 is implemented in #189: full-queue primary-document counts,
+document/project filter and current-filter-safe save/refresh selection. F3
+requires exact existing table/header identity before draft defaults; page number
+alone is insufficient. F4 needs reviewed invoice-category consumption; generic
+text-key assertion capability does not establish that contract. G2 needs a page
+disposition contract distinct from line disposition. No deployed browser
+verification was performed. B6 now explains four emitted SOURCES_NO_* rules;
+findings/severity/eligibility are unchanged. B7/B8 not implemented.
+Deterministic missing-document/reference
 detection may proceed independently within existing authority. Forgewing
 narrative/relationship proposals require relevant qualified classes. B8 feeds
 existing Orchestrator; EightForge owns evidence/work-item identity and Linear
@@ -255,6 +358,8 @@ git fetch origin
 git log -5 --oneline origin/main
 gh pr view 187 --json state,headRefOid,mergeCommit,statusCheckRollup
 gh pr view 188 --json state,headRefOid,mergeCommit,statusCheckRollup
+gh pr view 189 --json state,headRefOid,mergeCommit,statusCheckRollup
+gh pr list --head codex/runtime-operator-handoff --state all --json number,state,headRefName,url
 git switch -c codex/b461-claude-source-labels origin/main
 ```
 
@@ -264,6 +369,14 @@ change. Do not rerun these successful tests unless dependencies change:
 ```powershell
 node node_modules/vitest/vitest.mjs run lib/extraction/pdf lib/extraction/geometry/canonicalGeometryIdentityStability.test.ts lib/resolution/v4SegmentEvidenceAttention.test.ts --maxWorkers 1 --no-file-parallelism --testTimeout 120000 --hookTimeout 120000 --reporter dot
 node node_modules/typescript/bin/tsc --noEmit --incremental false
+```
+
+Current runtime/operator affected gate (already passed; rerun only for changed
+dependencies or assertions):
+
+```powershell
+node node_modules/vitest/vitest.mjs run lib/pipeline/processDocument.test.ts lib/pipeline/nodes/extractNode.test.ts lib/resolution components/resolution lib/server/documentAnalysisDispatch.test.ts lib/server/extractionRuntimeIdentity.test.ts lib/server/documentExtraction.transactionData.test.ts lib/server/documentExtraction.pdfFallbackGate.test.ts lib/issueDisplayFormatter.test.ts lib/validator/rulePacks/requiredSources.test.ts lib/evaluation/resolutionEvidenceInventory.test.ts --maxWorkers 1 --no-file-parallelism --testTimeout 120000 --hookTimeout 120000 --reporter dot
+node node_modules/vitest/vitest.mjs run lib/architecture/resolutionWorkspaceBoundaries.test.ts components/resolution/ResolutionQueueSummary.test.tsx components/resolution/ResolutionWorkspace.test.tsx lib/resolution/resolutionQueueSummary.test.ts --maxWorkers 1 --no-file-parallelism --testTimeout 120000 --hookTimeout 120000 --reporter dot
 ```
 
 Label comparison/finalization template (replace values with verified files;
@@ -331,11 +444,17 @@ reusable document-specific clearance before transmission. Do not expose keys.
   dependencies. It proves neither broad semantic parity nor faster latency.
 - PR #185/#186 CI passed at their exact heads. Do not replay unchanged gates;
   review current PR CI as its own evidence.
+- #189 runtime/case display metadata changes raw capture/inventory bytes.
+  Historical evidence remains historical; current captures need their own
+  identity. Do not strip runtime observations as volatile or normalize PARITY:
+  NO away. No new whole-corpus parity or runtime qualification claim.
+- Six lifecycle PNG matches apply to sampled regions/dependencies only, not
+  production cache safety, bounded memory or latency readiness.
 
 ## 11. Paste-ready Claude next prompt
 
 Continue EightForge / Forgewing from the verified state in
-docs/handoffs/claude-current-handoff.md. Start by checking origin/main, PR #187,
+docs/handoffs/claude-current-handoff.md. Start by checking origin/main, PR #189,
 branch/HEAD/status in the managed worktree; preserve the dirty primary checkout.
 Reuse proven checks and do not repeat the paid DN run. The exact next task is
 authentic independent source-only reviewer_b proposals for Golden p10/p11 and
@@ -345,12 +464,15 @@ true ambiguity through the existing comparison/adjudication/finalizer path;
 never author another reviewer's approval or manufacture human decisions. Commit
 only finalized labels with genuine candidate-bound approvals, keeping client
 material outside Git. DN p110 is insurance and receives no priced-row labels.
-Then finish stage-level latency investigation; no proven optimization or
-latency-ready identity exists. Explicitly version/freeze any changed request
+Then read the crop lifecycle audit: local warm reuse is promising but needs
+bounded production cache admission/lease/eviction and complete cold/hit/miss
+timing. No latency-ready identity exists. Explicitly version/freeze any changed request
 before the single authorized DN retest; retain 3000 ms bar, exact exclusions and
-existing authority. Continue F–K in dependency order; read-only runtime/job and
-production preparation can proceed, but verify exact production IDs before
-requesting approval for a concrete production mutation. Use smallest deterministic
+existing authority. Runtime observation, authenticated dispatch, F2 and partial
+B6 are implemented in #189. Read the exact production preparation audit and
+refresh preconditions before approval; no production re-analysis or stuck-job
+repair has run. Complete duration/native runtime and remaining operator/Core
+work through reviewed existing authority. Use smallest deterministic
 fixes, minimum reviewers, targeted iteration tests and one required final gate.
 You may commit/push/open PRs and merge green changes within scope. Do not expand
 canonical/AI/write authority. Report real blockers and update this handoff at

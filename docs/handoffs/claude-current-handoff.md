@@ -1,0 +1,356 @@
+# Claude continuation: EightForge / Forgewing (2026-10-09)
+
+## 1. Current main and repository state
+
+Implementation main at this snapshot: `9bccfd197051f188732d3cf0103b2b4745e7bfe7`. PR #185 merged at `a347d45`; PR #186 at `c3786f074c5074f034bc9d3b18971aab3dfd42a9`; PR #187 at the current main above. All three had green CI before merge. PR #187 had two successful full-vitest checks and successful Vercel checks; Supabase Preview was skipped. No active implementation PR remains. The publication branch for this handoff is `codex/claude-backlog-handoff`, based on that main; this file records implementation state before its own documentation commit. Resolve final main/publication status with the commands below. No unpushed or uncommitted implementation work remains.
+
+Work in `C:/Users/ADMS Thompson/.codex/worktrees/b461-contract-continuation/eightforge-os`.
+Its node_modules junction uses the existing primary dependencies; do not reinstall
+on the nearly full C: drive (about 58 MB free at this handoff).
+The primary `C:/Dev/eightforge-os` checkout remains on
+`codex/e3-dual-ai-delegated-approval` with unrelated dirty benchmark/Docker work.
+Preserve it. Both commits on that older branch were proven patch-equivalent to
+main; it was not deleted because it is checked out and dirty.
+The completed contract branch is `codex/b461-contract-continuation`.
+The DN branch is `codex/b461-backlog-continuation`, head
+`51fa5ecbadf35b26605b7d3b071e04c942ec667a`.
+No client PDFs, proposals, renders or raw provider responses were committed.
+
+## 2. Completed work
+
+A: PR #185 (renderer/prompt v2 carry-forward) and PR #186 (frozen contract,
+exact exclusions, saved DN result) merged after green CI. Contract commit
+`e3ee0c6f21d8175b6d034c32b9c95f5249c56dc2`; result commit
+`0a21c2918e2d4f24d3bc29ce9c2793fae894fcaa`.
+Windows Docker guidance now explicitly requires EIGHTFORGE_EVAL_IMAGE_ID.
+
+C: The currency-only headerless fallback caused an insurance certificate to
+open 18 unreadable price cases. A generalized source-geometry guard now requires
+an authored ordered insurance header and following section boundary before
+excluding fully contained limits-column currency tokens. Missing evidence and
+price-header candidates retain prior behavior. Genuine headerless schedules
+outside the form remain eligible. No document-specific exception, benchmark
+suppression, AI routing, migration or authority expansion. New reconstruction
+output is v6; stored v1–v5 remain supported; spacing_only is unchanged.
+See `docs/audits/dn-p110-workflow-typing-2026-10-09.md`.
+
+B: Source-only ChatGPT proposals for Golden p10/p11 and Hillsdale p1 were
+prepared outside Git. They await authentic independent Claude review and exact
+geometry/approval finalization. They are not label truth.
+
+D: A zero-call decoder probe identified missing local wasmUrl as the reason
+for JBIG2 fallback warnings. Sample crop bytes agree, but timing advantage
+reverses between fresh-process repetitions. No optimization was adopted and no
+latency-ready request identity exists yet. See section 4.
+
+## 3. Qualification state
+
+Frozen contract: `b461-qualification-contract-v1`, canonical digest
+`da770c53f72e70eac66492bf6aaad20702ff1f128ec9ba81f269da59d95f4c09`.
+Scorer `b461-qualification-decision-v1`; taxonomy `b461-failure-taxonomy-v1`;
+binding `b461-target-binding-v2`. The contract pins 13 LF-normalized source
+modules, corpus, classes and request settings. No pin/bar was changed.
+
+Model `claude-sonnet-4-6`; prompt `forgewing-priced-value-reading@v2`, SHA-256
+`17ba8da5a1efdb172a6b347ce0bdc43c798e97a08b6098e400144a4d9c1bbcad`;
+output `value_reading_output_v2`; renderer `value_reading_region_crop_v2`;
+scale 3, padding 6 pt, maximum 2600×1000 px, at most six neighboring lines,
+timeout 8000 ms, max output 300 tokens. Request digest is the exact registered
+SHA-256 of `[b46,pageKey,rowKey,renderDigestSha256,model,promptTemplateId,promptTemplateVersion,outputSchemaVersion]`.
+
+Corpus directory: `C:/Users/ADMS Thompson/.codex/tmp/golden-row-bands-20261008/corpus`.
+
+| Source | SHA-256 |
+| --- | --- |
+| golden.pdf | 922161a533bb6b8c1afb52cb9536044c8a6836bed62401634f4f505025631e8f |
+| hillsdale.pdf | 596adaccf865625723dc832f5206a8f690eb17d96921ef185df35b113c767537 |
+| dn.pdf | 69247bff02744276b75f2cb0d4c00610e8614bd5822d2d10ae2ad35564c3b272 |
+
+Existing v5 captures:
+`C:/Users/ADMS Thompson/.codex/tmp/golden-row-bands-followup-20261008/after-final-complete/run`.
+Capture source commit `2d77a9e5fd3251f55736f1dffc3e7cf19c9e07e7`;
+capture set `4d024fbea02ac9c1f55fd71e48fe8b2c9df41c3c7d047508dcc1205872047c13`;
+runtime identity `14e926630c95b6e5b1ef404727d723ce5233e184adfe45e23fd2fe1d84b266ee`.
+Historical preparation: 181 cases, two separate exclusions, 82/82 eligible
+bound crops repeatable, zero dry calls. Binding digest
+`235ef06238007bbf14ac009af78eabf528cb2bd4468c49ff155c3589cc804d40`.
+Do not present these v5 captures as a current whole-queue v6 qualification.
+
+DN p107 `confirm_scanned_amount:dense_scanned_ocr_priced_schedule`:
+20/20 correct, rate/unit/description 100%, zero numeric/semantic inventions,
+wrong bindings, abstentions, provider failures or unadjudicated disagreements.
+Median render 723.0634 ms; median provider 2300.8525 ms; total median
+3196.1921 ms FAIL against 3000 ms; total p95 4776.36 ms passes 8000 ms.
+Spend $0.072237, 17,809 input / 1,254 output tokens. Component medians need
+not sum to total median. Independent saved-run decision reproduced failure.
+
+Other classes are not qualified: missing finalized source labels, incomplete
+bindings and/or fewer than 20 eligible cases remain blockers. `choose_category`
+is human-only. Class status remains NOT_QUALIFIED; no QUALIFIED_SHADOW,
+QUALIFIED_OPERATOR_ASSIST or QUALIFIED_AUTOMATIC_INVESTIGATION was granted.
+Qualified classes and activatable tasks: none. No qualification grants writes.
+
+Exact immutable exclusions remain in qualificationExclusions.ts:
+
+- Golden p8 r-0006: anchor `p8:priced_line:fae8ff033a5a752cbd3ac9146bfb3d47`,
+  page digest `996f76cad493b1d5cbb1cbdc590055efd0934fc146700188b3801853e6e4fca0`.
+- Golden p10 original main row 21: anchor
+  `p10:priced_line:ffbd3878ead5b4115d903e8cac783e25`, page digest
+  `cfd4541c6e9ea4b808d47230cdd4ba12d8ec2ef23edb6c3ba37bc977fd80a84a`.
+  Do not identify it by proposal row ordinal.
+
+Both bind the source hash and offline document ID
+`b42de2b5-8c99-48c8-838c-fe425d4d32bd`. This is not verified as a production
+mutation target. Exclusion registry digest
+`057669dee99e21b9560e8c530263bb845f0d1b2f95a4e6719d52266ec7592b7a`.
+Excluded cases never enter denominators, safety counts, crops or calls; absent
+or changed anchors block execution/decision. DN p110 receives no price labels.
+
+## 4. Evidence and proof
+
+DN change: focused 25 tests passed; final affected regression 26 files / 441
+tests passed, exit 0, 43.39 s; TypeScript no-emit exited 0. Independent
+document-intelligence and truth-engine judgment found no blocking defect.
+The page-specific native replay is repeatable: 18→0 targets, accepted rows 0,
+raw layout unchanged, closure not_applicable. Layout SHA-256
+`88e61fe050a1eedb3fd443ffa2ae8f52b821d4fded4b2a7be98cdc79f8687f5e`.
+Proof `C:/Users/ADMS Thompson/.codex/tmp/dn-p110-typing-proof-20261009.json`;
+saved input `dn-p110-layout-20261009.json` alongside it. This proves zero
+downstream price cases, not that all 18 original lines individually matched
+the conservative insurance boundary. No full-corpus v6 parity claim.
+
+Contract continuation proof: 322 tests across 19 files passed; three real-source
+tests skipped; tsc passed. Earlier contention timeouts/RPC errors are recorded
+separately in its audit, not a full-suite pass. Existing OCR parity and Phase
+A/B evidence was reused only for matching dependencies. No new Docker or
+customer full-corpus run in this continuation.
+
+Provider evidence root:
+`C:/Users/ADMS Thompson/.codex/tmp/b461-contract-continuation-20261009`.
+Runs `2026-10-09T15-31-33-619Z-prepare`,
+`2026-10-09T15-38-00-718Z-live`, `2026-10-09T15-41-02-643Z-decide`.
+`artifact-hashes.json` pins 12 artifacts. Exact important hashes are in
+`docs/audits/b461-dn-p107-result-2026-10-09.md`; live summary
+`b9d17e4d166bfe48cd611a0789274b7aa70c4093821a9106a1155f1e5e01293c`,
+live readings `9306cd62b49bec8c6f21b2b471522b4929738e77f8ae9d65a5638786dadc078e`,
+independent decision `98740d7e9fea586de586977ab35dff8b60c029018e51ba74e4f5c6dd063c6cf0`.
+Windows crop runtime Node 24.13.1, pdfjs-dist 5.5.207, canvas 0.1.97;
+native binary `2f73f296e1aacec88e4600d97182d8cf13cfbfe8a0e5c27c6e60b7b33918158d`.
+This was not a Vercel latency measurement. Only the provider key entered the
+isolated child; database/unrelated credentials were removed. No new paid run
+was performed after this saved DN failure.
+
+Latency artifacts: `C:/Users/ADMS Thompson/.codex/tmp/b461-latency-audit-20261009`.
+Read AUDIT.md and the four isolated-*.json files. Sample r-0007/r-0016/r-0018
+uses exact production crop helpers and live hashes: all 12 PNG hashes match.
+Frozen/local-WASM mean total: repetition 1 314.52/407.06 ms; repetition 2
+616.16/459.58 ms. Direction reverses; do not claim a win. Node wasmUrl needs
+a filesystem directory ending `/`, not file://. Raw load/getPage/setup/render/
+encode/destroy stages are measured. Module import, PDF input read, network
+wait versus output/rationale generation and time-to-first-token are not
+separately measured. The saved nonstreaming provider time aggregates those
+provider stages. Preliminary mixed-process timings are invalid because of
+global decoder cache. No renderer/request change was adopted.
+
+## 5. Remaining work and dependencies
+
+Exact next task: authentic independent Claude source review for Golden p10,
+Golden p11 and Hillsdale p1. Start from source pages BEFORE reading ChatGPT
+proposal contents. Then compare, resolve precise word/cell geometry, obtain
+genuine candidate-digest-bound approvals, and finalize through the sole existing
+finalizer. A fresh independent reviewer context is required if answers were
+already seen. Human-required ambiguities remain unresolved; never fabricate
+human or other-model approvals.
+
+Then finish D's missing measurable stages and establish a reviewed latency-ready
+request. Any changed prompt/crop/render/context/request digest requires explicit
+new version and frozen registration before E's single paid DN retest. Do not
+relax the 3000 ms bar or change the model to rescue this result. Independently
+score saved execution. F follows finalized labels, valid current captures,
+bindings and sufficient eligible class sizes. Refresh the whole v6 queue only
+when needed; source parity differences must be reported raw, never normalized.
+
+G/H: read-only runtime/job audit and prepare exact production IDs, versions,
+rollback and before/after expectations. Stop only before an actual unauthorized
+production write/deploy, authority redesign, ambiguous human decision or access
+boundary. I: reachable deployed UI headless verification. J: F3 table default
+category, F2 document counts/filter, F4 invoice-line category review and G2
+page disposition through existing typed paths. K: relevant qualified classes
+gate Forgewing proposals; deterministic B6/B7 work can proceed independently.
+Do not start a parallel improvement authority for B8.
+
+User authorizes branches, commits, pushes, PRs and green CI merges within scope.
+Use minimum applicable reviewers and share existing proof. No routine approval
+is needed. New provider transmission outside reusable clearance needs approval;
+actual production mutation requires an exact concrete action for approval.
+
+## 6. Source label state
+
+Tracked completed files: golden-p8.labels.json, hillsdale-p3.labels.json,
+dn-p106.labels.json, dn-p107.labels.json and their genuine two-model approvals
+under `lib/evaluation/benchmark/labels`.
+No finalized Golden p10/p11 or Hillsdale p1 labels were added.
+
+New non-authoritative proposals live outside Git:
+`C:/Users/ADMS Thompson/.codex/tmp/b461-source-labels-20261009`.
+Read source-meta.json/artifact-manifest.json for source metadata. Read
+CLAUDE-SOURCE-LABEL-CONTINUATION.md only AFTER independent transcription,
+because it contains source observations that could influence reviewer answers. Independent reviewers
+must not read proposal answers before authoring their own source-only proposal.
+
+| Proposal | Words / cells / source rows | Exact file SHA-256 |
+| --- | --- | --- |
+| golden-p10.chatgpt-proposal.json | 312 / 160 / 40 | 1f70f883c75ac070820aa49b694f2526a44a8b1e58ff90421caf2861514a26c5 |
+| golden-p11.chatgpt-proposal.json | 214 / 112 / 28 | 9ce66b4549a294d8bd2a9c6caca60c9c07672bff80c9039c36e5e30f31abc0e1 |
+| hillsdale-p1.chatgpt-proposal.json | 175 / 87 / 27 | 5c88c51a518594b20ba2b6ce021b1ca0e01101b4a9b141f9177e53df1b95ad6f |
+
+Schema/frame validation passed. Word boxes are null and need exact source
+geometry; equally splitting cells is not reviewer_exact evidence. Cells follow
+visible source grids. Proposal row counts/ordinals are not extractor identities.
+Potential monetary-sign ambiguity on Hillsdale requires human authority if
+objective source evidence cannot resolve the required semantics. Do not coerce
+literal dashes or invent labels for unnamed subdivisions.
+Known exclusions remain Golden p8 r-0006 and Golden p10 exact withheld anchor;
+DN p110 intentionally has no priced-row labels.
+
+Reused Golden renders at
+`C:/Users/ADMS Thompson/.codex/tmp/pdf-v2-v3-v4-comparison-20261006/Golden-p10.png`
+and Golden-p11.png; only missing Hillsdale p1 was rendered anew in proposal root.
+The source-meta.json is NOT a complete benchmark workspace manifest. Reuse a
+valid complete manifest or prepare the minimum required verified workspace.
+If Claude cannot access local files, transfer the source package outside all
+repositories; never upload client PDFs/proposals to GitHub.
+
+## 7. Production state
+
+Current code emits reconstruction v6; this continuation did not query production
+extractions or verify the three stale schedule document IDs. Their reported
+staleness is prior context, not a live production fact. Offline inventory UUIDs
+are not authorized production targets. No re-analysis, database mutation,
+manual deployment or activation was performed. Normal PR preview checks ran;
+production deployment status was not independently inspected.
+Runtime identity recording, maxDuration and stuck-job investigation remain
+unaudited/unimplemented here. Verify existing implementation first before edits.
+
+## 8. Operator / Forgewing state
+
+No qualified classes; all value-reading tasks remain inactive. B1–B5 landed is
+the user's reported baseline; this turn did not re-audit every phase. Resolution
+Workspace F3/F2/F4/G2 gaps remain tasks to verify, not newly proven defects.
+No deployed browser verification was performed. No B6/B7/B8 implementation was
+started. Deterministic Core rule-ID explanations and missing-document/reference
+detection may proceed independently within existing authority. Forgewing
+narrative/relationship proposals require relevant qualified classes. B8 feeds
+existing Orchestrator; EightForge owns evidence/work-item identity and Linear
+is projection/tracking only.
+
+## 9. Exact continuation commands
+
+Start with a read-only state check in the managed checkout; do not reset primary:
+
+```powershell
+Set-Location 'C:\Users\ADMS Thompson\.codex\worktrees\b461-contract-continuation\eightforge-os'
+git status --short
+git fetch origin
+git log -5 --oneline origin/main
+gh pr view 187 --json state,headRefOid,mergeCommit,statusCheckRollup
+git switch -c codex/b461-claude-source-labels origin/main
+```
+
+Use a clean new `codex/` branch from verified origin/main for the next atomic
+change. Do not rerun these successful tests unless dependencies change:
+
+```powershell
+node node_modules/vitest/vitest.mjs run lib/extraction/pdf lib/extraction/geometry/canonicalGeometryIdentityStability.test.ts lib/resolution/v4SegmentEvidenceAttention.test.ts --maxWorkers 1 --no-file-parallelism --testTimeout 120000 --hookTimeout 120000 --reporter dot
+node node_modules/typescript/bin/tsc --noEmit --incremental false
+```
+
+Label comparison/finalization template (replace values with verified files;
+approvals must be authentic and bind the recomputed exact candidate):
+
+```powershell
+node node_modules/vite-node/vite-node.mjs --config vitest.config.ts scripts/evaluation/e3/compare-benchmark-reviewers.ts -- --workspace $verifiedWorkspace --reviewer-a $chatgptProposal --reviewer-b $claudeProposal --out $comparisonFile
+node node_modules/vite-node/vite-node.mjs --config vitest.config.ts scripts/evaluation/e3/finalize-benchmark-adjudication.ts -- --workspace $verifiedWorkspace --reviewer-a $chatgptProposal --reviewer-b $claudeProposal --comparison $comparisonFile --adjudication $adjudicationFile --approval-a $chatgptApproval --approval-b $claudeApproval --out $finalLabels
+node node_modules/vitest/vitest.mjs run lib/evaluation/benchmark/benchmarkTrackedTruth.test.ts lib/evaluation/benchmark/qualificationBinding.test.ts lib/evaluation/benchmark/qualificationExclusions.test.ts --maxWorkers 1 --no-file-parallelism --testTimeout 120000 --hookTimeout 120000
+```
+
+Current-capture Docker commands only after adequate disk space and a committed
+target revision, when current v6 inventory proof is needed (not executed here):
+
+```powershell
+node scripts/evaluation/docker/build-eval-image.mjs HEAD
+$env:EIGHTFORGE_EVAL_CORPUS = 'C:\Users\ADMS Thompson\.codex\tmp\golden-row-bands-20261008\corpus'
+$env:EIGHTFORGE_EVAL_PINS = (Resolve-Path scripts/evaluation/docker/pinned-corpus.pins.json).Path
+$env:EIGHTFORGE_EVAL_OUT = $newEmptyExternalOutputDirectory
+$env:EIGHTFORGE_EVAL_IMAGE_ID = $immutableImageIdPrintedByBuild
+docker compose -f compose.eval.yaml run --rm eightforge-eval --corpus /corpus --pins /pins/pins.json --out /artifacts/run --repeat
+```
+
+For prepare/decide use a child environment with database and unrelated service
+credentials removed. Existing v5 inputs below are valid only for reproducing
+the historical recorded decision, not for current v6 queue qualification:
+
+```powershell
+$captureRun = 'C:\Users\ADMS Thompson\.codex\tmp\golden-row-bands-followup-20261008\after-final-complete\run'
+$corpusDir = 'C:\Users\ADMS Thompson\.codex\tmp\golden-row-bands-20261008\corpus'
+$artifactRoot = 'C:\Users\ADMS Thompson\.codex\tmp\b461-contract-continuation-20261009'
+node node_modules/vite-node/vite-node.mjs --config vitest.config.ts scripts/evaluation/b461/runQualification.ts -- --captures $captureRun --corpus $corpusDir --pins scripts/evaluation/docker/pinned-corpus.pins.json --artifact-root $artifactRoot
+node node_modules/vite-node/vite-node.mjs --config vitest.config.ts scripts/evaluation/b461/runQualification.ts -- --captures $captureRun --corpus $corpusDir --pins scripts/evaluation/docker/pinned-corpus.pins.json --artifact-root $artifactRoot --decide --runs "$artifactRoot\2026-10-09T15-38-00-718Z-live"
+```
+
+No paid execution command is safe to run now: the latency-ready identity is
+not frozen. AFTER approved identity freeze, zero-call crop proof, credential
+isolation and current price verification, the single DN class command uses
+`--execute-provider --class confirm_scanned_amount:dense_scanned_ocr_priced_schedule
+--max-calls 20 --max-spend-usd 1 --input-usd-per-mtok <confirmed>
+--output-usd-per-mtok <confirmed>` with matching complete inputs. Check the
+reusable document-specific clearance before transmission. Do not expose keys.
+
+## 10. Do not repeat
+
+- Saved DN provider run/independent decision: remain valid for recorded labels,
+  captures, renderer/request, runtime and contract. New identity invalidates
+  applicability to a new request, not historical evidence. Do not pay to
+  rediscover the unchanged failure.
+- v5 Docker/OCR/source parity: remains valid for recorded extraction/runtime/
+  corpus identity. v6 changes invalidate current whole-inventory equivalence;
+  preserve the old result without claiming new parity.
+- DN page-native extraction: reuse saved hash-bound layout. Source bytes,
+  native extraction dependencies or frame change invalidate it; changing only
+  reconstruction requires replay, not PDF re-extraction.
+- 441-test affected regression/tsc: reuse for exact DN code and unchanged
+  dependencies/test contracts. New code or test changes require the smallest
+  affected check. Do not run unrelated suites during iteration.
+- 322-test frozen contract proof: reuse while its code, pinned modules, authority
+  contracts and tests remain unchanged. Label additions need focused label/binding
+  checks; don't repeat unrelated architecture audits merely for another reviewer.
+- Existing Golden source renders: source bytes, page number/frame/render identity
+  must match. A new proposal does not itself require re-rendering.
+- Local WASM byte sample: reuse only for the three sampled regions and recorded
+  dependencies. It proves neither broad semantic parity nor faster latency.
+- PR #185/#186 CI passed at their exact heads. Do not replay unchanged gates;
+  review current PR CI as its own evidence.
+
+## 11. Paste-ready Claude next prompt
+
+Continue EightForge / Forgewing from the verified state in
+docs/handoffs/claude-current-handoff.md. Start by checking origin/main, PR #187,
+branch/HEAD/status in the managed worktree; preserve the dirty primary checkout.
+Reuse proven checks and do not repeat the paid DN run. The exact next task is
+authentic independent source-only reviewer_b proposals for Golden p10/p11 and
+Hillsdale p1. Inspect pinned source pages before seeing ChatGPT proposal answers;
+use a fresh reviewer context if already exposed. Resolve precise geometry and
+true ambiguity through the existing comparison/adjudication/finalizer path;
+never author another reviewer's approval or manufacture human decisions. Commit
+only finalized labels with genuine candidate-bound approvals, keeping client
+material outside Git. DN p110 is insurance and receives no priced-row labels.
+Then finish stage-level latency investigation; no proven optimization or
+latency-ready identity exists. Explicitly version/freeze any changed request
+before the single authorized DN retest; retain 3000 ms bar, exact exclusions and
+existing authority. Continue F–K in dependency order; read-only runtime/job and
+production preparation can proceed, but verify exact production IDs before
+requesting approval for a concrete production mutation. Use smallest deterministic
+fixes, minimum reviewers, targeted iteration tests and one required final gate.
+You may commit/push/open PRs and merge green changes within scope. Do not expand
+canonical/AI/write authority. Report real blockers and update this handoff at
+the next natural transfer point.

@@ -1,5 +1,172 @@
 # Claude continuation: EightForge / Forgewing (2026-10-09)
 
+## Current snapshot after source-label PR #192
+
+Verified implementation main: `5e0f16c6dc93edd3f50f17b920f3a7469f158431`.
+Merged [PR #192](https://github.com/EricAnalysis/eightforge-os/pull/192) adds
+Hillsdale p1 labels and both genuine approving artifacts. Exact reviewed head:
+`51070fdc739daec582f4344f15063be4009978d3`. Both full-vitest CI jobs and Vercel
+passed before merge; Supabase Preview was skipped. Review threads were empty.
+PR #190 (previous handoff) and #191 (render-host audit) are already merged.
+No open implementation PR remains at this snapshot. This documentation-only
+publication is on `codex/b461-label-handoff`, based on the implementation main
+above; refresh its publication/merge state rather than inferring its later SHA.
+
+Use the managed checkout
+`C:/Users/ADMS Thompson/.codex/worktrees/b461-contract-continuation/eightforge-os`.
+Primary `C:/Dev/eightforge-os` remains on the unrelated dirty older branch;
+preserve it. No client PDF, original proposal, source image, raw review response
+or adjudication was added to Git. Only approved benchmark truth, approving JSON
+files and the sanitized audit were committed.
+
+### Source labels: current authoritative and pending state
+
+Hillsdale p1 is finalized through the sole existing finalizer, with 166 words,
+80 cells, 20 rows and native_text_complete coverage. Candidate SHA-256:
+`0f5d060208c6294e1ff3267e8b66657f15cfe109b58947a1c1b0723064dff292`.
+Adjudication SHA-256:
+`009d409969c294cb08cad550d931cc9bb75ce6eea8b53e8cb958c37058e4890e`.
+The six dashed debris rates and the illegible first stump rate, their seven
+priced rows and nine rate words are excluded. Coverage does not make OCR text or
+token boundaries authoritative. No class qualification is granted by labels.
+
+The owner supplied the independent Claude reviewer_b ZIP on Desktop. All three
+full supplied SHA-256 values, reviewer schemas and exact source/frame identities
+were verified. The original ChatGPT and Claude proposals remain unchanged in
+the external package. Comparison and source-based adjudication ran for all three
+pages. An authentic restricted Claude CLI session rejected the initial previews
+for incomplete and merged/clipped word geometry while independently confirming
+their cell/row truth. Those successful assertions are reusable evidence.
+
+Hillsdale's revised word geometry binds each literal word to actual native PDF
+character observations, consumed once, with exact box unions. Enlarged source
+and overlay inspection resolve the dash-spacing issue; no cell/word rectangle
+was proportionally split. Claude independently approved the new digest in
+session `215310e4-fe27-485d-978b-5ea8be1b256a`. Its original approval bytes and
+estimated timestamp are retained; Codex did not author/edit Claude's approval.
+See `docs/audits/b461-hillsdale-source-labels-2026-10-09.md`.
+
+Golden p10/p11 are NOT finalized. Their initial rejected candidate digests:
+
+- p10: `3fb62964a903cad75d3d675cb1c43b98afe34d8cd66b9695f8c5175d3e6d734f`
+- p11: `6341ec7b8d6317cc6bb0b52e43733ee06ae7c38408a0cc38e4bc0c2d4480601a`
+
+They had 48/39 missing word boxes, respectively, and some accepted boxes were
+also invalid. Reuse their independently confirmed 160/112 cells and 40/28 rows.
+Do not publish incomplete word truth or reinterpret preview-only word omissions
+as new qualification exclusions. Golden p10 rate transcriptions agree, so no
+degraded-decimal exclusions apply. The zoomed Truck Driver source crop confirms
+the agreed transcription; do not replace it with machine OCR's conflicting value.
+DN p110 still receives no priced-row labels.
+
+### External package and proofs to reuse
+
+Root: `C:/Users/ADMS Thompson/.codex/tmp/b461-source-labels-20261009`.
+
+- `claude-input-verification.json`: supplied bundle byte hashes/schema/source/frame.
+- `adjudication-workspace/manifest.json`: complete seven-page bound workspace,
+  reusing existing pinned renders. Client files are external/ignored.
+- `adjudication-readiness.json`: current per-page status; Hillsdale finalized,
+  Golden previews rejected. Original proposals and comparisons are beside it.
+- `independent-review/CLAUDE-INDEPENDENT-FINDINGS.md`: genuine v1 Claude review;
+  all three historical previews and decisions remain unchanged in that folder.
+- `independent-review-hillsdale-v2`: approved revised candidate, genuine decisions,
+  source glyph evidence, zoom/overlay and Claude response/findings.
+- `hillsdale-p1.finalized-evidence.json`: approved digest and approval file hashes.
+- Golden `*.source-character-geometry.json` / `*.source-character-word-bindings.json`:
+  provisional targeted local OCR symbol evidence, NOT solved word truth. Some
+  symbols are themselves merged/missing. These drafts have 242/168 bound cell
+  words, 60/42 pending cell words and 9/4 outside-cell words; do not confuse their
+  counts with the rejected candidates' 48/39 gaps. No new candidate was approved.
+
+Do not rerun the old generic `build-adjudications.ts` over finalized Hillsdale;
+it deliberately rejects that operation. Extend only the Golden revision path.
+Original render/proposal/source pins and original independent source transcription
+remain valid. Source geometry was extended only for missing assertions; no full
+corpus or unchanged PDF capture was repeated.
+
+New local checks: benchmarkTrackedTruth 12/12; qualificationBinding and
+qualificationExclusions 15/15; diff check passed. CI exact head above passed
+type-check/full Vitest in runs 37998210422 and 37998202092. No redundant local
+full suite was run. Existing parser/runtime proofs remain valid. New Hillsdale
+truth affects later label-dependent binding/scoring assertions: do not claim
+historical unlabeled-page scoring is current qualification.
+
+### Qualification and approval boundaries
+
+Frozen contract, bars, taxonomy, exclusions and scoring contract are unchanged.
+DN p107 historical result remains 20/20 correct, zero numeric/semantic inventions
+and source-binding errors; median total 3196.1921 ms fails the frozen 3000 ms bar,
+p95 4776.36 ms, cost $0.072237. No paid DN rerun occurred in this continuation.
+No class is qualified and Forgewing narrative/proposal activation remains held.
+
+PR #191's zero-call Linux host audit is in
+`docs/audits/b461-render-host-dependence-2026-10-09.md`: 82/82 crops repeatable;
+DN render median about 317 ms/p95 352 ms versus historical Windows 723 ms.
+This is host/render evidence, not a new paid qualification or production runtime.
+Owner must register the crop runtime before any paid DN qualification retest.
+Do not silently swap runtime or change the 3000 ms bar to rescue the old result.
+
+Production re-analysis IDs/actions/rollback implications are already prepared in
+`docs/audits/production-reanalysis-preparation-2026-10-09.md`. Refresh live state
+before proposing execution. Do not execute production re-analysis, stale-job
+repair or other production mutation without required explicit approval.
+
+### Exact next commands and continuation prompt
+
+```powershell
+Set-Location 'C:\Users\ADMS Thompson\.codex\worktrees\b461-contract-continuation\eightforge-os'
+git status --short
+git fetch origin main
+git log -1 origin/main
+$sourceLabelRoot = 'C:\Users\ADMS Thompson\.codex\tmp\b461-source-labels-20261009'
+Get-Content "$sourceLabelRoot\adjudication-readiness.json"
+Get-Content "$sourceLabelRoot\independent-review\CLAUDE-INDEPENDENT-FINDINGS.md"
+```
+
+For a changed Golden adjudication, use the existing CLI wrapper with exact matching
+inputs; replace PAGE_KEY with golden-p10 or golden-p11. Do not run this merely
+to reproduce the already saved rejected preview:
+
+```powershell
+node node_modules/vite-node/vite-node.mjs --config vitest.config.ts "$sourceLabelRoot\run-cli.ts" -- --cli compute-benchmark-candidate --workspace "$sourceLabelRoot\adjudication-workspace" --reviewer-a "$sourceLabelRoot\PAGE_KEY.chatgpt-proposal.json" --reviewer-b "$sourceLabelRoot\PAGE_KEY.claude-reviewer-b.labels.json" --comparison "$sourceLabelRoot\PAGE_KEY.comparison.json" --adjudication "$sourceLabelRoot\PAGE_KEY.adjudication.json" --suggestions "$sourceLabelRoot\PAGE_KEY.suggestions.json" --out "$sourceLabelRoot\PAGE_KEY.candidate-preview.json"
+```
+
+The wrapper preserves vite config aliases and activates the existing guarded CLI.
+Default vite-node earlier exited silently without invoking the comparison entry;
+those empty exits are not passing comparisons. The actual saved comparisons and
+candidate/finalizer invocations completed successfully afterward.
+
+Paste-ready Claude continuation:
+
+> Continue EightForge / Forgewing from current main. Read this current handoff
+> and the Hillsdale source-label audit. PR #192 finalized Hillsdale p1 with
+> genuine dual approvals; preserve its labels and seven monetary exclusions.
+> Finish Golden p10/p11 precise word geometry using source evidence only. Reuse
+> original independent proposals, approved cell/row findings, source pins and
+> existing renders in the external b461-source-labels-20261009 package. Read
+> independent-review/CLAUDE-INDEPENDENT-FINDINGS.md and current readiness before
+> changing anything. Correct merged/clipped accepted boxes as well as missing
+> boxes; provisional OCR character boxes are not automatically valid. Never
+> interpolate/divide cell or unsplittable word rectangles. Keep genuinely
+> ambiguous items human-required and all client materials outside Git. Golden
+> rates agree: do not add conditional decimal exclusions. Recompute only changed
+> comparisons/adjudications/candidates; obtain both genuine approvals on each
+> exact new digest, then use the existing finalizer. Do not author the other
+> model's approval. Run trackedTruth/binding/exclusion focused checks, open a PR
+> and merge only when green with no unresolved finding. DN p110 gets no price
+> labels. No paid DN retest until the owner registers the PR #191 crop runtime.
+> Preserve the frozen bar/taxonomy/scoring/exclusions and production approval
+> boundaries. Reuse matching proofs and do not start another broad task when
+> usage is low. Update this handoff after completing the next atomic task.
+
+## Archived pre-#191 continuation details
+
+Everything below is the earlier implementation snapshot. Its source/capture and
+unchanged code proofs remain reusable within their documented scope; old main,
+deployment observations and pending-label claims are historical. The current
+state above takes precedence.
+
 ## 1. Current main and repository state
 
 Implementation main at this snapshot: `3c0e056b46d21af4797e6e042122bdbd519fa2f6`.

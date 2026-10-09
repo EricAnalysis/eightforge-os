@@ -145,3 +145,10 @@ with the reusable pinned-document transmission clearance, a configured
 provider credential and confirmed prices. Inspect disagreements before
 continuing to other classes. Final qualification remains class-by-class;
 value reading stays inactive until the existing human activation path is used.
+
+The first frozen DN p107 run is now recorded in
+`docs/audits/b461-dn-p107-result-2026-10-09.md`: 20/20 correct readings, zero
+inventions or binding errors, but **FAIL** on median total wait (3196 ms
+against the unchanged 3000 ms bar). The independent decision reproduced it.
+No class or task qualifies yet. Complete the remaining source-label and
+workflow-typing work; any model or bar change is a separate pre-registration.

@@ -717,7 +717,7 @@ export function ResolutionWorkspace({ projectId, link }: { projectId: string; li
       if (refreshed && !filterResolutionQueue(refreshed, documentFilterRef.current).cases.some((candidate) => candidate.caseId === entry.caseId)) {
         setSelectedId(nextCaseIdAfterSave({ previousOrder, savedCaseId: entry.caseId,
           refreshedOrder: filterResolutionQueue(refreshed, documentFilterRef.current).groups.flatMap((group) => group.caseIds) }));
-      } else {
+      } else if (refreshed) {
         setSelectedId(entry.caseId);
       }
       setNotice(`${body?.error ?? 'This case changed.'} The case has been refreshed; review it again.`);

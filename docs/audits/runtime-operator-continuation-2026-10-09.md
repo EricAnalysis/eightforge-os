@@ -127,6 +127,9 @@ assertion to require the visibility guard; retain draft/action/authority checks.
 Initial run 37985685092 had 499 passing files / 5,999 passing tests, one failed
 test, 15 skipped files / 92 skipped tests. This is a real assertion mismatch,
 not timeout noise; no product code or gate was weakened to rescue CI.
+Final review also guards stale-action selection against a failed refresh: if
+the operator changed document filters while the request ran, a failed reload
+must preserve the current selection rather than select the old hidden case.
 
 F3 requires exact existing table/header identity projected into the case before
 session draft defaults can safely be applied. A page number alone is not a

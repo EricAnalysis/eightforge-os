@@ -67,6 +67,8 @@ describe('resolution workspace boundaries (B5-B)', () => {
     expect(workspace).toContain("input.kind === 'request_value_reading' || input.kind === 'review_value_reading'");
     // A filter change during the request must not reopen a hidden document.
     expect(workspace).toContain('if (refreshed && filterResolutionQueue(refreshed, documentFilterRef.current).cases.some((candidate) => candidate.caseId === entry.caseId)) setSelectedId(entry.caseId)');
+    // Failed refresh preserves the current selection, including a changed filter.
+    expect(workspace).toMatch(/} else if \(refreshed\) \{\s*setSelectedId\(entry.caseId\);/);
     expect(workspace).toContain('setDecisionRevision((revision) => revision + 1)');
     expect(workspace).toContain('resolutionDecisionIdentity(selected, queue.forgewingSuggestionsIncluded)');
   });

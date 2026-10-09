@@ -140,7 +140,7 @@ describe('B4.6 benchmark crops are the production crops', () => {
       { coordinate_space: 'canonical_v1', x_min: 36, x_max: 300, y_min: 300, y_max: 314 },
       { coordinate_space: 'canonical_v1', x_min: 400, x_max: 576, y_min: 300, y_max: 314 }] };
     const spec = valueReadingBenchmarkCropSpec(document({ physicalPageNumber: 1 }), target);
-    expect(spec).toMatchObject({ scale: 3, paddingPoints: 6, renderer: 'value_reading_region_crop_v1' });
+    expect(spec).toMatchObject({ scale: 3, paddingPoints: 6, renderer: 'value_reading_region_crop_v2' });
     const result = await runValueReadingBenchmark({ ...harness().input, mode: 'dry_run', provider: null, pricing: null,
       documents: [document({ physicalPageNumber: 1, targets: [target] })],
       render: (cropSpec) => renderValueReadingCrop(pdf, cropSpec) });

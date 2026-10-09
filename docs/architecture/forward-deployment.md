@@ -17,7 +17,9 @@ job as a product, for operational workflows:
 
 This is broader than "AI that reads documents" and broader than "a Validator
 with an assistant". The earlier Forgewing deterministic-rule workflow-task idea
-(a repeated correction becomes a rule task) is one case of it.
+(a repeated correction becomes a rule task) is one case of it. The canonical
+Forgewing principle ("broad intelligence, automatic investigation, narrow authority") is recorded in
+[forgewing.md](forgewing.md).
 
 ## The loop
 

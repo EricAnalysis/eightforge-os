@@ -14,7 +14,7 @@ import type {
  *     -> SHA-256 must equal the artifact ledger's source_sha256
  *     -> pdf.js page at a fixed scale (canonical_v1 is the pdf.js viewport at scale 1)
  *     -> the line's canonical boxes, padded, as an integer pixel rectangle
- *     -> exactly those pixels, PNG-encoded
+ *     -> only that rectangle painted (v2), PNG-encoded
  *
  * The engine hashes the returned bytes into the request digest; this module
  * never reports a digest of its own. Any doubt (unknown artifact, changed
@@ -75,16 +75,16 @@ export async function renderValueReadingCrop(
     const heightPx = Math.floor(viewport.height);
     const rect = valueReadingCropPixels(spec, { widthPx, heightPx });
     if (!rect) return null;
-    const canvas = createCanvas(widthPx, heightPx);
-    const context = canvas.getContext('2d');
-    await page.render({
-      canvas: canvas as unknown as HTMLCanvasElement,
-      canvasContext: context as unknown as CanvasRenderingContext2D,
-      viewport,
-    }).promise;
-    // Copy exactly the rectangle's pixels: no resampling, no smoothing.
+    // Paint only the rectangle: the page at the same scale, shifted by whole
+    // pixels onto a canvas the size of the crop. No full-page canvas is drawn
+    // or copied, and nothing is resampled.
     const crop = createCanvas(rect.width, rect.height);
-    crop.getContext('2d').putImageData(context.getImageData(rect.x, rect.y, rect.width, rect.height), 0, 0);
+    await page.render({
+      canvas: crop as unknown as HTMLCanvasElement,
+      canvasContext: crop.getContext('2d') as unknown as CanvasRenderingContext2D,
+      viewport,
+      transform: [1, 0, 0, 1, -rect.x, -rect.y],
+    }).promise;
     return { mediaType: 'image/png', bytes: new Uint8Array(crop.toBuffer('image/png')) };
   } finally {
     await document.destroy();

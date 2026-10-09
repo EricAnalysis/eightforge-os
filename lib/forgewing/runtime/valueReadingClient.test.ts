@@ -69,15 +69,15 @@ describe('value-reading provider request (B4.5)', () => {
     expect(() => buildValueReadingMessagesRequest({ ...REQUEST, image: { mediaType: 'image/png', bytes: new Uint8Array([9]) } }, 'P'))
       .toThrow('render_digest_mismatch');
     expect(() => buildValueReadingMessagesRequest({ ...REQUEST, model: null }, 'P')).toThrow('provider_model_missing');
-    for (const changed of [{ promptTemplateVersion: 'v2' }, { promptTemplateId: 'other' }, { outputSchemaVersion: 'value_reading_output_v1' }]) {
+    for (const changed of [{ promptTemplateVersion: 'v1' }, { promptTemplateId: 'other' }, { outputSchemaVersion: 'value_reading_output_v1' }]) {
       expect(() => buildValueReadingMessagesRequest({ ...REQUEST, ...changed }, 'P')).toThrow('value_reading_contract_mismatch');
     }
   });
 
-  it('pins the v1 prompt bytes: editing the prompt requires a new template version', () => {
+  it('pins the v2 prompt bytes: editing the prompt requires a new template version', () => {
     const prompt = readFileSync(path.join(process.cwd(), 'lib/forgewing/prompts/valueReading.md'), 'utf8').replace(/\r\n/g, '\n');
-    expect(VALUE_READING_EXECUTION.promptTemplateVersion).toBe('v1');
-    expect(sha(prompt)).toBe('6fe3622f9a3865aa4c2797191efd4b7f5f5989ae63cadfefc8618203fe8f632a');
+    expect(VALUE_READING_EXECUTION.promptTemplateVersion).toBe('v2');
+    expect(sha(prompt)).toBe('17ba8da5a1efdb172a6b347ce0bdc43c798e97a08b6098e400144a4d9c1bbcad');
     expect(loadValueReadingPrompt().replace(/\r\n/g, '\n')).toBe(prompt);
   });
 });

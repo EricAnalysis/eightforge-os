@@ -52,7 +52,7 @@ function record(pageKey: string, rowKey: string, overrides: Partial<ValueReading
     fields: { rate: true, unit: true, description: true, category: null }, rateError: null, boundTo: null, inventions: [],
     requestDigestSha256: 'r', outputDigestSha256: 'o', providerCalled: true, failureReason: null,
     renderMs: 100, providerMs: 1000, totalMs: 1100, inputTokens: 1000, outputTokens: 100, usd: 0.01,
-    renderDigestSha256: 'd', reuseEligible: true, ...overrides };
+    renderDigestSha256: 'd', reuseEligible: true, semantic: null, ...overrides };
 }
 
 describe('B4.6.1 target binding: production region to tracked truth', () => {

@@ -77,6 +77,39 @@ describe('value-reading region rendering (B4.5)', () => {
     expect(sha(PDF)).toBe(PDF_SHA);
   }, 60_000);
 
+  it('v2 paints only the rectangle, opaque and matching the same pixels of a full-page render', async () => {
+    const crop = await renderValueReadingCrop(PDF, SPEC);
+    const { createCanvas, loadImage } = await import('@napi-rs/canvas');
+    const image = await loadImage(Buffer.from(crop!.bytes));
+    const painted = createCanvas(image.width, image.height);
+    painted.getContext('2d').drawImage(image, 0, 0);
+    const read = painted.getContext('2d').getImageData(0, 0, image.width, image.height).data;
+    // Reference: the v1 path, the whole page painted and the rectangle copied out.
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    const document = await pdfjs.getDocument({ data: new Uint8Array(PDF), isEvalSupported: false }).promise;
+    const page = await document.getPage(1);
+    const viewport = page.getViewport({ scale: SPEC.scale });
+    const full = createCanvas(Math.floor(viewport.width), Math.floor(viewport.height));
+    await page.render({ canvas: full as unknown as HTMLCanvasElement,
+      canvasContext: full.getContext('2d') as unknown as CanvasRenderingContext2D, viewport }).promise;
+    const rect = valueReadingCropPixels(SPEC, { widthPx: full.width, heightPx: full.height })!;
+    const reference = full.getContext('2d').getImageData(rect.x, rect.y, rect.width, rect.height).data;
+    await document.destroy();
+    let differing = 0;
+    let largest = 0;
+    let minAlpha = 255;
+    for (let index = 0; index < reference.length; index += 1) {
+      const delta = Math.abs(reference[index]! - read[index]!);
+      if (delta > 0) differing += 1;
+      largest = Math.max(largest, delta);
+      if (index % 4 === 3) minAlpha = Math.min(minAlpha, read[index]!);
+    }
+    expect(minAlpha).toBe(255);
+    // Only glyph anti-aliasing at the edges may differ, never the content.
+    expect(differing / reference.length).toBeLessThan(0.005);
+    expect(largest).toBeLessThan(64);
+  }, 60_000);
+
   it('produces different bytes for a different region, and nothing for a page that is not there', async () => {
     const other = await renderValueReadingCrop(PDF, { ...SPEC,
       canonicalBoxes: [{ coordinate_space: 'canonical_v1', x_min: 60, x_max: 120, y_min: 300, y_max: 312 }] });

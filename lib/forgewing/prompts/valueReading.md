@@ -10,7 +10,7 @@ Report only what the image itself shows.
   - `rate_amount`: the unit rate as a plain number, without currency symbols or thousands separators (`$1,250.50` is `1250.5`).
   - `category`: a section or category label only if it appears on this line; otherwise `null`.
 - If any of description, unit or rate is missing, cut off, obscured, ambiguous, or could be read more than one way, set `reading` to `unreadable` and set `description`, `unit_type`, `rate_amount` and `category` to `null`. Do not guess, complete, round or infer a value from other lines, typical prices or context.
-- `rationale`: one or two short sentences naming what you saw in the image that supports the reading, or what made it unreadable. Do not state a confidence or probability.
+- `rationale`: at most twelve words naming what you saw in the image that supports the reading, or what made it unreadable. Do not state a confidence or probability.
 
 The user message may include `text_excerpts`: what extraction read from this line and its neighbours. Extraction is known to be unreliable here, so treat excerpts only as a hint to where text is. The image is the only authority; when an excerpt disagrees with the image, report the image.
 

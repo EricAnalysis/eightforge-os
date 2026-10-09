@@ -161,7 +161,7 @@ export async function runValueReadingBenchmark(input: ValueReadingBenchmarkRunIn
       const base = { pageKey: target.pageKey, evidenceClass: target.evidenceClass, rowKey: target.rowKey,
         renderMs, renderDigestSha256, reuseEligible };
       if (!live) {
-        records.push({ ...base, outcome: 'failed', fields: null, rateError: null, boundTo: null, inventions: [],
+        records.push({ ...base, outcome: 'failed', fields: null, rateError: null, boundTo: null, inventions: [], semantic: null,
           requestDigestSha256: null, outputDigestSha256: null, providerCalled: false,
           failureReason: 'dry_run', providerMs: 0, totalMs: renderMs, inputTokens: 0, outputTokens: 0, usd: 0 });
         continue;
@@ -205,7 +205,7 @@ export async function runValueReadingBenchmark(input: ValueReadingBenchmarkRunIn
       readings.push({ pageKey: target.pageKey, rowKey: target.rowKey, attempt, rawOutput });
       const score = scoreValueReading(target, attempt);
       records.push({ ...base, outcome: score.outcome, fields: score.fields, rateError: score.rateError, boundTo: score.boundTo,
-        inventions: score.inventions, requestDigestSha256,
+        inventions: score.inventions, semantic: score.semantic, requestDigestSha256,
         outputDigestSha256: rawOutput === null ? null : sha256(new TextEncoder().encode(rawOutput)),
         providerCalled: true, failureReason: attempt.kind === 'failed' ? attempt.reason : null,
         providerMs, totalMs: renderMs + providerMs, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, usd });
@@ -239,7 +239,7 @@ export function scoredValueReadingRecords(
   return [...result.records, ...result.unrendered.map((entry): ValueReadingBenchmarkRecord => {
     const target = targets.find((candidate) => candidate.pageKey === entry.pageKey && candidate.rowKey === entry.rowKey)!;
     return { pageKey: entry.pageKey, evidenceClass: target.evidenceClass, rowKey: entry.rowKey, outcome: 'failed',
-      fields: null, rateError: null, boundTo: null, inventions: [], requestDigestSha256: null, outputDigestSha256: null,
+      fields: null, rateError: null, boundTo: null, inventions: [], semantic: null, requestDigestSha256: null, outputDigestSha256: null,
       providerCalled: false, failureReason: 'region_image_unavailable',
       renderMs: 0, providerMs: 0, totalMs: 0, inputTokens: 0, outputTokens: 0, usd: 0, renderDigestSha256: '',
       reuseEligible: false };

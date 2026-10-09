@@ -78,7 +78,8 @@ describe('B4.6 scoring: a confident wrong value is the unsafe outcome', () => {
 
   it('separates correct, abstained, wrong rate, field mismatch and failure', () => {
     expect(scoreValueReading(target, value({}))).toEqual({ outcome: 'correct',
-      fields: { rate: true, unit: true, description: true, category: null }, rateError: null, boundTo: null, inventions: [] });
+      fields: { rate: true, unit: true, description: true, category: null }, rateError: null, boundTo: null, inventions: [],
+      semantic: null });
     expect(scoreValueReading(target, value({ rate_amount: 38.0 })).outcome).toBe('correct');
     expect(scoreValueReading(target, { kind: 'unreadable' })).toMatchObject({ outcome: 'abstained', fields: null });
     expect(scoreValueReading(target, value({ description: 'Vegetative Debris' })).outcome).toBe('field_mismatch');
@@ -125,15 +126,41 @@ describe('B4.6 scoring: a confident wrong value is the unsafe outcome', () => {
     expect(scoreValueReading(target, value({ unit_type: 'TON' }))).toMatchObject({ outcome: 'field_mismatch', inventions: ['unit'] });
     expect(scoreValueReading(target, value({ unit_type: 'Cubic Yard' })).inventions).toEqual(['unit']);
     expect(scoreValueReading(target, value({ unit_type: ' cy ' })).inventions).toEqual([]);
-    // The preceding section heading is allowed structural context; anything else is invented.
+    // The preceding section heading is allowed structural context; text from nowhere in the row is invented.
     expect(scoreValueReading(target, value({ category: 'ROADWAY ITEMS' }))).toMatchObject({ outcome: 'correct', inventions: [] });
-    expect(scoreValueReading(target, value({ category: 'Debris' }))).toMatchObject({ outcome: 'correct', inventions: ['category'] });
+    expect(scoreValueReading(target, value({ category: 'Bridge Repair' }))).toMatchObject({ outcome: 'correct', inventions: ['category'] });
+    // Text printed in the target row but put in the category field is misplaced, not invented (B4.6.1).
+    expect(scoreValueReading(target, value({ category: 'Debris' }))).toMatchObject({ inventions: [] });
   });
 
   it('scores the category only where the page labels one', () => {
     const withCategory = { ...target, truth: { ...target.truth, category: 'Vegetative' }, supportedCategories: ['vegetative'] };
     expect(scoreValueReading(withCategory, value({ category: 'vegetative' })).fields?.category).toBe(true);
     expect(scoreValueReading(withCategory, value({ category: null })).outcome).toBe('field_mismatch');
+  });
+
+  it('classifies wrong text as field misbinding, omission or unverified, never as an invention when the row supports it', () => {
+    const golden = valueReadingBenchmarkTargets(labels('golden-p8'), page('golden-p8')).targets;
+    const row = (key: string) => golden.find((entry) => entry.rowKey === key)!;
+    const read = (key: string, description: string, category: string | null) =>
+      scoreValueReading(row(key), value({ description, category, unit_type: row(key).truth.unit, rate_amount: row(key).truth.rate }));
+    // The B4.6 Golden patterns, from the recorded readings:
+    // swapped (r-0025): misbinding, not an invention, and still incorrect.
+    expect(read('r-0025', 'Final Disposal', 'Single Cost – Any Distance'))
+      .toMatchObject({ outcome: 'field_mismatch', semantic: 'semantic_field_misbinding', inventions: [] });
+    // merged into the description, category null (r-0002, with the model's "0-15" for "0–15"): misbinding.
+    expect(read('r-0002', 'Vegetative Collect, Remove & Haul from Unincorporated Neighborhoods 0-15 Miles from ROW to DMS', null))
+      .toMatchObject({ outcome: 'field_mismatch', semantic: 'semantic_field_misbinding' });
+    expect(read('r-0006', 'Vegetative Collect, Remove & Haul from Rural Areas 0--15 Miles from ROW to DMS', null))
+      .toMatchObject({ semantic: 'semantic_field_misbinding' });
+    // only the category, the distinguishing description dropped (r-0003): omission.
+    expect(read('r-0003', 'Vegetative Collect, Remove & Haul from Unincorporated Neighborhoods', null))
+      .toMatchObject({ outcome: 'field_mismatch', semantic: 'semantic_omission', inventions: [] });
+    // wording the row does not print: unverified, for a person to rule on.
+    expect(read('r-0003', 'Debris hauling, mid distance', null)).toMatchObject({ semantic: 'semantic_unverified' });
+    // both fields right: correct, no diagnostic.
+    expect(read('r-0003', row('r-0003').truth.description, row('r-0003').truth.category))
+      .toMatchObject({ outcome: 'correct', semantic: null });
   });
 
   it('derives the visible region and the supporting context from the real labels', () => {
@@ -181,7 +208,7 @@ describe('B4.6 scoring: a confident wrong value is the unsafe outcome', () => {
 const record = (overrides: Partial<ValueReadingBenchmarkRecord>): ValueReadingBenchmarkRecord => ({
   pageKey: 'golden-p8', evidenceClass: 'ocr_price_sheet', rowKey: 'r', outcome: 'correct',
   fields: { rate: true, unit: true, description: true, category: null }, rateError: null, boundTo: null, inventions: [],
-  requestDigestSha256: 'b'.repeat(64), outputDigestSha256: 'c'.repeat(64), providerCalled: true, failureReason: null,
+  semantic: null, requestDigestSha256: 'b'.repeat(64), outputDigestSha256: 'c'.repeat(64), providerCalled: true, failureReason: null,
   renderMs: 100, providerMs: 2000, totalMs: 2100, inputTokens: 1500, outputTokens: 80, usd: 0.006,
   renderDigestSha256: 'a'.repeat(64), reuseEligible: true, ...overrides,
 });
@@ -192,8 +219,8 @@ const dnRows = (count: number, overrides: Partial<ValueReadingBenchmarkRecord> =
 const abstained = { outcome: 'abstained' as const, fields: null };
 
 describe('B4.6 controlled-activation bar', () => {
-  it('is the confirmed bar', () => {
-    expect(VALUE_READING_ACTIVATION_BAR).toEqual({
+  it('is the confirmed bar: B4.6.1 keeps every B4.6 value, pinned before execution', () => {
+    expect(VALUE_READING_ACTIVATION_BAR).toEqual({ benchmarkVersion: 'b4.6.1',
       minRatePrecision: 0.99, maxWrongSourceRegionBindings: 0, maxUnsupportedNumericInventions: 0, maxUnsupportedValueInventions: 0,
       minResolvedShareOfReadable: 0.8, maxP50TotalLatencyMs: 3000, maxP95TotalLatencyMs: 8000,
       maxUsdPerAttempt: 0.05, maxUsdPerCorrect: 0.1, minReuseRate: 1, minRowsPerClass: 20 });

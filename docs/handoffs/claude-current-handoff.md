@@ -2,7 +2,7 @@
 
 ## 1. Current main and repository state
 
-Implementation main at this snapshot: `9bccfd197051f188732d3cf0103b2b4745e7bfe7`. PR #185 merged at `a347d45`; PR #186 at `c3786f074c5074f034bc9d3b18971aab3dfd42a9`; PR #187 at the current main above. All three had green CI before merge. PR #187 had two successful full-vitest checks and successful Vercel checks; Supabase Preview was skipped. No active implementation PR remains. The publication branch for this handoff is `codex/claude-backlog-handoff`, based on that main; this file records implementation state before its own documentation commit. Resolve final main/publication status with the commands below. No unpushed or uncommitted implementation work remains.
+Implementation main at this snapshot: `9bccfd197051f188732d3cf0103b2b4745e7bfe7`. PR #185 merged at `a347d45`; PR #186 at `c3786f074c5074f034bc9d3b18971aab3dfd42a9`; PR #187 at the current main above. All three had green CI before merge. PR #187 had two successful full-vitest checks and successful Vercel checks; Supabase Preview was skipped. No active implementation PR remains. [Documentation PR #188](https://github.com/EricAnalysis/eightforge-os/pull/188) publishes this handoff from `codex/claude-backlog-handoff`, based on that main; CI/merge status must be refreshed because this file cannot record its own later merge. No unpushed or uncommitted implementation work remains.
 
 Work in `C:/Users/ADMS Thompson/.codex/worktrees/b461-contract-continuation/eightforge-os`.
 Its node_modules junction uses the existing primary dependencies; do not reinstall
@@ -198,18 +198,18 @@ CLAUDE-SOURCE-LABEL-CONTINUATION.md only AFTER independent transcription,
 because it contains source observations that could influence reviewer answers. Independent reviewers
 must not read proposal answers before authoring their own source-only proposal.
 
-| Proposal | Words / cells / source rows | Exact file SHA-256 |
-| --- | --- | --- |
-| golden-p10.chatgpt-proposal.json | 312 / 160 / 40 | 1f70f883c75ac070820aa49b694f2526a44a8b1e58ff90421caf2861514a26c5 |
-| golden-p11.chatgpt-proposal.json | 214 / 112 / 28 | 9ce66b4549a294d8bd2a9c6caca60c9c07672bff80c9039c36e5e30f31abc0e1 |
-| hillsdale-p1.chatgpt-proposal.json | 175 / 87 / 27 | 5c88c51a518594b20ba2b6ce021b1ca0e01101b4a9b141f9177e53df1b95ad6f |
+| Proposal | Exact file SHA-256 |
+| --- | --- |
+| golden-p10.chatgpt-proposal.json | 1f70f883c75ac070820aa49b694f2526a44a8b1e58ff90421caf2861514a26c5 |
+| golden-p11.chatgpt-proposal.json | 9ce66b4549a294d8bd2a9c6caca60c9c07672bff80c9039c36e5e30f31abc0e1 |
+| hillsdale-p1.chatgpt-proposal.json | 5c88c51a518594b20ba2b6ce021b1ca0e01101b4a9b141f9177e53df1b95ad6f |
 
-Schema/frame validation passed. Word boxes are null and need exact source
-geometry; equally splitting cells is not reviewer_exact evidence. Cells follow
-visible source grids. Proposal row counts/ordinals are not extractor identities.
-Potential monetary-sign ambiguity on Hillsdale requires human authority if
-objective source evidence cannot resolve the required semantics. Do not coerce
-literal dashes or invent labels for unnamed subdivisions.
+Schema/frame validation passed. After independent transcription, compare
+precise source-bound geometry; missing word boxes must not be invented by
+equally splitting cells. Proposal ordinals are not extractor identities.
+Genuine source ambiguity requires human authority when objective evidence
+cannot establish the required meaning. Proposal findings are intentionally
+kept in the restricted post-transcription continuation notes.
 Known exclusions remain Golden p8 r-0006 and Golden p10 exact withheld anchor;
 DN p110 intentionally has no priced-row labels.
 
@@ -254,6 +254,7 @@ git status --short
 git fetch origin
 git log -5 --oneline origin/main
 gh pr view 187 --json state,headRefOid,mergeCommit,statusCheckRollup
+gh pr view 188 --json state,headRefOid,mergeCommit,statusCheckRollup
 git switch -c codex/b461-claude-source-labels origin/main
 ```
 

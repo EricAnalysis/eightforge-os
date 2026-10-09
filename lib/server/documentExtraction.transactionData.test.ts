@@ -31,6 +31,8 @@ describe('extractDocument transaction_data routing', () => {
       'ticket_query.xlsx',
     );
 
+    assert.equal(payload.extraction.runtime_identity_v1?.identity.node_version, process.version);
+    assert.equal(payload.extraction.runtime_identity_v1?.identity.dependency_fingerprints, 'not_observed');
     const extraction = payload.extraction.content_layers_v1 as {
       spreadsheet?: {
         normalized_ticket_export?: unknown;

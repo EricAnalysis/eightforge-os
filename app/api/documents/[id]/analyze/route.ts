@@ -103,7 +103,7 @@ export async function POST(
 
     const processorRes = await fetch(`${BASE_URL}/api/jobs/process/${job.id}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     });
 
     const processorData = await processorRes.json().catch(() => ({}));

@@ -18,6 +18,30 @@ export interface IssueDisplayLabel {
 type IssueDisplayTemplate = Omit<IssueDisplayLabel, 'raw_key'>;
 
 const ISSUE_DISPLAY_LABELS: Readonly<Record<string, IssueDisplayTemplate>> = {
+  SOURCES_NO_CONTRACT: {
+    title: 'Project contract is missing',
+    explanation: 'The project has no linked contract in its canonical contract context, so validation has no governing contract to check.',
+    recommended_action: 'Review linked documents and upload or link the governing contract.',
+    category: 'Source documents',
+  },
+  SOURCES_NO_RATE_SCHEDULE: {
+    title: 'Required pricing schedule is missing',
+    explanation: 'The governing contract requires pricing support, but validation has neither canonical rate-schedule facts nor a linked pricing schedule.',
+    recommended_action: 'Review the contract and linked pricing documents, then upload or link the required schedule.',
+    category: 'Source documents',
+  },
+  SOURCES_NO_INVOICE_DATA: {
+    title: 'Invoice data is missing',
+    explanation: 'The current billing or closeout validation phase requires invoice data, but validation has no linked invoice documents or extracted invoice rows.',
+    recommended_action: 'Review linked documents and upload or link the invoice data for this phase.',
+    category: 'Source documents',
+  },
+  SOURCES_NO_TICKET_DATA: {
+    title: 'Work support data is missing',
+    explanation: 'The current execution, billing or closeout phase requires work support, but validation has no structured mobile tickets, load tickets or transaction-data rows.',
+    recommended_action: 'Review linked documents and upload or link the ticket or transaction support.',
+    category: 'Source documents',
+  },
   FINANCIAL_RATE_CODE_MISSING: {
     title: 'Invoice line missing rate code',
     explanation:

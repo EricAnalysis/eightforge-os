@@ -282,6 +282,8 @@ export type ResolutionCase = Readonly<{
   projectId: string;
   documentId: string | null;
   physicalPageNumber: number | null;
+  /** Server-loaded document display name for queue filtering. */
+  documentLabel?: string;
   /** Operator-readable title. Never a raw rule id. */
   title: string;
   problem: string;
@@ -1147,7 +1149,7 @@ export function buildResolutionQueue(params: {
     ...(params.forgewingEnabled
       ? recoveryCases({ projectId: params.projectId, documents, proposals: params.recoveryProposals })
       : []),
-  ].sort(compareCases);
+  ].map((entry) => ({ ...entry, documentLabel: documentLabel(documents, entry.documentId) })).sort(compareCases);
 
   const byRoot = new Map<string, ResolutionCase[]>();
   for (const entry of cases) byRoot.set(entry.rootCauseKey, [...(byRoot.get(entry.rootCauseKey) ?? []), entry]);

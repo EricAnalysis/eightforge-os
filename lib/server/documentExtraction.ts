@@ -2,6 +2,7 @@
 // Server-side document extraction: text decoding, PDF text extraction, and fallbacks.
 
 import { join as joinPath } from 'node:path';
+import { observeExtractionRuntimeIdentity, type ExtractionRuntimeIdentity } from '@/lib/server/extractionRuntimeIdentity';
 import type {
   TypedExtraction,
   ContractExtraction,
@@ -226,6 +227,7 @@ export type ExtractionPayload = {
   };
   extraction: {
     mode: ExtractionMode;
+    runtime_identity_v1?: ExtractionRuntimeIdentity;
     text_preview: string | null;
     detected_document_type: string | null;
     evidence_v1?: ReturnType<typeof buildEvidenceV1>;
@@ -1463,6 +1465,7 @@ function buildBase(
     },
     extraction: {
       mode,
+      runtime_identity_v1: observeExtractionRuntimeIdentity(),
       text_preview: textPreview,
       detected_document_type: metadata.document_type ?? null,
     },

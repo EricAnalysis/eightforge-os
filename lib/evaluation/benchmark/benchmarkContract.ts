@@ -78,6 +78,38 @@ export const BENCHMARK_PAGES = [
     sourceEnvVar: 'DN_PRICED_SCHEDULE_SOURCE_PDF',
     sourceRelativePath: null,
   },
+  // B4.6.1 qualification pages (2026-10-09): pages the resolution queue opens cases on.
+  {
+    pageKey: 'golden-p10',
+    documentKey: 'golden',
+    /** Image-only, like p8: direct source measurement finds no native text, one page image. */
+    characterization: 'ocr_price_sheet',
+    sha256: '922161a533bb6b8c1afb52cb9536044c8a6836bed62401634f4f505025631e8f',
+    physicalPageNumber: 10,
+    sourceEnvVar: 'GOLDEN_CORPUS_ROOT',
+    sourceRelativePath:
+      'Williamson Co TN Fern 0126_Williamson Co TN Aftermath Fern 0126_Contract and Price Sheet_1.pdf',
+  },
+  {
+    pageKey: 'golden-p11',
+    documentKey: 'golden',
+    characterization: 'ocr_price_sheet',
+    sha256: '922161a533bb6b8c1afb52cb9536044c8a6836bed62401634f4f505025631e8f',
+    physicalPageNumber: 11,
+    sourceEnvVar: 'GOLDEN_CORPUS_ROOT',
+    sourceRelativePath:
+      'Williamson Co TN Fern 0126_Williamson Co TN Aftermath Fern 0126_Contract and Price Sheet_1.pdf',
+  },
+  {
+    pageKey: 'hillsdale-p1',
+    documentKey: 'hillsdale',
+    /** Native text (extraction reads it through pdf.js), several small priced tables with differing headers. */
+    characterization: 'native_price_sheet',
+    sha256: '596adaccf865625723dc832f5206a8f690eb17d96921ef185df35b113c767537',
+    physicalPageNumber: 1,
+    sourceEnvVar: 'MIXED_MODE_HILLSDALE_PRICE_SHEET_PDF',
+    sourceRelativePath: null,
+  },
 ] as const;
 
 export type BenchmarkPageKey = (typeof BENCHMARK_PAGES)[number]['pageKey'];

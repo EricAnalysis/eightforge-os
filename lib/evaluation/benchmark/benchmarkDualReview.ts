@@ -44,7 +44,9 @@ export const BENCHMARK_CANDIDATE_PREVIEW_AUTHORITY =
 export const E3_BENCHMARK_DELEGATED_APPROVAL = Object.freeze({
   active: true as const,
   scope: BENCHMARK_DELEGATION_SCOPE,
-  pageKeys: Object.freeze(['golden-p8', 'hillsdale-p3', 'dn-p106', 'dn-p107'] as const),
+  // golden-p10, golden-p11, hillsdale-p1: B4.6.1 qualification pages, delegated by the owner 2026-10-09
+  // ("Claude or Codex may create objective labels; genuinely ambiguous cases stay human-only").
+  pageKeys: Object.freeze(['golden-p8', 'hillsdale-p3', 'dn-p106', 'dn-p107', 'golden-p10', 'golden-p11', 'hillsdale-p1'] as const),
   approverIdentities: Object.freeze(['chatgpt', 'claude'] as const),
 });
 

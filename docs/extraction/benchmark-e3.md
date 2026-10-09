@@ -1,21 +1,35 @@
 # Extraction benchmark and labeling workspace (E3)
 
-**Status:** dual-review workflow implemented, **awaiting human adjudication**. **Date:** 2026-09-24.
+**Status:** dual-review workflow and E3-only delegated finalization implemented; approval
+artifacts remain external and explicit. **Date:** 2026-09-28.
 
 E3 measures extraction against human ground truth. It decides nothing: every result
 carries `productionEligibilityDecision: 'not_in_scope'` and
 `authority: 'non_authoritative_measurement'`.
 
-## The three benchmark pages
+## The four benchmark pages
 
 | Page | Why it is here | Source env var |
 |---|---|---|
-| `golden-p8` | real mixed native/OCR rate table | `GOLDEN_CORPUS_ROOT` |
+| `golden-p8` | image-only OCR rate table | `GOLDEN_CORPUS_ROOT` |
 | `hillsdale-p3` | OCR price sheet | `MIXED_MODE_HILLSDALE_PRICE_SHEET_PDF` |
-| `dn-p107` | dense native priced schedule | `DN_PRICED_SCHEDULE_SOURCE_PDF` |
+| `dn-p106` | dense native-text priced schedule | `DN_PRICED_SCHEDULE_SOURCE_PDF` |
+| `dn-p107` | dense scanned/OCR priced schedule | `DN_PRICED_SCHEDULE_SOURCE_PDF` |
 
 Each is pinned by sha256 and byte length, re-verified on every read. Paths are never
-committed; the corpus lives outside the repository.
+committed; the corpus lives outside the repository. Direct `pdfjs-dist` 5.5.207 measurements
+were repeated twice against the exact pinned bytes:
+
+- Golden p8: zero content items, zero non-empty text items, one page image. The visible
+  rate table is image-only and requires OCR.
+- DN p106: 394 content items, 201 non-empty text items, no page image. It is the native-text
+  priced-schedule control.
+- DN p107: zero content items, zero non-empty text items, one page image. It is the scanned/OCR
+  priced-schedule control and requires OCR.
+
+DN p106 and p107 share exact source bytes but bind separate physical pages. Their semantic
+labels, adjudication, geometry, and benchmark truth are independently reviewed and must never
+be copied between pages.
 
 ## What a human labels
 
@@ -115,6 +129,61 @@ digests, missing resolutions, absent approval, reviewer-as-approver identity mat
 case-folding and trimming, incomplete final labels, and attempts to overwrite existing partial
 or complete benchmark truth.
 
+## E3-only delegated dual-AI approval
+
+The original human approval path above remains unchanged. A second, narrowly scoped finalization
+mode is enabled only for `golden-p8`, `hillsdale-p3`, `dn-p106`, and `dn-p107`. Its version-controlled
+delegation is limited to E3 benchmark-label finalization and to the exact approver identity set
+`chatgpt` plus `claude`; it grants no extraction, production, workflow, deployment, E4, or E5
+authority. Setting the delegation inactive fails closed.
+
+Delegated mode requires a complete `adjudication.json` whose embedded human approval remains
+`null`. The shared resolution engine deterministically constructs one candidate with:
+
+- `authority: delegated_dual_ai_evaluation_ground_truth_only`
+- `labeledBy: delegated_dual_ai:chatgpt+claude`
+- `labeledAt: null`
+
+Approval timestamps live only in the two strict approval artifacts, so they cannot change the
+candidate digest. Each approval binds the exact parsed adjudication, comparison, reviewers,
+optional suggestions, source, frame, candidate digest, and candidate summary. The delegated
+finalizer requires exactly two approvals, distinct identities equal to `chatgpt` and `claude`, and
+`decision: approve` from both. Any missing, rejected, unresolved, stale, or mismatched binding
+fails before a write.
+
+Compute the candidate without creating truth or approval artifacts:
+
+```bash
+npx vite-node --config vitest.config.ts scripts/evaluation/e3/compute-benchmark-candidate.ts -- \
+  --workspace .benchmark-workspace \
+  --reviewer-a .benchmark-review/golden-p8/dual-review/reviewer-a.labels.json \
+  --reviewer-b .benchmark-review/golden-p8/dual-review/reviewer-b.labels.json \
+  --comparison .benchmark-review/golden-p8/dual-review/comparison.json \
+  --adjudication .benchmark-review/golden-p8/dual-review/adjudication.json \
+  --suggestions .benchmark-workspace/golden-p8/suggestions.json
+```
+
+An optional `--out` writes only a `non_authoritative_candidate_preview` envelope. The preview
+command rejects `labels.json` and every frozen input path as output. The envelope cannot parse as
+`BenchmarkPageLabelsSchema`.
+
+After two independent approval artifacts exist, delegated finalization uses the same sole-writer
+CLI with `--approval-a` and `--approval-b`. Human approval and delegated approvals are mutually
+exclusive, and the existing safe-overwrite protection remains in force:
+
+```bash
+npx vite-node --config vitest.config.ts scripts/evaluation/e3/finalize-benchmark-adjudication.ts -- \
+  --workspace .benchmark-workspace \
+  --reviewer-a .benchmark-review/golden-p8/dual-review/reviewer-a.labels.json \
+  --reviewer-b .benchmark-review/golden-p8/dual-review/reviewer-b.labels.json \
+  --comparison .benchmark-review/golden-p8/dual-review/comparison.json \
+  --adjudication .benchmark-review/golden-p8/dual-review/adjudication.json \
+  --suggestions .benchmark-workspace/golden-p8/suggestions.json \
+  --approval-a chatgpt-approval.json \
+  --approval-b claude-approval.json \
+  --out .benchmark-workspace/golden-p8/labels.json
+```
+
 ## Human labels and provisional suggestions
 
 The workspace is empty by construction. Every section starts `unlabeled` with no items and
@@ -150,6 +219,13 @@ folders (the examples use `.benchmark-review/<pageKey>/dual-review/`); arbitrary
 paths are not implicitly ignored. Only explicitly approved final labels are eligible to be
 committed.
 
+The manifest always represents the complete four-page registry. A page-specific refresh merges
+the newly measured page into the existing manifest and preserves the other registered pages in
+registry order. Duplicate, unknown, missing, or source/page/frame-conflicting entries fail before
+workspace files are written. A page-specific refresh requires an existing manifest; initialize a
+new workspace with the full command above. Repeating an unchanged refresh preserves `generatedAt`,
+so both the manifest and README remain byte-stable.
+
 For an OCR-backed page, add the explicit `--local-ocr` flag together with `--suggestions`.
 This runs the existing provider-free local Tesseract geometry path only for the selected
 physical page. It records local-OCR generation metadata in `suggestions.json`; the output
@@ -174,13 +250,13 @@ runtime. Determinism and runtime are measurable before labels exist; accuracy is
 
 ## Open dependency
 
-The harness cannot produce a benchmark result until a person labels the three pages. That
+The harness cannot produce a complete benchmark result until the four pages are independently
+labeled. DN p106 requires fresh Reviewer A and Reviewer B proposals; no p107 truth is reused. That
 is the intended gate, not a defect.
 
 ## Carried over from E2
 
-Golden p8 is in this set specifically to answer the residual E2 question: whether the
-corrected canonical native/OCR overlap changes OCR admissibility on a real mixed page, and
-whether that moves the page representation digest and therefore future candidate identity.
-Answering it needs a real OCR run supplying word geometry to the machine pass; the harness
-accepts that input, and the run itself is a separate opt-in step.
+Golden p8 remains in this set as an OCR/image benchmark bound to the established canonical
+frame. Direct source measurement supersedes the earlier mixed-layer characterization: the pinned
+physical page has no native text items and one page image. A real OCR run supplies provisional
+word geometry to the machine pass; it does not create labels or benchmark truth.

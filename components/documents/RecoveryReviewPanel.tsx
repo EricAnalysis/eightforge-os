@@ -4,7 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { SourceEvidencePage } from '@/components/recovery/SourceEvidencePage';
 import { supabase } from '@/lib/supabaseClient';
-import type { VisualSourceEvidence, VisualSourceBox } from '@/lib/recovery/visualSourceEvidence';
+import { recoveryReviewAcceptsDecision } from '@/lib/recovery/recoveryReviewDecision';
+import { recoveryCandidateVisualEvidence as visualEvidence } from '@/lib/recovery/recoveryVisualEvidence';
 import type {
   RecoveryReviewCandidate,
   RecoveryReviewState,
@@ -62,60 +63,6 @@ async function authorizedFetch(input: string, init?: RequestInit): Promise<Respo
       ...(init?.headers ?? {}),
     },
   });
-}
-
-function visualEvidence(
-  candidate: RecoveryReviewCandidate,
-  selectedId: string,
-): VisualSourceEvidence | null {
-  if (candidate.proposalVersion === 2) {
-    const selected = candidate.selectableCandidates.find((entry) => entry.candidateId === selectedId);
-    if (!selected) return null;
-    const boxes: VisualSourceBox[] = [
-      ...selected.observations.map((observation, memberIndex) => ({
-        ...observation, role: 'candidate_member' as const, memberIndex,
-      })),
-      ...selected.targetContext.map((observation, memberIndex) => ({
-        ...observation, role: 'target_row_context' as const, memberIndex,
-      })),
-      ...candidate.selectableCandidates
-        .filter((entry) => entry.candidateId !== selected.candidateId)
-        .flatMap((entry) => entry.targetContext.map((observation, memberIndex) => ({
-          ...observation, role: 'alternative_candidate' as const, memberIndex,
-        }))),
-    ];
-    return {
-      sourceDocumentId: selected.sourceDocumentId,
-      sourceArtifactId: selected.sourceArtifactId,
-      physicalPageNumber: selected.physicalPageNumber,
-      pageRepresentationDigest: selected.pageRepresentationDigest,
-      ...(candidate.ocrPixelWidth && candidate.ocrPixelHeight ? {
-        ocrPixelWidth: candidate.ocrPixelWidth,
-        ocrPixelHeight: candidate.ocrPixelHeight,
-      } : {}),
-      candidateId: selected.candidateId,
-      recoveryType: selected.recoveryType,
-      composedRawText: selected.composedRawText,
-      boxes,
-    };
-  }
-  if (!candidate.sourceArtifactId || !candidate.pageRepresentationDigest) return null;
-  const selected = candidate.selectableObservations.find((entry) => entry.observationId === selectedId);
-  if (!selected) return null;
-  return {
-    sourceDocumentId: candidate.sourceDocumentId,
-    sourceArtifactId: candidate.sourceArtifactId,
-    physicalPageNumber: candidate.physicalPageNumber,
-    pageRepresentationDigest: candidate.pageRepresentationDigest,
-    ...(candidate.ocrPixelWidth && candidate.ocrPixelHeight ? {
-      ocrPixelWidth: candidate.ocrPixelWidth,
-      ocrPixelHeight: candidate.ocrPixelHeight,
-    } : {}),
-    candidateId: `v1:${selected.observationId}`,
-    recoveryType: 'pricing_rate_single_observation',
-    composedRawText: selected.rawText,
-    boxes: [{ ...selected, role: 'candidate_member', memberIndex: 0 }],
-  };
 }
 
 export function RecoveryReviewPanel({
@@ -273,7 +220,7 @@ export function RecoveryReviewPanel({
             && candidate.reviewState === 'accepted_awaiting_reprocess'
             ? 'reprocessing'
             : candidate.reviewState;
-          const decided = candidate.reviewState !== 'pending_review';
+          const decided = !recoveryReviewAcceptsDecision(candidate.reviewState);
           const chosen = selection[candidate.proposalId]
             ?? (candidate.proposalVersion === 2
               ? candidate.selectableCandidates.find((entry) => entry.proposed)?.candidateId
@@ -299,20 +246,30 @@ export function RecoveryReviewPanel({
                 <div>
                   <dt className="text-[var(--ef-text-muted)]">EightForge result</dt>
                   <dd className="text-[var(--ef-text-primary)]">
-                    {candidate.recoveryType === 'priced_schedule_continuation_attribution'
+                    {candidate.recoveryType === 'priced_schedule_header_role_selection'
+                      ? 'Header semantics withheld — select a preserved role assignment'
+                      : candidate.recoveryType === 'priced_schedule_continuation_attribution'
                       ? 'Continuation withheld — ambiguous row assignment'
                       : 'Row withheld — ambiguous rate cluster'}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-[var(--ef-text-muted)]">Forgewing suggests</dt>
+                  <dt className="text-[var(--ef-text-muted)]">
+                    {candidate.recommendationAvailable === false ? 'Preserved header option' : 'Forgewing suggests'}
+                  </dt>
                   <dd className="text-[var(--ef-text-primary)]">
                     <span className="font-mono">{candidate.proposedValue}</span>
+                    {candidate.recommendationAvailable === false ? (
+                      <span className="ml-2 text-[var(--ef-text-muted)]">
+                        No Forgewing recommendation. This option was preserved by the extractor.
+                      </span>
+                    ) : (
                     <span className="ml-2 text-[var(--ef-text-muted)]">
                       {candidate.reasonCategory.replace(/_/g, ' ')}
                       {' · confidence '}
                       {candidate.certainty.toFixed(2)}
                     </span>
+                    )}
                   </dd>
                 </div>
               </dl>
@@ -344,7 +301,7 @@ export function RecoveryReviewPanel({
                   <p className="mt-3 text-xs text-[var(--ef-text-muted)]">
                     {candidate.latestReview.disposition} · review v
                     {candidate.latestReview.reviewVersion}
-                    {candidate.latestReview.confirmedObservationId
+                    {(candidate.latestReview.confirmedObservationId || candidate.latestReview.confirmedCandidateId)
                       ? ' · confirmed selection recorded'
                       : ''}
                   </p>
@@ -359,8 +316,13 @@ export function RecoveryReviewPanel({
                       {(candidate.proposalVersion === 2
                         ? candidate.selectableCandidates.map((entry) => ({
                             id: entry.candidateId,
-                            label: entry.composedRawText,
-                            detail: entry.recoveryType === 'priced_schedule_continuation_attribution'
+                            label: entry.headerRoleSelection
+                              ? entry.headerRoleSelection.labels.map((label) =>
+                                `${label.text} → ${label.role ?? 'unassigned'}`).join('; ')
+                              : entry.composedRawText,
+                            detail: entry.headerRoleSelection
+                              ? `${entry.headerRoleSelection.structuralRowCount} structural rows affected`
+                              : entry.recoveryType === 'priced_schedule_continuation_attribution'
                               ? `Target ${entry.targetRowIdentity}`
                               : entry.observations.map((observation) => observation.rawText).join(' + '),
                             proposed: entry.proposed,
@@ -385,7 +347,7 @@ export function RecoveryReviewPanel({
                           />
                           <span className="font-mono">{option.label}</span>
                           {option.detail ? <span className="text-[var(--ef-text-muted)]">{option.detail}</span> : null}
-                          {option.proposed ? (
+                          {option.proposed && candidate.recommendationAvailable !== false ? (
                             <span className="text-[var(--ef-text-muted)]">(proposed)</span>
                           ) : null}
                         </label>

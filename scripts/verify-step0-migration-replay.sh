@@ -2851,6 +2851,37 @@ WSLENV="${WSLENV:+${WSLENV}:}PHASE15_DATABASE_URL" \
   npx --no-install vite-node --config vitest.config.ts \
     scripts/verify-phase15-diagnostics-from-postgres.ts
 
+# B3 persists region-bound human-reviewed values on the existing assertion ledger.
+"${psql[@]}" --file scripts/sql/verify-region-bound-human-fact-assertions.sql
+B3_DATABASE_URL="${replay_database_url}" \
+WSLENV="${WSLENV:+${WSLENV}:}B3_DATABASE_URL" \
+  npx --no-install vite-node --config vitest.config.ts \
+    scripts/verify-region-bound-assertions-from-postgres.ts
+
+# B4.1 gates: default-deny data policy and the durable provider-call budget.
+"${psql[@]}" --file scripts/sql/verify-forgewing-gates.sql
+
+# B4.2 value-reading proposals: immutable, non-authoritative, promoted only by
+# a database-verified human fact assertion.
+"${psql[@]}" --file scripts/sql/verify-forgewing-value-reading.sql
+B42_DATABASE_URL="${replay_database_url}" \
+WSLENV="${WSLENV:+${WSLENV}:}B42_DATABASE_URL" \
+  npx --no-install vite-node --config vitest.config.ts \
+    scripts/verify-value-reading-from-postgres.ts
+
+# B4.3 value-reading engine: typed outcomes, then the engine end to end with a
+# permitted fixture provider (no network, no model).
+"${psql[@]}" --file scripts/sql/verify-forgewing-value-reading-outcomes.sql
+B42_DATABASE_URL="${replay_database_url}" \
+WSLENV="${WSLENV:+${WSLENV}:}B42_DATABASE_URL" \
+  npx --no-install vite-node --config vitest.config.ts \
+    scripts/verify-value-reading-engine-from-postgres.ts
+
+# B4.4 disposition enforcement: two real SQL sessions observe shared row locks.
+B42_DATABASE_URL="${replay_database_url}" \
+WSLENV="${WSLENV:+${WSLENV}:}B42_DATABASE_URL" \
+  npx --no-install vite-node --config vitest.config.ts \
+    scripts/verify-value-reading-disposition-concurrency.ts
 echo "FRESH REPLAY: PASS (${#migrations[@]} migrations)"
 echo "PHASE 1B MIGRATION LEDGER / OBJECT REPLAY: PASS"
 echo "PHASE 1B PAGE / FRAGMENT PROVENANCE INSERT / UPDATE MATRIX: PASS"
@@ -2873,3 +2904,10 @@ echo "DATABASE STEP3 CONCURRENT DIVERGENCE / PARTIAL-ROW REJECTION: PASS"
 echo "PHASE 12 RECOVERY DATABASE AUTHORITY / IDEMPOTENCY / ACL: PASS"
 echo "PHASE 12 EFFECTIVE CONFIRMATION / CONCURRENCY: PASS"
 echo "PHASE 15 RECOVERY GENERATION OUTCOME / ACL / IMMUTABILITY: PASS"
+echo "B3 REGION-BOUND HUMAN ASSERTION ACL / IDEMPOTENCY / CHAIN / IMMUTABILITY: PASS"
+echo "B3 REGION-BOUND ASSERTION TYPESCRIPT ADAPTER ROUND TRIP: PASS"
+echo "B4.2 VALUE-READING PROPOSAL IMMUTABILITY / VERIFIED HUMAN PROMOTION / ONE ROAD TO TRUTH: PASS"
+echo "B4.2 VALUE-READING TYPESCRIPT ADAPTER ROUND TRIP: PASS"
+echo "B4.3 VALUE-READING OUTCOMES: ONE PER REQUEST / TYPED / GATE-COHERENT / SCOPED / IMMUTABLE: PASS"
+echo "B4.3 VALUE-READING ENGINE FIXTURE ROUND TRIP: PASS"
+echo "B4.5 VALUE-READING RENDER-DIGEST BINDING / UNRENDERED EVIDENCE OUTCOME: PASS"

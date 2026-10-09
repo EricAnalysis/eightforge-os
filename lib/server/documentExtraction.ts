@@ -208,6 +208,7 @@ export type ExtractionProvenanceContext = {
 export type ExtractionRecoveryContext = {
   readonly confirmedRateObservations: readonly ConfirmedRateObservation[];
   readonly confirmedRecoveryCandidates?: readonly RecoveryCandidateV2[];
+  readonly confirmedHeaderSelections?: readonly Readonly<{ candidate: RecoveryCandidateV2; reviewId: string }>[];
 };
 
 export type ExtractionPayload = {
@@ -2258,12 +2259,18 @@ export async function extractDocument(
         recoveryAllowed: coverage != null && coverageAllowsRecovery(coverage),
       }];
     }));
+    const rulingLineInputs = ocrPageImages.length ? await (await import('@/lib/server/rulingLineRaster')).buildRulingLineInputsFromRenders({
+      sourceBytes: fileBytes, renders: ocrPageImages, ocrPages: ocrGeometryPages,
+    }) : [];
     const pricedScheduleReconstructionLayer = buildPagePricedScheduleReconstruction({
       layout: reconciledLayout,
+      rulingLineInputs,
+      rulingLineSourceSha256: sha256Hex(fileBytes),
       // Absent or empty leaves this call byte-identical to the one made before
       // recovery re-entry existed.
       confirmedRateObservations: recoveryContext?.confirmedRateObservations,
       confirmedRecoveryCandidates: recoveryContext?.confirmedRecoveryCandidates,
+      confirmedHeaderSelections: recoveryContext?.confirmedHeaderSelections,
       currentPageEvidence,
       ...(admittedRecoveryTypes.length > 0
         && provenanceContext

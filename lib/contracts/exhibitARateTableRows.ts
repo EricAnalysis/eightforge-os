@@ -1,5 +1,6 @@
 import type { PdfTable, PdfTableCell } from '@/lib/extraction/pdf/extractTables';
 import type { ContractRateScheduleRow } from '@/lib/contracts/types';
+import { decideRateAuthority, evidenceIsScanned } from '@/lib/contracts/rateAuthority';
 import { collapseToAlphanumericTokens } from '@/lib/contracts/dedupeKeyNormalization';
 import { buildTableCellGeometry, type GeometryCellRef } from '@/lib/extraction/tableGeometry';
 import { collapseWhitespace, normalizeDashCharacters } from '@/lib/contracts/textCleanupPrimitives';
@@ -14,11 +15,13 @@ type ParsedExhibitRow = {
   rateRaw: string | null;
   confidence: ExhibitAConfidence;
   rateCellConfidence: number | null;
+  /** Whether the rate cell was read from a scan; null when no cell is known. */
+  rateCellScanned: boolean | null;
 };
 
 type RowVariant = {
   idSuffix: string;
-  cells: Array<{ text: string; column_index: number }>;
+  cells: Array<{ text: string; column_index: number; confidence?: number | null; source?: PdfTableCell['source'] }>;
   rawText: string;
   segmentationSuspect?: boolean;
 };
@@ -383,11 +386,12 @@ function parsePipeRow(text: string): ParsedExhibitRow | null {
     // parsePipeRow works on plain text columns (a raw string split on '|'),
     // with no PdfTableCell object to read OCR confidence from.
     rateCellConfidence: null,
+    rateCellScanned: null,
   };
 }
 
 function parseCells(
-  cells: Array<{ text: string; column_index: number; confidence?: number | null }>,
+  cells: Array<{ text: string; column_index: number; confidence?: number | null; source?: PdfTableCell['source'] }>,
   inheritedCategory: string | null,
   pageNumber: number,
 ): ParsedExhibitRow | null {
@@ -495,6 +499,11 @@ function parseCells(
     rateRaw: cleanText(rateCell),
     confidence,
     rateCellConfidence,
+    // A split-line variant cell records no origin of its own; the caller then
+    // judges by the physical row's cells.
+    rateCellScanned: orderedWithText[rateIndex]?.cell.source
+      ? evidenceIsScanned([orderedWithText[rateIndex]!.cell])
+      : null,
   };
 }
 
@@ -655,14 +664,20 @@ export function extractExhibitARateTableRows(tables: readonly PdfTable[] | null 
           rateOcrConfidence: parsed.rateCellConfidence,
         });
         if (rateQuality.suppress) continue;
-        const confidence: ExhibitAConfidence = variant.segmentationSuspect
+        // A rate read from a scan is a candidate for review, never pricing
+        // authority, however the suspicious-rate heuristics judged it.
+        const scanned = parsed.rateCellScanned ?? evidenceIsScanned(row.cells);
+        const { rate: authoritativeRate, authority: rateAuthority } = decideRateAuthority({
+          parsedRate: rateQuality.rate, rawText: rateRaw, scanned,
+        });
+        const confidence: ExhibitAConfidence = variant.segmentationSuspect || rateAuthority.status === 'review_required'
           ? 'needs_review'
           : rateQuality.confidence ?? parsed.confidence;
         rows.push({
           row_id: `exhibit_a_table:${row.id}${variant.idSuffix}`,
           description,
           unit: parsed.unit,
-          rate: rateQuality.rate,
+          rate: authoritativeRate,
           category,
           source_category: category,
           canonical_category: null,
@@ -672,7 +687,8 @@ export function extractExhibitARateTableRows(tables: readonly PdfTable[] | null 
           rate_raw: rateRaw,
           material_type: category,
           unit_type: parsed.unit,
-          rate_amount: rateQuality.rate,
+          rate_amount: authoritativeRate,
+          rate_authority: rateAuthority,
           source_kind: 'exhibit_a_table',
           confidence,
           recovery_reason: variant.segmentationSuspect
@@ -730,11 +746,14 @@ export function extractCleanStructuralRateRows(tables: readonly PdfTable[] | nul
 
       const sourceAnchorIds = [row.id, table.id].filter((value): value is string => Boolean(value));
       const rateCellConfidence = cells[3]?.confidence ?? null;
+      const { rate: authoritativeRate, authority: rateAuthority } = decideRateAuthority({
+        parsedRate: rate, rawText: rateCell, scanned: evidenceIsScanned([cells[3]!]),
+      });
       rows.push({
         row_id: `structural_table:${row.id}`,
         description,
         unit: unitCell,
-        rate,
+        rate: authoritativeRate,
         origin_destination: originDestinationCell,
         category: null,
         source_category: null,
@@ -745,9 +764,11 @@ export function extractCleanStructuralRateRows(tables: readonly PdfTable[] | nul
         rate_raw: rateCell,
         material_type: null,
         unit_type: unitCell,
-        rate_amount: rate,
+        rate_amount: authoritativeRate,
+        rate_authority: rateAuthority,
         source_kind: 'structural_table',
-        confidence: rateCellConfidence != null && rateCellConfidence < RATE_OCR_NEEDS_REVIEW_THRESHOLD ? 'needs_review' : 'medium',
+        confidence: rateAuthority.status === 'review_required'
+          || (rateCellConfidence != null && rateCellConfidence < RATE_OCR_NEEDS_REVIEW_THRESHOLD) ? 'needs_review' : 'medium',
         raw_cells: row.cells.map((cell: PdfTableCell) => cell.text),
         raw_text: row.raw_text,
         geometry_refs: geometryRefsForRow(table, row),

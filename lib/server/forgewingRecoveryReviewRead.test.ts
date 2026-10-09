@@ -127,6 +127,15 @@ describe('recovery review queue read', () => {
       .toBe('obs:unit');
   });
 
+  it('never offers a value reading as a recovery review candidate (B4.2)', async () => {
+    const reading = { ...proposal, id: '77777777-7777-4777-8777-777777777777', proposal_version: 3,
+      recovery_type: 'priced_value_reading', selected_observation_id: null,
+      proposal_id: `forgewing-proposal-value-reading-${'7'.repeat(64)}` };
+    const result = await readRecoveryReviewQueue(query, { admin: client([reading, proposal], []) });
+    expect(result.status === 'ok' && result.candidates.map((entry) => entry.proposalId))
+      .toEqual([proposal.proposal_id]);
+  });
+
   it('reads pending review when nothing has been decided', async () => {
     const result = await readRecoveryReviewQueue(query, { admin: client([proposal], []) });
     expect(result.status === 'ok' && result.candidates[0]!.reviewState).toBe('pending_review');
@@ -315,5 +324,57 @@ describe('recovery review queue read', () => {
   it('reports not_configured rather than an empty queue', async () => {
     await expect(readRecoveryReviewQueue(query, { admin: null }))
       .resolves.toEqual({ status: 'not_configured' });
+  });
+});
+
+function headerCandidateForReview() {
+  const texts = ['Equipment Description', 'Unit', 'Unit Price'];
+  const ids = ['obs:header:description', 'obs:header:unit', 'obs:header:rate'];
+  return buildRecoveryCandidateV2({
+    recoveryType: 'priced_schedule_header_role_selection',
+    sourceDocumentId: DOC, sourceArtifactId: proposal.source_artifact_id, physicalPageNumber: 3,
+    pageRepresentationDigest: 'a'.repeat(64), targetRowIdentity: 'page_priced_schedule:p3:header',
+    orderedObservationIds: ids, rawTexts: texts, composedRawText: texts.join(' '),
+    evidence: texts.map((rawText, i) => ({ observationId: ids[i]!, rawText,
+      sourceLayer: 'pdf_native_text' as const,
+      boundingBox: { xMin: i * 100, xMax: i * 100 + 80, yMin: 100, yMax: 112 } })),
+    headerRoleSelection: {
+      parserVersion: 'priced_schedule_reconstruction_v2',
+      headerInterpretationVersion: 'priced_schedule_header_interpretation_v1',
+      optionId: 'header-option-fixture', structuralRowCount: 39,
+      labels: texts.map((text, i) => ({ text,
+        role: (['description', 'unit', 'rate'] as const)[i]!, orderedObservationIds: [ids[i]!] })),
+    },
+  })!;
+}
+
+describe('header role selection review projection', () => {
+  it('preserves maps, row count and ordered header token boxes without a recommendation', async () => {
+    const candidate = headerCandidateForReview();
+    const row = { ...v2Proposal, recovery_type: candidate.recoveryType,
+      recovery_candidates: [candidate], selected_candidate_id: candidate.candidateId,
+      provider_model: 'deterministic_header_options', certainty: 0,
+      proposed_value: candidate.composedRawText };
+    const result = firstCandidate(await readRecoveryReviewQueue(query, { admin: client([row], []) }));
+    expect(result.recoveryType).toBe('priced_schedule_header_role_selection');
+    expect(result.recommendationAvailable).toBe(false);
+    expect(result.sourceEvidenceBinding).toBe('bound');
+    expect(result.selectableCandidates[0]!.headerRoleSelection).toEqual(candidate.headerRoleSelection);
+    expect(result.selectableCandidates[0]!.observations.map((entry) => entry.observationId))
+      .toEqual(candidate.orderedObservationIds);
+    expect(result.selectableCandidates[0]!.observations.map((entry) => entry.boundingBox))
+      .toEqual(candidate.evidence.map((entry) => entry.boundingBox));
+    expect(result.selectableCandidates[0]!.proposed).toBe(true);
+  });
+  it('withholds source highlights when a persisted header role map was altered', async () => {
+    const candidate = headerCandidateForReview();
+    const changed = { ...candidate, headerRoleSelection: {
+      ...candidate.headerRoleSelection!, optionId: 'tampered-option' } };
+    const row = { ...v2Proposal, recovery_type: candidate.recoveryType,
+      recovery_candidates: [changed], selected_candidate_id: candidate.candidateId,
+      provider_model: 'deterministic_header_options' };
+    const result = firstCandidate(await readRecoveryReviewQueue(query, { admin: client([row], []) }));
+    expect(result.sourceEvidenceBinding).toBe('unbound_identity_incomplete');
+    expect(result.selectableCandidates).toEqual([]);
   });
 });

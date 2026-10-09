@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { isSupportedPricedScheduleVersion } from '@/lib/extraction/pdf/pricedScheduleVersion';
 import {
   buildDocumentIntelligence,
   type BuildIntelligenceParams,
@@ -23,6 +24,10 @@ import {
 import {
   scheduleEligiblePricingReasoningShadow,
 } from '@/lib/extraction/persistence/complianceShadow';
+import {
+  resolveForgewingEntitlement,
+  type OrganizationForgewingEntitlementResolver,
+} from '@/lib/server/forgewingEntitlement';
 import {
   resolvePdfLayoutDiagnosticEvidence,
   resolvePdfLayoutObservationEvidenceByRow,
@@ -204,12 +209,12 @@ export function pricingLayoutSourceObservations(
   const pdf = asRecord(document.content_layers?.pdf);
   const rawReconstruction = asRecord(pdf?.priced_schedule_reconstruction_v1);
   if (
-    rawReconstruction?.parser_version !== 'priced_schedule_reconstruction_v1'
+    !isSupportedPricedScheduleVersion(rawReconstruction?.parser_version)
     || !Array.isArray(rawReconstruction.pages)
   ) return [];
   const authorizedPageSet = new Set(authoritativePages);
   const scopedReconstruction: PagePricedScheduleReconstruction = {
-    parser_version: 'priced_schedule_reconstruction_v1',
+    parser_version: rawReconstruction.parser_version,
     pages: (rawReconstruction.pages as PagePricedScheduleReconstruction['pages'])
       .filter((page) => authorizedPageSet.has(page.physical_page_number)),
   };
@@ -242,11 +247,11 @@ export function pricingRateClusterRecoveryDiagnostics(
     : null;
   const pdf = asRecord(document.content_layers?.pdf);
   const rawReconstruction = asRecord(pdf?.priced_schedule_reconstruction_v1);
-  if (rawReconstruction?.parser_version !== 'priced_schedule_reconstruction_v1'
+  if (!isSupportedPricedScheduleVersion(rawReconstruction?.parser_version)
     || !Array.isArray(rawReconstruction.pages)) return [];
   const authorizedPageSet = new Set(authoritativePages);
   const scopedReconstruction: PagePricedScheduleReconstruction = {
-    parser_version: 'priced_schedule_reconstruction_v1',
+    parser_version: rawReconstruction.parser_version,
     pages: (rawReconstruction.pages as PagePricedScheduleReconstruction['pages'])
       .filter((page) => authorizedPageSet.has(page.physical_page_number)),
   };
@@ -1328,6 +1333,8 @@ export async function generateAndPersistCanonicalIntelligence(params: {
   extractionData?: Record<string, unknown> | null;
   /** Server-derived. False for confirmed-recovery reprocessing only. */
   providerWorkAllowed?: boolean;
+  /** Test seam. Production always resolves the organization's entitlement server-side. */
+  resolveForgewingEntitlement?: OrganizationForgewingEntitlementResolver;
 }): Promise<PersistCanonicalIntelligenceResult> {
   const buildContext = await loadBuildParams(params.admin, {
     documentId: params.documentId,
@@ -1407,6 +1414,12 @@ export async function generateAndPersistCanonicalIntelligence(params: {
     && buildContext.extractionSnapshotId
     && typeof pricingSourceArtifactId === 'string'
     && pricingSourceArtifactId.trim().length > 0
+    // Forgewing pricing/recovery work runs only for an entitled organization.
+    // Everything above and below this block is EightForge Core and runs for all.
+    && (await (params.resolveForgewingEntitlement ?? resolveForgewingEntitlement)(
+      params.admin,
+      params.organizationId,
+    )).entitled
   ) {
     const pricingLayoutObservations = pricingLayoutSourceObservations(
       pipelineResult.primaryDocument,

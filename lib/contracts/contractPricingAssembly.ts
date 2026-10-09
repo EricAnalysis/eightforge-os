@@ -1,7 +1,13 @@
 import type { ContractRateScheduleRow } from '@/lib/contracts/types';
+import type { HumanReviewReceipt } from '@/lib/humanFactAssertions/humanReviewReceipt';
 import { normalizeTableCellGeometry, type GeometryCellRef } from '@/lib/extraction/tableGeometry';
 import { collapseToAlphanumericTokens } from '@/lib/contracts/dedupeKeyNormalization';
 import { normalizeDashCharacters } from '@/lib/contracts/textCleanupPrimitives';
+import {
+  parseContractRateAuthority,
+  rateWithheldByAuthority,
+  type ContractRateAuthority,
+} from '@/lib/contracts/rateAuthority';
 import {
   parseAuthoredPricingDimensions,
   pricingDistanceDisplayLabel,
@@ -20,7 +26,9 @@ export type ContractPricingSourceKind =
   | 'mdot_section_905_bid_schedule'
   | 'professional_services_table'
   | 'rate_schedule'
-  | 'fallback';
+  | 'fallback'
+  /** An operator asserted this row for a source region extraction did not price (B3). */
+  | 'human_reviewed_assertion';
 export type ContractPricingSourceQuality = 'clean' | 'partial' | 'fallback' | 'junk';
 type ContractPricingDescriptionQuality = 'readable' | 'partial' | 'damaged';
 export type ContractRateDescriptionDisplayQuality = 'clean' | 'partial' | 'damaged';
@@ -76,6 +84,18 @@ export type ContractPricingRowMergeDiagnostic = {
 };
 
 export type ContractPricingAssemblyRow = {
+  headerSemantics?: ContractRateScheduleRow['header_semantics'];
+  /**
+   * Present only on a row an operator asserted for a source region extraction
+   * did not price (Forgewing resolution layer B3). Audit metadata: the row's
+   * values ARE the human-reviewed values, and this receipt says so.
+   */
+  humanReview?: HumanReviewReceipt;
+  /**
+   * Whether `rate` is pricing authority, carried from the source row. A
+   * `review_required` row has no rate until a person reviews its region.
+   */
+  rateAuthority?: ContractRateAuthority;
   /**
    * The row's own physical identity, verbatim from extraction. NOT unique
    * across documents: two uploads of one PDF mint identical `row_id`s, so this
@@ -2343,7 +2363,12 @@ function typedRowsToRateRows(rows: readonly unknown[] | null | undefined): Contr
       const rowId = stringFromRecord(record, ['row_id', 'id']);
       const category = stringFromRecord(record, ['category', 'material_type', 'material', 'debris_type']);
       const unit = stringFromRecord(record, ['unit', 'unit_type', 'uom']);
-      const rate = numberFromRecord(record, ['rate_amount', 'rate', 'amount', 'price', 'unit_rate']);
+      // A persisted rate authority survives the round trip through the typed
+      // rate table, so a withheld rate stays withheld when re-read.
+      const rateAuthority = parseContractRateAuthority(record.rate_authority);
+      const rate = rateWithheldByAuthority(rateAuthority)
+        ? null
+        : numberFromRecord(record, ['rate_amount', 'rate', 'amount', 'price', 'unit_rate']);
       const rateRaw = stringFromRecord(record, ['rate_raw', 'raw_text']);
       return {
         row_id: rowId?.startsWith('typed_rate_table:')
@@ -2362,6 +2387,7 @@ function typedRowsToRateRows(rows: readonly unknown[] | null | undefined): Contr
         material_type: category,
         unit_type: unit,
         rate_amount: rate,
+        ...(rateAuthority ? { rate_authority: rateAuthority } : {}),
         geometry_refs: geometryRefsFromRecord(record),
       };
     })
@@ -2418,6 +2444,7 @@ function freezeContractPricingAssemblyRow(
   row: ContractPricingAssemblyRow,
 ): ContractPricingAssemblyRow {
   if (row.pricingDimensions) Object.freeze(row.pricingDimensions);
+  if (row.headerSemantics) Object.freeze(row.headerSemantics);
   if (row.pricingDimensionSources) Object.freeze(row.pricingDimensionSources);
   if (row.geometryRefs) {
     for (const ref of row.geometryRefs) {
@@ -2510,9 +2537,16 @@ export function assembleContractPricingRowsWithCandidates(
       const combinedText = `${sourceDescription} ${rawText}`;
       const classificationText = clean([combinedText, ...(row.raw_cells ?? [])].join(' ')) ?? combinedText;
       const sourceKind = rowSourceKind(row);
-      let rate = sourceKind === 'tdot_appendix_b_stitched_table' && row.rate_amount == null && row.rate == null
+      // A row that carries a rate authority has already decided its rate. A
+      // null there is a withheld or unreadable amount, never an invitation to
+      // read digits back out of the raw text.
+      const rateAuthority = row.rate_authority ?? null;
+      const rateWithheld = rateWithheldByAuthority(rateAuthority);
+      let rate = rateWithheld
         ? null
-        : row.rate_amount ?? row.rate ?? parseContractPricingRate(rawText);
+        : rateAuthority != null || (sourceKind === 'tdot_appendix_b_stitched_table' && row.rate_amount == null && row.rate == null)
+          ? row.rate_amount ?? row.rate ?? null
+          : row.rate_amount ?? row.rate ?? parseContractPricingRate(rawText);
       const focusedText = focusTextAroundRate(classificationText, rate);
       const nativeCategory = refineCategoryByContext(row, resolveCategory(row, focusedText), classificationText);
       const category = nativeCategory ?? sources.selectedCategoryBySourceRow?.get(sourceRowIdentity) ?? null;
@@ -2571,8 +2605,10 @@ export function assembleContractPricingRowsWithCandidates(
           ? correction
           : null;
       const confidencePreservingCorrection = Boolean(correction?.preserveConfidence);
-      const correctedRate = correction?.rate != null && correction.rate !== rate;
-      if (correction?.rate != null) rate = correction.rate;
+      // An authored display correction cannot supply a rate the row's
+      // authority withholds: only a person's reviewed value can.
+      const correctedRate = !rateWithheld && correction?.rate != null && correction.rate !== rate;
+      if (!rateWithheld && correction?.rate != null) rate = correction.rate;
       if (correction?.unit) unit = correction.unit;
       if (correction?.route) route = correction.route;
       if (correction?.description && clean(correction.description) !== sourceDescription && categoryAllowsRouteDistance(category)) {
@@ -2759,6 +2795,8 @@ export function assembleContractPricingRowsWithCandidates(
           confidence,
           sourceKind,
           sourceQuality,
+          ...(row.header_semantics ? { headerSemantics: { ...row.header_semantics } } : {}),
+          ...(rateAuthority ? { rateAuthority: { ...rateAuthority } } : {}),
           // `valueCorrection`, not `correction`: asserting that two rows are the
           // same item is not an authored VALUE correction and must not flag the
           // row for authored-rate quarantine.
@@ -2812,6 +2850,8 @@ export function assembleContractPricingRows(
       sources,
     ).selectedRows.map((row) => ({
       ...row,
+      ...(row.headerSemantics ? { headerSemantics: { ...row.headerSemantics } } : {}),
+      ...(row.rateAuthority ? { rateAuthority: { ...row.rateAuthority } } : {}),
       ...(row.pricingDimensions ? { pricingDimensions: { ...row.pricingDimensions } } : {}),
       ...(row.pricingDimensionSources ? { pricingDimensionSources: { ...row.pricingDimensionSources } } : {}),
       ...(row.geometryRefs ? {
@@ -2827,4 +2867,30 @@ export function assembleContractPricingRows(
         mergeDiagnostics: row.mergeDiagnostics.map((diagnostic) => ({ ...diagnostic })),
       } : {}),
     }));
+}
+
+/**
+ * How pricing classifies each of these authoritative rate-schedule rows, as
+ * plain per-row facts: whether any of its visible candidates carries a
+ * category, and whether it has a visible candidate at all. The dual-view
+ * assembly and its candidates stay inside this module; callers learn only
+ * these two booleans, by source index. `allowedCategoryOf` is the caller's
+ * category fallback, exactly as contract intelligence supplies it.
+ */
+export function pricedRowCategoryCoverage(
+  rows: readonly ContractRateScheduleRow[],
+  scope: ContractPricingAssemblySourceScope,
+  allowedCategoryOf: (row: ContractRateScheduleRow) => string | null,
+): readonly Readonly<{ categorized: boolean; visible: boolean }>[] {
+  const selectedCategoryBySourceRow = new Map(rows.flatMap((row, sourceIndex) => {
+    const category = allowedCategoryOf(row);
+    return category ? [[contractPricingSourceRowIdentity(row, sourceIndex, scope, 'authoritative_rate_schedule'), category] as const] : [];
+  }));
+  const assembly = assembleContractPricingRowsWithCandidates(rows, scope, { selectedCategoryBySourceRow });
+  return rows.map((row, sourceIndex) => {
+    const lookup = lookupContractPricingCandidates(assembly.candidatesBySourceRow,
+      { row, sourceIndex, sourceScope: scope, inputRole: 'authoritative_rate_schedule' });
+    const candidates = lookup.state === 'candidates' ? lookup.candidates : [];
+    return { categorized: candidates.some((candidate) => Boolean(candidate.category)), visible: candidates.length > 0 };
+  });
 }

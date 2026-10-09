@@ -3,6 +3,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { classifyQuestion } from '@/lib/ask/classifier';
 import { retrieveProjectTruth } from '@/lib/ask/retrieval';
+import { readProjectReviewedTruth, type ProjectReviewedTruth } from '@/lib/server/reviewedTruthRead';
 import type {
   AskDocument,
   AskProjectRecord,
@@ -33,6 +34,17 @@ export type AskProjectClaudeContext = {
     decisions: Array<Pick<DecisionRecord, 'id' | 'title' | 'status' | 'severity' | 'summary' | 'documentId' | 'documentName' | 'confidence' | 'createdAt' | 'detectedAt' | 'dueAt'>>;
     documents: Array<Pick<AskDocument, 'id' | 'title' | 'documentName' | 'documentType' | 'processingStatus' | 'createdAt' | 'processedAt' | 'page' | 'snippet'>>;
     relationships: unknown[];
+    /**
+     * Current human-reviewed truth (`human_fact_assertions`). An effective
+     * value is applied project truth and outranks anything extracted for the
+     * same evidence; a held value is not applied, and says why.
+     */
+    reviewedTruth: {
+      source: 'human_fact_assertions';
+      status: ProjectReviewedTruth['status'];
+      effective: ProjectReviewedTruth['effective'];
+      held: ProjectReviewedTruth['held'];
+    };
     rawData: {
       validatorContext: unknown;
       totalDocumentCount: unknown;
@@ -48,6 +60,19 @@ function limit<T>(rows: T[], max: number): T[] {
   return rows.slice(0, max);
 }
 
+/** Every document in the project, then the shared reviewed-truth resolver over them. */
+async function readProjectReviewedTruthForProject(
+  admin: SupabaseClient,
+  query: { organizationId: string; projectId: string },
+): Promise<ProjectReviewedTruth> {
+  const { data, error } = await admin.from('documents').select('id')
+    .eq('organization_id', query.organizationId).eq('project_id', query.projectId);
+  if (error) throw new Error('Failed to load project documents for reviewed truth.');
+  const documentIds = (Array.isArray(data) ? data : []).flatMap((row) =>
+    typeof (row as { id?: unknown }).id === 'string' ? [(row as { id: string }).id] : []);
+  return readProjectReviewedTruth(admin as never, { organizationId: query.organizationId, documentIds });
+}
+
 function assertProjectScopedContext(context: AskProjectClaudeContext, projectId: string): void {
   if (context.project.id !== projectId || context.scope.projectId !== projectId) {
     throw new Error('Claude project context scope mismatch.');
@@ -60,6 +85,8 @@ export async function buildAskProjectContext(params: {
   orgId: string;
   question: string;
   project: ProjectRow;
+  /** Injectable for tests; production reads the shared reviewed-truth resolver. */
+  readReviewedTruth?: (params: { organizationId: string; projectId: string }) => Promise<ProjectReviewedTruth>;
 }): Promise<AskProjectClaudeContext> {
   if (params.project.id !== params.projectId) {
     throw new Error('Project context source returned the wrong project.');
@@ -78,6 +105,10 @@ export async function buildAskProjectContext(params: {
     projectId: params.projectId,
     orgId: params.orgId,
     project,
+  });
+  const reviewedTruth = await (params.readReviewedTruth ?? ((query) => readProjectReviewedTruthForProject(params.admin, query)))({
+    organizationId: params.orgId,
+    projectId: params.projectId,
   });
 
   const context: AskProjectClaudeContext = {
@@ -147,6 +178,12 @@ export async function buildAskProjectContext(params: {
         snippet: document.snippet,
       })),
       relationships: retrieval.relationships,
+      reviewedTruth: {
+        source: 'human_fact_assertions',
+        status: reviewedTruth.status,
+        effective: limit([...reviewedTruth.effective], 40),
+        held: limit([...reviewedTruth.held], 20),
+      },
       rawData: {
         validatorContext: retrieval.rawData.validatorContext ?? null,
         totalDocumentCount: retrieval.rawData.totalDocumentCount ?? null,

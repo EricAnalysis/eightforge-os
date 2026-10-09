@@ -1,5 +1,6 @@
 export type EffectiveFactSource =
   | 'human_override'
+  | 'human_assertion'
   | 'human_review'
   | 'canonical_correction'
   | 'canonical_contract_intelligence'
@@ -17,8 +18,12 @@ export type EffectiveFactRecord = {
   evidence?: unknown[];
 };
 
+// Human sources outrank every machine source. Between human channels the
+// order is fixed so collapse stays deterministic: an explicit field override,
+// then a region-bound reviewed assertion (B3), then a fact review.
 const SOURCE_PRIORITY: Record<string, number> = {
   human_override: 0,
+  human_assertion: 0.5,
   human_review: 1,
   canonical_correction: 2,
   canonical_contract_intelligence: 3,

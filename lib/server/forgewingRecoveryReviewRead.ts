@@ -5,8 +5,9 @@ import {
 } from '@/lib/server/effectiveRecoveryConfirmations';
 import type { CanonicalBox } from '@/lib/extraction/geometry/canonicalPageFrame';
 import { resolveCanonicalObservationBoxes } from '@/lib/extraction/pdf/layoutObservationEvidence';
-import { RecoveryCandidateV2Schema } from '@/lib/extraction/recovery/recoveryCandidateV2';
+import { RecoveryCandidateV2Schema, type RecoveryCandidateV2 } from '@/lib/extraction/recovery/recoveryCandidateV2';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
+import { isValueReadingProposalRow } from '@/lib/server/valueReadingProposals';
 
 /**
  * Read seam for the operator recovery review surface.
@@ -45,7 +46,8 @@ export type RecoveryReviewCandidateObservation = Readonly<{
 
 export type RecoveryReviewCandidateSelection = Readonly<{
   candidateId: string;
-  recoveryType: 'pricing_rate_multi_observation_cluster' | 'priced_schedule_continuation_attribution';
+  recoveryType: RecoveryCandidateV2['recoveryType'];
+  headerRoleSelection?: RecoveryCandidateV2['headerRoleSelection'];
   targetRowIdentity: string;
   composedRawText: string;
   observations: readonly RecoveryReviewCandidateObservation[];
@@ -89,7 +91,8 @@ export type RecoveryReviewCandidate = Readonly<{
   proposalVersion: 1 | 2;
   recoveryType: 'pricing_rate_single_observation'
     | 'pricing_rate_multi_observation_cluster'
-    | 'priced_schedule_continuation_attribution';
+    | 'priced_schedule_continuation_attribution'
+    | 'priced_schedule_header_role_selection';
   physicalPageNumber: number;
   sourceDocumentId: string;
   sourceArtifactId: string | null;
@@ -101,6 +104,8 @@ export type RecoveryReviewCandidate = Readonly<{
   proposedValue: string;
   reasonCategory: string;
   certainty: number;
+  /** Header envelopes can be reviewable without an advisory provider call. */
+  recommendationAvailable?: boolean;
   /** Only eligible monetary observations; a reviewer may select any of them. */
   selectableObservations: readonly RecoveryReviewCandidateObservation[];
   selectableCandidates: readonly RecoveryReviewCandidateSelection[];
@@ -279,6 +284,7 @@ function candidateSelections(
       candidateId: candidate.candidateId,
       recoveryType: candidate.recoveryType as RecoveryReviewCandidateSelection['recoveryType'],
       targetRowIdentity: candidate.targetRowIdentity,
+      ...(candidate.headerRoleSelection ? { headerRoleSelection: candidate.headerRoleSelection } : {}),
       composedRawText: candidate.composedRawText,
       observations: members,
       targetContext,
@@ -302,13 +308,15 @@ export async function readRecoveryReviewQueue(
 
   const proposalRead: SelectResult = await admin
     .from(RECOVERY_PROPOSAL_TABLE)
-    .select('id, proposal_id, proposal_digest_sha256, proposal_version, recovery_type, source_artifact_id, extraction_snapshot_id, physical_page_number, page_representation_digest, recovery_reason, selected_observation_id, selected_candidate_id, proposed_value, reason_category, certainty, evidence, recovery_candidates, created_at')
+    .select('id, proposal_id, proposal_digest_sha256, proposal_version, recovery_type, source_artifact_id, extraction_snapshot_id, physical_page_number, page_representation_digest, recovery_reason, selected_observation_id, selected_candidate_id, proposed_value, reason_category, certainty, provider_model, evidence, recovery_candidates, created_at')
     .eq('organization_id', query.organizationId)
     .eq('source_document_id', query.sourceDocumentId);
   if (proposalRead.error) {
     return { status: 'read_failed', reason: proposalRead.error.message ?? 'proposal_read_failed' };
   }
-  const proposals = (Array.isArray(proposalRead.data) ? proposalRead.data : []).filter(isRecord);
+  // Value readings (version 3) are never recovery review candidates.
+  const proposals = (Array.isArray(proposalRead.data) ? proposalRead.data : []).filter(isRecord)
+    .filter((row) => !isValueReadingProposalRow(row));
   if (proposals.length === 0) return { status: 'ok', candidates: [] };
 
   const extractionIds = [...new Set(proposals.flatMap((row) =>
@@ -424,7 +432,8 @@ export async function readRecoveryReviewQueue(
       proposalVersion,
       recoveryType: proposalVersion === 2
         && (row.recovery_type === 'pricing_rate_multi_observation_cluster'
-          || row.recovery_type === 'priced_schedule_continuation_attribution')
+          || row.recovery_type === 'priced_schedule_continuation_attribution'
+          || row.recovery_type === 'priced_schedule_header_role_selection')
         ? row.recovery_type
         : 'pricing_rate_single_observation',
       physicalPageNumber,
@@ -439,6 +448,9 @@ export async function readRecoveryReviewQueue(
       proposedValue: typeof row.proposed_value === 'string' ? row.proposed_value : '',
       reasonCategory: typeof row.reason_category === 'string' ? row.reason_category : 'unknown',
       certainty: Number(row.certainty),
+      ...(row.recovery_type === 'priced_schedule_header_role_selection' ? {
+        recommendationAvailable: row.provider_model !== 'deterministic_header_options',
+      } : {}),
       selectableObservations: proposalVersion === 1
         ? observations(row.evidence, selectedObservationId as string, true) : [],
       selectableCandidates,

@@ -284,6 +284,8 @@ export function adaptAssembledPricingRow(
       // Opaque provenance. Never read by a resolution or approval rule.
       sourceKind: row.sourceKind ?? null,
       sourceQuality: row.sourceQuality ?? null,
+      ...(row.headerSemantics ? { headerSemantics: { ...row.headerSemantics } } : {}),
+      ...(row.humanReview ? { humanReview: row.humanReview } : {}),
       ...(row.logicalSourceIdentity != null
         ? { logicalSourceIdentity: row.logicalSourceIdentity }
         : {}),

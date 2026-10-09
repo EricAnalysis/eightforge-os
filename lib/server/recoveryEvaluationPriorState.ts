@@ -7,6 +7,7 @@ import {
   type RecoveryEvaluationPriorState,
 } from '@/lib/extraction/recovery/recoveryEvaluationPlanner';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
+import { isValueReadingProposalRow } from '@/lib/server/valueReadingProposals';
 
 type ReadResult = { data: unknown; error: { message?: string } | null };
 type ReadQuery = PromiseLike<ReadResult> & {
@@ -63,7 +64,7 @@ export async function loadRecoveryEvaluationPriorState(
     .eq('source_artifact_id', query.sourceArtifactId);
   const [proposalRead, outcomeRead] = await Promise.all([
     scopedRead('forgewing_recovery_proposals',
-      'recovery_type, page_representation_digest, recovery_candidates'),
+      'proposal_version, recovery_type, page_representation_digest, recovery_candidates'),
     scopedRead('forgewing_recovery_generation_outcomes',
       'recovery_type, page_representation_digest, provider_invoked, candidate_ids'),
   ]);
@@ -77,6 +78,8 @@ export async function loadRecoveryEvaluationPriorState(
   const proposedUnitIdentities: string[] = [];
   for (const row of records(proposalRead.data)) {
     if (row.recovery_type === 'pricing_rate_single_observation') continue;
+    // Value readings are not recovery evaluation units.
+    if (isValueReadingProposalRow(row)) continue;
     const recoveryType = RecoveryTypeV2Schema.safeParse(row.recovery_type);
     const pageRepresentationDigest = row.page_representation_digest;
     if (!recoveryType.success || typeof pageRepresentationDigest !== 'string') {
@@ -97,6 +100,8 @@ export async function loadRecoveryEvaluationPriorState(
   const providerInvokedUnitIdentities: string[] = [];
   for (const row of records(outcomeRead.data)) {
     if (row.recovery_type === 'pricing_rate_single_observation') continue;
+    // Value-reading outcomes are not recovery evaluation units.
+    if (isValueReadingProposalRow(row)) continue;
     const recoveryType = RecoveryTypeV2Schema.safeParse(row.recovery_type);
     const pageRepresentationDigest = row.page_representation_digest;
     const ids = Array.isArray(row.candidate_ids)

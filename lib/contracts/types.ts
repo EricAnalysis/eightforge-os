@@ -201,6 +201,15 @@ export interface ContractAnalysisTrace {
 }
 
 export interface ContractRateScheduleRow {
+  header_semantics?: Readonly<{ status: 'human_selected'; candidate_id: string; review_id: string }>;
+  /** Present only for a row read under a proven header carried from an earlier page (v3). */
+  inherited_header?: Readonly<{
+    status: 'carried'; signature_digest: string; source_page: number; carried_from_page: number; continuation_page: number;
+  }>;
+  /** Present only for a row read from one table segment of a page printing several qualifying headers (v4). */
+  table_segment?: Readonly<{
+    segment_index: number; segment_count: number; header_y: number; header_observation_ids: readonly string[];
+  }>;
   row_id: string;
   description: string | null;
   unit: string | null;
@@ -211,6 +220,13 @@ export interface ContractRateScheduleRow {
   origin_destination?: string | null;
   category: string | null;
   source_category?: string | null;
+  /** The row's own supporting Category cell; never amount or pricing-anchor evidence. */
+  source_category_evidence?: Readonly<{
+    column_index: number;
+    header_text: string;
+    raw_text: string;
+    source_refs: readonly import('@/lib/extraction/pdf/pagePricedScheduleReconstruction').PricedScheduleCellSourceRef[];
+  }>;
   canonical_category?: string | null;
   category_confidence?: number | null;
   page: number | null;
@@ -240,6 +256,12 @@ export interface ContractRateScheduleRow {
   // variants). Never used to auto-correct or suppress a rate -- only to gate
   // a needs_review flag when independently low.
   rate_ocr_confidence?: number | null;
+  /**
+   * Whether `rate` is pricing authority. When present it is decisive: a row
+   * whose authority is `review_required` publishes no rate, and no consumer
+   * may re-derive one from `rate_raw` / `raw_text`.
+   */
+  rate_authority?: import('@/lib/contracts/rateAuthority').ContractRateAuthority;
   authoredValueCorrection?: boolean;
   recovery_reason?: string;
   category_requires_review?: boolean;
@@ -317,6 +339,8 @@ export interface ContractAnalysisResult {
   compliance_model: ContractFieldAnalysisMap;
   payment_model: ContractFieldAnalysisMap;
   rate_schedule_rows?: ContractRateScheduleRow[];
+  /** Non-authoritative, page/source-bound reasons pricing was withheld. */
+  pricing_authority_diagnostics?: readonly import('@/lib/extraction/pdf/pricedScheduleAuthority').PricingAuthorityDiagnostic[];
   /** Deterministic Phase 3A pricing-source scope and observation classifications. */
   pricing_source_eligibility?: PricingSourceEligibilityDiagnostics;
   /** Non-blocking comparison when persisted and independently reconstructed modern rows coexist. */

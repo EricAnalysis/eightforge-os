@@ -106,6 +106,23 @@ const patternAItems = [
 ];
 
 describe('ValidatorEvidenceDrawer reviewer context', () => {
+  it('shows human-reviewed authority explicitly, even when the value block would hide the note', () => {
+    const note = 'Human-reviewed contract rate (operator entered on page 8; extraction read "sia 50"; '
+      + 'assertion a-1). Matched governing contract schedule line.';
+    const html = renderDrawer({ items: [
+      evidence('reviewed-rate', { evidence_type: 'rate_schedule', record_id: 'human_fact_assertion:a-1',
+        field_name: 'rate_amount', field_value: '14.5', note }),
+      evidence('machine-rate', { evidence_type: 'rate_schedule', record_id: 'machine-row', field_name: 'rate_amount',
+        field_value: '20', note: 'Matched governing contract schedule line.' }),
+    ] });
+    const assembled = region(html, 'assembled-evidence-blocks');
+    expect(html.match(/data-testid="human-reviewed-authority"/g)).toHaveLength(1);
+    expect(assembled).toContain('Human reviewed');
+    expect(assembled).toContain('14.5');
+    expect(assembled).toContain('extraction read');
+    expect(assembled).toContain('sia 50');
+  });
+
   it('renders a curated Pattern-A summary in priority order and one full assembled record block', () => {
     const html = renderDrawer({ items: patternAItems });
     const summary = region(html, 'subject-identity-summary');

@@ -1,0 +1,42 @@
+{
+  "approvalVersion": "e3-benchmark-delegated-approval-v1",
+  "authority": "delegated_dual_ai_benchmark_approval",
+  "delegationScope": "e3_benchmark_labels_finalization",
+  "pageKey": "golden-p8",
+  "source": {
+    "documentKey": "golden",
+    "sha256": "922161a533bb6b8c1afb52cb9536044c8a6836bed62401634f4f505025631e8f",
+    "byteLength": 2481310,
+    "physicalPageNumber": 8
+  },
+  "frame": {
+    "frame_version": "canonical_frame_v1",
+    "coordinate_space": "canonical_v1",
+    "view": [
+      0,
+      0,
+      612.48,
+      792
+    ],
+    "rotation": 0,
+    "user_unit": 1,
+    "width": 612.48,
+    "height": 792
+  },
+  "adjudicationSha256": "18802c7d9e2ce02481a62db2ae71088ca738424b403fb886b60a0d5d643275c4",
+  "comparisonSha256": "d3bf5f0886b7f4f96ab7ff14f3be739823c63f5ceab1d1100ed5cd60b7240eb1",
+  "reviewerALabelSetSha256": "da65030e41a8244328794815fc59973b818894cc0fc66fc701c30f29e2754943",
+  "reviewerBLabelSetSha256": "28fd4526d39131599efca42511fa1456ea941727d1fd1fa2b2debb826325cf6c",
+  "suggestionsSha256": "8a9a58c72a14b5389f44630b0803c45dfd78368be6eed27413ee14538f396ef3",
+  "candidateSha256": "0bdd286b671cecfb4db9435da94a5d0f597d547a580e00fb304dd0bd7158003d",
+  "candidateSummary": {
+    "words": 362,
+    "cells": 100,
+    "rows": 25,
+    "coverage": "requires_ocr"
+  },
+  "approverIdentity": "claude",
+  "decision": "approve",
+  "approvedAt": "2026-09-28T20:27:04.703Z",
+  "rationale": "Approve E3 evaluation ground truth only (no production, Project Truth, validator, extraction or E4/E5 authority). Recomputed twice with reviewed compute-benchmark-candidate.ts (branch codex/e3-contract-prep-four-page-benchmark @ ec33871) from the frozen .benchmark-review/golden-p8 inputs: byte-identical, digest reproduced. 499/499 checks: 459 adjudicated values reproduced exactly; 362 words = 334 adjudicated + 28 comparator unique-agreement; 100 cells; 25 rows; coverage requires_ocr; 26 dash items (13 words, 13 cells) are U+2013 and authored hyphens unchanged; all 462 boxes valid and equal to the validated chain (202 consensus, 175 preserved, 57 repaired: 27/23/6/1; 28 bound OCR suggestions). Caveat: 234 word boxes are Tesseract OCR candidates, so later word-geometry scores are not fully independent of the baseline OCR engine; text, cell, row and coverage truth are unaffected. Disclosure: this Claude session also prepared the candidate and approval packet (ec33871). Recomputation and verification were redone with fresh runs and a newly written checker, but this approval is not independent of that preparation."
+}

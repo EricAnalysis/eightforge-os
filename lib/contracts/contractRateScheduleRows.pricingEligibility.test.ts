@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  analyzeContractIntelligence,
   buildContractIntelligencePricingSourcePreparation,
 } from '@/lib/contracts/analyzeContractIntelligence';
 import { opaqueIds } from '@/lib/extraction/domain/opaqueIds';
@@ -258,6 +259,21 @@ function document(params?: {
 
 describe('Phase 3A pricing observation eligibility', () => {
   describe('page-priced reconstruction consumer boundary', () => {
+    it('carries human-selected header provenance through pricing preparation', () => {
+      const page = reconstructedPage(2);
+      const receipt = { status: 'human_selected' as const,
+        candidate_id: `recovery-candidate-v2-${'c'.repeat(64)}`,
+        review_id: '55555555-5555-4555-8555-555555555555' };
+      const selected = { ...page, header_semantics: receipt,
+        rows: page.rows.map(row => ({ ...row, header_semantics: receipt })) };
+      const result = buildContractIntelligencePricingSourcePreparation({
+        primaryDocument: document({ pricedSchedulePages: [selected], reconstructionVersion: 'priced_schedule_reconstruction_v2' }),
+        operatorRateSchedulePageRanges: [{ start: 2, end: 2 }],
+      });
+      expect(result.rows).toHaveLength(1);
+      expect(result.rows[0]?.header_semantics).toEqual(receipt);
+      expect(result.rows[0]?.rate).toBe(12);
+    });
     it('preserves the existing eligible fallback when reconstruction is absent', () => {
       const result = buildContractIntelligencePricingSourcePreparation({
         primaryDocument: document(),
@@ -351,6 +367,44 @@ describe('Phase 3A pricing observation eligibility', () => {
       expect(prepared.eligibility.observations.some((entry) =>
         modern.layer.observations.some((observation) => observation.id === entry.observationId)))
         .toBe(false);
+    });
+
+    it('binds v1 and v2 identically without relabeling the historical record', () => {
+      const modern = modernReconstruction();
+      const historical = document({ pricedSchedulePages: [modern.page], layoutObservations: modern.layer, reconstructionVersion: 'priced_schedule_reconstruction_v1' });
+      const original = JSON.stringify(historical);
+      const prepare = (primaryDocument: NormalizedNodeDocument) => buildContractIntelligencePricingSourcePreparation({ primaryDocument,
+        operatorRateSchedulePageRanges: [{ start: 2, end: 2 }] });
+      const current = document({ pricedSchedulePages: [modern.page], layoutObservations: modern.layer, reconstructionVersion: 'priced_schedule_reconstruction_v2' });
+      expect(prepare(current)).toEqual(prepare(historical));
+      expect(JSON.stringify(historical)).toBe(original);
+    });
+
+    it('retains the explicit withheld-page diagnostic through pricing preparation and analysis', () => {
+      const modern = modernReconstruction();
+      const page = { ...modern.page, ruling_line_evidence: {} } as PricedSchedulePage;
+      const primaryDocument = document({ pricedSchedulePages: [page], layoutObservations: modern.layer, reconstructionVersion: 'priced_schedule_reconstruction_v2' });
+      const input = { primaryDocument, operatorRateSchedulePageRanges: [{ start: 2, end: 2 }], relatedDocuments: [] };
+      const prepared = buildContractIntelligencePricingSourcePreparation(input);
+      expect(prepared.rows.some(row => row.source_kind === 'page_priced_schedule')).toBe(false);
+      expect(prepared.pricingAuthorityDiagnostics).toEqual([expect.objectContaining({
+        code: 'ruling_line_pricing_authority_withheld', parser_version: 'priced_schedule_reconstruction_v2',
+        physical_page_number: 2, issue: 'malformed_ruling_evidence', source_document_id: DOCUMENT_ID,
+        source_artifact_id: ARTIFACT_ID, pricing_withheld: true,
+      })]);
+      expect(analyzeContractIntelligence(input)?.pricing_authority_diagnostics).toEqual(prepared.pricingAuthorityDiagnostics);
+    });
+
+    it('keeps the known source document in withheld diagnostics when artifact binding is absent', () => {
+      const modern = modernReconstruction();
+      const page = { ...modern.page, ruling_line_evidence: {} } as PricedSchedulePage;
+      const primaryDocument = document({ historical: true, pricedSchedulePages: [page], layoutObservations: modern.layer,
+        reconstructionVersion: 'priced_schedule_reconstruction_v2' });
+      const prepared = buildContractIntelligencePricingSourcePreparation({ primaryDocument,
+        operatorRateSchedulePageRanges: [{ start: 2, end: 2 }] });
+      expect(prepared.pricingAuthorityDiagnostics?.[0]?.source_document_id).toBe(DOCUMENT_ID);
+      expect(prepared.pricingAuthorityDiagnostics?.[0]?.source_artifact_id).toBeNull();
+      expect(prepared.rows.some(row => row.source_kind === 'page_priced_schedule')).toBe(false);
     });
 
     it('does not widen scope for reconstruction from a non-admitted page', () => {

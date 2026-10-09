@@ -4,19 +4,28 @@ import path from 'node:path';
 import {
   benchmarkDualReviewSourceFromWorkspaceManifest,
   finalizeBenchmarkAdjudication,
+  finalizeDelegatedBenchmarkAdjudication,
   parseBenchmarkAdjudication,
+  parseBenchmarkDelegatedApproval,
   parseBenchmarkDualReviewComparison,
   parseBenchmarkReviewerLabels,
 } from '@/lib/evaluation/benchmark/benchmarkDualReview';
-import {
-  bindBenchmarkLabels,
-  parseBenchmarkLabels,
-} from '@/lib/evaluation/benchmark/benchmarkContract';
 import { parseBenchmarkSuggestions } from '@/lib/evaluation/benchmark/benchmarkSuggestions';
+import {
+  assertFinalLabelsOutputPath,
+  assertSafeExistingOutput,
+  resolveBenchmarkFinalizationMode,
+} from '@/scripts/evaluation/e3/finalize-benchmark-adjudication-guards';
 
 /**
  * The sole E3 dual-review command allowed to write final labels.json. It
- * requires a complete, digest-bound adjudication with explicit user approval.
+ * requires a complete, digest-bound adjudication and exactly one authority
+ * mode: existing human approval or two delegated E3 approval artifacts.
+ *
+ * This file is a CLI entry point only. It exports nothing and must never be
+ * imported: vite-node's default mode cannot distinguish an entry module from
+ * an imported one, so `main()` runs whenever the module loads. Reusable guards
+ * live in `finalize-benchmark-adjudication-guards.ts`.
  *
  *   npx vite-node --config vitest.config.ts scripts/evaluation/e3/finalize-benchmark-adjudication.ts -- \
  *     --workspace .benchmark-workspace \
@@ -44,33 +53,6 @@ function requiredArgument(name: string): string {
   return path.resolve(value);
 }
 
-async function assertSafeExistingOutput(
-  output: string,
-  labels: ReturnType<typeof finalizeBenchmarkAdjudication>,
-) {
-  let bytes: Buffer;
-  try {
-    bytes = await readFile(output);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
-    throw error;
-  }
-  const existing = parseBenchmarkLabels(bytes);
-  const binding = bindBenchmarkLabels(existing, {
-    pageKey: labels.pageKey,
-    sha256: labels.source.sha256,
-    byteLength: labels.source.byteLength,
-    physicalPageNumber: labels.source.physicalPageNumber,
-    frame: labels.frame,
-  });
-  if (existing.labels.source.documentKey !== labels.source.documentKey) {
-    fail('existing labels.json document key differs');
-  }
-  if (binding.state !== 'unlabeled') {
-    fail('refusing to overwrite existing partial or complete benchmark truth');
-  }
-}
-
 async function main() {
   const workspace = requiredArgument('workspace');
   const reviewerA = parseBenchmarkReviewerLabels(await readFile(requiredArgument('reviewer-a')));
@@ -84,21 +66,25 @@ async function main() {
     ? parseBenchmarkSuggestions(await readFile(path.resolve(suggestionsFile)))
     : null;
   const output = requiredArgument('out');
-  if (path.basename(output).toLowerCase() !== 'labels.json') {
-    fail('final adjudication output must be named labels.json');
-  }
-  const labels = finalizeBenchmarkAdjudication({
-    reviewerA,
-    reviewerB,
-    comparison,
-    adjudication,
-    source,
-    suggestions,
-  });
+  assertFinalLabelsOutputPath(output);
+  const approvalAFile = argument('approval-a')?.trim() || null;
+  const approvalBFile = argument('approval-b')?.trim() || null;
+  const mode = resolveBenchmarkFinalizationMode(adjudication, approvalAFile, approvalBFile);
+  const common = { reviewerA, reviewerB, comparison, adjudication, source, suggestions };
+  const labels = mode === 'human'
+    ? finalizeBenchmarkAdjudication(common)
+    : finalizeDelegatedBenchmarkAdjudication({
+      ...common,
+      approvals: [
+        parseBenchmarkDelegatedApproval(await readFile(path.resolve(approvalAFile!))),
+        parseBenchmarkDelegatedApproval(await readFile(path.resolve(approvalBFile!))),
+      ],
+    });
   await assertSafeExistingOutput(output, labels);
   await writeFile(output, `${JSON.stringify(labels, null, 2)}\n`, 'utf8');
   console.log(`[e3-adjudication] approved benchmark labels written to ${output}`);
-  console.log(`[e3-adjudication] approved by ${labels.labeledBy} at ${labels.labeledAt}`);
+  console.log(`[e3-adjudication] authority mode: ${mode}`);
+  console.log(`[e3-adjudication] labeled by ${labels.labeledBy} at ${labels.labeledAt ?? 'null'}`);
 }
 
 main().catch((error) => fail(error instanceof Error ? error.message : String(error)));

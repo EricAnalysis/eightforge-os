@@ -43,6 +43,10 @@ import {
   isForgewingTableContinuationEnabled,
 } from '@/lib/forgewing/runtime/modelConfig';
 import { ForgewingCallBudget } from '@/lib/forgewing/runtime/budget';
+import {
+  resolveForgewingEntitlement,
+  type OrganizationForgewingEntitlementResolver,
+} from '@/lib/server/forgewingEntitlement';
 import { buildRuntimeShadowParserManifest } from '@/lib/extraction/persistence/shadowRuntimeManifest';
 import { sniffExtractionMediaType } from '@/lib/extraction/persistence/shadowSourceIdentity';
 import { publishExtractionStep1ShadowNonBlocking } from '@/lib/extraction/persistence/step1Shadow';
@@ -57,6 +61,7 @@ import { RecoveryCandidateV2Schema, type RecoveryCandidateV2 }
   from '@/lib/extraction/recovery/recoveryCandidateV2';
 import {
   groupRecoveryEvaluationUnits,
+  recoveryEvaluationUnitIdentity,
   planRecoveryEvaluation,
   type RecoveryEvaluationUnit,
 } from '@/lib/extraction/recovery/recoveryEvaluationPlanner';
@@ -1442,11 +1447,45 @@ export function scheduleRecoveryCandidateV2Shadow(
       });
       return;
     }
-    const plan = planRecoveryEvaluation(units, prior.state, {
+    // A singleton preserved header option is reviewable without an advisory
+    // provider answer. It still passes the same kill switch and exact prior-state
+    // closure; this envelope supplies no human authority and consumes no AI slot.
+    const singletonHeaders = units.filter((unit) =>
+      unit.recoveryType === 'priced_schedule_header_role_selection'
+      && unit.candidates.length === 1
+      && operational.activationByType.priced_schedule_header_role_selection !== 'disabled');
+    for (const unit of singletonHeaders) {
+      if (prior.state.proposedUnitIdentities.includes(recoveryEvaluationUnitIdentity(unit))
+        || unit.candidateIds.some((id) => prior.state.confirmedCandidateIds.includes(id))) continue;
+      const durable = buildDurableRecoveryProposalV2({
+        organizationId: input.organizationId,
+        extractionSnapshotId: input.extractionSnapshotId,
+        candidates: unit.candidates,
+        selectedCandidateId: unit.candidateIds[0]!,
+        certainty: 0,
+        reasonCategory: 'preserved_single_header_option',
+        providerModel: 'deterministic_header_options',
+        promptTemplateId: 'preserved_header_options',
+        promptTemplateVersion: '1',
+      });
+      const recorded = durable ? await (dependencies.persistProposal
+        ?? persistForgewingRecoveryProposalV2)(durable) : null;
+      if (!recorded || recorded.status !== 'persisted') {
+        await recordRecoveryGenerationOutcome({
+          ...outcomeBase(unit), outcomeCode: 'deterministic_validation_failed',
+          sanitizedReason: recorded
+            ? sanitizeRecoveryGenerationReason('deterministic_validation_failed', recorded.reason)
+            : 'projection_failed',
+          providerInvoked: false,
+        }, dependencies.persistOutcome ?? persistForgewingRecoveryGenerationOutcome);
+      }
+    }
+    const plan = planRecoveryEvaluation(units.filter((unit) => !singletonHeaders.includes(unit)), prior.state, {
       overallCap: dependencies.budget
         ? Math.max(0, dependencies.budget.limit - dependencies.budget.used)
         : operational.maxCalls,
       perTypeCap: {
+        priced_schedule_header_role_selection: operational.maxCalls,
         priced_schedule_continuation_attribution:
           RECOVERY_OPERATIONAL_POLICY.priced_schedule_continuation_attribution.perTypeCallCap
             ?? operational.maxCalls,
@@ -1454,6 +1493,8 @@ export function scheduleRecoveryCandidateV2Shadow(
           RECOVERY_OPERATIONAL_POLICY.pricing_rate_multi_observation_cluster.perTypeCallCap ?? 0,
       },
       activation: {
+        priced_schedule_header_role_selection:
+          operational.activationByType.priced_schedule_header_role_selection,
         priced_schedule_continuation_attribution:
           operational.activationByType.priced_schedule_continuation_attribution,
         pricing_rate_multi_observation_cluster:
@@ -1495,6 +1536,24 @@ export function scheduleRecoveryCandidateV2Shadow(
       mode: 'shadow', error: error instanceof Error ? error.message : String(error),
     });
   }
+}
+
+/**
+ * Forgewing wraps the deterministic Step 3 bridge only for an entitled
+ * organization (EightForge Core vs Core + Forgewing). The deterministic bridge
+ * itself, and the publication around it, run for every organization, so
+ * canonical truth is identical in both tiers. Not entitled returns the SAME
+ * bridge, unwrapped.
+ */
+export function step3BridgeForForgewingEntitlement(
+  deterministicBridge: Step3InterpretationBridge | undefined,
+  entitled: boolean,
+  organizationId: string,
+  sourceDocumentId: string,
+): Step3InterpretationBridge | undefined {
+  return entitled
+    ? withForgewingRegionClassificationShadow(deterministicBridge, organizationId, sourceDocumentId)
+    : deterministicBridge;
 }
 
 export function withForgewingRegionClassificationShadow(
@@ -1932,6 +1991,7 @@ export async function publishExtractionComplianceShadowNonBlocking(
  */
 export function scheduleExtractionComplianceShadow(
   input: ScheduledShadowWriteInput,
+  dependencies: Readonly<{ resolveEntitlement?: OrganizationForgewingEntitlementResolver }> = {},
 ): Promise<void> {
   return (async () => {
     if (!input.storageVersionBeforeDownload) {
@@ -1993,8 +2053,12 @@ export function scheduleExtractionComplianceShadow(
       await settleWithin(publishExtractionStep1ShadowNonBlocking({
           ...commonInput,
           locatedObservations,
-          step3InterpretationBridge: withForgewingRegionClassificationShadow(
+          step3InterpretationBridge: step3BridgeForForgewingEntitlement(
             input.step3InterpretationBridge,
+            (await (dependencies.resolveEntitlement ?? resolveForgewingEntitlement)(
+              input.admin,
+              input.organizationId,
+            )).entitled,
             input.organizationId,
             input.sourceDocumentId,
           ),

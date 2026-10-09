@@ -1,14 +1,17 @@
 import type { ContractRateScheduleRow } from './types';
+import { pricingAuthoritativePage, pricingAuthorityDiagnostics, pricedScheduleSourceRefKey, type PricingAuthorityDiagnostic } from '@/lib/extraction/pdf/pricedScheduleAuthority';
 import type { PdfTable } from '@/lib/extraction/pdf/extractTables';
 import { normalizeTableCellGeometry, type GeometryCellRef } from '@/lib/extraction/tableGeometry';
 import {
   extractCleanStructuralRateRows,
   extractExhibitARateTableRows,
 } from '@/lib/contracts/exhibitARateTableRows';
-import { resolveCanonicalRateCategory } from '@/lib/validator/rateTaxonomy';
+import { resolveCanonicalRateCategory,
+  canonicalTaxonomyKeyForAllowedCategory as exactSourceCategoryKey } from '@/lib/validator/rateTaxonomy';
 import { canonicalTaxonomyKeyForAllowedCategory } from '@/lib/contracts/contractPricingAssembly';
 import { collapseWhitespace, normalizeDashCharacters } from '@/lib/contracts/textCleanupPrimitives';
 import type { PhysicalPageCoordinate } from '@/lib/extraction/provenance/physicalPageCoordinate';
+import { decideRateAuthority, evidenceIsScanned, readAuthoredAmount } from '@/lib/contracts/rateAuthority';
 import type {
   PagePricedScheduleReconstruction,
   PricedScheduleCell,
@@ -69,6 +72,8 @@ type BuildContractRateScheduleRowsInput = {
   /** Untrusted persisted token evidence used only for exact modern anchor binding. */
   pricedScheduleLayoutObservations?: unknown;
   pricedScheduleObservationContext?: PdfLayoutObservationBindingContext | null;
+  /** Diagnostic provenance does not grant observation-binding authority. */
+  pricedScheduleDiagnosticContext?: Readonly<{ sourceDocumentId?: string; sourceArtifactId?: string }>;
   /** Explicit historical-only compatibility for evidence predating page proof. */
   allowUnscopedCompatibility?: boolean;
 };
@@ -829,7 +834,12 @@ function recoverMissingExhibitATextRows(params: {
   ];
   if (allSourceEntries.length === 0) return [];
 
-  const existingKeys = new Set(params.existingRows.map(rateRecoveryKey));
+  // A table row whose scanned rate is withheld for review is still the row on
+  // the page: key it by its candidate so no authored twin is added beside it.
+  const existingKeys = new Set(params.existingRows.map((row) => rateRecoveryKey(
+    row.rate == null && row.rate_authority?.status === 'review_required'
+      ? { ...row, rate: row.rate_authority.candidate_rate }
+      : row)));
   const entriesByPage = new Map<number, ContractRateScheduleSourceEntry[]>();
   for (const entry of allSourceEntries) {
     if (entry.page == null || normalizeWhitespace(entry.text).length === 0) continue;
@@ -1369,11 +1379,32 @@ function buildFallbackRowsFromSourceEntries(params: {
   return [...deduped.values()];
 }
 
-/** Authored non-numeric price markers must never become a number. */
-function numericRateFromAuthoredText(rawText: string): number | null {
-  const match = rawText.match(/-?[\d,]+(?:\.\d+)?/);
-  if (!match) return null;
-  return parseNumber(match[0]);
+/**
+ * The one amount an authored price cell states, read whole. The cell must carry
+ * exactly one token with digits, and that token must read as an amount: an
+ * optional currency symbol, digits with thousands groups only in threes, and an
+ * optional decimal part of two to four digits.
+ *
+ * Anything else is not a number: "$95,00", "$56.0", "$2:", "$170.00." or two
+ * amounts in one cell. Reading the first digits out of such text (95,00 as
+ * 9500, $2: as 2) turns damaged evidence into a confident wrong rate, so the
+ * row stays unresolved and needs review instead. A well-formed amount that a
+ * scan misread cannot be detected here, and is not claimed to be.
+ */
+const numericRateFromAuthoredText = readAuthoredAmount;
+
+/** Each persisted layout observation's capture method, by id. */
+function layoutObservationMethods(layer: unknown): Map<string, string> {
+  const methods = new Map<string, string>();
+  const observations = asRecord(layer)?.observations;
+  if (!Array.isArray(observations)) return methods;
+  for (const value of observations) {
+    const observation = asRecord(value);
+    if (observation && typeof observation.id === 'string' && typeof observation.source_method === 'string') {
+      methods.set(observation.id, observation.source_method);
+    }
+  }
+  return methods;
 }
 
 function cellByRole(
@@ -1381,6 +1412,27 @@ function cellByRole(
   role: PricedScheduleCell['role'],
 ): PricedScheduleCell | null {
   return row.cells.find((cell) => cell.role === role) ?? null;
+}
+
+/** Consume only the Category column already proven by this row's reconstruction. */
+function sourceCategoryEvidence(
+  page: PricedSchedulePage,
+  row: PricedSchedulePage['rows'][number],
+): ContractRateScheduleRow['source_category_evidence'] | null {
+  const categoryColumns = page.columns.flatMap((column, index) => column.role === 'category' ? [index] : []);
+  if (categoryColumns.length !== 1) return null;
+  const columnIndex = categoryColumns[0]!;
+  const candidates = (row.unresolved_role_cells ?? []).filter((cell) => cell.column_index === columnIndex);
+  if (candidates.length !== 1) return null;
+  const cell = candidates[0]!;
+  if (cell.header_text !== page.columns[columnIndex]!.header_text
+    || !cell.raw_text.trim() || cell.source_refs.length === 0) return null;
+  // The pricing projection removes ruling-only ownership from accepted cells.
+  // Supporting cells must not bypass that same existing trust boundary.
+  const ruleRefs = new Set((page.ruling_line_resolutions ?? []).map((resolution) => pricedScheduleSourceRefKey(resolution.source_ref)));
+  if (cell.source_refs.some((ref) => ruleRefs.has(pricedScheduleSourceRefKey(ref)))) return null;
+  return { column_index: columnIndex, header_text: cell.header_text,
+    raw_text: cell.raw_text, source_refs: cell.source_refs };
 }
 
 function geometryRefsForPricedScheduleRow(
@@ -1419,11 +1471,17 @@ function buildPagePricedScheduleRows(
   if (!reconstruction || !Array.isArray(reconstruction.pages)) return [];
 
   const rows: ContractRateScheduleRow[] = [];
+  const observationMethodById = layoutObservationMethods(persistedLayoutObservations);
   const pages = [...reconstruction.pages].sort(
     (left, right) => left.physical_page_number - right.physical_page_number,
   );
 
-  for (const page of pages) {
+  for (const structuralPage of pages) {
+    const page = pricingAuthoritativePage(structuralPage, reconstruction.parser_version);
+    if (!page) continue;
+    // Structure-only page: a required semantic role is unresolved. Its rows are
+    // source evidence awaiting review, never pricing facts.
+    if (page.semantic_status === 'unresolved') continue;
     const pageRows = [...page.rows].sort((left, right) => left.row_index - right.row_index);
     for (const row of pageRows) {
       const descriptionCell = cellByRole(row, 'description');
@@ -1434,17 +1492,26 @@ function buildPagePricedScheduleRows(
 
       const unitCell = cellByRole(row, 'unit');
       const originDestinationCell = cellByRole(row, 'origin_destination');
-      const rate = numericRateFromAuthoredText(rateCell.raw_text);
+      const categoryEvidence = sourceCategoryEvidence(structuralPage, row);
+      // A rate proven by structure rather than a read currency marker names its
+      // amount token; the cell's other authored text (an unread marker glyph)
+      // is evidence, never part of the number.
+      const { rate, authority: rateAuthority } = decideRateAuthority({
+        parsedRate: numericRateFromAuthoredText(rateCell.structured_rate?.amount_text ?? rateCell.raw_text),
+        rawText: rateCell.raw_text,
+        scanned: evidenceIsScanned(rateCell.source_refs, observationMethodById),
+      });
 
+      const sourceCategoryKey = exactSourceCategoryKey(categoryEvidence?.raw_text);
       const categoryResolution = resolveCanonicalRateCategory({
-        sourceCategory: null,
+        sourceCategory: categoryEvidence?.raw_text ?? null,
         sourceDescriptors: [
           descriptionCell.raw_text,
           unitCell?.raw_text ?? null,
           originDestinationCell?.raw_text ?? null,
         ],
-        existingCanonicalCategory: null,
-        existingConfidence: null,
+        existingCanonicalCategory: sourceCategoryKey,
+        existingConfidence: sourceCategoryKey ? 1 : null,
       });
       const rowId = `page_priced_schedule:p${page.physical_page_number}:r${row.row_index}`;
       const boundEvidence = resolvePdfLayoutObservationEvidence({
@@ -1458,12 +1525,23 @@ function buildPagePricedScheduleRows(
 
       rows.push({
         row_id: rowId,
+        ...(row.header_semantics ? { header_semantics: row.header_semantics } : {}),
+        ...(row.inherited_header ? { inherited_header: {
+          status: row.inherited_header.status, signature_digest: row.inherited_header.signature_digest,
+          source_page: row.inherited_header.source_page, carried_from_page: row.inherited_header.carried_from_page,
+          continuation_page: row.inherited_header.continuation_page,
+        } } : {}),
+        ...(row.table_segment ? { table_segment: {
+          segment_index: row.table_segment.segment_index, segment_count: row.table_segment.segment_count,
+          header_y: row.table_segment.header_y, header_observation_ids: row.table_segment.header_observation_ids,
+        } } : {}),
         description: descriptionCell.raw_text,
         unit: unitCell?.raw_text ?? null,
         rate,
         origin_destination: originDestinationCell?.raw_text ?? null,
-        category: null,
-        source_category: null,
+        category: categoryEvidence?.raw_text ?? null,
+        source_category: categoryEvidence?.raw_text ?? null,
+        ...(categoryEvidence ? { source_category_evidence: categoryEvidence } : {}),
         canonical_category: categoryResolution.canonical_category,
         category_confidence: categoryResolution.category_confidence,
         page: page.physical_page_number,
@@ -1474,9 +1552,10 @@ function buildPagePricedScheduleRows(
         material_type: null,
         unit_type: unitCell?.raw_text ?? null,
         rate_amount: rate,
+        rate_authority: rateAuthority,
         source_kind: 'page_priced_schedule',
-        // A row whose authored price marker carries no number is unresolved,
-        // not zero-rated.
+        // A row whose authored price marker carries no number, or whose number
+        // was read from a scan, is unresolved, not zero-rated.
         confidence: rate == null ? 'needs_review' : 'medium',
         raw_cells: row.cells.map((cell: PricedScheduleCell) => cell.raw_text),
         raw_text: row.raw_text,
@@ -1497,6 +1576,17 @@ function buildPagePricedScheduleRows(
   return rows;
 }
 
+/** Production callers retain the explicit withheld-page reason alongside rows. */
+export function buildContractRateScheduleRowsWithDiagnostics(params: BuildContractRateScheduleRowsInput): {
+  rows: ContractRateScheduleRow[];
+  diagnostics: readonly PricingAuthorityDiagnostic[];
+} {
+  return { rows: buildContractRateScheduleRows(params), diagnostics: params.pricedScheduleReconstruction
+    ? pricingAuthorityDiagnostics(params.pricedScheduleReconstruction,
+      params.pricedScheduleDiagnosticContext ?? params.pricedScheduleObservationContext ?? {}) : [] };
+}
+
+/** Row-only compatibility API; production preparation uses the diagnostic-bearing result. */
 export function buildContractRateScheduleRows(
   params: BuildContractRateScheduleRowsInput,
 ): ContractRateScheduleRow[] {

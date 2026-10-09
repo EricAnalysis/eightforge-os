@@ -20,6 +20,7 @@ import {
   type OperatorApprovalLabel,
 } from '@/lib/truthToAction';
 import type { InvoiceApprovalSnapshot, ProjectApprovalSnapshot } from '@/lib/server/approvalSnapshots';
+import { isHumanReviewedEvidenceNote } from '@/lib/validator/humanReviewedEvidence';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -127,12 +128,11 @@ function snapshotStatusToTruth(
 function findingToTruth(
   finding: FindingRow,
 ): TruthValidationState {
+  // The full row: semantic normalization humanizes rule_id and subject_type.
   const label = findingApprovalLabel({
+    ...finding,
     status: finding.status as 'open' | 'resolved' | 'dismissed' | 'muted',
     severity: finding.severity as 'critical' | 'warning' | 'info',
-    blocked_reason: finding.blocked_reason,
-    decision_eligible: finding.decision_eligible,
-    action_eligible: finding.action_eligible,
   });
   switch (label) {
     case 'Requires Verification': return 'Requires Verification';
@@ -464,6 +464,18 @@ async function resolveInvoiceTruth(
 // Rate code truth
 // ---------------------------------------------------------------------------
 
+/**
+ * Finding ids whose evidence rests on a human-reviewed value (B3.1). A truth
+ * answer built from such a finding must say so; the value alone does not.
+ */
+export function humanReviewedFindingIds(
+  evidenceRows: readonly { finding_id?: unknown; note?: unknown }[],
+): Set<string> {
+  return new Set(evidenceRows.flatMap((row) =>
+    typeof row.finding_id === 'string' && isHumanReviewedEvidenceNote(typeof row.note === 'string' ? row.note : null)
+      ? [row.finding_id] : []));
+}
+
 async function resolveRateCodeTruth(
   projectId: string,
   rateCode: string,
@@ -483,6 +495,13 @@ async function resolveRateCodeTruth(
     );
 
   const findings = (findingRows ?? []) as FindingRow[];
+  const { data: evidenceRows } = findings.length > 0
+    ? await admin
+      .from('project_validation_evidence')
+      .select('finding_id, note')
+      .in('finding_id', findings.map((finding) => finding.id))
+    : { data: [] };
+  const humanReviewed = humanReviewedFindingIds((evidenceRows ?? []) as { finding_id?: unknown; note?: unknown }[]);
 
   if (findings.length === 0) {
     // No active findings for this rate code — clear
@@ -505,27 +524,29 @@ async function resolveRateCodeTruth(
     (a, b) => (severityOrder[a.severity] ?? 9) - (severityOrder[b.severity] ?? 9),
   )[0];
 
-  const findingLabel = findingApprovalLabel({
+  // The full finding row: semantic normalization humanizes rule_id and
+  // subject_type, so a partial descriptor made this query fail for any match.
+  const worstDescriptor = {
+    ...worst,
     status: worst.status as 'open' | 'resolved' | 'dismissed' | 'muted',
     severity: worst.severity as 'critical' | 'warning' | 'info',
-    blocked_reason: worst.blocked_reason,
-    decision_eligible: worst.decision_eligible,
-    action_eligible: worst.action_eligible,
-  });
+  };
+  const findingLabel = findingApprovalLabel(worstDescriptor);
 
   const validationState = findingToTruth(worst);
 
   // Value: what the rate code resolves to
   const valueParts: string[] = [`Rate ${rateCode}`];
   if (worst.actual != null && worst.expected != null) {
-    valueParts.push(`${worst.actual} (expected ${worst.expected})`);
+    valueParts.push(`${worst.actual} (expected ${worst.expected}${humanReviewed.has(worst.id) ? ', human-reviewed' : ''})`);
   } else if (worst.actual != null) {
     valueParts.push(worst.actual);
   }
 
   const evidence: TruthEvidence[] = findings.slice(0, 4).map((finding) => ({
     kind: 'finding' as const,
-    label: `${finding.severity.charAt(0).toUpperCase() + finding.severity.slice(1)} finding`,
+    label: `${finding.severity.charAt(0).toUpperCase() + finding.severity.slice(1)} finding`
+      + (humanReviewed.has(finding.id) ? ' · human-reviewed value' : ''),
     detail: findingEvidenceDetail(finding),
   }));
 
@@ -535,20 +556,8 @@ async function resolveRateCodeTruth(
     value: valueParts.join(' — '),
     validationState,
     approvalLabel: findingLabel,
-    gateImpact: findingGateImpact({
-      status: worst.status as 'open' | 'resolved' | 'dismissed' | 'muted',
-      severity: worst.severity as 'critical' | 'warning' | 'info',
-      blocked_reason: worst.blocked_reason,
-      decision_eligible: worst.decision_eligible,
-      action_eligible: worst.action_eligible,
-    }),
-    nextAction: findingNextAction({
-      status: worst.status as 'open' | 'resolved' | 'dismissed' | 'muted',
-      severity: worst.severity as 'critical' | 'warning' | 'info',
-      blocked_reason: worst.blocked_reason,
-      decision_eligible: worst.decision_eligible,
-      action_eligible: worst.action_eligible,
-    }),
+    gateImpact: findingGateImpact(worstDescriptor),
+    nextAction: findingNextAction(worstDescriptor),
     evidence,
     sourceHref: `/platform/projects/${projectId}#project-validator`,
   };

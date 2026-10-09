@@ -1,0 +1,42 @@
+{
+  "approvalVersion": "e3-benchmark-delegated-approval-v1",
+  "authority": "delegated_dual_ai_benchmark_approval",
+  "delegationScope": "e3_benchmark_labels_finalization",
+  "pageKey": "hillsdale-p3",
+  "source": {
+    "documentKey": "hillsdale",
+    "sha256": "596adaccf865625723dc832f5206a8f690eb17d96921ef185df35b113c767537",
+    "byteLength": 3227431,
+    "physicalPageNumber": 3
+  },
+  "frame": {
+    "frame_version": "canonical_frame_v1",
+    "coordinate_space": "canonical_v1",
+    "view": [
+      0,
+      0,
+      611,
+      792
+    ],
+    "rotation": 0,
+    "user_unit": 1,
+    "width": 611,
+    "height": 792
+  },
+  "adjudicationSha256": "96e37da2e4767f6fefba4792b43c3f8b21d4706fae2381455fc5fc5ccde76485",
+  "comparisonSha256": "1bc8335972b4f9192d3a65f0a33c10190da5d53bc14fa5247c781b34e08bbda1",
+  "reviewerALabelSetSha256": "8e0e222ae440fd8e47dcfd41cd38c11896993ec48f91de87a66f40e8a76fadb4",
+  "reviewerBLabelSetSha256": "20d00f033e1307bc475c53d36b558dca4c164cf9ea4786eb5042566ee43b5de6",
+  "suggestionsSha256": null,
+  "candidateSha256": "f090b62d0b005caac5a879287eb68a6516447ab33f67b1b709caa12d0faaba35",
+  "candidateSummary": {
+    "words": 330,
+    "cells": 123,
+    "rows": 41,
+    "coverage": "requires_ocr"
+  },
+  "approverIdentity": "chatgpt",
+  "decision": "approve",
+  "approvedAt": "2026-09-29T15:46:00.000Z",
+  "rationale": "Approve E3 evaluation ground truth only for hillsdale-p3. Reviewed the supplied delegated approval packet and previously inspected the full candidate preview. The packet binds the pinned Hillsdale source and canonical_frame_v1 frame, the geometry-attached adjudication digest 96e37da2e4767f6fefba4792b43c3f8b21d4706fae2381455fc5fc5ccde76485, and candidate digest f090b62d0b005caac5a879287eb68a6516447ab33f67b1b709caa12d0faaba35 with 330 words, 123 cells, 41 rows and requires_ocr coverage. The supplied packet reports deterministic replay, complete word/cell geometry, zero unresolved geometry, reproduced semantic freeze, no labels.json and no prior approvals. Approval is limited to e3_benchmark_labels_finalization and grants no production, Project Truth, validator, extraction, deployment, E4 or E5 authority."
+}

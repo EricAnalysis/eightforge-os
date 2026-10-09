@@ -20,6 +20,7 @@ import {
 import { PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION,
   type PagePricedScheduleReconstruction } from
   '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
+import { isSupportedPricedScheduleVersion } from '@/lib/extraction/pdf/pricedScheduleVersion';
 import type { RatePageRange } from '@/lib/contracts/parseRatePageRanges';
 import { parseRatePageRanges } from '@/lib/contracts/parseRatePageRanges';
 import { canonicalJson, hashCanonical } from '@/lib/extraction/domain/hash';
@@ -417,8 +418,9 @@ export async function prepareForgewingPricingCorpus(
   const authorizedPages = new Set(entry.authoritativeRatePageRanges.flatMap((range) =>
     Array.from({ length: range.end - range.start + 1 }, (_, index) => range.start + index)));
   const pricedScheduleReconstruction: PagePricedScheduleReconstruction = {
-    parser_version: PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION,
-    pages: rawReconstruction?.parser_version === PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION
+    parser_version: isSupportedPricedScheduleVersion(rawReconstruction?.parser_version)
+      ? rawReconstruction.parser_version : PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION,
+    pages: isSupportedPricedScheduleVersion(rawReconstruction?.parser_version)
       && Array.isArray(rawReconstruction.pages)
       ? (rawReconstruction.pages as PagePricedScheduleReconstruction['pages'])
         .filter((page) => authorizedPages.has(page.physical_page_number))

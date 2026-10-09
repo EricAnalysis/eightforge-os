@@ -66,6 +66,8 @@ const RECOVERY_PERSISTENCE_MODULES = new Set([
   'lib/server/effectiveRecoveryConfirmations.ts',
   'lib/server/forgewingRecoveryReviewRead.ts',
   'lib/server/recoveryEvaluationPriorState.ts',
+  // B4.2 value readings: version 3 rows, stored and read only here.
+  'lib/server/valueReadingProposals.ts',
 ]);
 
 /**
@@ -99,6 +101,8 @@ const VISUAL_SOURCE_MODULES = [
   'components/documents/RecoveryReviewPanel.tsx',
   'components/evaluation/forgewing/A3LinkagePdfPage.tsx',
   'components/recovery/SourceEvidencePage.tsx',
+  'lib/recovery/diagnosticVisualEvidence.ts',
+  'lib/recovery/recoveryVisualEvidence.ts',
   'lib/recovery/sourceGeometry.ts',
   'lib/recovery/visualSourceEvidence.ts',
   'lib/server/forgewingRecoveryReviewRead.ts',

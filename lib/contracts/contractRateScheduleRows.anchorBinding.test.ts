@@ -81,13 +81,15 @@ function reconstruction(params?: {
   duplicateDescriptionRef?: boolean;
   diagnosticRef?: PricedScheduleCellSourceRef;
   splitRate?: boolean;
+  rateText?: string;
 }): { reconstruction: PagePricedScheduleReconstruction; tokens: PdfToken[] } {
   const includeIds = params?.includeIds !== false;
   const descriptionA = token('item:1', 'Unclassified', 10);
   const descriptionB = token('item:2', 'service', 25);
   const unit = token('item:3', 'CY', 50);
   const route = token('item:4', 'Site to DMS', 70);
-  const rate = token('item:5', params?.splitRate ? '$' : '$12.00', 100);
+  const rateText = params?.rateText ?? '$12.00';
+  const rate = token('item:5', params?.splitRate ? '$' : rateText, 100);
   const rateAmount = params?.splitRate ? token('item:6', '1.00', 112) : null;
   const descriptionRefs = [ref(descriptionA, includeIds), ref(descriptionB, includeIds)];
   if (params?.duplicateDescriptionRef) descriptionRefs.push(ref(descriptionA, includeIds));
@@ -96,7 +98,7 @@ function reconstruction(params?: {
     cell('description', 'Unclassified service', descriptionRefs),
     cell('unit', 'CY', [ref(unit, includeIds)]),
     cell('origin_destination', 'Site to DMS', [ref(route, includeIds)]),
-    cell('rate', params?.splitRate ? '$ 1.00' : '$12.00', [
+    cell('rate', params?.splitRate ? '$ 1.00' : rateText, [
       ref(rate, includeIds),
       ...(rateAmount ? [ref(rateAmount, includeIds)] : []),
     ]),
@@ -116,7 +118,7 @@ function reconstruction(params?: {
           row_index: 0,
           physical_page_number: PAGE,
           cells,
-          raw_text: 'Unclassified service CY Site to DMS $12.00',
+          raw_text: `Unclassified service CY Site to DMS ${params?.splitRate ? '$ 1.00' : rateText}`,
           x_min: 10,
           x_max: 110,
           y_min: 100,
@@ -175,7 +177,116 @@ function rows(source: ReturnType<typeof built>, layer: unknown = source.layer) {
   });
 }
 
+function withCategory(rawText = 'C&D Collect, Remove & Haul') {
+  const source = built();
+  const categoryToken = token('category:1', rawText, 1);
+  const categoryCell = {
+    ...cell('description', rawText, [ref(categoryToken)]),
+    role: null,
+    column_index: 0,
+    header_text: 'Category',
+  } as const;
+  const page = source.reconstruction.pages[0]!;
+  const reconstructionWithCategory: PagePricedScheduleReconstruction = {
+    ...source.reconstruction,
+    pages: [{ ...page, columns: [{ role: 'category', header_text: 'Category', x_min: null, x_max: 10 }],
+      rows: [{ ...page.rows[0]!, unresolved_role_cells: [categoryCell] }] }],
+  };
+  const tokens = [...source.tokens, categoryToken];
+  return { ...source, tokens, reconstruction: reconstructionWithCategory,
+    layer: buildPdfLayoutObservationsLayer({ layout: layout(tokens), reconstruction: reconstructionWithCategory, context }) };
+}
+
+describe('page-priced supporting category evidence', () => {
+  it('preserves printed category text and refs without changing pricing evidence or row identity', () => {
+    const source = withCategory();
+    const before = JSON.stringify(source);
+    const row = rows(source)[0]!;
+    const baseline = rows(built())[0]!;
+    expect(row).toMatchObject({ category: 'C&D Collect, Remove & Haul',
+      source_category: 'C&D Collect, Remove & Haul', canonical_category: 'construction_demolition',
+      category_resolution_status: 'resolved' });
+    expect(row.source_category_evidence).toEqual({ column_index: 0, header_text: 'Category', raw_text: 'C&D Collect, Remove & Haul',
+        source_refs: source.reconstruction.pages[0]!.rows[0]!.unresolved_role_cells![0]!.source_refs });
+    const categoryFields = ['category', 'source_category', 'source_category_evidence',
+      'canonical_category', 'category_confidence', 'category_resolution_status'];
+    const withoutCategory = (value: typeof row) => Object.fromEntries(Object.entries(value)
+      .filter(([key]) => !categoryFields.includes(key)));
+    expect(withoutCategory(row)).toEqual(withoutCategory(baseline));
+    expect(JSON.stringify(source)).toBe(before);
+  });
+
+  it.each([
+    ['Management & Reduction', 'management_reduction'], ['Final Disposal', 'final_disposal'],
+    ['Equipment', 'equipment'], ['Personnel', 'personnel'], ['Specialty Removal', 'specialty_removal'],
+  ])(
+    'uses the existing taxonomy for the supporting label %s', (label, exactCategory) => {
+      expect(rows(withCategory(label))[0]).toMatchObject({ source_category: label,
+        canonical_category: exactCategory });
+    },
+  );
+
+  it.each(['unknown_role', 'duplicate_header', 'duplicate_cell', 'wrong_header', 'missing_refs', 'missing_cell', 'blank_text'])(
+    'does not infer category from %s', (variant) => {
+      const source = withCategory();
+      const page = source.reconstruction.pages[0]!;
+      const row = page.rows[0]!;
+      const category = row.unresolved_role_cells![0]!;
+      source.reconstruction = { ...source.reconstruction, pages: [{ ...page,
+        columns: variant === 'unknown_role' ? [{ ...page.columns[0]!, role: null }]
+          : variant === 'duplicate_header' ? [page.columns[0]!, page.columns[0]!] : page.columns,
+        rows: [{ ...row, unresolved_role_cells: variant === 'missing_cell' ? []
+          : variant === 'duplicate_cell' ? [category, category]
+            : [{ ...category, ...(variant === 'wrong_header' ? { header_text: 'Service' } : {}),
+              ...(variant === 'blank_text' ? { raw_text: '   ' } : {}),
+              ...(variant === 'missing_refs' ? { source_refs: [] } : {}) }] }],
+      }] };
+      expect(rows(source)[0]).toMatchObject({ category: null, source_category: null, canonical_category: null });
+      expect(rows(source)[0]!.source_category_evidence).toBeUndefined();
+    },
+  );
+
+  it('keeps unsupported category text as evidence without inventing an allowed category', () => {
+    expect(rows(withCategory('Remove'))[0]).toMatchObject({ source_category: 'Remove', canonical_category: null,
+      category_resolution_status: 'requires_review' });
+  });
+
+  it('does not carry a category into a neighboring row with no supporting cell', () => {
+    const source = withCategory();
+    const page = source.reconstruction.pages[0]!;
+    source.reconstruction = { ...source.reconstruction, pages: [{ ...page,
+      rows: [page.rows[0]!, { ...page.rows[0]!, row_index: 1, unresolved_role_cells: [] }],
+    }] };
+    const result = rows(source);
+    expect(result[0]!.canonical_category).toBe('construction_demolition');
+    expect(result[1]).toMatchObject({ category: null, source_category: null, canonical_category: null });
+    expect(result[1]!.source_category_evidence).toBeUndefined();
+  });
+});
+
 describe('page-priced schedule exact source-anchor binding', () => {
+  it.each(['$95,00', '$56.0', '5 100.00', '5 90.00', '$12.00 $14.00'])(
+    'retains the row identity and exact bound evidence when refusing %s', (rateText) => {
+      const source = built({ rateText });
+      const before = JSON.stringify(source);
+      const row = rows(source)[0]!;
+      expect(row).toMatchObject({
+        row_id: 'page_priced_schedule:p2:r0', rate: null, rate_amount: null,
+        confidence: 'needs_review', rate_raw: rateText,
+      });
+      expect(row.source_anchor_ids).toEqual(source.layer.observations.slice(0, 5).map((entry) => entry.id).sort());
+      const rateCell = source.reconstruction.pages[0]!.rows[0]!.cells[3]!;
+      expect(row.pricing_cell_evidence?.find((entry) => entry.source_cell_role === 'rate')).toEqual({
+        source_cell_role: 'rate', authored_raw_text: rateText,
+        source_observation_ids: rateCell.source_refs.map((entry) => entry.observation_id),
+      });
+      expect(row.raw_cells).toContain(rateText);
+      expect(row.raw_text).toContain(rateText);
+      expect(row.geometry_refs?.length).toBeGreaterThan(0);
+      expect(JSON.stringify(source)).toBe(before);
+    },
+  );
+
   it('maps one recognized ref to one real EvidenceObject anchor', () => {
     const source = built();
     const oneRef = {

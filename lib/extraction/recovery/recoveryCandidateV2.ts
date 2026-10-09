@@ -9,6 +9,7 @@ const uuid = z.string().uuid();
 export const RECOVERY_TYPES_V2 = [
   'pricing_rate_multi_observation_cluster',
   'priced_schedule_continuation_attribution',
+  'priced_schedule_header_role_selection',
 ] as const;
 export const RecoveryTypeV2Schema = z.enum(RECOVERY_TYPES_V2);
 export type RecoveryTypeV2 = z.infer<typeof RecoveryTypeV2Schema>;
@@ -48,6 +49,20 @@ export const RecoveryCandidateTargetContextEvidenceV2Schema = z.object({
 export type RecoveryCandidateTargetContextEvidenceV2 =
   z.infer<typeof RecoveryCandidateTargetContextEvidenceV2Schema>;
 
+export const HeaderRoleSelectionSchema = z.object({
+  parserVersion: z.literal('priced_schedule_reconstruction_v2'),
+  headerInterpretationVersion: identifier,
+  optionId: identifier,
+  labels: z.array(z.object({
+    text: z.string().min(1).max(500),
+    role: z.enum(['description', 'unit', 'origin_destination', 'rate']).nullable(),
+    orderedObservationIds: z.array(identifier).min(1).max(32),
+  }).strict()).min(3).max(32),
+  /** Display context only; never an authority or candidate identity input. */
+  structuralRowCount: z.number().int().nonnegative(),
+}).strict();
+export type HeaderRoleSelection = z.infer<typeof HeaderRoleSelectionSchema>;
+
 export const RecoveryCandidateV2Schema = z.object({
   candidateId: z.string().regex(/^recovery-candidate-v2-[a-f0-9]{64}$/),
   recoveryType: RecoveryTypeV2Schema,
@@ -62,6 +77,7 @@ export const RecoveryCandidateV2Schema = z.object({
   composedRawText: z.string().min(1).max(4_000),
   evidence: z.array(RecoveryCandidateEvidenceV2Schema).min(1).max(32),
   targetContextEvidence: RecoveryCandidateTargetContextEvidenceV2Schema.optional(),
+  headerRoleSelection: HeaderRoleSelectionSchema.optional(),
 }).strict().superRefine((candidate, ctx) => {
   if (new Set(candidate.orderedObservationIds).size !== candidate.orderedObservationIds.length) {
     ctx.addIssue({ code: 'custom', message: 'duplicate candidate observation identity' });
@@ -93,6 +109,21 @@ export const RecoveryCandidateV2Schema = z.object({
       ctx.addIssue({ code: 'custom', message: 'target context overlaps candidate evidence' });
     }
   }
+  if (candidate.recoveryType === 'priced_schedule_header_role_selection') {
+    const selection = candidate.headerRoleSelection;
+    const ids = selection?.labels.flatMap(label => label.orderedObservationIds);
+    const roles = selection?.labels.flatMap(label => label.role ? [label.role] : []) ?? [];
+    if (!selection || ids?.length !== candidate.orderedObservationIds.length
+      || ids.some((id, index) => id !== candidate.orderedObservationIds[index])
+      || new Set(roles).size !== roles.length || roles.length < 3
+      || !roles.includes('description') || !roles.includes('rate')
+      || selection.labels.some(label => label.text !== label.orderedObservationIds.map(id =>
+        candidate.evidence.find(entry => entry.observationId === id)?.rawText.trim() ?? '').filter(Boolean).join(' '))) {
+      ctx.addIssue({ code: 'custom', message: 'header selection closure failed' });
+    }
+  } else if (candidate.headerRoleSelection) {
+    ctx.addIssue({ code: 'custom', message: 'header selection is header-only evidence' });
+  }
   if (candidate.candidateId !== recoveryCandidateId(candidate)) {
     ctx.addIssue({ code: 'custom', message: 'candidate identity does not match source closure' });
   }
@@ -107,6 +138,7 @@ export function recoveryCandidateId(candidate: Readonly<{
   pageRepresentationDigest: string;
   targetRowIdentity: string;
   orderedObservationIds: readonly string[];
+  headerRoleSelection?: HeaderRoleSelection;
   targetContextEvidence?: Readonly<{
     orderedObservationIds: readonly string[];
   }>;
@@ -119,6 +151,14 @@ export function recoveryCandidateId(candidate: Readonly<{
     pageRepresentationDigest: candidate.pageRepresentationDigest,
     targetRowIdentity: candidate.targetRowIdentity,
     orderedObservationIds: candidate.orderedObservationIds,
+    ...(candidate.headerRoleSelection ? {
+      headerRoleSelection: {
+        parserVersion: candidate.headerRoleSelection.parserVersion,
+        headerInterpretationVersion: candidate.headerRoleSelection.headerInterpretationVersion,
+        optionId: candidate.headerRoleSelection.optionId,
+        labels: candidate.headerRoleSelection.labels,
+      },
+    } : {}),
     ...(candidate.targetContextEvidence ? {
       targetContextObservationIds: candidate.targetContextEvidence.orderedObservationIds,
     } : {}),

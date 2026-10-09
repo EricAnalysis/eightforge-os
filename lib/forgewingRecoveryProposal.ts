@@ -100,6 +100,7 @@ export const DurableRecoveryProposalV2Schema = z.object({
   recoveryType: z.enum([
     'pricing_rate_multi_observation_cluster',
     'priced_schedule_continuation_attribution',
+    'priced_schedule_header_role_selection',
   ]),
   selectedCandidateId: z.string().regex(/^recovery-candidate-v2-[a-f0-9]{64}$/),
   candidates: z.array(RecoveryCandidateV2Schema).min(1).max(32),
@@ -112,6 +113,14 @@ export const DurableRecoveryProposalV2Schema = z.object({
   requiresHumanReview: z.literal(true),
   shadowArtifactPath: z.string().min(1).max(500).nullable(),
 }).strict().superRefine((proposal, ctx) => {
+  if (proposal.providerModel === 'deterministic_header_options'
+    && (proposal.recoveryType !== 'priced_schedule_header_role_selection'
+      || proposal.candidates.length !== 1 || proposal.certainty !== 0
+      || proposal.reasonCategory !== 'preserved_single_header_option'
+      || proposal.promptTemplateId !== 'preserved_header_options'
+      || proposal.promptTemplateVersion !== '1')) {
+    ctx.addIssue({ code: 'custom', message: 'invalid deterministic header review envelope' });
+  }
   const byId = new Map(proposal.candidates.map((candidate) => [candidate.candidateId, candidate]));
   const selected = byId.get(proposal.selectedCandidateId);
   if (byId.size !== proposal.candidates.length || !selected) {

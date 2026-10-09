@@ -208,7 +208,10 @@ async function loadReconstruction() {
   return {
     pdfBytes,
     layout,
-    reconstruction: buildPagePricedScheduleReconstruction({ layout }),
+    // The expectations above were recorded against spacing-only continuation
+    // attribution and remain its contract (and the recovery cohort's evidence).
+    // Production's row-start anchors are pinned separately below.
+    reconstruction: buildPagePricedScheduleReconstruction({ layout, continuationEvidence: 'spacing_only' }),
   };
 }
 
@@ -233,6 +236,7 @@ describe.skipIf(!corpusConfigured)('dense priced schedule reconstruction against
     }));
     const reconstruction = buildPagePricedScheduleReconstruction({
       layout,
+      continuationEvidence: 'spacing_only',
       recoveryCandidateBuildContext: {
         sourceDocumentId: '50000000-0000-4000-8000-000000000106',
         sourceArtifactId: OBSERVATION_CONTEXT.sourceArtifactId,
@@ -372,6 +376,7 @@ describe.skipIf(!corpusConfigured)('dense priced schedule reconstruction against
     const sourceDocumentId = '50000000-0000-4000-8000-000000000106';
     const candidates = buildPagePricedScheduleReconstruction({
       layout,
+      continuationEvidence: 'spacing_only',
       recoveryCandidateBuildContext: {
         sourceDocumentId,
         sourceArtifactId: OBSERVATION_CONTEXT.sourceArtifactId,
@@ -728,6 +733,7 @@ describe.skipIf(!corpusConfigured)('dense priced schedule reconstruction against
 
     const reversed = buildPagePricedScheduleReconstruction({
       layout: { ...layout, pages: [...layout.pages].reverse() },
+      continuationEvidence: 'spacing_only',
     });
 
     expect(reversed).toEqual(reconstruction);
@@ -754,5 +760,96 @@ describe.skipIf(!corpusConfigured)('dense priced schedule reconstruction against
     expect(first).toHaveLength(14);
     expect(new Set(first).size).toBe(14);
     expect(identities(reversed)).toEqual(first);
+  }, 300_000);
+
+  // ---------------------------------------------------------------------------
+  // Production: row-start anchors (E3 remediation 3). Line #, Item Number and
+  // Sec # each carry one token per authored row on its first line, so a wrapped
+  // continuation belongs to the row whose start is above it and not below the
+  // next. Every former contamination marker must land in its own row only.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Descriptions with row-start anchors, recorded from the real source. Each is
+   * the authored description in full: R5 keeps a tight same-line word cluster in
+   * its Description column when its ink overhangs into Qty, while the separately
+   * spaced Qty values stay isolated role-less evidence. (The spacing-only
+   * expectations above keep pre-R5 center-band membership.)
+   */
+  const ANCHORED_DESCRIPTIONS: readonly string[] = [
+    'Vegetative Debris Removal',
+    'Vegetative Debris Grinding',
+    'Vegetative Debris Disposal',
+    'White Goods Recycle',
+    'Inert Debris Removal and Disposal',
+    'Construction and Demolition Debris Removal and Disposal',
+    'Household Hazardous Waste Debris Removal and Disposal',
+    'Electronic Debris Removal and Disposal',
+    'Landfill Tipping Fee',
+    'Hazardous Tree Stump Excavation and Removal <24”',
+    'Hazardous Tree Stump Excavation and Removal >=24” - <48”',
+    'Hazardous Tree Stump Excavation and Removal 48” & >',
+    'Hazardous Tree Stump Removal >12"- <24"',
+    'Hazardous Tree Stump Removal =>24"- <48"',
+    'Hazardous Tree Stump Removal =>48"',
+    'Hazardous Limb Cutting (> 2”)',
+    'Hazardous Tree Cutting >= 6” - <12”',
+    'Hazardous Tree Cutting 12” - < 24”',
+    'Hazardous Tree Cutting 24” - < 36”',
+    'Hazardous Tree Cutting 36” & >',
+    'Seeding and Mulching',
+  ];
+  /** Qty values, recorded from the real source: each stays its own role-less cell. */
+  const EXPECTED_QTY = [
+    '7,500', '7,500', '2,500', '5', '1,100', '140', '120', '15', '5000', '400', '350',
+    '220', '75', '75', '75', '300', '600', '500', '100', '50', '2',
+  ] as const;
+
+  it('attributes every wrapped continuation to its own row by row-start anchors', async () => {
+    const { layout } = await loadReconstruction();
+    const reconstruction = buildPagePricedScheduleReconstruction({ layout });
+    const page = solePricedPage(reconstruction.pages);
+
+    expect(page.rows.map((row) => cellOf(row, 'description')?.raw_text)).toEqual(ANCHORED_DESCRIPTIONS);
+    expect(page.rows.map((row) => cellOf(row, 'unit')?.raw_text)).toEqual(EXPECTED_UNITS);
+    expect(page.rows.map((row) => cellOf(row, 'rate')?.raw_text)).toEqual(EXPECTED_RATE_RAW);
+    // Qty keeps exactly its own values; no description ink remains in it.
+    const qtyCells = page.rows.map((row) => row.unresolved_role_cells
+      ?.find((cell) => cell.header_text === 'Qty'));
+    expect(qtyCells.map((cell) => cell?.raw_text)).toEqual(EXPECTED_QTY);
+    expect(qtyCells.every((cell) => cell?.source_refs.map((ref) => ref.text).join(' ') === cell?.raw_text)).toBe(true);
+    expect(page.rejected_spines).toEqual([]);
+    // Geometry places the section and total at the table edges, outside body
+    // rows. They remain role-unresolved structure and never become pricing.
+    expect(page.unassigned_lines).toEqual([]);
+    expect(page.table_edge_lines?.map((entry) => [entry.position, entry.raw_text,
+      entry.cells.map((cell) => [cell.column_index, cell.raw_text])])).toEqual([
+      ['before_body', 'ROADWAY ITEMS', [[4, 'ROADWAY ITEMS']]],
+      ['after_body', 'Total Amount Of Bid For Entire Project: $1,934,700.00', [
+        [null, 'Total Amount Of Bid For Entire Project:'], [7, '$1,934,700.00'],
+      ]],
+    ]);
+    expect(page.table_edge_lines?.flatMap((entry) => entry.source_refs).map((ref) => ref.text)).toEqual([
+      'ROADWAY ITEMS', 'Total Amount Of Bid For Entire Project:', '$1,934,700.00',
+    ]);
+    const everyCellText = page.rows.flatMap((row) => row.cells.map((cell) => cell.raw_text));
+    expect(everyCellText.filter((text) => /ROADWAY ITEMS|Total Amount Of Bid/i.test(text))).toEqual([]);
+    // Each former contamination marker appears in exactly one row: its own.
+    for (const marker of UNAMBIGUOUS_CONTAMINATION_MARKERS) {
+      const holders = page.rows.filter((row) => row.cells.some((cell) => cell.raw_text.includes(marker)));
+      const owners = ANCHORED_DESCRIPTIONS.filter((description) => description.includes(marker));
+      expect(holders.map((row) => cellOf(row, 'description')?.raw_text), marker).toEqual(owners);
+    }
+  }, 300_000);
+
+  it('prices the anchored rows through the existing rate-schedule path, unit costs unchanged', async () => {
+    const { layout } = await loadReconstruction();
+    const rows = buildContractRateScheduleRows({
+      rateTable: null,
+      pricedScheduleReconstruction: buildPagePricedScheduleReconstruction({ layout }),
+    });
+    expect(rows.map((row) => row.description)).toEqual(ANCHORED_DESCRIPTIONS);
+    expect(rows.map((row) => row.rate_raw)).toEqual(EXPECTED_RATE_RAW);
+    expect(rows.map((row) => row.rate)).toEqual(EXPECTED_RATE_NUMERIC);
   }, 300_000);
 });

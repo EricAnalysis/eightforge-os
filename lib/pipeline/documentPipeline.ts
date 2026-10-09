@@ -175,6 +175,7 @@ export function runDocumentPipeline(input: ExtractNodeInput): DocumentPipelineRe
             structuralRateScheduleRows,
             candidatesBySourceRow: assembly.candidatesBySourceRow,
             pricingSourceEligibility: pricingSourcePreparation.eligibility,
+            pricingAuthorityDiagnostics: pricingSourcePreparation.pricingAuthorityDiagnostics,
           },
         });
       })()

@@ -87,11 +87,19 @@ function formatRate(option: ManualRateLinkOptionResponse): string {
   return [option.rateCode, option.description, option.unitType, amount].filter(Boolean).join(' / ');
 }
 
+/** The only parts of an issue this panel reads: which project, and which invoice line. */
+export type ManualRateLinkSubject = Readonly<{
+  projectId: IssueObject['projectId'];
+  finding: Readonly<{ subject_id: IssueObject['finding']['subject_id'] }>;
+}>;
+
 export function ManualRateLinkResolutionPanel(props: {
-  issue: IssueObject;
+  issue: ManualRateLinkSubject;
   onActionComplete: () => void | Promise<void>;
+  /** The option the operator is about to confirm (picked, else recommended), for an impact preview. */
+  onCandidateChange?: (candidate: Readonly<{ documentId: string; recordId: string }> | null) => void;
 }) {
-  const { issue, onActionComplete } = props;
+  const { issue, onActionComplete, onCandidateChange } = props;
   const router = useRouter();
   const submittingRef = useRef(false);
   const [state, setState] = useState<ManualRateLinkOptionsResponse | null>(null);
@@ -154,6 +162,11 @@ export function ManualRateLinkResolutionPanel(props: {
     () => state?.options.find((option) => option.recordId === selectedRecordId) ?? null,
     [selectedRecordId, state],
   );
+
+  const candidate = state?.activeManualLinkRecordId ? null : (pickerOpen ? selected : recommended);
+  useEffect(() => {
+    onCandidateChange?.(candidate ? { documentId: candidate.documentId, recordId: candidate.recordId } : null);
+  }, [candidate, onCandidateChange]);
 
   async function confirm(option: ManualRateLinkOptionResponse) {
     if (!state || !beginManualRateLinkSubmission(submittingRef)) return;

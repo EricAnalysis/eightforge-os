@@ -1,4 +1,5 @@
-import { hashCanonical } from '@/lib/extraction/domain/hash';
+import { hashCanonical, sha256Hex } from '@/lib/extraction/domain/hash';
+import type { RulingLineInput } from '@/lib/extraction/pdf/rulingLineEvidence';
 import { loadPdfLayout, type PdfLayoutPage } from '@/lib/extraction/pdf/extractText';
 import {
   mergeOcrFallbackLayout,
@@ -74,10 +75,12 @@ export async function runBenchmarkMachinePass(input: Readonly<{
   physicalPageNumber: number;
   /** OCR word geometry for this page, when a separate OCR run produced it. */
   ocrPages?: readonly OcrGeometryPage[];
+  rulingLineInputs?: readonly RulingLineInput[];
   /** Exact bound frame used only when the native layout cannot represent an OCR-only page. */
   pageFrame?: BenchmarkPageLabels['frame'];
 }>): Promise<BenchmarkMachineRun> {
   const startedAt = Date.now();
+  const sourceSha256 = sha256Hex(input.bytes);
   const native = await loadPdfLayout(input.bytes, {
     priorityPageNumbers: [input.physicalPageNumber],
     maxPages: input.physicalPageNumber,
@@ -117,12 +120,16 @@ export async function runBenchmarkMachinePass(input: Readonly<{
   // only builder that claims table structure. Its cells are located through the
   // tokens they cite, so a cell's box is the union of its tokens' canonical
   // boxes rather than a second geometry path.
-  const reconstruction = buildPagePricedScheduleReconstruction({ layout });
+  const reconstruction = buildPagePricedScheduleReconstruction({ layout,
+    rulingLineInputs: input.rulingLineInputs, rulingLineSourceSha256: sourceSha256 });
   const canonicalByText = new Map<string, BenchmarkBox[]>();
   for (const token of tokens) {
     const box = token.canonical_bbox ? toBenchmarkBox(token.canonical_bbox) : null;
     if (!box) continue;
-    const key = `${token.observation_id ?? ''}|${token.text}|${token.x}|${token.y}`;
+    // A cell source ref cites an OCR token by its raw OCR render box (the
+    // evidence anchor), not by its layout position, so key OCR tokens the same way.
+    const ocrBox = token.source === 'ocr_fallback' ? token.ocr_source_geometry?.bbox : undefined;
+    const key = `${token.observation_id ?? ''}|${token.text}|${ocrBox?.x0 ?? token.x}|${ocrBox?.y0 ?? token.y}`;
     canonicalByText.set(key, [...(canonicalByText.get(key) ?? []), box]);
   }
   const boxForRef = (ref: Readonly<{
@@ -140,9 +147,48 @@ export async function runBenchmarkMachinePass(input: Readonly<{
     .find((entry) => entry.physical_page_number === input.physicalPageNumber);
   const cells: Array<{ text: string; box: BenchmarkBox; isHeader: boolean; columnName: string | null }> = [];
   const rows: Array<{ orderedCellBoxes: BenchmarkBox[] }> = [];
+  // The authored header row: every column the reconstruction established,
+  // recognized or role-less, with the header tokens that established it. Its
+  // box is the union of those tokens' boxes. A page whose header is unresolved
+  // establishes no columns and so claims no header cells.
+  const headerBoxes: BenchmarkBox[] = [];
+  for (const column of reconstructedPage?.columns ?? []) {
+    const box = unionBox((column.header_source_refs ?? []).flatMap((ref) => {
+      const refBox = boxForRef(ref);
+      return refBox ? [refBox] : [];
+    }));
+    if (!box) continue;
+    cells.push({ text: column.header_text, box, isHeader: true, columnName: column.role ?? null });
+    headerBoxes.push(box);
+  }
+  if (headerBoxes.length > 0) rows.push({ orderedCellBoxes: headerBoxes });
+  const projectEdgeLines = (position: 'before_body' | 'after_body') => {
+    for (const line of reconstructedPage?.table_edge_lines?.filter((entry) => entry.position === position) ?? []) {
+      const rowBoxes: BenchmarkBox[] = [];
+      for (const cell of line.cells) {
+        const box = unionBox(cell.source_refs.flatMap((ref) => {
+          const refBox = boxForRef(ref);
+          return refBox ? [refBox] : [];
+        }));
+        if (!box) continue;
+        // Edge structure carries no semantic role and never becomes pricing.
+        cells.push({ text: cell.raw_text, box, isHeader: false, columnName: null });
+        rowBoxes.push(box);
+      }
+      if (rowBoxes.length > 0) rows.push({ orderedCellBoxes: rowBoxes });
+    }
+  };
+  projectEdgeLines('before_body');
   for (const row of reconstructedPage?.rows ?? []) {
     const rowBoxes: BenchmarkBox[] = [];
-    for (const cell of row.cells) {
+    // Structure in column order: resolved-role cells and role-unresolved cells
+    // alike. A role-unresolved cell carries no semantic column name.
+    const columns = reconstructedPage?.columns ?? [];
+    const ordered = [
+      ...row.cells.map((cell) => ({ cell, column: columns.findIndex((entry) => entry.role === cell.role) })),
+      ...(row.unresolved_role_cells ?? []).map((cell) => ({ cell, column: cell.column_index })),
+    ].sort((left, right) => left.column - right.column).map((entry) => entry.cell);
+    for (const cell of ordered) {
       const boxes = cell.source_refs.flatMap((ref) => {
         const box = boxForRef(ref);
         return box ? [box] : [];
@@ -152,9 +198,6 @@ export async function runBenchmarkMachinePass(input: Readonly<{
       cells.push({
         text: cell.raw_text,
         box,
-        // The reconstruction emits body cells; its header row is consumed as
-        // column geometry rather than published as cells, so this run makes no
-        // header claim and header accuracy will show that.
         isHeader: false,
         columnName: cell.role ?? null,
       });
@@ -162,6 +205,7 @@ export async function runBenchmarkMachinePass(input: Readonly<{
     }
     if (rowBoxes.length > 0) rows.push({ orderedCellBoxes: rowBoxes });
   }
+  projectEdgeLines('after_body');
 
   const prediction: BenchmarkPrediction = Object.freeze({
     words: Object.freeze(words),

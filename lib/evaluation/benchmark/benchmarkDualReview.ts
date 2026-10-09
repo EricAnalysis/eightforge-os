@@ -2,6 +2,10 @@ import { z } from 'zod';
 
 import {
   BENCHMARK_COVERAGE_TRUTHS,
+  BENCHMARK_DELEGATED_LABELED_BY,
+  BENCHMARK_DELEGATED_LABEL_AUTHORITY,
+  BENCHMARK_LABELS_VERSION,
+  BENCHMARK_LABEL_AUTHORITY,
   BENCHMARK_WORKSPACE_VERSION,
   BenchmarkBoxSchema,
   BenchmarkCellLabelSchema,
@@ -27,6 +31,22 @@ export const BENCHMARK_COMPARISON_AUTHORITY = 'non_authoritative_comparison' as 
 export const BENCHMARK_ADJUDICATION_VERSION =
   'extraction-benchmark-adjudication-v1' as const;
 export const BENCHMARK_ADJUDICATION_AUTHORITY = 'explicit_user_adjudication_only' as const;
+export const BENCHMARK_DELEGATED_APPROVAL_VERSION =
+  'e3-benchmark-delegated-approval-v1' as const;
+export const BENCHMARK_DELEGATED_APPROVAL_AUTHORITY =
+  'delegated_dual_ai_benchmark_approval' as const;
+export const BENCHMARK_DELEGATION_SCOPE = 'e3_benchmark_labels_finalization' as const;
+export const BENCHMARK_CANDIDATE_PREVIEW_VERSION =
+  'e3-benchmark-candidate-preview-v1' as const;
+export const BENCHMARK_CANDIDATE_PREVIEW_AUTHORITY =
+  'non_authoritative_candidate_preview' as const;
+
+export const E3_BENCHMARK_DELEGATED_APPROVAL = Object.freeze({
+  active: true as const,
+  scope: BENCHMARK_DELEGATION_SCOPE,
+  pageKeys: Object.freeze(['golden-p8', 'hillsdale-p3', 'dn-p106', 'dn-p107'] as const),
+  approverIdentities: Object.freeze(['chatgpt', 'claude'] as const),
+});
 
 const identifier = z.string().min(1).max(200).refine((value) => value.trim() === value,
   'identifier whitespace');
@@ -237,9 +257,15 @@ const ManualItemValueSchema = z.discriminatedUnion('kind', [
   ManualCellValueSchema,
   ManualRowValueSchema,
 ]);
+const SemanticAdjudicationWordValueSchema = ManualWordValueSchema.extend({
+  box: BenchmarkBoxSchema.nullable(),
+}).strict();
+const SemanticAdjudicationCellValueSchema = ManualCellValueSchema.extend({
+  box: BenchmarkBoxSchema.nullable(),
+}).strict();
 const ManualResolutionValueSchema = z.discriminatedUnion('kind', [
-  ManualWordValueSchema,
-  ManualCellValueSchema,
+  SemanticAdjudicationWordValueSchema,
+  SemanticAdjudicationCellValueSchema,
   ManualRowValueSchema,
   z.object({
     kind: z.literal('coverage'),
@@ -321,6 +347,50 @@ export const BenchmarkAdjudicationSchema = z.object({
 export type BenchmarkAdjudication = z.infer<typeof BenchmarkAdjudicationSchema>;
 export type BenchmarkAdjudicationResolution = z.infer<typeof BenchmarkAdjudicationResolutionSchema>;
 export type BenchmarkAgreementChallenge = z.infer<typeof BenchmarkAgreementChallengeSchema>;
+
+export function benchmarkAdjudicationDigest(adjudication: BenchmarkAdjudication): string {
+  return hashCanonical(adjudication);
+}
+
+const DelegatedCandidateSummarySchema = z.object({
+  words: z.number().int().nonnegative(),
+  cells: z.number().int().nonnegative(),
+  rows: z.number().int().nonnegative(),
+  coverage: z.enum(BENCHMARK_COVERAGE_TRUTHS),
+}).strict();
+
+export const BenchmarkDelegatedApprovalSchema = z.object({
+  approvalVersion: z.literal(BENCHMARK_DELEGATED_APPROVAL_VERSION),
+  authority: z.literal(BENCHMARK_DELEGATED_APPROVAL_AUTHORITY),
+  delegationScope: z.literal(BENCHMARK_DELEGATION_SCOPE),
+  pageKey: identifier,
+  source: sourceSchema,
+  frame: frameSchema,
+  adjudicationSha256: digest,
+  comparisonSha256: digest,
+  reviewerALabelSetSha256: digest,
+  reviewerBLabelSetSha256: digest,
+  suggestionsSha256: digest.nullable(),
+  candidateSha256: digest,
+  candidateSummary: DelegatedCandidateSummarySchema,
+  approverIdentity: z.enum(E3_BENCHMARK_DELEGATED_APPROVAL.approverIdentities),
+  decision: z.enum(['approve', 'reject', 'unresolved']),
+  approvedAt: z.string().datetime({ offset: true }),
+  rationale: z.string().min(1).max(2_000),
+}).strict();
+
+export const BenchmarkCandidatePreviewSchema = z.object({
+  candidatePreviewVersion: z.literal(BENCHMARK_CANDIDATE_PREVIEW_VERSION),
+  authority: z.literal(BENCHMARK_CANDIDATE_PREVIEW_AUTHORITY),
+  candidate: BenchmarkPageLabelsSchema.refine(
+    (candidate) => candidate.authority === BENCHMARK_DELEGATED_LABEL_AUTHORITY,
+    'candidate preview requires delegated benchmark authority',
+  ),
+  candidateSha256: digest,
+}).strict();
+
+export type BenchmarkDelegatedApproval = z.infer<typeof BenchmarkDelegatedApprovalSchema>;
+export type BenchmarkCandidatePreview = z.infer<typeof BenchmarkCandidatePreviewSchema>;
 
 export function benchmarkAgreementDigest(
   agreement: BenchmarkDualReviewComparison['exactAgreements'][number],
@@ -418,6 +488,12 @@ export function parseBenchmarkDualReviewComparison(
 
 export function parseBenchmarkAdjudication(bytes: Uint8Array | string): BenchmarkAdjudication {
   return parseJson(bytes, BenchmarkAdjudicationSchema, 'adjudication_schema_invalid');
+}
+
+export function parseBenchmarkDelegatedApproval(
+  bytes: Uint8Array | string,
+): BenchmarkDelegatedApproval {
+  return parseJson(bytes, BenchmarkDelegatedApprovalSchema, 'adjudication_schema_invalid');
 }
 
 function parseJson<T extends z.ZodTypeAny>(
@@ -912,13 +988,19 @@ function chosenRowCellIds(
   });
 }
 
-export function assembleResolvedBenchmarkLabels(input: Readonly<{
+type ResolvedBenchmarkContent = Readonly<{
+  words: BenchmarkPageLabels['words']['items'];
+  cells: BenchmarkPageLabels['cells']['items'];
+  rows: BenchmarkPageLabels['rows']['items'];
+  coverage: NonNullable<BenchmarkPageLabels['coverage']['truth']>;
+  coverageNote: string | null;
+}>;
+
+function assembleResolvedBenchmarkContent(input: Readonly<{
   comparison: BenchmarkDualReviewComparison;
   resolutions: readonly BenchmarkAdjudicationResolution[];
   userChallenges: readonly BenchmarkAgreementChallenge[];
-  approvedBy: string;
-  approvedAt: string;
-}>): BenchmarkPageLabels {
+}>): ResolvedBenchmarkContent {
   const issues = comparisonIssues(input.comparison);
   const issueById = new Map(issues.map((issue) => [issue.issueId, issue]));
   const resolutionById = new Map(input.resolutions.map((resolution) => [resolution.issueId, resolution]));
@@ -1000,6 +1082,10 @@ export function assembleResolvedBenchmarkLabels(input: Readonly<{
           `${issue.issueId}: manual resolution kind differs from issue kind`);
       }
       if (resolution.manualValue.kind === 'word') {
+        if (!resolution.manualValue.box) {
+          throw new BenchmarkDualReviewError('finalization_failed',
+            `${issue.issueId}: manual word resolution has no valid final geometry`);
+        }
         const labelId = finalId('word', issue.matchKey);
         words.set(labelId, {
           labelId,
@@ -1007,6 +1093,10 @@ export function assembleResolvedBenchmarkLabels(input: Readonly<{
           box: resolution.manualValue.box,
         });
       } else if (resolution.manualValue.kind === 'cell') {
+        if (!resolution.manualValue.box) {
+          throw new BenchmarkDualReviewError('finalization_failed',
+            `${issue.issueId}: manual cell resolution has no valid final geometry`);
+        }
         const labelId = finalId('cell', issue.matchKey);
         cells.set(labelId, {
           labelId,
@@ -1170,34 +1260,81 @@ export function assembleResolvedBenchmarkLabels(input: Readonly<{
       }
     }
   }
-  const labels = BenchmarkPageLabelsSchema.parse({
-    labelSetVersion: 'extraction-benchmark-labels-v1',
-    authority: 'human_evaluation_ground_truth_only',
+  return Object.freeze({
+    words: [...words.values()].sort((a, b) => a.labelId.localeCompare(b.labelId)),
+    cells: [...cells.values()].sort((a, b) => a.labelId.localeCompare(b.labelId)),
+    rows: [...rows.values()].sort((a, b) => a.rowKey.localeCompare(b.rowKey)),
+    coverage,
+    coverageNote,
+  });
+}
+
+function labelsFromResolvedContent(input: Readonly<{
+  comparison: BenchmarkDualReviewComparison;
+  content: ResolvedBenchmarkContent;
+  authority: BenchmarkPageLabels['authority'];
+  labeledBy: string | null;
+  labeledAt: string | null;
+}>): BenchmarkPageLabels {
+  return BenchmarkPageLabelsSchema.parse({
+    labelSetVersion: BENCHMARK_LABELS_VERSION,
+    authority: input.authority,
     pageKey: input.comparison.pageKey,
     source: input.comparison.source,
     frame: input.comparison.frame,
-    words: { status: 'labeled', items: [...words.values()].sort((a, b) => a.labelId.localeCompare(b.labelId)) },
-    cells: { status: 'labeled', items: [...cells.values()].sort((a, b) => a.labelId.localeCompare(b.labelId)) },
-    rows: { status: 'labeled', items: [...rows.values()].sort((a, b) => a.rowKey.localeCompare(b.rowKey)) },
-    coverage: { status: 'labeled', truth: coverage, note: coverageNote },
+    words: { status: 'labeled', items: input.content.words },
+    cells: { status: 'labeled', items: input.content.cells },
+    rows: { status: 'labeled', items: input.content.rows },
+    coverage: {
+      status: 'labeled',
+      truth: input.content.coverage,
+      note: input.content.coverageNote,
+    },
+    labeledBy: input.labeledBy,
+    labeledAt: input.labeledAt,
+  });
+}
+
+export function assembleResolvedBenchmarkLabels(input: Readonly<{
+  comparison: BenchmarkDualReviewComparison;
+  resolutions: readonly BenchmarkAdjudicationResolution[];
+  userChallenges: readonly BenchmarkAgreementChallenge[];
+  approvedBy: string;
+  approvedAt: string;
+}>): BenchmarkPageLabels {
+  const content = assembleResolvedBenchmarkContent(input);
+  return labelsFromResolvedContent({
+    comparison: input.comparison,
+    content,
+    authority: BENCHMARK_LABEL_AUTHORITY,
     labeledBy: input.approvedBy.trim(),
     labeledAt: input.approvedAt,
   });
-  return labels;
 }
 
 function normalizedIdentity(value: string): string {
   return value.trim().toLocaleLowerCase('en-US');
 }
 
-export function finalizeBenchmarkAdjudication(input: Readonly<{
+export type BenchmarkDelegation = Readonly<{
+  active: boolean;
+  scope: typeof BENCHMARK_DELEGATION_SCOPE;
+  pageKeys: readonly string[];
+  approverIdentities: readonly BenchmarkDelegatedApproval['approverIdentity'][];
+}>;
+
+type BenchmarkFinalizationInput = Readonly<{
   reviewerA: ParsedBenchmarkReviewerLabels;
   reviewerB: ParsedBenchmarkReviewerLabels;
   comparison: ParsedBenchmarkComparison;
   adjudication: BenchmarkAdjudication;
   source: BenchmarkDualReviewBindingSource;
   suggestions?: ParsedSuggestions | null;
-}>): BenchmarkPageLabels {
+}>;
+
+function validateFinalizationBindings(
+  input: BenchmarkFinalizationInput,
+): BenchmarkDualReviewComparison {
   const recomputed = compareBenchmarkReviewerLabels({
     reviewerA: input.reviewerA,
     reviewerB: input.reviewerB,
@@ -1238,6 +1375,93 @@ export function finalizeBenchmarkAdjudication(input: Readonly<{
       }
     }
   }
+  if (problems.length > 0) {
+    throw new BenchmarkDualReviewError('finalization_failed', problems.join('; '));
+  }
+  return recomputed;
+}
+
+export function validateE3BenchmarkDelegation(
+  pageKey: string,
+  delegation: BenchmarkDelegation,
+): void {
+  const problems: string[] = [];
+  if (!delegation.active) problems.push('delegated E3 benchmark approval is revoked');
+  if (delegation.scope !== BENCHMARK_DELEGATION_SCOPE) {
+    problems.push('delegation scope differs');
+  }
+  if (!delegation.pageKeys.includes(pageKey)) {
+    problems.push(`page ${pageKey} is outside delegated E3 benchmark scope`);
+  }
+  const identities = [...delegation.approverIdentities].sort();
+  if (!same(identities, [...E3_BENCHMARK_DELEGATED_APPROVAL.approverIdentities].sort())) {
+    problems.push('delegated approver identity set differs');
+  }
+  if (problems.length > 0) {
+    throw new BenchmarkDualReviewError('finalization_failed', problems.join('; '));
+  }
+}
+
+function delegatedCandidateFromResolvedAdjudication(
+  comparison: BenchmarkDualReviewComparison,
+  adjudication: BenchmarkAdjudication,
+): BenchmarkPageLabels {
+  const content = assembleResolvedBenchmarkContent({
+    comparison,
+    resolutions: adjudication.resolutions,
+    userChallenges: adjudication.userChallenges,
+  });
+  return labelsFromResolvedContent({
+    comparison,
+    content,
+    authority: BENCHMARK_DELEGATED_LABEL_AUTHORITY,
+    labeledBy: BENCHMARK_DELEGATED_LABELED_BY,
+    labeledAt: null,
+  });
+}
+
+export function delegatedCandidateSummary(
+  candidate: BenchmarkPageLabels,
+): BenchmarkDelegatedApproval['candidateSummary'] {
+  if (candidate.coverage.truth === null) {
+    throw new BenchmarkDualReviewError('finalization_failed', 'candidate coverage remains unresolved');
+  }
+  return {
+    words: candidate.words.items.length,
+    cells: candidate.cells.items.length,
+    rows: candidate.rows.items.length,
+    coverage: candidate.coverage.truth,
+  };
+}
+
+export function buildBenchmarkCandidatePreview(
+  candidate: BenchmarkPageLabels,
+): BenchmarkCandidatePreview {
+  return BenchmarkCandidatePreviewSchema.parse({
+    candidatePreviewVersion: BENCHMARK_CANDIDATE_PREVIEW_VERSION,
+    authority: BENCHMARK_CANDIDATE_PREVIEW_AUTHORITY,
+    candidate,
+    candidateSha256: benchmarkLabelsDigest(candidate),
+  });
+}
+
+export function buildDelegatedBenchmarkCandidate(
+  input: BenchmarkFinalizationInput,
+): BenchmarkPageLabels {
+  const recomputed = validateFinalizationBindings(input);
+  if (input.adjudication.approval !== null) {
+    throw new BenchmarkDualReviewError('finalization_failed',
+      'delegated candidate requires adjudication approval null');
+  }
+  validateE3BenchmarkDelegation(recomputed.pageKey, E3_BENCHMARK_DELEGATED_APPROVAL);
+  return delegatedCandidateFromResolvedAdjudication(recomputed, input.adjudication);
+}
+
+export function finalizeBenchmarkAdjudication(
+  input: BenchmarkFinalizationInput,
+): BenchmarkPageLabels {
+  const recomputed = validateFinalizationBindings(input);
+  const problems: string[] = [];
   if (!input.adjudication.approval) {
     problems.push('explicit user approval is absent');
   } else {
@@ -1264,4 +1488,75 @@ export function finalizeBenchmarkAdjudication(input: Readonly<{
       'approved candidate digest differs from deterministic final assembly');
   }
   return labels;
+}
+
+export function finalizeDelegatedBenchmarkAdjudication(
+  input: BenchmarkFinalizationInput & Readonly<{
+    approvals: readonly BenchmarkDelegatedApproval[];
+  }>,
+): BenchmarkPageLabels {
+  const candidate = buildDelegatedBenchmarkCandidate(input);
+  const delegation = E3_BENCHMARK_DELEGATED_APPROVAL;
+  const candidateSha256 = benchmarkLabelsDigest(candidate);
+  const summary = delegatedCandidateSummary(candidate);
+  const adjudicationSha256 = benchmarkAdjudicationDigest(input.adjudication);
+  const problems: string[] = [];
+
+  if (input.approvals.length !== 2) {
+    problems.push('delegated finalization requires exactly two approval artifacts');
+  }
+  const approvals = input.approvals.map((approval, index) => {
+    const parsed = BenchmarkDelegatedApprovalSchema.safeParse(approval);
+    if (!parsed.success) {
+      problems.push(`delegated approval ${index + 1} schema invalid: ${parsed.error.issues
+        .map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ')}`);
+      return null;
+    }
+    return parsed.data;
+  }).filter((approval): approval is BenchmarkDelegatedApproval => approval !== null);
+
+  const identities = approvals.map((approval) => approval.approverIdentity);
+  if (new Set(identities).size !== identities.length) {
+    problems.push('delegated approval identities must be distinct');
+  }
+  if (!same([...identities].sort(), [...delegation.approverIdentities].sort())) {
+    problems.push('delegated approval identity set must be exactly chatgpt and claude');
+  }
+
+  for (const approval of approvals) {
+    const prefix = `delegated approval ${approval.approverIdentity}`;
+    if (approval.decision !== 'approve') problems.push(`${prefix} decision is not approve`);
+    if (approval.delegationScope !== delegation.scope) {
+      problems.push(`${prefix} delegation scope differs`);
+    }
+    if (approval.pageKey !== candidate.pageKey) problems.push(`${prefix} page key differs`);
+    if (!same(approval.source, candidate.source)) problems.push(`${prefix} source differs`);
+    if (!same(approval.frame, candidate.frame)) problems.push(`${prefix} frame differs`);
+    if (approval.adjudicationSha256 !== adjudicationSha256) {
+      problems.push(`${prefix} adjudication digest differs`);
+    }
+    if (approval.comparisonSha256 !== input.comparison.sha256) {
+      problems.push(`${prefix} comparison digest differs`);
+    }
+    if (approval.reviewerALabelSetSha256 !== input.reviewerA.sha256) {
+      problems.push(`${prefix} reviewer A digest differs`);
+    }
+    if (approval.reviewerBLabelSetSha256 !== input.reviewerB.sha256) {
+      problems.push(`${prefix} reviewer B digest differs`);
+    }
+    if (approval.suggestionsSha256 !== (input.suggestions?.suggestionsSha256 ?? null)) {
+      problems.push(`${prefix} suggestions digest differs`);
+    }
+    if (approval.candidateSha256 !== candidateSha256) {
+      problems.push(`${prefix} candidate digest differs`);
+    }
+    if (!same(approval.candidateSummary, summary)) {
+      problems.push(`${prefix} candidate summary differs`);
+    }
+  }
+
+  if (problems.length > 0) {
+    throw new BenchmarkDualReviewError('finalization_failed', problems.join('; '));
+  }
+  return candidate;
 }

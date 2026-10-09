@@ -34,10 +34,11 @@ describe('failure diagnostic registry', () => {
     const reconstructionCodes = [
       'insufficient_row_structure', 'insufficient_priced_rows', 'outside_table_body',
       'ambiguous_rate_clusters', 'ambiguous_recovery_confirmation', 'recovery_closure_failed',
-      'inconsistent_row_pitch', 'ambiguous_row_assignment', 'unsupported_trailing_line',
+      'inconsistent_row_pitch', 'ambiguous_row_continuation', 'ambiguous_row_assignment', 'unsupported_trailing_line', 'unpriced_row',
       'confirmed_recovery_unbound', 'duplicate_recovery_confirmation',
       'confirmed_recovery_not_applied', 'confirmed_recovery_evidence_changed',
       'confirmed_recovery_evidence_unverifiable',
+      'confirmed_header_option_not_offered',
     ] as const satisfies readonly ReconstructionProducerCode[];
     const exhaustive: Exclude<ReconstructionProducerCode,
       (typeof reconstructionCodes)[number]> extends never ? true : never = true;

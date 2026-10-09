@@ -189,6 +189,9 @@ class MockDatabase {
   runs: Row[] = [];
   evidenceRows: Row[] = [];
   decisions: Row[] = [];
+  decisionFeedback: Row[] = [];
+  executionItems: Row[] = [];
+  rateLinks: Row[] = [];
   findings: Row[] = [
     {
       id: 'stale-finding',
@@ -233,6 +236,9 @@ class MockDatabase {
     if (table === 'project_validation_findings') return this.findings;
     if (table === 'project_validation_evidence') return this.evidenceRows;
     if (table === 'decisions') return this.decisions;
+    if (table === 'decision_feedback') return this.decisionFeedback;
+    if (table === 'execution_items') return this.executionItems;
+    if (table === 'invoice_line_rate_links') return this.rateLinks;
     return [];
   }
 
@@ -969,9 +975,13 @@ describe('persistValidationRun core persistence', () => {
     assert.equal(db.runs[0].findings_count, 2);
   });
 
-  it('does not reopen a resolved finding when check key and evidence are unchanged', async () => {
+  it('does not reopen an operator-cleared finding when check key and evidence are unchanged', async () => {
     const db = new MockDatabase();
     vi.mocked(getSupabaseAdmin).mockReturnValue(db as unknown as AdminClient);
+    // The operator closed the linked decision through the decision status route.
+    db.decisions.push({ id: 'decision-resolved', status: 'resolved' });
+    db.decisionFeedback.push({ id: 'feedback-1', decision_id: 'decision-resolved', created_by: 'operator-1',
+      decision_status_at_feedback: 'resolved', disposition: 'resolved', is_correct: null, feedback_type: 'resolution' });
     const checkKey = 'FINANCIAL_RATE_CODE_MISSING:fact:53d74340-0000-4000-8000-000000000000:line:1';
     db.findings.push({
       id: 'resolved-rate-code',
@@ -1214,5 +1224,163 @@ describe('persistValidationRun core persistence', () => {
 
     assert.equal(db.runs[0].status, 'complete');
     assert.equal(vi.mocked(finalizeDecision).mock.calls.length, 0);
+  });
+});
+
+describe('finding recurrence integrity', () => {
+  const CHECK_KEY = 'FINANCIAL_INVOICE_UNIT_PRICE_MATCHES_CONTRACT_RATE:line-1';
+  const recurring = (overrides: Partial<TestFinding> = {}) => validationFinding({
+    id: 'candidate-unit-price',
+    rule_id: 'FINANCIAL_INVOICE_UNIT_PRICE_MATCHES_CONTRACT_RATE',
+    check_key: CHECK_KEY,
+    subject_type: 'invoice_line',
+    subject_id: 'line-1',
+    field: 'unit_price',
+    expected: '12.80',
+    actual: '13',
+    severity: 'critical',
+    ...overrides,
+  });
+  const openRows = (db: MockDatabase) => db.findings.filter((row) => row.check_key === CHECK_KEY && row.status === 'open');
+  const freshDb = () => {
+    const db = new MockDatabase();
+    db.findings = [];
+    vi.mocked(getSupabaseAdmin).mockReturnValue(db as unknown as AdminClient);
+    return db;
+  };
+
+  it('open -> not observed -> identical recurrence: the recurrence is open again', async () => {
+    const db = freshDb();
+    await persistValidationRun(PROJECT_ID, validatorResult([recurring()]), 'manual', 'user-1');
+    await persistValidationRun(PROJECT_ID, validatorResult([]), 'manual', 'user-1');
+    assert.equal(openRows(db).length, 0);
+    await persistValidationRun(PROJECT_ID, validatorResult([recurring()]), 'manual', 'user-1');
+    assert.equal(openRows(db).length, 1);
+    // Blocking state is computed from the corrected open state.
+    assert.equal(db.projects[0].validation_status, 'BLOCKED');
+    assert.equal(db.runs.at(-1)?.findings_count, 1);
+  });
+
+  it('open -> not observed for many runs -> recurrence: open again', async () => {
+    const db = freshDb();
+    await persistValidationRun(PROJECT_ID, validatorResult([recurring()]), 'manual');
+    for (let run = 0; run < 5; run += 1) await persistValidationRun(PROJECT_ID, validatorResult([]), 'document_processed');
+    await persistValidationRun(PROJECT_ID, validatorResult([recurring()]), 'document_processed');
+    assert.equal(openRows(db).length, 1);
+    assert.equal(db.projects[0].validation_status, 'BLOCKED');
+  });
+
+  it('records an automatic closure as not observed, never as a person', async () => {
+    const db = freshDb();
+    await persistValidationRun(PROJECT_ID, validatorResult([recurring()]), 'manual', 'user-1');
+    vi.mocked(logActivityEvent).mockClear();
+    await persistValidationRun(PROJECT_ID, validatorResult([]), 'manual', 'user-1');
+    const closed = db.findings.find((row) => row.check_key === CHECK_KEY);
+    assert.equal(closed?.status, 'resolved');
+    assert.equal(closed?.resolved_by_user_id, null);
+    const event = vi.mocked(logActivityEvent).mock.calls.map(([entry]) => entry)
+      .find((entry) => entry.event_type === 'validation_finding_resolved');
+    assert.equal(event?.changed_by, null);
+    assert.equal(event?.new_value?.closure_kind, 'not_observed');
+    assert.equal(event?.new_value?.run_id, RUN_ID);
+  });
+
+  const clearedThrough = {
+    'a decision closed with operator feedback': (db: MockDatabase, row: Row) => {
+      row.linked_decision_id = 'decision-1';
+      db.decisions.push({ id: 'decision-1', status: 'dismissed' });
+      db.decisionFeedback.push({ id: 'feedback-1', decision_id: 'decision-1', created_by: 'operator-1',
+        decision_status_at_feedback: null, disposition: 'suppress', is_correct: false, feedback_type: 'override' });
+    },
+    'an execution outcome': (db: MockDatabase, row: Row) => {
+      row.linked_action_id = 'item-1';
+      db.executionItems.push({ id: 'item-1', project_id: PROJECT_ID, outcome: 'overridden', status: 'resolved' });
+    },
+  } as const;
+
+  for (const [path, clear] of Object.entries(clearedThrough)) {
+    it(`open -> operator clearance (${path}) -> identical recurrence: stays cleared, history intact`, async () => {
+      const db = freshDb();
+      await persistValidationRun(PROJECT_ID, validatorResult([recurring()]), 'manual');
+      const row = openRows(db)[0]!;
+      // The operator path closes the finding and leaves its own record.
+      Object.assign(row, { status: path.startsWith('a decision') ? 'dismissed' : 'resolved', resolved_by_user_id: 'operator-1',
+        resolved_at: '2026-10-04T00:00:00.000Z' });
+      clear(db, row);
+      const before = JSON.stringify({ decisions: db.decisions, feedback: db.decisionFeedback, items: db.executionItems, row });
+      await persistValidationRun(PROJECT_ID, validatorResult([recurring()]), 'manual');
+      assert.equal(openRows(db).length, 0);
+      assert.equal(db.projects[0].validation_status, 'VALIDATED');
+      // Operator decision and audit history untouched.
+      assert.equal(JSON.stringify({ decisions: db.decisions, feedback: db.decisionFeedback, items: db.executionItems,
+        row: db.findings.find((entry) => entry.id === row.id) }), before);
+    });
+  }
+
+  it('open -> manual rate link by an operator -> identical recurrence: stays cleared', async () => {
+    const db = freshDb();
+    const rateCode = (overrides: Partial<TestFinding> = {}) => recurring({ rule_id: 'FINANCIAL_RATE_CODE_MISSING',
+      check_key: 'FINANCIAL_RATE_CODE_MISSING:line-1', ...overrides });
+    await persistValidationRun(PROJECT_ID, validatorResult([rateCode()]), 'manual');
+    const row = db.findings.find((entry) => entry.check_key === 'FINANCIAL_RATE_CODE_MISSING:line-1' && entry.status === 'open')!;
+    db.rateLinks.push({ id: 'link-1', project_id: PROJECT_ID, invoice_line_subject_id: 'line-1', actor_id: 'operator-1',
+      created_at: '2026-10-03T23:59:00.000Z', is_active: true });
+    Object.assign(row, { status: 'resolved', resolved_by_user_id: 'operator-1', resolved_at: '2026-10-04T00:00:00.000Z' });
+    await persistValidationRun(PROJECT_ID, validatorResult([rateCode()]), 'manual');
+    assert.equal(db.findings.filter((entry) => entry.check_key === 'FINANCIAL_RATE_CODE_MISSING:line-1' && entry.status === 'open').length, 0);
+  });
+
+  it('a decision an operator later reopened clears nothing', async () => {
+    const db = freshDb();
+    await persistValidationRun(PROJECT_ID, validatorResult([recurring()]), 'manual');
+    const row = openRows(db)[0]!;
+    Object.assign(row, { status: 'resolved', linked_decision_id: 'decision-1', resolved_at: '2026-10-04T00:00:00.000Z' });
+    db.decisions.push({ id: 'decision-1', status: 'open' });
+    db.decisionFeedback.push({ id: 'feedback-1', decision_id: 'decision-1', created_by: 'operator-1',
+      decision_status_at_feedback: 'resolved', disposition: 'resolved', is_correct: null, feedback_type: 'resolution' });
+    await persistValidationRun(PROJECT_ID, validatorResult([recurring()]), 'manual');
+    assert.equal(openRows(db).length, 1);
+  });
+
+  it('an automatically dismissed decision with no operator record clears nothing', async () => {
+    const db = freshDb();
+    await persistValidationRun(PROJECT_ID, validatorResult([recurring()]), 'manual');
+    const row = openRows(db)[0]!;
+    // Validator decision sync dismisses stale decisions on its own; that is not an operator decision.
+    Object.assign(row, { status: 'resolved', linked_decision_id: 'decision-1', resolved_by_user_id: 'user-1' });
+    db.decisions.push({ id: 'decision-1', status: 'dismissed', details: { active: false } });
+    await persistValidationRun(PROJECT_ID, validatorResult([recurring()]), 'manual');
+    assert.equal(openRows(db).length, 1);
+  });
+
+  it('a modified recurrence after operator clearance opens', async () => {
+    const db = freshDb();
+    await persistValidationRun(PROJECT_ID, validatorResult([recurring()]), 'manual');
+    const row = openRows(db)[0]!;
+    Object.assign(row, { status: 'resolved', linked_action_id: 'item-1' });
+    db.executionItems.push({ id: 'item-1', project_id: PROJECT_ID, outcome: 'overridden' });
+    await persistValidationRun(PROJECT_ID, validatorResult([recurring({ actual: '14' })]), 'manual');
+    assert.equal(openRows(db).length, 1);
+  });
+
+  it('the shared projection the impact preview uses predicts exactly what persistence keeps open', async () => {
+    const { loadHistoricalResolvedFindings, persistedOpenFindingsForResult } = await import('@/lib/validator/persistedFindingProjection');
+    const db = freshDb();
+    const other = validationFinding({ check_key: 'OTHER:line-2', rule_id: 'OTHER', subject_id: 'line-2' });
+    const cleared = validationFinding({ check_key: 'CLEARED:line-3', rule_id: 'CLEARED', subject_id: 'line-3' });
+    await persistValidationRun(PROJECT_ID, validatorResult([recurring(), other, cleared]), 'manual');
+    const clearedRow = db.findings.find((entry) => entry.check_key === 'CLEARED:line-3')!;
+    Object.assign(clearedRow, { status: 'resolved', linked_action_id: 'item-9' });
+    db.executionItems.push({ id: 'item-9', project_id: PROJECT_ID, outcome: 'resolved' });
+    await persistValidationRun(PROJECT_ID, validatorResult([other]), 'manual');
+
+    const next = validatorResult([recurring(), other, cleared]);
+    const history = await loadHistoricalResolvedFindings(PROJECT_ID, next.findings.map((finding) => finding.check_key));
+    const predicted = persistedOpenFindingsForResult({ projectId: PROJECT_ID, result: next, clearedHistoryByCheckKey: history })
+      .map((finding) => finding.check_key).sort();
+    await persistValidationRun(PROJECT_ID, next, 'manual');
+    const actual = db.findings.filter((entry) => entry.status === 'open').map((entry) => String(entry.check_key)).sort();
+    assert.deepEqual(predicted, [CHECK_KEY, 'OTHER:line-2']);
+    assert.deepEqual(actual, predicted);
   });
 });

@@ -1,0 +1,42 @@
+{
+  "approvalVersion": "e3-benchmark-delegated-approval-v1",
+  "authority": "delegated_dual_ai_benchmark_approval",
+  "delegationScope": "e3_benchmark_labels_finalization",
+  "pageKey": "dn-p106",
+  "source": {
+    "documentKey": "dn",
+    "sha256": "69247bff02744276b75f2cb0d4c00610e8614bd5822d2d10ae2ad35564c3b272",
+    "byteLength": 3895497,
+    "physicalPageNumber": 106
+  },
+  "frame": {
+    "frame_version": "canonical_frame_v1",
+    "coordinate_space": "canonical_v1",
+    "view": [
+      0,
+      0,
+      612,
+      792
+    ],
+    "rotation": 0,
+    "user_unit": 1,
+    "width": 612,
+    "height": 792
+  },
+  "adjudicationSha256": "d2a507b1c8b148389adf0a4ee65608658672ef874bfd04d712fb213b5793ed08",
+  "comparisonSha256": "c209154a63ff15acabda2540a5ab274e5f5ff297770aaf6664d8df17659dd081",
+  "reviewerALabelSetSha256": "40a2c6d046fd627ee98bcf211309457eae02758d332056125e27ce21f724bec3",
+  "reviewerBLabelSetSha256": "e82d4cc990b206369809f19116e186ad973dfd6066ec4d3025aa192c65bf2543",
+  "suggestionsSha256": null,
+  "candidateSha256": "f4c73796ebdce03a11d61039ddd6158455c340c48eabf03dcc7bef95dec3e11d",
+  "candidateSummary": {
+    "words": 296,
+    "cells": 180,
+    "rows": 25,
+    "coverage": "native_text_complete"
+  },
+  "approverIdentity": "chatgpt",
+  "decision": "approve",
+  "approvedAt": "2026-09-29T15:46:00.000Z",
+  "rationale": "Approve E3 evaluation ground truth only for dn-p106. Reviewed the supplied delegated approval packet and the previously completed independent Reviewer A/B semantic chain. The packet binds the pinned DN source, physical page 106, canonical_frame_v1, the geometry-attached adjudication digest d2a507b1c8b148389adf0a4ee65608658672ef874bfd04d712fb213b5793ed08, and candidate digest f4c73796ebdce03a11d61039ddd6158455c340c48eabf03dcc7bef95dec3e11d with 296 words, 180 cells, 25 rows and native_text_complete coverage. The p106 semantic freeze digest 5bdb8805211f05f339af1559da38e8f44fc43470deca3d8a0f93d4f417d39281 is documented as non-authority-bearing and has been reproduced from both Reviewer B and the geometry-attached candidate; item-level invariance is 502/502 with zero semantic differences. The packet reports 296/296 geometry cross-validation, zero unresolved geometry, deterministic replay, no labels.json and no prior approvals. Approval is limited to e3_benchmark_labels_finalization and grants no production, Project Truth, validator, extraction, deployment, E4 or E5 authority."
+}

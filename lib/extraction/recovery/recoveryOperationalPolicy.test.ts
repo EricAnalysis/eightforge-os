@@ -13,6 +13,13 @@ import { hashCanonical } from '@/lib/extraction/domain/hash';
 describe('recovery operational policy', () => {
   it('seals the current qualification matrix and activation ceilings', () => {
     expect(RECOVERY_OPERATIONAL_POLICY).toEqual({
+      priced_schedule_header_role_selection: {
+        qualification: 'corpus_qualified',
+        qualificationCeiling: 'controlled',
+        reviewRequired: true,
+        deprecatedForNewScheduling: false,
+        perTypeCallCap: null,
+      },
       priced_schedule_continuation_attribution: {
         qualification: 'corpus_qualified',
         qualificationCeiling: 'controlled',
@@ -55,6 +62,7 @@ describe('recovery operational policy', () => {
     });
     expect(config.activationByType.pricing_rate_multi_observation_cluster).toBe('disabled');
     expect(config.activationByType.pricing_rate_single_observation).toBe('disabled');
+    expect(config.activationByType.priced_schedule_header_role_selection).toBe('controlled');
     expect(config.warnings.filter((warning) =>
       warning.reason === 'unqualified_activation_requested')).toHaveLength(2);
   });
@@ -73,12 +81,13 @@ describe('recovery operational policy', () => {
       const v2 = Boolean(mask & 2);
       const config = readRecoveryOperationalConfig(env);
       expect(config.activationByType).toEqual({
+        priced_schedule_header_role_selection: master && v2 ? 'controlled' : 'disabled',
         priced_schedule_continuation_attribution: master && v2 ? 'controlled' : 'disabled',
         pricing_rate_multi_observation_cluster: 'disabled',
         pricing_rate_single_observation: 'disabled',
       });
       expect(admittedRecoveryV2GenerationTypes(config)).toEqual(
-        master && v2 ? ['priced_schedule_continuation_attribution'] : [],
+        master && v2 ? ['priced_schedule_continuation_attribution', 'priced_schedule_header_role_selection'] : [],
       );
     }
   });

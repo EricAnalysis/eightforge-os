@@ -3,8 +3,17 @@ import { DiagnosticCodeSchema, DiagnosticRecoveryTypeSchema, FailureDiagnosticSc
   type FailureDiagnostic }
   from '@/lib/diagnostics/failureDiagnostic';
 import { diagnosticId } from '@/lib/diagnostics/diagnosticIdentity';
+import { hashCanonical } from '@/lib/extraction/domain/hash';
+import { isSupportedPricedScheduleVersion } from '@/lib/extraction/pdf/pricedScheduleVersion';
+import { pricingAuthorityDiagnostics, type PricingAuthorityDiagnostic } from '@/lib/extraction/pdf/pricedScheduleAuthority';
+import type { PagePricedScheduleReconstruction } from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
 import { getFailureRegistryEntry } from '@/lib/diagnostics/failureRegistry';
-import { resolveCanonicalObservationBoxes } from '@/lib/extraction/pdf/layoutObservationEvidence';
+import {
+  diagnosticSourceBoxes,
+  exactOcrPageGeometry,
+  parseDiagnosticSourceRefs,
+  type DiagnosticSourceRef,
+} from '@/lib/recovery/diagnosticVisualEvidence';
 import type { DiagnosticVisualSourceEvidence, VisualSourceBox }
   from '@/lib/recovery/visualSourceEvidence';
 import { readRecoveryReviewQueue, type RecoveryReviewCandidate }
@@ -12,6 +21,7 @@ import { readRecoveryReviewQueue, type RecoveryReviewCandidate }
 import { resolveEffectiveRecoveryConfirmations }
   from '@/lib/server/effectiveRecoveryConfirmations';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
+import { isValueReadingProposalRow } from '@/lib/server/valueReadingProposals';
 import {
   recoveryOperationalState,
   type RecoveryActivation,
@@ -42,6 +52,7 @@ export type DiagnosticCurrentState =
 const FAILURE_DIAGNOSTIC_SUMMARY_MAX_LENGTH = 1_200;
 
 export type DocumentDiagnostic = FailureDiagnostic & Readonly<{
+  pricingAuthorityDiagnostic?: PricingAuthorityDiagnostic;
   currentState: DiagnosticCurrentState;
   recoveryProposalId: string | null;
   visualEvidence: DiagnosticVisualSourceEvidence | null;
@@ -86,39 +97,9 @@ function iso(value: unknown): string {
   catch { return new Date(0).toISOString(); }
 }
 
-type DiagnosticSourceRef = Readonly<{ observation_id?: string; text: string;
-  x_min: number; x_max: number; y_min: number; y_max: number;
-  source?: 'pdfjs' | 'ocr_fallback' }>;
-
 function evidenceRefs(refs: readonly DiagnosticSourceRef[]): DiagnosticEvidenceRef[] {
   return refs.flatMap((ref) => ref.observation_id
     ? [{ kind: 'observation' as const, observationId: ref.observation_id }] : []);
-}
-
-function boxes(
-  refs: readonly DiagnosticSourceRef[],
-  page: number,
-  canonicalSidecar?: unknown,
-): VisualSourceBox[] {
-  const drawn = refs.flatMap((ref, memberIndex) => ref.observation_id ? [{
-    observationId: ref.observation_id,
-    rawText: ref.text,
-    role: 'candidate_member' as const,
-    boundingBox: { xMin: ref.x_min, xMax: ref.x_max, yMin: ref.y_min, yMax: ref.y_max },
-    sourceLayer: ref.source === 'ocr_fallback' ? 'ocr' as const : 'pdf_native_text' as const,
-    sourceCoordinateSpace: ref.source === 'ocr_fallback'
-      ? 'ocr_render_px' as const : 'pdf_user_unrotated' as const,
-    memberIndex,
-  }] : []);
-  // Canonical geometry is adopted only for a ref whose source box still
-  // matches the one the sidecar was derived from.
-  const canonical = resolveCanonicalObservationBoxes(canonicalSidecar, drawn.map((box) => ({
-    observationId: box.observationId, physicalPageNumber: page, boundingBox: box.boundingBox,
-  })));
-  return drawn.map((box) => {
-    const canonicalBoundingBox = canonical.get(box.observationId);
-    return canonicalBoundingBox ? { ...box, canonicalBoundingBox } : box;
-  });
 }
 
 function buildDiagnostic(input: Readonly<{
@@ -138,6 +119,7 @@ function buildDiagnostic(input: Readonly<{
   ocrPixelHeight?: number;
   proposal?: RecoveryReviewCandidate | null;
   recoveryType?: DiagnosticRecoveryType | null;
+  pricingAuthorityDiagnostic?: PricingAuthorityDiagnostic;
 }>): DocumentDiagnostic | null {
   const registry = getFailureRegistryEntry(input.code);
   const scope = {
@@ -150,6 +132,11 @@ function buildDiagnostic(input: Readonly<{
   let id: string;
   try { id = diagnosticId({ code: input.code, scope, evidenceRefs: input.evidenceRefs }); }
   catch { return null; }
+  // Only this new diagnostic class binds its authority failure context. Keep
+  // distinct affected pages visible even when missing OCR identity forces
+  // document scope; do not change any historical diagnostic identity.
+  if (input.pricingAuthorityDiagnostic) id = hashCanonical({ diagnosticId: id,
+    pricingAuthorityDiagnostic: input.pricingAuthorityDiagnostic });
   const candidate = {
     diagnosticId: id,
     code: input.code,
@@ -215,7 +202,8 @@ function buildDiagnostic(input: Readonly<{
       } : {}),
       boxes: [...input.visualBoxes],
     } : null;
-  return { ...parsed.data, currentState, recoveryProposalId: proposal?.proposalId ?? null,
+  return { ...parsed.data, ...(input.pricingAuthorityDiagnostic ? { pricingAuthorityDiagnostic: input.pricingAuthorityDiagnostic } : {}),
+    currentState, recoveryProposalId: proposal?.proposalId ?? null,
     visualEvidence, recoveryPolicy };
 }
 
@@ -232,22 +220,6 @@ function matchingProposal(
     && proposal.evidence.some((entry) => observationIds.has(entry.observationId))) ?? null;
 }
 
-function exactOcrPageGeometry(
-  observationsLayer: Record<string, unknown> | null,
-  page: number,
-  pageRepresentationDigest: string,
-): Readonly<{ width: number; height: number }> | null {
-  const matches = records(observationsLayer?.source_page_geometries).filter((entry) =>
-    entry.source_layer === 'ocr'
-    && entry.physical_page_number === page
-    && entry.page_representation_digest === pageRepresentationDigest);
-  if (matches.length !== 1) return null;
-  const width = Number(matches[0]!.pixel_width);
-  const height = Number(matches[0]!.pixel_height);
-  return Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0
-    ? { width, height } : null;
-}
-
 function reconstructionDiagnostics(params: Readonly<{
   organizationId: string;
   sourceDocumentId: string;
@@ -262,7 +234,7 @@ function reconstructionDiagnostics(params: Readonly<{
   const pdf = record(layers?.pdf);
   const reconstruction = record(pdf?.priced_schedule_reconstruction_v1);
   const observationsLayer = record(pdf?.layout_observations_v1);
-  if (reconstruction?.parser_version !== 'priced_schedule_reconstruction_v1'
+  if (!isSupportedPricedScheduleVersion(reconstruction?.parser_version)
     || !Array.isArray(reconstruction.pages)) return [];
   const sourceArtifactId = typeof observationsLayer?.source_artifact_id === 'string'
     ? observationsLayer.source_artifact_id
@@ -276,19 +248,52 @@ function reconstructionDiagnostics(params: Readonly<{
     }
   }
   const output: DocumentDiagnostic[] = [];
+  // This diagnostic does not require an OCR observation digest. The snapshot,
+  // source/page, and separate ruling evidence identity are still auditable.
+  for (const authority of pricingAuthorityDiagnostics({
+    parser_version: reconstruction.parser_version,
+    pages: reconstruction.pages as PagePricedScheduleReconstruction['pages'],
+  }, { sourceDocumentId: params.sourceDocumentId, ...(sourceArtifactId ? { sourceArtifactId } : {}) })) {
+    const digest = pageDigest.get(authority.physical_page_number) ?? null;
+    const diagnostic = buildDiagnostic({ code: authority.code,
+      organizationId: params.organizationId, sourceDocumentId: params.sourceDocumentId, sourceArtifactId,
+      // Preserve the existing page-scoped identity guard. Without an observation
+      // digest this is document-scoped, with the affected page in structured detail.
+      physicalPageNumber: digest ? authority.physical_page_number : null,
+      pageRepresentationDigest: digest,
+      summary: `${authority.parser_version}: pricing withheld (${authority.issue}); page ${authority.physical_page_number}, resolution ${authority.resolution_index ?? 'page metadata'}.`,
+      evidenceRefs: [], extractionSnapshotId: params.extractionSnapshotId, occurredAt: params.occurredAt,
+      pricingAuthorityDiagnostic: authority });
+    if (diagnostic) output.push(diagnostic);
+  }
   for (const rawPage of records(reconstruction.pages)) {
     const page = Number(rawPage.physical_page_number);
     const digest = pageDigest.get(page) ?? null;
     if (!Number.isInteger(page) || page < 1 || !digest) continue;
+    // A table read from geometry whose header roles are not recognized prices
+    // nothing. It is recorded, bound to its header evidence, rather than left
+    // to surface only when a header-selection proposal happens to exist.
+    if (rawPage.semantic_status === 'unresolved') {
+      const headerRefs = parseDiagnosticSourceRefs(record(rawPage.header_interpretation)?.source_refs);
+      const refs = evidenceRefs(headerRefs);
+      const ocrGeometry = exactOcrPageGeometry(observationsLayer, page, digest);
+      const diagnostic = buildDiagnostic({ code: 'priced_header_semantics_unresolved',
+        organizationId: params.organizationId, sourceDocumentId: params.sourceDocumentId,
+        sourceArtifactId, physicalPageNumber: page, pageRepresentationDigest: digest,
+        summary: typeof rawPage.header_raw_text === 'string' && rawPage.header_raw_text.trim()
+          ? `Header read as: ${rawPage.header_raw_text}` : undefined,
+        evidenceRefs: refs,
+        visualBoxes: diagnosticSourceBoxes(headerRefs, page, observationsLayer?.canonical_geometry_v1),
+        ocrPixelWidth: ocrGeometry?.width, ocrPixelHeight: ocrGeometry?.height,
+        extractionSnapshotId: params.extractionSnapshotId, occurredAt: params.occurredAt,
+        proposal: params.proposals.find((proposal) => proposal.physicalPageNumber === page
+          && proposal.recoveryType === 'priced_schedule_header_role_selection') ?? null });
+      if (diagnostic) output.push(diagnostic);
+    }
     for (const raw of [...records(rawPage.rejected_spines), ...records(rawPage.unassigned_lines)]) {
       const parsedCode = DiagnosticCodeSchema.safeParse(raw.reason);
       if (!parsedCode.success) continue;
-      const sourceRefs = records(raw.source_refs).map((ref) => ({
-        observation_id: typeof ref.observation_id === 'string' ? ref.observation_id : undefined,
-        text: String(ref.text ?? ''), x_min: Number(ref.x_min), x_max: Number(ref.x_max),
-        y_min: Number(ref.y_min), y_max: Number(ref.y_max),
-        source: ref.source === 'ocr_fallback' ? 'ocr_fallback' as const : 'pdfjs' as const,
-      }));
+      const sourceRefs = parseDiagnosticSourceRefs(raw.source_refs);
       const refs = evidenceRefs(sourceRefs);
       const ocrGeometry = exactOcrPageGeometry(observationsLayer, page, digest);
       const diagnostic = buildDiagnostic({ code: parsedCode.data,
@@ -296,7 +301,7 @@ function reconstructionDiagnostics(params: Readonly<{
         sourceArtifactId, physicalPageNumber: page, pageRepresentationDigest: digest,
         summary: typeof raw.raw_text === 'string' ? raw.raw_text : undefined,
         evidenceRefs: refs,
-        visualBoxes: boxes(sourceRefs, page, observationsLayer?.canonical_geometry_v1),
+        visualBoxes: diagnosticSourceBoxes(sourceRefs, page, observationsLayer?.canonical_geometry_v1),
         ocrPixelWidth: ocrGeometry?.width, ocrPixelHeight: ocrGeometry?.height,
         extractionSnapshotId: params.extractionSnapshotId, occurredAt: params.occurredAt,
         proposal: matchingProposal(parsedCode.data, page, refs, params.proposals) });
@@ -418,6 +423,25 @@ function extractionCoverageDiagnostics(params: Readonly<{
     }
   }
   return output;
+}
+
+/**
+ * Diagnostics derived from one extraction alone (reconstruction and page
+ * coverage), with no further read. Shared by the document diagnostics read and
+ * the resolution queue, so both see exactly the same evidence.
+ */
+export function extractionDocumentDiagnostics(params: Readonly<{
+  organizationId: string;
+  sourceDocumentId: string;
+  extraction: Record<string, unknown>;
+  extractionSnapshotId: string;
+  occurredAt: string;
+  proposals?: readonly RecoveryReviewCandidate[];
+}>): DocumentDiagnostic[] {
+  return [
+    ...reconstructionDiagnostics({ ...params, proposals: params.proposals ?? [] }),
+    ...extractionCoverageDiagnostics(params),
+  ];
 }
 
 function extractionSourceArtifactId(extraction: Record<string, unknown>): string | null {
@@ -672,7 +696,9 @@ export async function readDocumentDiagnostics(
       .filter((id): id is string => typeof id === 'string').sort(),
   ]);
   const latestProviderInvokedAt = new Map<string, string>();
-  for (const row of records(outcomeRead.data)) {
+  // Value-reading outcomes belong to resolution cases, not document diagnostics.
+  const recoveryOutcomes = records(outcomeRead.data).filter((row) => !isValueReadingProposalRow(row));
+  for (const row of recoveryOutcomes) {
     if (row.provider_invoked !== true) continue;
     const key = outcomeUnitKey(row);
     const observedAt = iso(row.observed_at);
@@ -680,7 +706,7 @@ export async function readDocumentDiagnostics(
       latestProviderInvokedAt.set(key, observedAt);
     }
   }
-  for (const row of records(outcomeRead.data)) {
+  for (const row of recoveryOutcomes) {
     if (row.outcome_code === 'budget_exhausted'
       && (latestProviderInvokedAt.get(outcomeUnitKey(row)) ?? '') > iso(row.observed_at)) continue;
     const code = typeof row.outcome_code === 'string'

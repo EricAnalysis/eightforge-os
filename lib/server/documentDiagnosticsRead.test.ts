@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { diagnosticId } from '@/lib/diagnostics/diagnosticIdentity';
-import { DIAGNOSTIC_SEVERITY_RANK, readDocumentDiagnostics,
+import { buildRulingLineInput } from '@/lib/extraction/pdf/rulingLineEvidence';
+import { DIAGNOSTIC_SEVERITY_RANK, extractionDocumentDiagnostics, readDocumentDiagnostics,
   type DiagnosticReadClient, type DiagnosticReadQuery }
   from '@/lib/server/documentDiagnosticsRead';
 
@@ -79,6 +80,65 @@ const selectableCandidate = {
 
 describe('document diagnostics read model', () => {
   afterEach(() => vi.unstubAllEnvs());
+
+  it.each(['priced_schedule_reconstruction_v1', 'priced_schedule_reconstruction_v2'])(
+    'audits withheld %s pricing even without an observation digest', async (parser_version) => {
+      const snapshot = structuredClone(extraction);
+      const pdf = snapshot.data.extraction.content_layers_v1.pdf as unknown as Record<string, unknown>;
+      pdf.layout_observations_v1 = { source_artifact_id: ARTIFACT, observations: [] };
+      const ruling = buildRulingLineInput({ sourceSha256: 'd'.repeat(64), renderSha256: 'e'.repeat(64),
+        physicalPageNumber: 7, width: 10, height: 10, rgba: new Uint8Array(400) }).evidence;
+      pdf.priced_schedule_reconstruction_v1 = { parser_version, pages: [{ physical_page_number: 7,
+        rows: [], columns: [], rejected_spines: [], unassigned_lines: [], ruling_line_evidence: ruling }] };
+      const original = structuredClone(snapshot);
+      const result = await readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {
+        admin: admin({ documents: [{ id: DOC }], document_extractions: [snapshot],
+          forgewing_recovery_generation_outcomes: [], document_analysis_jobs: [] }),
+        readRecoveryQueue: async () => ({ status: 'ok', candidates: [] }),
+      });
+      expect(result.status).toBe('ok');
+      if (result.status !== 'ok') return;
+      expect(result.diagnostics).toHaveLength(1);
+      expect(result.diagnostics[0]).toMatchObject({ code: 'ruling_line_pricing_authority_withheld',
+        severity: 'blocking', currentState: 'engineering_attention', recoveryType: null, recoveryPolicy: null,
+        scope: { sourceDocumentId: DOC, sourceArtifactId: ARTIFACT, physicalPageNumber: null, pageRepresentationDigest: null },
+        sourceIdentity: { extractionSnapshotId: 'extraction-snapshot-1' },
+        pricingAuthorityDiagnostic: { parser_version, issue: 'missing_resolutions', pricing_withheld: true,
+          physical_page_number: 7, source_document_id: DOC, source_artifact_id: ARTIFACT,
+          source_sha256: 'd'.repeat(64), render_sha256: 'e'.repeat(64), ruling_evidence_digest: ruling.evidence_digest } });
+      expect(snapshot).toEqual(original);
+    });
+
+  it('reads current v2 reconstruction diagnostics without replacing historical v1', async () => {
+    const current = structuredClone(extraction);
+    (current.data.extraction.content_layers_v1.pdf.priced_schedule_reconstruction_v1 as { parser_version: string }).parser_version = 'priced_schedule_reconstruction_v2';
+    const read = (snapshot: typeof extraction) => readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {
+      admin: admin({ documents: [{ id: DOC }], document_extractions: [snapshot], forgewing_recovery_generation_outcomes: [], document_analysis_jobs: [] }),
+      readRecoveryQueue: async () => ({ status: 'ok', candidates: [] }),
+    });
+    expect(await read(current)).toEqual(await read(extraction));
+    expect(extraction.data.extraction.content_layers_v1.pdf.priced_schedule_reconstruction_v1.parser_version).toBe('priced_schedule_reconstruction_v1');
+  });
+
+  it('keeps separate withheld pages visible without inventing observation identities', async () => {
+    const snapshot = structuredClone(extraction), pdf = snapshot.data.extraction.content_layers_v1.pdf as unknown as Record<string, unknown>;
+    pdf.layout_observations_v1 = { source_artifact_id: ARTIFACT, observations: [] };
+    pdf.priced_schedule_reconstruction_v1 = { parser_version: 'priced_schedule_reconstruction_v2', pages: [7, 8].map(physical_page_number => ({
+      physical_page_number, rows: [], columns: [], rejected_spines: [], unassigned_lines: [],
+      ruling_line_evidence: buildRulingLineInput({ sourceSha256: 'd'.repeat(64), renderSha256: 'e'.repeat(64),
+        physicalPageNumber: physical_page_number, width: 10, height: 10, rgba: new Uint8Array(400) }).evidence,
+    })) };
+    const result = await readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {
+      admin: admin({ documents: [{ id: DOC }], document_extractions: [snapshot], forgewing_recovery_generation_outcomes: [], document_analysis_jobs: [] }),
+      readRecoveryQueue: async () => ({ status: 'ok', candidates: [] }),
+    });
+    expect(result.status).toBe('ok');
+    if (result.status !== 'ok') return;
+    expect(result.diagnostics).toHaveLength(2);
+    expect(new Set(result.diagnostics.map(d => d.diagnosticId)).size).toBe(2);
+    expect(result.diagnostics.map(d => d.pricingAuthorityDiagnostic?.physical_page_number).sort()).toEqual([7, 8]);
+    expect(result.diagnostics.every(d => d.evidenceRefs.length === 0 && d.scope.physicalPageNumber === null)).toBe(true);
+  });
 
   it('uses explicit blocking, warning, info severity order', () => {
     expect(DIAGNOSTIC_SEVERITY_RANK).toEqual({ blocking: 0, warning: 1, info: 2 });
@@ -217,6 +277,24 @@ describe('document diagnostics read model', () => {
     });
     expect(result.status === 'ok' && result.diagnostics.map((entry) => entry.severity))
       .toEqual(['blocking', 'warning', 'info']);
+  });
+  it('leaves value-reading outcomes to their resolution cases (B4.3)', async () => {
+    const persistedId = diagnosticId({ code: 'recovery_budget_exhausted', scope: {
+      organizationId: ORG, sourceDocumentId: DOC, sourceArtifactId: ARTIFACT,
+      physicalPageNumber: 7, pageRepresentationDigest: DIGEST,
+    }, evidenceRefs: [] });
+    const result = await readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {
+      admin: admin({ documents: [{ id: DOC, processing_error: null }],
+        document_extractions: [extraction], forgewing_recovery_generation_outcomes: [{
+          diagnostic_id: persistedId, source_artifact_id: ARTIFACT,
+          extraction_snapshot_id: 'snapshot-outcome', physical_page_number: 7,
+          page_representation_digest: DIGEST, recovery_type: 'priced_value_reading',
+          outcome_code: 'budget_exhausted', sanitized_reason: 'budget_exhausted',
+          provider_invoked: false, candidate_ids: [], observed_at: '2026-09-12T12:00:00Z',
+        }], document_analysis_jobs: [] }),
+      readRecoveryQueue: async () => ({ status: 'ok', candidates: [] }),
+    });
+    expect(result.status === 'ok' && result.diagnostics.map((entry) => entry.diagnosticId)).not.toContain(persistedId);
   });
   it('derives source-bound reconstruction diagnostics and links only an existing proposal', async () => {
     const result = await readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {
@@ -685,5 +763,29 @@ describe('document diagnostics read model', () => {
     if (result.status !== 'ok') return;
     expect(result.diagnostics.some((entry) => entry.code === 'recovery_provider_failed')).toBe(false);
     expect(result.diagnostics.some((entry) => entry.code === 'ambiguous_row_assignment')).toBe(true);
+  });
+});
+
+describe('evidence attention in document diagnostics (Forgewing generalization, phase 1)', () => {
+  it('records a table whose header roles are unresolved, bound to its header evidence, with case attention', () => {
+    const snapshot = structuredClone(extraction);
+    const pdf = snapshot.data.extraction.content_layers_v1.pdf as unknown as Record<string, unknown>;
+    pdf.priced_schedule_reconstruction_v1 = { parser_version: 'priced_schedule_reconstruction_v3', pages: [{
+      physical_page_number: 7, status: 'reconstructed', semantic_status: 'unresolved', header_raw_text: 'Category Descripti Unit Rate',
+      header_interpretation: { status: 'unresolved', source_refs: [{ observation_id: 'obs-header', text: 'Descripti',
+        x_min: 10, x_max: 40, y_min: 100, y_max: 112, source: 'ocr_fallback' }] },
+      rows: [], columns: [], rejected_spines: [], unassigned_lines: [] }] };
+    const diagnostics = extractionDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC,
+      extraction: snapshot.data as unknown as Record<string, unknown>, extractionSnapshotId: 'snap', occurredAt: '2026-10-06T00:00:00.000Z' });
+    expect(diagnostics).toMatchObject([{ code: 'priced_header_semantics_unresolved', attention: 'resolution_case',
+      recoverability: 'recoverable_after_human_review', recoveryType: 'priced_schedule_header_role_selection',
+      summary: 'Header read as: Category Descripti Unit Rate', scope: { physicalPageNumber: 7 },
+      evidenceRefs: [{ kind: 'observation', observationId: 'obs-header' }] }]);
+  });
+
+  it('carries the registry attention on every diagnostic it builds', () => {
+    const diagnostics = extractionDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC,
+      extraction: extraction.data as unknown as Record<string, unknown>, extractionSnapshotId: 'snap', occurredAt: '2026-10-06T00:00:00.000Z' });
+    expect(diagnostics.map((entry) => [entry.code, entry.attention])).toEqual([['ambiguous_row_assignment', 'diagnostics_panel']]);
   });
 });

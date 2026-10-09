@@ -27,7 +27,7 @@ function nativeLine(y: number, specs: ReadonlyArray<{ x: number; text: string; w
 /** Realistic, non-overlapping line pitch: 8pt glyphs on a 15pt baseline grid. */
 const LINES: readonly PdfLayoutLine[] = [
   // Single-word header labels: OCR delivers words, and each header token is a
-  // header cell. Multi-word labels are covered by the fail-closed test below.
+  // header cell. Multi-word labels split into OCR words are covered below.
   nativeLine(700, [
     { x: 50, text: 'Description', width: 70 },
     { x: 200, text: 'Unit', width: 30 },
@@ -121,7 +121,22 @@ describe('OCR-normalized priced schedule reconstruction', () => {
     expect(amount.y_max).toBeCloseTo((PAGE_HEIGHT - 670) * RENDER_SCALE, 0);
   });
 
-  it('fails closed, never guessing, when OCR splits a multi-word header label into words', () => {
+  const ocrOnly = (lines: readonly PdfLayoutLine[]) => mergeOcrFallbackLayout({
+    nativeLayout: {
+      page_count: 1, gaps: [],
+      pages: [{ page_number: 1, width: PAGE_WIDTH, height: PAGE_HEIGHT, lines: [] }],
+    },
+    ocrPages: [{
+      page_number: 1, width: PAGE_WIDTH * RENDER_SCALE, height: PAGE_HEIGHT * RENDER_SCALE,
+      words: ocrWords(lines),
+    }],
+    representation: 'reconciled_pdf_points',
+  }).layout;
+
+  it('reads a multi-word header label that OCR split into words exactly as the native label', () => {
+    // E3 remediation 1 (approved): words a word-space apart on a line that does
+    // not qualify token-by-token are read as one label, so "Unit of Measure"
+    // arriving as three OCR words names one unit column, as it does natively.
     const splitHeader = [
       nativeLine(700, [
         { x: 50, text: 'Description', width: 70 },
@@ -131,20 +146,227 @@ describe('OCR-normalized priced schedule reconstruction', () => {
       ]),
       ...LINES.slice(1),
     ];
-    const merged = mergeOcrFallbackLayout({
-      nativeLayout: {
-        page_count: 1, gaps: [],
-        pages: [{ page_number: 1, width: PAGE_WIDTH, height: PAGE_HEIGHT, lines: [] }],
-      },
-      ocrPages: [{
-        page_number: 1, width: PAGE_WIDTH * RENDER_SCALE, height: PAGE_HEIGHT * RENDER_SCALE,
-        words: ocrWords(splitHeader),
-      }],
-      representation: 'reconciled_pdf_points',
+    const native = rowsOf({
+      page_count: 1, gaps: [],
+      pages: [{ page_number: 1, width: PAGE_WIDTH, height: PAGE_HEIGHT, lines: [...splitHeader] }],
     });
-    // "Unit" and "Measure" both name the unit column: an ambiguous header is
-    // refused. Grouping OCR words into header cells is a separate, unapproved
-    // reconstruction change, not coordinate normalization.
-    expect(buildPagePricedScheduleReconstruction({ layout: merged.layout }).pages).toEqual([]);
+    expect(native).toHaveLength(2);
+    expect(rowsOf(ocrOnly(splitHeader))).toEqual(native);
+  });
+
+  it('preserves an unknown column identically from OCR words as from native text', () => {
+    // A column the vocabulary cannot name ("Code") keeps its cells as role-less
+    // structure, and the OCR page yields exactly the native structure.
+    const withCode = [
+      nativeLine(700, [
+        { x: 10, text: 'Code', width: 25 },
+        { x: 50, text: 'Description', width: 70 },
+        { x: 200, text: 'Unit', width: 30 },
+        { x: 300, text: 'Route', width: 40 },
+        { x: 450, text: 'Cost', width: 30 },
+      ]),
+      LINES[1]!,
+      nativeLine(670, [{ x: 10, text: 'A1', width: 12 }, ...LINES[2]!.tokens.map((token) => ({ x: token.x, text: token.text, width: token.width }))]),
+      LINES[3]!,
+      nativeLine(570, [{ x: 10, text: 'B2', width: 12 }, ...LINES[4]!.tokens.map((token) => ({ x: token.x, text: token.text, width: token.width }))]),
+    ];
+    const structure = (layout: PdfLayout) => buildPagePricedScheduleReconstruction({ layout }).pages[0]!.rows
+      .map((row) => (row.unresolved_role_cells ?? []).map((cell) => [cell.header_text, cell.raw_text, cell.role]));
+    const native = structure({
+      page_count: 1, gaps: [],
+      pages: [{ page_number: 1, width: PAGE_WIDTH, height: PAGE_HEIGHT, lines: withCode }],
+    });
+    expect(native).toEqual([[['Code', 'A1', null]], [['Code', 'B2', null]]]);
+    expect(structure(ocrOnly(withCode))).toEqual(native);
+    expect(rowsOf(ocrOnly(withCode))).toEqual(rowsOf({
+      page_count: 1, gaps: [],
+      pages: [{ page_number: 1, width: PAGE_WIDTH, height: PAGE_HEIGHT, lines: withCode }],
+    }));
+  });
+
+  it('keeps an overhanging word cluster and separated role-less Qty identical in native and OCR geometry', () => {
+    const membershipLines = [
+      nativeLine(700, [
+        { x: 50, text: 'Description', width: 60 }, { x: 170, text: 'Qty', width: 30 },
+        { x: 250, text: 'Unit', width: 35 }, { x: 350, text: 'Cost', width: 30 },
+      ]),
+      ...[680, 660].map((y, index) => nativeLine(y, [
+        { x: 50, text: index === 0 ? 'Alpha' : 'Beta', width: 75 },
+        // Center lies in Qty, but the tight cluster has a 3:1 Description overlap.
+        { x: 130, text: 'tail', width: 40 },
+        { x: 190, text: `${index + 1}`, width: 10 },
+        { x: 255, text: 'EA', width: 15 },
+        { x: 350, text: '$', width: 8 }, { x: 365, text: '12.00', width: 35 },
+      ])),
+    ];
+    const projection = (layout: PdfLayout) => buildPagePricedScheduleReconstruction({ layout }).pages[0]!.rows
+      .map((row) => ({
+        cells: row.cells.map((cell) => [cell.role, cell.raw_text]),
+        unresolved: (row.unresolved_role_cells ?? []).map((cell) => [cell.header_text, cell.raw_text]),
+      }));
+    const nativeLayout: PdfLayout = {
+      page_count: 1, gaps: [],
+      pages: [{ page_number: 1, width: PAGE_WIDTH, height: PAGE_HEIGHT, lines: membershipLines }],
+    };
+    const ocrLayout = ocrOnly(membershipLines);
+    expect(projection(nativeLayout)).toEqual([
+      { cells: [['description', 'Alpha tail'], ['unit', 'EA'], ['rate', '$ 12.00']], unresolved: [['Qty', '1']] },
+      { cells: [['description', 'Beta tail'], ['unit', 'EA'], ['rate', '$ 12.00']], unresolved: [['Qty', '2']] },
+    ]);
+    expect(projection(ocrLayout)).toEqual(projection(nativeLayout));
+    const ocrDescription = buildPagePricedScheduleReconstruction({ layout: ocrLayout }).pages[0]!.rows[0]!.cells
+      .find((cell) => cell.role === 'description')!;
+    expect(ocrDescription.source_refs.find((ref) => ref.text === 'tail')).toMatchObject({
+      source: 'ocr_fallback', x_min: 130 * RENDER_SCALE, x_max: 170 * RENDER_SCALE - 2,
+    });
+  });
+
+  it('keeps a role-less category overhang out of the description identically in native and OCR geometry', () => {
+    const categoryLines = [
+      nativeLine(700, [
+        { x: 10, text: 'Category', width: 40 }, { x: 110, text: 'Description', width: 60 },
+        { x: 250, text: 'Unit', width: 35 }, { x: 350, text: 'Cost', width: 30 },
+      ]),
+      ...[680, 660].map((y, index) => nativeLine(y, [
+        { x: 10, text: index === 0 ? 'Alpha' : 'Beta', width: 50 },
+        // Tight to the category word; its centre lies past the x=80 boundary.
+        { x: 64, text: 'haul', width: 40 },
+        { x: 130, text: 'work', width: 60 }, { x: 255, text: 'EA', width: 15 },
+        { x: 350, text: '$', width: 8 }, { x: 365, text: '12.00', width: 35 },
+      ])),
+    ];
+    const projection = (layout: PdfLayout) => buildPagePricedScheduleReconstruction({ layout }).pages[0]!.rows
+      .map((row) => ({
+        cells: row.cells.map((cell) => [cell.role, cell.raw_text]),
+        unresolved: (row.unresolved_role_cells ?? []).map((cell) => [cell.header_text, cell.raw_text]),
+      }));
+    const nativeLayout: PdfLayout = {
+      page_count: 1, gaps: [],
+      pages: [{ page_number: 1, width: PAGE_WIDTH, height: PAGE_HEIGHT, lines: categoryLines }],
+    };
+    expect(projection(nativeLayout)).toEqual([
+      { cells: [['description', 'work'], ['unit', 'EA'], ['rate', '$ 12.00']], unresolved: [['Category', 'Alpha haul']] },
+      { cells: [['description', 'work'], ['unit', 'EA'], ['rate', '$ 12.00']], unresolved: [['Category', 'Beta haul']] },
+    ]);
+    expect(projection(ocrOnly(categoryLines))).toEqual(projection(nativeLayout));
+  });
+
+  it('attributes a wrapped line by row-start anchors identically from OCR words as from native text', () => {
+    const priced = (y: number, code: string, description: string) => nativeLine(y, [
+      { x: 10, text: code, width: 12 }, { x: 50, text: description, width: 100 },
+      { x: 200, text: 'Widget', width: 60 }, { x: 300, text: 'Yard to Depot', width: 100 },
+      { x: 450, text: '$', width: 8 }, { x: 470, text: '12.00', width: 40 },
+    ]);
+    const anchored = [
+      nativeLine(700, [
+        { x: 10, text: 'Code', width: 25 }, { x: 50, text: 'Description', width: 70 },
+        { x: 200, text: 'Unit', width: 30 }, { x: 300, text: 'Route', width: 40 }, { x: 450, text: 'Cost', width: 30 },
+      ]),
+      priced(680, 'A1', 'Alpha service'),
+      // Midway between two priced lines: only the row-start anchors can place it.
+      nativeLine(670, [{ x: 50, text: 'first wrap', width: 60 }]),
+      priced(660, 'B2', 'Beta service'),
+      priced(648, 'C3', 'Gamma service'),
+    ];
+    const native = rowsOf({
+      page_count: 1, gaps: [],
+      pages: [{ page_number: 1, width: PAGE_WIDTH, height: PAGE_HEIGHT, lines: anchored }],
+    });
+    expect(native!.map((row) => row.description)).toEqual(['Alpha service first wrap', 'Beta service', 'Gamma service']);
+    expect(rowsOf(ocrOnly(anchored))).toEqual(native);
+  });
+
+  it('derives the same structured rate from OCR words as from native text when the marker is unread', () => {
+    const row = (y: number, code: string, description: string, rate: ReadonlyArray<{ x: number; text: string; width: number }>) =>
+      nativeLine(y, [
+        { x: 10, text: code, width: 12 }, { x: 50, text: description, width: 100 },
+        { x: 200, text: 'Widget', width: 60 }, { x: 300, text: 'Yard to Depot', width: 100 }, ...rate,
+      ]);
+    const dollar = [{ x: 450, text: '$', width: 8 }, { x: 470, text: '12.00', width: 40 }];
+    const lines = [
+      nativeLine(700, [
+        { x: 10, text: 'Code', width: 25 }, { x: 50, text: 'Description', width: 70 },
+        { x: 200, text: 'Unit', width: 30 }, { x: 300, text: 'Route', width: 40 }, { x: 450, text: 'Cost', width: 30 },
+      ]),
+      row(680, 'A1', 'Alpha service', dollar),
+      row(665, 'B2', 'Beta service', [{ x: 450, text: '§', width: 8 }, { x: 470, text: '120.00', width: 40 }]),
+      row(650, 'C3', 'Gamma service', [{ x: 470, text: '1,300.00', width: 40 }]),
+      row(635, 'D4', 'Delta service', dollar),
+    ];
+    const derived = (layout: PdfLayout) => buildPagePricedScheduleReconstruction({ layout }).pages[0]!.rows.map((entry) => {
+      const rate = entry.cells.find((cell) => cell.role === 'rate')!;
+      return [rate.raw_text, rate.structured_rate?.amount_text ?? null, rate.structured_rate?.marker_source_ref?.text ?? null];
+    });
+    const native = derived({
+      page_count: 1, gaps: [],
+      pages: [{ page_number: 1, width: PAGE_WIDTH, height: PAGE_HEIGHT, lines }],
+    });
+    expect(native).toEqual([
+      ['$ 12.00', null, null], ['§ 120.00', '120.00', '§'], ['1,300.00', '1,300.00', null], ['$ 12.00', null, null],
+    ]);
+    expect(derived(ocrOnly(lines))).toEqual(native);
+    expect(rowsOf(ocrOnly(lines))).toEqual(rowsOf({
+      page_count: 1, gaps: [],
+      pages: [{ page_number: 1, width: PAGE_WIDTH, height: PAGE_HEIGHT, lines }],
+    }));
+  });
+
+  it('preserves equivalent table-edge structure from native and OCR geometry', () => {
+    const priced = (y: number, code: string, description: string) => nativeLine(y, [
+      { x: 10, text: code, width: 12 }, { x: 50, text: description, width: 100 },
+      { x: 200, text: 'Widget', width: 45 }, { x: 300, text: 'Yard to Depot', width: 70 },
+      { x: 450, text: '$', width: 8 }, { x: 470, text: '12.00', width: 40 },
+    ]);
+    const lines = [
+      nativeLine(700, [
+        { x: 10, text: 'Code', width: 25 }, { x: 50, text: 'Description', width: 70 },
+        { x: 200, text: 'Unit', width: 30 }, { x: 300, text: 'Route', width: 40 }, { x: 450, text: 'Cost', width: 30 },
+      ]),
+      nativeLine(690, [{ x: 130, text: 'ROADWAY', width: 50 }, { x: 184, text: 'ITEMS', width: 35 }]),
+      priced(675, 'A1', 'Alpha service'), priced(660, 'B2', 'Beta service'), priced(645, 'C3', 'Gamma service'),
+      nativeLine(630, [
+        { x: 240, text: 'Project', width: 50 }, { x: 294, text: 'subtotal:', width: 60 },
+        { x: 450, text: '$', width: 8 }, { x: 470, text: '99.00', width: 40 },
+      ]),
+    ];
+    const nativeLayout: PdfLayout = {
+      page_count: 1, gaps: [],
+      pages: [{ page_number: 1, width: PAGE_WIDTH, height: PAGE_HEIGHT, lines }],
+    };
+    const projection = (layout: PdfLayout) => {
+      const page = buildPagePricedScheduleReconstruction({ layout }).pages[0]!;
+      return {
+        rows: page.rows.map((row) => row.cells.map((cell) => [cell.role, cell.raw_text])),
+        edges: (page.table_edge_lines ?? []).map((edge) => ({
+          position: edge.position,
+          rawText: edge.raw_text,
+          cells: edge.cells.map((cell) => [cell.column_index, cell.raw_text]),
+          refs: edge.source_refs.map((ref) => ref.text),
+        })),
+      };
+    };
+    expect(projection(ocrOnly(lines))).toEqual(projection(nativeLayout));
+    const ocrEdges = buildPagePricedScheduleReconstruction({ layout: ocrOnly(lines) }).pages[0]!.table_edge_lines!;
+    expect(ocrEdges.flatMap((edge) => edge.source_refs).every((ref) => ref.source === 'ocr_fallback')).toBe(true);
+  });
+
+  it('still fails closed, never guessing, when one role names two separate columns', () => {
+    // Column gaps are never bridged: two unit columns remain an ambiguous header.
+    const ambiguousHeader = [
+      nativeLine(700, [
+        { x: 50, text: 'Description', width: 70 },
+        { x: 200, text: 'Unit', width: 30 },
+        { x: 300, text: 'Unit', width: 30 },
+        { x: 450, text: 'Cost', width: 30 },
+      ]),
+      ...LINES.slice(1),
+    ];
+    // Reported, never reconstructed: no columns, no rows, the reason, and the
+    // OCR words it would have to choose between.
+    const pages = buildPagePricedScheduleReconstruction({ layout: ocrOnly(ambiguousHeader) }).pages;
+    expect(pages).toHaveLength(1);
+    expect(pages[0]).toMatchObject({ status: 'failed_closed', columns: [], rows: [] });
+    expect(pages[0]!.header_interpretation).toMatchObject({ status: 'unresolved', reason: 'duplicate_role' });
+    expect(pages[0]!.header_interpretation!.source_refs.every((ref) => ref.source === 'ocr_fallback')).toBe(true);
   });
 });

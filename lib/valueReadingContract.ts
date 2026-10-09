@@ -11,7 +11,8 @@ export const VALUE_READING_EXECUTION = Object.freeze({
   timeoutMs: 8000,
   maxOutputTokens: 300,
   promptTemplateId: 'forgewing-priced-value-reading',
-  promptTemplateVersion: 'v1',
+  /** v2 (B4.6.1 latency): the rationale is at most twelve words; every value instruction is unchanged. */
+  promptTemplateVersion: 'v2',
   outputSchemaVersion: 'value_reading_output_v2',
   /** v2 paints only the crop rectangle (B4.6.1); v1 painted the whole page and copied the rectangle out. */
   cropRenderer: 'value_reading_region_crop_v2',

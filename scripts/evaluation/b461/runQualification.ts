@@ -20,7 +20,8 @@
  * comes from a reading. See docs/runbooks/b461-qualification.md.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 
 import { BENCHMARK_PAGES, bindBenchmarkLabels, parseBenchmarkLabels } from '@/lib/evaluation/benchmark/benchmarkContract';
@@ -31,9 +32,13 @@ import {
   type LabelledQualificationPage,
   type QualificationTargetBinding,
 } from '@/lib/evaluation/benchmark/qualificationBinding';
-import { decideQualification } from '@/lib/evaluation/benchmark/qualificationScoring';
-import { proposeQualificationSet } from '@/lib/evaluation/benchmark/qualificationSet';
-import { classifyReadingFailures } from '@/lib/evaluation/benchmark/qualificationTaxonomy';
+import { decideQualification, QUALIFICATION_DECISION_VERSION } from '@/lib/evaluation/benchmark/qualificationScoring';
+import { proposeQualificationSet, QUALIFICATION_TASKS } from '@/lib/evaluation/benchmark/qualificationSet';
+import { classifyReadingFailures, QUALIFICATION_TAXONOMY_VERSION } from '@/lib/evaluation/benchmark/qualificationTaxonomy';
+import { assertQualificationContract, QUALIFICATION_CONTRACT, validateQualificationCaptures,
+  validateQualificationRecords, qualificationSourceDigest } from '@/lib/evaluation/benchmark/qualificationContract';
+import { partitionQualificationExclusions, assertQualificationExclusionsFinalized, QUALIFICATION_EXCLUSIONS,
+  type QualificationExclusionAnchor } from '@/lib/evaluation/benchmark/qualificationExclusions';
 import {
   applyValueReadingAdjudications,
   isValueReadingDisagreement,
@@ -65,7 +70,7 @@ import { renderValueReadingCrop } from '@/lib/server/valueReadingRegionRenderer'
 import { VALUE_READING_EXECUTION } from '@/lib/valueReadingContract';
 
 /** The model B4.6 qualified against; another needs its own approval and run. */
-const APPROVED_MODEL = 'claude-sonnet-4-6';
+const APPROVED_MODEL = QUALIFICATION_CONTRACT.model;
 const DEFAULT_ARTIFACT_ROOT = 'scripts/evaluation/artifacts/b461/local';
 /** The B4.6 clearance: same documents, same content class (page-region images), same qualification. */
 const CLEARANCE_FILE = 'scripts/evaluation/b46/transmission-clearance.json';
@@ -113,13 +118,24 @@ function bindingDigest(bindings: readonly QualificationTargetBinding[]): string 
 }
 
 async function prepare(args: Map<string, string | true>) {
-  const pins = parseCorpusPins(JSON.parse(readFileSync(required(args, '--pins'), 'utf8'))).documents;
+  const corpusPins = parseCorpusPins(JSON.parse(readFileSync(required(args, '--pins'), 'utf8')));
+  assertQualificationContract({ scorer: QUALIFICATION_DECISION_VERSION, taxonomy: QUALIFICATION_TAXONOMY_VERSION,
+    binding: QUALIFICATION_BINDING_VERSION, tasks: QUALIFICATION_TASKS, execution: VALUE_READING_EXECUTION,
+    activationBar: VALUE_READING_ACTIVATION_BAR, promptSha256: sha256(new TextEncoder().encode(loadValueReadingPrompt())),
+    pins: corpusPins, sourceSha256: Object.fromEntries(Object.keys(QUALIFICATION_CONTRACT.sourceSha256)
+      .map(file => [file, qualificationSourceDigest(readFileSync(file, 'utf8'))])) });
+  const pins = corpusPins.documents;
   const corpus = required(args, '--corpus');
   const captures = required(args, '--captures');
+  const captureIdentity = validateQualificationCaptures(corpusPins,
+    JSON.parse(readFileSync(path.join(captures, 'runtime-manifest.json'), 'utf8')),
+    JSON.parse(readFileSync(path.join(captures, 'capture-hashes.json'), 'utf8')),
+    relative => readFileSync(path.join(captures, relative)));
   const documents: InventoryDocumentInput[] = [];
   const sources = new Map<string, Uint8Array>();
   const labelledPages: LabelledQualificationPage[] = [];
   const provenance: Record<string, unknown>[] = [];
+  const pageDigests = new Map<string, string>();
   for (const pin of pins) {
     const bytes = new Uint8Array(readFileSync(path.join(corpus, pin.file)));
     if (sha256(bytes) !== pin.sha256) throw new Error(`${pin.label}: source bytes are not the pinned corpus`);
@@ -131,11 +147,19 @@ async function prepare(args: Map<string, string | true>) {
     }
     documents.push({ documentId: capture.document_id as string, label: pin.label,
       extraction: { id: `pinned:${pin.sha256}`, created_at: null, data: capture.data as Record<string, unknown> } });
+    const pdf = (capture.data as { extraction?: { content_layers_v1?: { pdf?: {
+      layout_observations_v1?: { canonical_geometry_v1?: { pages?: { physical_page_number: number; page_representation_digest: string }[] } }
+    } } } }).extraction?.content_layers_v1?.pdf;
+    for (const page of pdf?.layout_observations_v1?.canonical_geometry_v1?.pages ?? []) {
+      pageDigests.set(`${capture.document_id}:${page.physical_page_number}`, page.page_representation_digest);
+    }
     // Every tracked labelled page of this source, bound to the page's canonical frame from these bytes.
     for (const spec of BENCHMARK_PAGES.filter((candidate) => candidate.sha256 === pin.sha256)) {
       const page = VALUE_READING_BENCHMARK_PAGES.find((candidate) => candidate.pageKey === spec.pageKey);
       if (!page) continue;
-      const binding = bindBenchmarkLabels(parseBenchmarkLabels(readFileSync(`lib/evaluation/benchmark/labels/${spec.pageKey}.labels.json`)),
+      const labelFile = `lib/evaluation/benchmark/labels/${spec.pageKey}.labels.json`;
+      if (!existsSync(labelFile)) continue; // Registered pages stay unlabelled until final source-bound truth exists.
+      const binding = bindBenchmarkLabels(parseBenchmarkLabels(readFileSync(labelFile)),
         { pageKey: spec.pageKey, sha256: pin.sha256, byteLength: bytes.byteLength, physicalPageNumber: spec.physicalPageNumber,
           frame: await benchmarkSourceFrame(bytes, spec.physicalPageNumber) });
       labelledPages.push({ page, documentId: capture.document_id as string, physicalPageNumber: spec.physicalPageNumber,
@@ -148,11 +172,27 @@ async function prepare(args: Map<string, string | true>) {
   const inventory = buildResolutionEvidenceInventory(documents);
   const binding = bindQualificationTargets({ inventories: [inventory], labelledPages });
   const evidenceClassesFile = args.get('--evidence-classes');
-  const evidenceClassOfPage = new Map<string, ValueReadingEvidenceClass>(typeof evidenceClassesFile === 'string'
-    ? Object.entries(JSON.parse(readFileSync(evidenceClassesFile, 'utf8')) as Record<string, ValueReadingEvidenceClass>) : []);
+  const evidenceClassOfPage = new Map<string, ValueReadingEvidenceClass>(Object.entries(QUALIFICATION_CONTRACT.evidenceClasses));
+  if (typeof evidenceClassesFile === 'string') {
+    const overrides = JSON.parse(readFileSync(evidenceClassesFile, 'utf8')) as Record<string, ValueReadingEvidenceClass>;
+    for (const [page, evidenceClass] of Object.entries(overrides)) {
+      if (evidenceClassOfPage.get(page) !== evidenceClass) throw new Error(`evidence class is not registered: ${page}:${evidenceClass}`);
+    }
+  }
+  const anchorsByIdentity = new Map<string, QualificationExclusionAnchor>();
+  for (const entry of inventory.entries) {
+    const bound = binding.bindings.find(candidate => candidate.identity === entry.identity);
+    const pin = pins.find(candidate => candidate.label === entry.documentLabel);
+    const pageDigest = pageDigests.get(`${entry.documentId}:${entry.physicalPageNumber}`);
+    if (!bound || !pin || !pageDigest || entry.physicalPageNumber === null) continue;
+    anchorsByIdentity.set(entry.identity, { identity: entry.identity, documentId: entry.documentId, sourceSha256: pin.sha256,
+      pageDigest, physicalPageNumber: entry.physicalPageNumber, observationAnchorKey: entry.readingRegion?.anchorKey ?? entry.identity,
+      pageKey: bound.pageKey, labelRowKey: bound.labelRowKey });
+  }
+  const exclusions = partitionQualificationExclusions({ bindings: binding.bindings, registry: QUALIFICATION_EXCLUSIONS, anchorsByIdentity });
   const clearance = readValueReadingClearance(JSON.parse(readFileSync(CLEARANCE_FILE, 'utf8')),
     new Map(provenance.map((entry) => [String(entry.documentKey), String(entry.sourceSha256)])));
-  return { pins, inventory, binding, labelledPages, sources, provenance, evidenceClassOfPage, clearance,
+  return { pins, inventory, binding, labelledPages, sources, provenance, evidenceClassOfPage, clearance, captureIdentity, exclusions,
     digest: bindingDigest(binding.bindings) };
 }
 
@@ -164,7 +204,7 @@ function classKey(binding: QualificationTargetBinding, evidenceClassOfPage: Read
 /** The B4.6 run's documents, holding only the bound cases of the selected classes. */
 function runDocuments(prepared: Awaited<ReturnType<typeof prepare>>, keys: ReadonlySet<string> | null): ValueReadingBenchmarkDocument[] {
   return prepared.labelledPages.flatMap((page) => {
-    const targets = prepared.binding.bindings.filter((binding) => binding.status === 'bound'
+    const targets = prepared.exclusions.eligibleBindings.filter((binding) => binding.status === 'bound'
       && binding.pageKey === page.page.pageKey && (!keys || keys.has(classKey(binding, prepared.evidenceClassOfPage))))
       .map((binding) => binding.target!);
     if (targets.length === 0) return [];
@@ -186,6 +226,7 @@ async function main(): Promise<void> {
   const deciding = args.get('--decide') === true;
   if (live && deciding) throw new Error('--execute-provider and --decide are separate steps');
   const prepared = await prepare(args);
+  if (live || deciding) assertQualificationExclusionsFinalized(prepared.exclusions);
   const { bindings } = prepared.binding;
 
   const runDirectory = path.resolve(String(args.get('--artifact-root') ?? DEFAULT_ARTIFACT_ROOT),
@@ -194,6 +235,14 @@ async function main(): Promise<void> {
   const write = (name: string, value: unknown) =>
     writeFileSync(path.join(runDirectory, name), `${JSON.stringify(value, null, 2)}\n`, { flag: 'wx' });
   const execution = {
+    qualificationContract: QUALIFICATION_CONTRACT,
+    qualificationContractDigest: hashCanonical(QUALIFICATION_CONTRACT),
+    captureIdentity: prepared.captureIdentity,
+    labelProvenance: prepared.provenance,
+    evidenceClasses: Object.fromEntries(prepared.evidenceClassOfPage),
+    exclusionRegistry: QUALIFICATION_EXCLUSIONS,
+    exclusionRegistryDigest: hashCanonical(QUALIFICATION_EXCLUSIONS),
+    exclusionStatus: prepared.exclusions.pending.length ? 'prepared_pending_anchors' : 'frozen',
     bindingVersion: QUALIFICATION_BINDING_VERSION,
     bindingDigest: prepared.digest,
     model: APPROVED_MODEL,
@@ -204,6 +253,16 @@ async function main(): Promise<void> {
       paddingPoints: VALUE_READING_EXECUTION.cropPaddingPoints },
     activationBar: VALUE_READING_ACTIVATION_BAR,
   };
+  // Observed at execution, never a machine identity frozen in the qualification contract.
+  const requireFromRepo = createRequire(path.join(process.cwd(), 'package.json'));
+  const canvasDir = path.dirname(requireFromRepo.resolve('@napi-rs/canvas/package.json'));
+  const nativeBinaries = Object.fromEntries(readdirSync(path.join(canvasDir, '..')).filter(name => name.startsWith('canvas-'))
+    .flatMap(name => readdirSync(path.join(canvasDir, '..', name)).filter(file => file.endsWith('.node'))
+      .map(file => [`@napi-rs/${name}/${file}`, sha256(readFileSync(path.join(canvasDir, '..', name, file)))])));
+  const runtime = { nodeVersion: process.version, platform: process.platform, arch: process.arch,
+    packageLockSha256: sha256(readFileSync('package-lock.json')), nativeBinaries,
+    packages: Object.fromEntries(['pdfjs-dist', '@napi-rs/canvas'].map(name => [name,
+      (JSON.parse(readFileSync(requireFromRepo.resolve(`${name}/package.json`), 'utf8')) as { version: string }).version])) };
   const lines: string[] = [];
 
   let records: readonly ValueReadingBenchmarkRecord[] = [];
@@ -217,8 +276,16 @@ async function main(): Promise<void> {
       if (summary.mode !== 'provider_enabled' || hashCanonical(summary.execution) !== hashCanonical(execution)) {
         throw new Error(`${directory}: not a live run of this exact binding and execution`);
       }
-      if ((summary.notRun as unknown[]).length > 0) throw new Error(`${directory}: the run stopped before reading every case`);
-      for (const record of JSON.parse(readFileSync(path.join(directory, 'records.json'), 'utf8')) as ValueReadingBenchmarkRecord[]) {
+      if (!Array.isArray(summary.notRun) || summary.notRun.length > 0) throw new Error(`${directory}: the run stopped before reading every case`);
+      if (!Array.isArray(summary.classes) || summary.classes.length !== 1 || typeof summary.classes[0] !== 'string') {
+        throw new Error(`${directory}: a live run must name exactly one workflow class`);
+      }
+      const expected = runDocuments(prepared, new Set(summary.classes)).flatMap(document => document.targets
+        .map(target => ({ pageKey: target.pageKey, rowKey: target.rowKey, evidenceClass: document.page.evidenceClass })));
+      if (!expected.length) throw new Error(`${directory}: no bound targets for the recorded class`);
+      const runRecords = JSON.parse(readFileSync(path.join(directory, 'records.json'), 'utf8')) as ValueReadingBenchmarkRecord[];
+      validateQualificationRecords(runRecords, expected);
+      for (const record of runRecords) {
         const key = `${record.pageKey}/${record.rowKey}`;
         if (seen.has(key)) throw new Error(`${key} is scored in two runs`);
         seen.add(key);
@@ -270,7 +337,7 @@ async function main(): Promise<void> {
       },
     });
     records = scoredValueReadingRecords(documents, result);
-    write('summary.json', { mode: result.mode, execution, classes: selected ? [...selected] : 'all',
+    write('summary.json', { mode: result.mode, execution, runtime, classes: selected ? [...selected] : 'all',
       calls: result.calls, spendUsd: result.spendUsd, unrendered: result.unrendered, notRun: result.notRun,
       pages: prepared.provenance });
     write('records.json', records);
@@ -293,15 +360,17 @@ async function main(): Promise<void> {
   }
 
   const proposal = proposeQualificationSet({ inventories: [prepared.inventory], labelledIdentities: prepared.binding.labelledIdentities });
-  const decision = decideQualification({ bindings, records, evidenceClassOfPage: prepared.evidenceClassOfPage });
+  const decision = decideQualification({ bindings, records, evidenceClassOfPage: prepared.evidenceClassOfPage, exclusions: prepared.exclusions });
   // No row text: identities, statuses, failure kinds and owners only.
   write('bindings.json', { digest: prepared.digest, bindings: bindings.map((binding) => ({
     identity: binding.identity, task: binding.task, classKey: classKey(binding, prepared.evidenceClassOfPage),
     documentLabel: binding.documentLabel, physicalPageNumber: binding.physicalPageNumber, status: binding.status,
     reason: binding.reason, failure: binding.failure, pageKey: binding.pageKey, labelRowKey: binding.labelRowKey })) });
-  write('decision.json', { execution, proposalDigest: proposal.proposalDigest, adjudications: adjudications.length,
+  write('decision.json', { execution, runtime, proposalDigest: proposal.proposalDigest, adjudications: adjudications.length,
     decision: { ...decision, classes: decision.classes.map((entry) => ({ ...entry,
-      failures: entry.failures.map(({ identity, failure }) => ({ identity, ...failure })) })) } });
+      failures: entry.failures.map(({ identity, failure }) => ({ identity, ...failure })) })),
+      excludedCases: decision.excludedCases.map(({ exclusion, binding }) => ({ exclusion,
+        identity: binding.identity, task: binding.task, classKey: classKey(binding, prepared.evidenceClassOfPage), status: binding.status })) } });
 
   const header = deciding ? 'DECISION' : live ? `LIVE ${String(args.get('--class'))}` : 'PREPARE (no provider calls)';
   process.stdout.write([`B4.6.1 ${header}: binding ${prepared.digest.slice(0, 16)}; ${bindings.length} cases`, ...lines.map((line) => `  ${line}`),
@@ -310,6 +379,8 @@ async function main(): Promise<void> {
       + `${Object.keys(entry.failuresByOwner).length ? ` | owners ${JSON.stringify(entry.failuresByOwner)}` : ''}`
       + `${entry.reasons.length ? ` | ${entry.reasons.join('; ')}` : ''}`),
     ...decision.corpusSafetyFailures.map((text) => `  CORPUS SAFETY FAILURE: ${text}`),
+    ...decision.excludedCases.map(entry => `  EXCLUDED ${entry.exclusion.id}: ${entry.binding.identity} | ${entry.exclusion.reason}`),
+    ...decision.exclusionBlockers.map(text => `  EXCLUSION BLOCKER: ${text}`),
     `  qualified classes: ${decision.qualifiedClasses.length ? decision.qualifiedClasses.join(', ') : 'none'}`,
     `  activatable tasks: ${decision.activatable.length ? decision.activatable.join(', ') : 'none'}${decision.provisional ? ' (PROVISIONAL)' : ''}`,
     `  artifacts: ${runDirectory}`].join('\n') + '\n');

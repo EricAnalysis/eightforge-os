@@ -1,4 +1,5 @@
 import type { QualificationTargetBinding } from '@/lib/evaluation/benchmark/qualificationBinding';
+import type { QualificationExcludedCase, QualificationExclusionPartition } from '@/lib/evaluation/benchmark/qualificationExclusions';
 import { QUALIFICATION_TASKS, type QualificationTask } from '@/lib/evaluation/benchmark/qualificationSet';
 import {
   barFailure,
@@ -71,6 +72,9 @@ export type QualificationDecision = Readonly<{
   version: typeof QUALIFICATION_DECISION_VERSION;
   taxonomyVersion: typeof QUALIFICATION_TAXONOMY_VERSION;
   classes: readonly QualificationClassDecision[];
+  /** Human-excluded cases are reported separately and never enter any score or denominator. */
+  excludedCases: readonly QualificationExcludedCase[];
+  exclusionBlockers: readonly string[];
   /** Zero-tolerance failures anywhere on the corpus: they fail every class. */
   corpusSafetyFailures: readonly string[];
   /** Classes (task x evidence class) that met every hard bar. */
@@ -96,8 +100,13 @@ export function decideQualification(params: Readonly<{
   /** Evidence classes of unlabelled pages, by `documentLabel:page`, where known. */
   evidenceClassOfPage?: ReadonlyMap<string, ValueReadingEvidenceClass>;
   bar?: typeof VALUE_READING_ACTIVATION_BAR;
+  exclusions?: QualificationExclusionPartition;
 }>): QualificationDecision {
   const bar = params.bar ?? VALUE_READING_ACTIVATION_BAR;
+  const excludedCases = params.exclusions?.excludedCases ?? [];
+  const exclusionBlockers = params.exclusions?.pending ?? [];
+  const excludedIds = new Set(excludedCases.map((entry) => entry.binding.identity));
+  const eligibleBindings = params.bindings.filter((binding) => !excludedIds.has(binding.identity));
   const recordsByRow = new Map(params.records.map((record) => [recordKey(record.pageKey, record.rowKey), record]));
   const classOf = (binding: QualificationTargetBinding): ValueReadingEvidenceClass | 'unclassified' =>
     binding.evidenceClass
@@ -106,11 +115,11 @@ export function decideQualification(params: Readonly<{
   const groups = new Map<string, QualificationTargetBinding[]>();
   for (const binding of params.bindings) {
     const key = `${binding.task}:${classOf(binding)}`;
-    groups.set(key, [...(groups.get(key) ?? []), binding]);
+    groups.set(key, [...(groups.get(key) ?? []), ...(excludedIds.has(binding.identity) ? [] : [binding])]);
   }
 
   // Every bound case's reading, for the corpus-wide safety bars.
-  const allRead = params.bindings.flatMap((binding) => {
+  const allRead = eligibleBindings.flatMap((binding) => {
     const record = binding.status === 'bound' ? recordsByRow.get(recordKey(binding.pageKey!, binding.labelRowKey!)) : undefined;
     return record ? [record] : [];
   });
@@ -129,7 +138,7 @@ export function decideQualification(params: Readonly<{
     const [task, evidenceClass] = key.split(':') as [QualificationTask, ValueReadingEvidenceClass | 'unclassified'];
     const bound = bindings.filter((binding) => binding.status === 'bound');
     const unlabelled = bindings.filter((binding) => binding.status === 'unlabelled_page').length;
-    const humanOnly = bindings.every((binding) => binding.status === 'human_only');
+    const humanOnly = bindings.length > 0 && bindings.every((binding) => binding.status === 'human_only');
     const records = bound.flatMap((binding) => {
       const record = recordsByRow.get(recordKey(binding.pageKey!, binding.labelRowKey!));
       return record ? [record] : [];
@@ -183,11 +192,13 @@ export function decideQualification(params: Readonly<{
 
   const provisional = overall.unadjudicatedDisagreements > 0;
   const qualified = (entry: QualificationClassDecision) => entry.status === 'qualified' || entry.status === 'qualified_low_coverage';
-  const qualifiedClasses = provisional ? [] : classes.filter(qualified).map((entry) => entry.key);
+  const qualifiedClasses = provisional || exclusionBlockers.length > 0 ? [] : classes.filter(qualified).map((entry) => entry.key);
   return {
     version: QUALIFICATION_DECISION_VERSION,
     taxonomyVersion: QUALIFICATION_TAXONOMY_VERSION,
     classes,
+    excludedCases,
+    exclusionBlockers,
     corpusSafetyFailures,
     qualifiedClasses,
     activatable: QUALIFICATION_TASKS.filter((task) => {

@@ -106,9 +106,42 @@ Production would send these crops with two rates in view.
 
 The smallest correction is deterministic. A rate observation taller than one row band is not bound to one row: withhold the row as a structure case, or split it by the row bands. This change belongs to Codex.
 
-## Smallest next steps
+## Continuation after Phase A and Phase B (2026-10-09)
 
-1. **Read DN p107** (`confirm_scanned_amount` × dense scan, 20 cases). It needs a session with `ANTHROPIC_API_KEY` and confirmed prices. It cannot activate anything by itself; it tells us whether the dense-scan class can qualify.
-2. **Codex:** fix the Golden p8 two-row lines, then re-run prepare.
-3. **Label Golden p10**, the remaining 19 `confirm_scanned_amount` cases, with the existing label tool. Then the task can be decided as a whole.
-4. `read_unresolved_line` needs labels on DN p110, Golden p11 and Hillsdale p1. `read_withheld_line` needs more cases than the corpus has.
+The prepared result above is historical. Extraction v5 (#179) resolved the
+Golden multi-row geometry failures; Phase A (#183) scores production crops
+only against the evidence they show. The OCR audit (#182) reuses the two-host
+parity proof. Renderer v2 and prompt v2 are carried by #185. See the three
+dated audits under `docs/audits/`; none of those results is a B4.6.1 provider
+qualification or an activation decision.
+
+The qualification contract is registered in
+`lib/evaluation/benchmark/qualificationContract.ts`. It pins the scorer,
+taxonomy, binding, tasks, bar, corpus and request execution. The runner verifies
+the runtime and capture-set manifests and every declared artifact before
+building inventory. It records the captures' runtime identity and the crop
+host's runtime at execution; machine identity is not a pre-registered constant.
+Decisions require identical execution identities and complete readings for
+exactly the selected class's eligible bound rows. Foreign, duplicate, missing
+and stale request identities are rejected.
+
+Known exclusions are registered in `qualificationExclusions.ts`: Golden p8
+`r-0006` (OCR misread) and Golden p10 original row index 21 (deliberately
+withheld). They are matched by exact pinned source and observation anchors,
+listed separately and removed from scoring and denominators. An absent or
+changed exclusion anchor blocks provider execution and decisions. Exclusions
+never count toward the 20-case minimum, and an excluded-only class cannot
+silently disappear and permit task activation.
+
+The new Golden p10/p11 and Hillsdale p1 source labels from Claude's handoff
+were not recovered locally or in the fetched branches. A proposal is not a
+final label: these pages remain unlabelled until source-bound artifacts pass
+the existing label authority path. **DN p110 is an insurance certificate**
+(Phase A audit), so do not manufacture priced-row labels for it. Its priced-line
+cases remain a workflow-typing defect requiring deterministic correction.
+
+Next, run prepare through the frozen contract, then read DN p107's class only
+with the reusable pinned-document transmission clearance, a configured
+provider credential and confirmed prices. Inspect disagreements before
+continuing to other classes. Final qualification remains class-by-class;
+value reading stays inactive until the existing human activation path is used.

@@ -93,7 +93,7 @@ export const VALUE_READING_BENCHMARK_PAGES = [
 ] as const;
 
 export type ValueReadingBenchmarkPage = (typeof VALUE_READING_BENCHMARK_PAGES)[number];
-export type ValueReadingEvidenceClass = ValueReadingBenchmarkPage['evidenceClass'];
+export type ValueReadingEvidenceClass = ValueReadingBenchmarkPage['evidenceClass'] | 'native_price_sheet' | 'dense_native_priced_schedule';
 
 export type ValueReadingTruth = Readonly<{
   description: string;

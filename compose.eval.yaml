@@ -14,11 +14,13 @@
 # reach this container. No network. The corpus and pins are read-only.
 services:
   eightforge-eval:
-    image: ${EIGHTFORGE_EVAL_IMAGE:-eightforge-eval:local}
+    # The image that runs is exactly the one the manifest records: never a
+    # moving tag such as :local, which names whatever was built last.
+    image: ${EIGHTFORGE_EVAL_IMAGE_ID:?set EIGHTFORGE_EVAL_IMAGE_ID to the sha256 image id printed by the build}
     platform: linux/amd64
     network_mode: none
     environment:
-      EIGHTFORGE_EVAL_IMAGE_ID: ${EIGHTFORGE_EVAL_IMAGE_ID:-}
+      EIGHTFORGE_EVAL_IMAGE_ID: ${EIGHTFORGE_EVAL_IMAGE_ID}
     volumes:
       - type: bind
         source: ${EIGHTFORGE_EVAL_CORPUS:?set EIGHTFORGE_EVAL_CORPUS to the pinned PDF directory}

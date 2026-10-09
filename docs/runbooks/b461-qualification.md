@@ -152,3 +152,22 @@ inventions or binding errors, but **FAIL** on median total wait (3196 ms
 against the unchanged 3000 ms bar). The independent decision reproduced it.
 No class or task qualifies yet. Complete the remaining source-label and
 workflow-typing work; any model or bar change is a separate pre-registration.
+
+### Backlog continuation snapshot (2026-10-09)
+
+PRs #185 and #186 are merged. PR #187 adds reconstruction v6: authored,
+bounded insurance-limit evidence no longer opens headerless price targets;
+the pinned DN p110 replay has zero such targets. Stored v1–v5 remain supported.
+See `docs/audits/dn-p110-workflow-typing-2026-10-09.md` for scope and regression
+proof. The historical v5 captures above remain evidence for their recorded
+inputs, not current whole-queue v6 qualification.
+
+Non-authoritative source proposals for Golden p10/p11 and Hillsdale p1 are
+ready outside Git, pending authentic independent Claude review, precise
+geometry and candidate-bound approvals. DN p110 receives no price labels.
+The decoder probe preserved sampled crop bytes but showed no reliable latency
+gain; no renderer/request change or paid retest was performed. Stage separation
+inside the nonstreaming provider wait remains unmeasured. Keep all reading
+classes inactive and do not rerun DN until a latency-ready identity is frozen.
+The exact continuation state and commands are in
+`docs/handoffs/claude-current-handoff.md`.

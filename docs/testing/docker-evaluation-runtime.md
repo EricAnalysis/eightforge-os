@@ -83,6 +83,12 @@ EIGHTFORGE_EVAL_IMAGE_ID=<printed by the build> \
 docker compose -f compose.eval.yaml run --rm eightforge-eval
 ```
 
+Compose runs exactly the image `EIGHTFORGE_EVAL_IMAGE_ID` names, and the
+manifest records that same id, so the recorded image is always the one that
+ran. To compare commits, build each and pass each build's printed id; never a
+tag such as `eightforge-eval:local`, which names whatever was built last. The
+runner refuses to start in a container without a `sha256:` image id.
+
 PowerShell: set each with `$env:EIGHTFORGE_EVAL_CORPUS = 'C:\...'` first. Add
 `--corpus /corpus --pins /pins/pins.json --out /artifacts/run --repeat` after
 the service name to also re-extract every document and require identical

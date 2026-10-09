@@ -228,6 +228,13 @@ async function main(): Promise<void> {
     throw new Error('Refusing to run: ./eng.traineddata exists in the working directory and would override the pinned OCR language data');
   }
 
+  // In a container the manifest must name the image that is running: an image
+  // id (content digest), never a tag, which can point at a different build.
+  const imageId = process.env.EIGHTFORGE_EVAL_IMAGE_ID?.trim() || null;
+  if (existsSync('/.dockerenv') && !(imageId && /^sha256:[0-9a-f]{64}$/.test(imageId))) {
+    throw new Error('Refusing to run: EIGHTFORGE_EVAL_IMAGE_ID must be the sha256 image id this container runs (compose.eval.yaml runs exactly that id)');
+  }
+
   const network = await probeNetwork();
   const allowNetwork = process.env.EIGHTFORGE_EVAL_ALLOW_NETWORK === '1';
   if (!network.isolated && !allowNetwork) {
@@ -294,7 +301,7 @@ async function main(): Promise<void> {
     capture_set_digest: captureDigest,
     // Expected to differ between machines; never part of the parity comparison.
     observed: {
-      image_id: process.env.EIGHTFORGE_EVAL_IMAGE_ID?.trim() || null,
+      image_id: imageId,
       containerized: existsSync('/.dockerenv'),
       network: { ...network, allowed_by_operator: allowNetwork },
       repeat_checked: repeat,

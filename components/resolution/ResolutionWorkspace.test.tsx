@@ -109,6 +109,13 @@ describe('Resolution Workspace rendering (B5-B)', () => {
     // A category outside the allowed list never enters the draft; the person chooses one.
     expect(valueReadingDraft({ ...entry, suggestions: [{ ...reading, rateRow: { ...reading.rateRow, category: 'hauling' } }] }, 'reading-1')?.category).toBe('');
     expect(valueReadingDraft({ ...entry, suggestions: [{ ...reading, rateRow: { ...reading.rateRow, category: null } }] }, 'reading-1')?.category).toBe('');
+    // The machine row's allowed category survives a reading that names none, or one outside the list.
+    const carried = resolutionCase({ actions: [{ ...enter, forgewingProposalId: 'reading-1',
+      currentValue: { description: 'Hauling', unitType: 'CY', rate: 14, category: 'Equipment' } }],
+    suggestions: [{ ...reading, rateRow: { ...reading.rateRow, category: null } }] });
+    expect(valueReadingDraft(carried, 'reading-1')?.category).toBe('Equipment');
+    expect(valueReadingDraft({ ...carried, suggestions: [{ ...reading, rateRow: { ...reading.rateRow, category: 'hauling' } }] },
+      'reading-1')?.category).toBe('Equipment');
     expect(valueReadingDraft(entry, 'invented')).toBeNull();
     expect(valueReadingDraft({ ...entry, actions: [enter] }, 'reading-1')).toBeNull();
     expect(valueReadingDraft({ ...entry, suggestions: [reading, reading] }, 'reading-1')).toBeNull();

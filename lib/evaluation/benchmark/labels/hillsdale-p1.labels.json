@@ -1,0 +1,3078 @@
+{
+  "labelSetVersion": "extraction-benchmark-labels-v1",
+  "authority": "delegated_dual_ai_evaluation_ground_truth_only",
+  "pageKey": "hillsdale-p1",
+  "source": {
+    "documentKey": "hillsdale",
+    "sha256": "596adaccf865625723dc832f5206a8f690eb17d96921ef185df35b113c767537",
+    "byteLength": 3227431,
+    "physicalPageNumber": 1
+  },
+  "frame": {
+    "frame_version": "canonical_frame_v1",
+    "coordinate_space": "canonical_v1",
+    "view": [
+      0,
+      0,
+      611,
+      792
+    ],
+    "rotation": 0,
+    "user_unit": 1,
+    "width": 611,
+    "height": 792
+  },
+  "words": {
+    "status": "labeled",
+    "items": [
+      {
+        "labelId": "w-0001",
+        "text": "Pre-",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 93.06847381591797,
+          "y_min": 61.34060287475586,
+          "x_max": 113.15216064453125,
+          "y_max": 69.71739959716797
+        }
+      },
+      {
+        "labelId": "w-0002",
+        "text": "and",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 116.23963928222656,
+          "y_min": 61.34621810913086,
+          "x_max": 135.93714904785156,
+          "y_max": 69.722900390625
+        }
+      },
+      {
+        "labelId": "w-0003",
+        "text": "Post-",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 139.41079711914062,
+          "y_min": 60.210208892822266,
+          "x_max": 167.218505859375,
+          "y_max": 69.73046875
+        }
+      },
+      {
+        "labelId": "w-0004",
+        "text": "Demo",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 170.692138671875,
+          "y_min": 61.35934066772461,
+          "x_max": 198.88575744628906,
+          "y_max": 69.73809051513672
+        }
+      },
+      {
+        "labelId": "w-0005",
+        "text": "Activities",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 202.74557495117188,
+          "y_min": 61.36715316772461,
+          "x_max": 251.0209197998047,
+          "y_max": 69.75067901611328
+        }
+      },
+      {
+        "labelId": "w-0006",
+        "text": "Document",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 174.16827392578125,
+          "y_min": 75.24557495117188,
+          "x_max": 227.8496551513672,
+          "y_max": 83.62772369384766
+        }
+      },
+      {
+        "labelId": "w-0007",
+        "text": "Unit",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 351.4289855957031,
+          "y_min": 76.42144775390625,
+          "x_max": 372.283203125,
+          "y_max": 85.93547058105469
+        }
+      },
+      {
+        "labelId": "w-0008",
+        "text": "Unit",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 443.3336486816406,
+          "y_min": 77.95506286621094,
+          "x_max": 464.19500732421875,
+          "y_max": 86.72509765625
+        }
+      },
+      {
+        "labelId": "w-0009",
+        "text": "Price",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 467.27716064453125,
+          "y_min": 77.59471893310547,
+          "x_max": 493.5455322265625,
+          "y_max": 86.74972534179688
+        }
+      },
+      {
+        "labelId": "w-0010",
+        "text": "Asbestos",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 91.4906997680664,
+          "y_min": 93.02452087402344,
+          "x_max": 137.09136962890625,
+          "y_max": 102.3122329711914
+        }
+      },
+      {
+        "labelId": "w-0011",
+        "text": "Inspection",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 140.92193603515625,
+          "y_min": 91.67008209228516,
+          "x_max": 189.2310791015625,
+          "y_max": 102.4887924194336
+        }
+      },
+      {
+        "labelId": "w-0012",
+        "text": "and",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 193.06167602539062,
+          "y_min": 94.51068115234375,
+          "x_max": 210.85321044921875,
+          "y_max": 102.56226348876953
+        }
+      },
+      {
+        "labelId": "w-0013",
+        "text": "Documentation",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 214.68785095214844,
+          "y_min": 93.44242858886719,
+          "x_max": 287.70745849609375,
+          "y_max": 102.82294464111328
+        }
+      },
+      {
+        "labelId": "w-0014",
+        "text": "Per",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 336.3674621582031,
+          "y_min": 94.17184448242188,
+          "x_max": 354.1324768066406,
+          "y_max": 102.54483795166016
+        }
+      },
+      {
+        "labelId": "w-0015",
+        "text": "Parcel",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 357.22149658203125,
+          "y_min": 94.17300415039062,
+          "x_max": 386.5721435546875,
+          "y_max": 102.5467300415039
+        }
+      },
+      {
+        "labelId": "w-0016",
+        "text": "$1,300.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 410.515625,
+          "y_min": 93.02397918701172,
+          "x_max": 455.6994934082031,
+          "y_max": 102.15753173828125
+        }
+      },
+      {
+        "labelId": "w-0017",
+        "text": "Abatement",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 91.88330078125,
+          "y_min": 106.16270446777344,
+          "x_max": 144.43289184570312,
+          "y_max": 115.83384704589844
+        }
+      },
+      {
+        "labelId": "w-0018",
+        "text": "Crew",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 147.882080078125,
+          "y_min": 106.71121215820312,
+          "x_max": 173.01145935058594,
+          "y_max": 115.91939544677734
+        }
+      },
+      {
+        "labelId": "w-0019",
+        "text": "Per",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 341.7723083496094,
+          "y_min": 110.79204559326172,
+          "x_max": 359.15264892578125,
+          "y_max": 119.92886352539062
+        }
+      },
+      {
+        "labelId": "w-0020",
+        "text": "Day",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 361.08160400390625,
+          "y_min": 109.65457153320312,
+          "x_max": 380.0069580078125,
+          "y_max": 119.9332504272461
+        }
+      },
+      {
+        "labelId": "w-0021",
+        "text": "$2,130.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 411.2880554199219,
+          "y_min": 107.6965103149414,
+          "x_max": 454.92828369140625,
+          "y_max": 116.83502197265625
+        }
+      },
+      {
+        "labelId": "w-0022",
+        "text": "Site",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 92.6838150024414,
+          "y_min": 122.38519287109375,
+          "x_max": 110.44914245605469,
+          "y_max": 131.90020751953125
+        }
+      },
+      {
+        "labelId": "w-0023",
+        "text": "Restoration",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 113.92413330078125,
+          "y_min": 123.14798736572266,
+          "x_max": 169.9218292236328,
+          "y_max": 131.90513610839844
+        }
+      },
+      {
+        "labelId": "w-0024",
+        "text": "Per",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 335.9818115234375,
+          "y_min": 125.45114135742188,
+          "x_max": 352.9745788574219,
+          "y_max": 133.44378662109375
+        }
+      },
+      {
+        "labelId": "w-0025",
+        "text": "Parcel",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 356.8358154296875,
+          "y_min": 125.06816101074219,
+          "x_max": 386.18658447265625,
+          "y_max": 133.4422607421875
+        }
+      },
+      {
+        "labelId": "w-0026",
+        "text": "$1,460.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 411.2880554199219,
+          "y_min": 123.53771209716797,
+          "x_max": 455.6995849609375,
+          "y_max": 132.6712646484375
+        }
+      },
+      {
+        "labelId": "w-0027",
+        "text": "Backfill",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 91.89522552490234,
+          "y_min": 137.84097290039062,
+          "x_max": 127.44105529785156,
+          "y_max": 147.79513549804688
+        }
+      },
+      {
+        "labelId": "w-0028",
+        "text": "Activities",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 128.19659423828125,
+          "y_min": 137.90249633789062,
+          "x_max": 171.0798797607422,
+          "y_max": 147.8692169189453
+        }
+      },
+      {
+        "labelId": "w-0029",
+        "text": "CY",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 352.97393798828125,
+          "y_min": 140.14625549316406,
+          "x_max": 369.966552734375,
+          "y_max": 149.280029296875
+        }
+      },
+      {
+        "labelId": "w-0030",
+        "text": "$160.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 411.67327880859375,
+          "y_min": 138.61911010742188,
+          "x_max": 446.430908203125,
+          "y_max": 148.89675903320312
+        }
+      },
+      {
+        "labelId": "w-0031",
+        "text": "per",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 450.2920227050781,
+          "y_min": 140.90589904785156,
+          "x_max": 464.5816650390625,
+          "y_max": 148.89857482910156
+        }
+      },
+      {
+        "labelId": "w-0032",
+        "text": "CY",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 466.51177978515625,
+          "y_min": 140.14634704589844,
+          "x_max": 480.80145263671875,
+          "y_max": 148.90013122558594
+        }
+      },
+      {
+        "labelId": "w-0033",
+        "text": "Emergency",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 91.51949310302734,
+          "y_min": 155.5970458984375,
+          "x_max": 146.36436462402344,
+          "y_max": 164.76902770996094
+        }
+      },
+      {
+        "labelId": "w-0034",
+        "text": "Demo",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 150.2197265625,
+          "y_min": 156.78028869628906,
+          "x_max": 178.80316162109375,
+          "y_max": 164.79193115234375
+        }
+      },
+      {
+        "labelId": "w-0035",
+        "text": "-",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 181.89022827148438,
+          "y_min": 162.51087951660156,
+          "x_max": 186.5260772705078,
+          "y_max": 164.79742431640625
+        }
+      },
+      {
+        "labelId": "w-0036",
+        "text": "Make",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 189.22366333007812,
+          "y_min": 155.6663818359375,
+          "x_max": 215.8769989013672,
+          "y_max": 164.81820678710938
+        }
+      },
+      {
+        "labelId": "w-0037",
+        "text": "Safe",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 218.18841552734375,
+          "y_min": 156.8285675048828,
+          "x_max": 240.5928955078125,
+          "y_max": 164.8358154296875
+        }
+      },
+      {
+        "labelId": "w-0038",
+        "text": "Per",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 335.9818115234375,
+          "y_min": 157.12379455566406,
+          "x_max": 353.746826171875,
+          "y_max": 165.11627197265625
+        }
+      },
+      {
+        "labelId": "w-0039",
+        "text": "Parcel",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 356.4496154785156,
+          "y_min": 156.36070251464844,
+          "x_max": 386.5726623535156,
+          "y_max": 165.114990234375
+        }
+      },
+      {
+        "labelId": "w-0040",
+        "text": "$6,105.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 411.2880554199219,
+          "y_min": 155.58413696289062,
+          "x_max": 455.3147277832031,
+          "y_max": 164.34375
+        }
+      },
+      {
+        "labelId": "w-0041",
+        "text": "Demolition",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 91.79795837402344,
+          "y_min": 186.87754821777344,
+          "x_max": 147.50839233398438,
+          "y_max": 196.28794860839844
+        }
+      },
+      {
+        "labelId": "w-0042",
+        "text": "Debris",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 150.88528442382812,
+          "y_min": 188.33822631835938,
+          "x_max": 184.9618682861328,
+          "y_max": 196.7314910888672
+        }
+      },
+      {
+        "labelId": "w-0043",
+        "text": "(per",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 187.95849609375,
+          "y_min": 187.25518798828125,
+          "x_max": 209.30987548828125,
+          "y_max": 197.01953125
+        }
+      },
+      {
+        "labelId": "w-0044",
+        "text": "ton)",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 211.11268615722656,
+          "y_min": 186.3878173828125,
+          "x_max": 231.31906127929688,
+          "y_max": 197.280029296875
+        }
+      },
+      {
+        "labelId": "w-0045",
+        "text": "Debris",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 161.3798370361328,
+          "y_min": 203.87255859375,
+          "x_max": 192.31153869628906,
+          "y_max": 212.7560577392578
+        }
+      },
+      {
+        "labelId": "w-0046",
+        "text": "Tonnage",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.1359405517578,
+          "y_min": 201.73684692382812,
+          "x_max": 238.2766571044922,
+          "y_max": 212.95106506347656
+        }
+      },
+      {
+        "labelId": "w-0047",
+        "text": "Unit",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 351.041259765625,
+          "y_min": 203.10008239746094,
+          "x_max": 369.9660949707031,
+          "y_max": 211.85621643066406
+        }
+      },
+      {
+        "labelId": "w-0048",
+        "text": "Unit",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 444.1124267578125,
+          "y_min": 203.48631286621094,
+          "x_max": 462.65069580078125,
+          "y_max": 212.24171447753906
+        }
+      },
+      {
+        "labelId": "w-0049",
+        "text": "Price",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 466.5111999511719,
+          "y_min": 203.4899139404297,
+          "x_max": 490.4560852050781,
+          "y_max": 212.24632263183594
+        }
+      },
+      {
+        "labelId": "w-0050",
+        "text": "C&D",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 91.4615478515625,
+          "y_min": 216.6073760986328,
+          "x_max": 113.52705383300781,
+          "y_max": 224.74563598632812
+        }
+      },
+      {
+        "labelId": "w-0051",
+        "text": "(Construction",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 116.94353485107422,
+          "y_min": 214.4944610595703,
+          "x_max": 181.88998413085938,
+          "y_max": 225.20285034179688
+        }
+      },
+      {
+        "labelId": "w-0052",
+        "text": "and",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 185.3057098388672,
+          "y_min": 217.23463439941406,
+          "x_max": 203.50942993164062,
+          "y_max": 225.34719848632812
+        }
+      },
+      {
+        "labelId": "w-0053",
+        "text": "Demolition)",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 207.31732177734375,
+          "y_min": 216.24012756347656,
+          "x_max": 261.05706787109375,
+          "y_max": 225.73147583007812
+        }
+      },
+      {
+        "labelId": "w-0054",
+        "text": "Debris",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 265.6313781738281,
+          "y_min": 217.39096069335938,
+          "x_max": 296.19525146484375,
+          "y_max": 225.96665954589844
+        }
+      },
+      {
+        "labelId": "w-0055",
+        "text": "Ton",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 350.26849365234375,
+          "y_min": 218.55003356933594,
+          "x_max": 368.80755615234375,
+          "y_max": 227.30703735351562
+        }
+      },
+      {
+        "labelId": "w-0056",
+        "text": "$152.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 410.1295166015625,
+          "y_min": 216.6154327392578,
+          "x_max": 446.4316711425781,
+          "y_max": 225.37127685546875
+        }
+      },
+      {
+        "labelId": "w-0057",
+        "text": "Asbestos",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 89.97366333007812,
+          "y_min": 235.9198760986328,
+          "x_max": 135.16265869140625,
+          "y_max": 243.94105529785156
+        }
+      },
+      {
+        "labelId": "w-0058",
+        "text": "Containing",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 139.4054412841797,
+          "y_min": 232.5277099609375,
+          "x_max": 190.38955688476562,
+          "y_max": 243.97755432128906
+        }
+      },
+      {
+        "labelId": "w-0059",
+        "text": "Material",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 195.0161895751953,
+          "y_min": 233.70614624023438,
+          "x_max": 232.48306274414062,
+          "y_max": 244.0056610107422
+        }
+      },
+      {
+        "labelId": "w-0060",
+        "text": "(ACM)",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 237.8828125,
+          "y_min": 232.59283447265625,
+          "x_max": 267.240478515625,
+          "y_max": 244.0286102294922
+        }
+      },
+      {
+        "labelId": "w-0061",
+        "text": "Ton",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 350.26861572265625,
+          "y_min": 234.3920135498047,
+          "x_max": 369.5799255371094,
+          "y_max": 243.5292510986328
+        }
+      },
+      {
+        "labelId": "w-0063",
+        "text": "Hazardous",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 91.1368408203125,
+          "y_min": 248.274169921875,
+          "x_max": 143.27490234375,
+          "y_max": 255.9053497314453
+        }
+      },
+      {
+        "labelId": "w-0064",
+        "text": "Lead",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 147.5199737548828,
+          "y_min": 248.29638671875,
+          "x_max": 170.3079376220703,
+          "y_max": 255.91624450683594
+        }
+      },
+      {
+        "labelId": "w-0065",
+        "text": "Material",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 173.0082550048828,
+          "y_min": 248.306396484375,
+          "x_max": 212.01600646972656,
+          "y_max": 255.93240356445312
+        }
+      },
+      {
+        "labelId": "w-0066",
+        "text": "Ton",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 349.8837585449219,
+          "y_min": 249.43861389160156,
+          "x_max": 369.1937561035156,
+          "y_max": 257.4316711425781
+        }
+      },
+      {
+        "labelId": "w-0068",
+        "text": "Salvage",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 90.36614227294922,
+          "y_min": 262.9973449707031,
+          "x_max": 129.3722686767578,
+          "y_max": 273.6576232910156
+        }
+      },
+      {
+        "labelId": "w-0069",
+        "text": "Materials",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 132.46041870117188,
+          "y_min": 263.76373291015625,
+          "x_max": 176.48690795898438,
+          "y_max": 273.663330078125
+        }
+      },
+      {
+        "labelId": "w-0070",
+        "text": "Ton",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 349.8844909667969,
+          "y_min": 264.5121154785156,
+          "x_max": 369.1945495605469,
+          "y_max": 273.2662353515625
+        }
+      },
+      {
+        "labelId": "w-0073",
+        "text": "Vegetative",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 89.98064422607422,
+          "y_min": 277.6748352050781,
+          "x_max": 142.50262451171875,
+          "y_max": 288.3333740234375
+        }
+      },
+      {
+        "labelId": "w-0074",
+        "text": "Materials",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 145.59149169921875,
+          "y_min": 279.5810852050781,
+          "x_max": 188.8448028564453,
+          "y_max": 288.3363037109375
+        }
+      },
+      {
+        "labelId": "w-0075",
+        "text": "Ton",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 350.27069091796875,
+          "y_min": 279.9693298339844,
+          "x_max": 368.8077392578125,
+          "y_max": 289.1025085449219
+        }
+      },
+      {
+        "labelId": "w-0076",
+        "text": "$152.50",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 409.7433166503906,
+          "y_min": 278.8090515136719,
+          "x_max": 446.43133544921875,
+          "y_max": 287.9437561035156
+        }
+      },
+      {
+        "labelId": "w-0077",
+        "text": "Debris",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 90.28638458251953,
+          "y_min": 309.73358154296875,
+          "x_max": 124.73069763183594,
+          "y_max": 320.6292724609375
+        }
+      },
+      {
+        "labelId": "w-0078",
+        "text": "(per",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 127.74729919433594,
+          "y_min": 309.2348327636719,
+          "x_max": 148.6807403564453,
+          "y_max": 320.79681396484375
+        }
+      },
+      {
+        "labelId": "w-0079",
+        "text": "ton)",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 151.68966674804688,
+          "y_min": 310.16357421875,
+          "x_max": 171.4592742919922,
+          "y_max": 320.9564208984375
+        }
+      },
+      {
+        "labelId": "w-0080",
+        "text": "Debris",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 161.40304565429688,
+          "y_min": 327.4725646972656,
+          "x_max": 191.15904235839844,
+          "y_max": 336.2922058105469
+        }
+      },
+      {
+        "labelId": "w-0081",
+        "text": "Tonnage",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 195.00106811523438,
+          "y_min": 326.40679931640625,
+          "x_max": 237.8899688720703,
+          "y_max": 336.39764404296875
+        }
+      },
+      {
+        "labelId": "w-0082",
+        "text": "Unit",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 350.2696228027344,
+          "y_min": 327.07489013671875,
+          "x_max": 369.1937255859375,
+          "y_max": 335.0686950683594
+        }
+      },
+      {
+        "labelId": "w-0083",
+        "text": "Unit",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 442.5683288574219,
+          "y_min": 327.0805969238281,
+          "x_max": 461.87841796875,
+          "y_max": 335.4542236328125
+        }
+      },
+      {
+        "labelId": "w-0084",
+        "text": "Price",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 465.3533630371094,
+          "y_min": 327.84375,
+          "x_max": 490.0699157714844,
+          "y_max": 335.4568786621094
+        }
+      },
+      {
+        "labelId": "w-0085",
+        "text": "C&D",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 90.36537170410156,
+          "y_min": 339.8439636230469,
+          "x_max": 112.3797836303711,
+          "y_max": 349.3617248535156
+        }
+      },
+      {
+        "labelId": "w-0086",
+        "text": "(Construction",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 116.62602233886719,
+          "y_min": 338.70733642578125,
+          "x_max": 180.73500061035156,
+          "y_max": 349.37481689453125
+        }
+      },
+      {
+        "labelId": "w-0087",
+        "text": "and",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 184.20877075195312,
+          "y_min": 340.6229553222656,
+          "x_max": 201.9750213623047,
+          "y_max": 349.3788146972656
+        }
+      },
+      {
+        "labelId": "w-0088",
+        "text": "Demolition)",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 205.835205078125,
+          "y_min": 339.4854736328125,
+          "x_max": 259.1307678222656,
+          "y_max": 349.3896484375
+        }
+      },
+      {
+        "labelId": "w-0089",
+        "text": "Debris",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 262.99072265625,
+          "y_min": 339.49639892578125,
+          "x_max": 295.04595947265625,
+          "y_max": 349.3965148925781
+        }
+      },
+      {
+        "labelId": "w-0090",
+        "text": "Ton",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 349.4969482421875,
+          "y_min": 342.9111633300781,
+          "x_max": 368.03521728515625,
+          "y_max": 350.9055480957031
+        }
+      },
+      {
+        "labelId": "w-0091",
+        "text": "152.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 409.3567810058594,
+          "y_min": 341.7524108886719,
+          "x_max": 439.4795837402344,
+          "y_max": 349.744873046875
+        }
+      },
+      {
+        "labelId": "w-0092",
+        "text": "Asbestos",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 89.5915298461914,
+          "y_min": 359.9061584472656,
+          "x_max": 135.16404724121094,
+          "y_max": 367.91217041015625
+        }
+      },
+      {
+        "labelId": "w-0093",
+        "text": "Containing",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 139.02333068847656,
+          "y_min": 356.87774658203125,
+          "x_max": 189.61724853515625,
+          "y_max": 367.92962646484375
+        }
+      },
+      {
+        "labelId": "w-0094",
+        "text": "Material",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 193.47552490234375,
+          "y_min": 357.6563720703125,
+          "x_max": 232.4835968017578,
+          "y_max": 367.9434509277344
+        }
+      },
+      {
+        "labelId": "w-0095",
+        "text": "(ACM)",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 235.18360900878906,
+          "y_min": 356.9087219238281,
+          "x_max": 266.46826171875,
+          "y_max": 367.9544982910156
+        }
+      },
+      {
+        "labelId": "w-0096",
+        "text": "Ton",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 350.2702331542969,
+          "y_min": 357.60003662109375,
+          "x_max": 368.0351867675781,
+          "y_max": 366.35333251953125
+        }
+      },
+      {
+        "labelId": "w-0098",
+        "text": "Hazardous",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 90.36515045166016,
+          "y_min": 372.6695251464844,
+          "x_max": 142.50238037109375,
+          "y_max": 381.81488037109375
+        }
+      },
+      {
+        "labelId": "w-0099",
+        "text": "Lead",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 147.13465881347656,
+          "y_min": 373.4439392089844,
+          "x_max": 169.14920043945312,
+          "y_max": 381.82098388671875
+        }
+      },
+      {
+        "labelId": "w-0100",
+        "text": "Material",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 173.3953094482422,
+          "y_min": 372.6890869140625,
+          "x_max": 211.6298828125,
+          "y_max": 381.83111572265625
+        }
+      },
+      {
+        "labelId": "w-0101",
+        "text": "Ton",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 349.4969177246094,
+          "y_min": 373.8225402832031,
+          "x_max": 368.42138671875,
+          "y_max": 382.57794189453125
+        }
+      },
+      {
+        "labelId": "w-0103",
+        "text": "Salvage",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 89.59426879882812,
+          "y_min": 387.3641357421875,
+          "x_max": 129.3722686767578,
+          "y_max": 397.6421813964844
+        }
+      },
+      {
+        "labelId": "w-0104",
+        "text": "Materials",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 132.07481384277344,
+          "y_min": 389.2703857421875,
+          "x_max": 175.32827758789062,
+          "y_max": 397.6458740234375
+        }
+      },
+      {
+        "labelId": "w-0105",
+        "text": "Ton",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 349.49755859375,
+          "y_min": 389.6587829589844,
+          "x_max": 368.42138671875,
+          "y_max": 398.4127197265625
+        }
+      },
+      {
+        "labelId": "w-0108",
+        "text": "Vegetative",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 89.2089614868164,
+          "y_min": 403.19915771484375,
+          "x_max": 141.73049926757812,
+          "y_max": 413.4750061035156
+        }
+      },
+      {
+        "labelId": "w-0109",
+        "text": "Materials",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 144.81973266601562,
+          "y_min": 404.3396301269531,
+          "x_max": 188.0727081298828,
+          "y_max": 413.4737243652344
+        }
+      },
+      {
+        "labelId": "w-0110",
+        "text": "Ton",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 349.88336181640625,
+          "y_min": 404.7225341796875,
+          "x_max": 369.1937255859375,
+          "y_max": 413.4773864746094
+        }
+      },
+      {
+        "labelId": "w-0111",
+        "text": "152.60",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 410.1294860839844,
+          "y_min": 403.9445495605469,
+          "x_max": 439.4812927246094,
+          "y_max": 412.7025146484375
+        }
+      },
+      {
+        "labelId": "w-0112",
+        "text": "Hazardous",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 90.36319732666016,
+          "y_min": 436.7870178222656,
+          "x_max": 145.591064453125,
+          "y_max": 445.9397888183594
+        }
+      },
+      {
+        "labelId": "w-0113",
+        "text": "Tree",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 149.44964599609375,
+          "y_min": 436.80828857421875,
+          "x_max": 171.85174560546875,
+          "y_max": 445.9493408203125
+        }
+      },
+      {
+        "labelId": "w-0114",
+        "text": "(Documentation,",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 173.7793426513672,
+          "y_min": 434.5338134765625,
+          "x_max": 261.4477233886719,
+          "y_max": 445.9816589355469
+        }
+      },
+      {
+        "labelId": "w-0115",
+        "text": "Removal",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 264.9197998046875,
+          "y_min": 437.2304382324219,
+          "x_max": 310.1067810058594,
+          "y_max": 445.9991455078125
+        }
+      },
+      {
+        "labelId": "w-0116",
+        "text": "and",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 313.1929931640625,
+          "y_min": 437.2478332519531,
+          "x_max": 332.1192626953125,
+          "y_max": 446.007080078125
+        }
+      },
+      {
+        "labelId": "w-0117",
+        "text": "Disposal)",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 335.9774169921875,
+          "y_min": 434.21173095703125,
+          "x_max": 384.6412048339844,
+          "y_max": 446.0260925292969
+        }
+      },
+      {
+        "labelId": "w-0118",
+        "text": "Size",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 148.29458618164062,
+          "y_min": 451.4645080566406,
+          "x_max": 169.14930725097656,
+          "y_max": 460.5989685058594
+        }
+      },
+      {
+        "labelId": "w-0119",
+        "text": "Range",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 173.01048278808594,
+          "y_min": 450.3246765136719,
+          "x_max": 204.67848205566406,
+          "y_max": 460.6015930175781
+        }
+      },
+      {
+        "labelId": "w-0120",
+        "text": "(inches)",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 208.53961181640625,
+          "y_min": 449.566162109375,
+          "x_max": 246.3865966796875,
+          "y_max": 460.60455322265625
+        }
+      },
+      {
+        "labelId": "w-0121",
+        "text": "Unit",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 349.1120910644531,
+          "y_min": 450.67864990234375,
+          "x_max": 368.4222412109375,
+          "y_max": 459.0525207519531
+        }
+      },
+      {
+        "labelId": "w-0122",
+        "text": "Unit",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 442.18218994140625,
+          "y_min": 451.4530944824219,
+          "x_max": 461.4921569824219,
+          "y_max": 459.82647705078125
+        }
+      },
+      {
+        "labelId": "w-0123",
+        "text": "Price",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 464.9671630859375,
+          "y_min": 450.6937255859375,
+          "x_max": 489.29754638671875,
+          "y_max": 459.82855224609375
+        }
+      },
+      {
+        "labelId": "w-0124",
+        "text": "6\"",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 89.59361267089844,
+          "y_min": 465.3638000488281,
+          "x_max": 101.3094253540039,
+          "y_max": 474.1182861328125
+        }
+      },
+      {
+        "labelId": "w-0125",
+        "text": "-",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 101.30792236328125,
+          "y_min": 465.3658142089844,
+          "x_max": 107.16658020019531,
+          "y_max": 474.1192932128906
+        }
+      },
+      {
+        "labelId": "w-0126",
+        "text": "12\"",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 107.16507720947266,
+          "y_min": 465.3668212890625,
+          "x_max": 124.73804473876953,
+          "y_max": 474.122314453125
+        }
+      },
+      {
+        "labelId": "w-0127",
+        "text": "Diameter",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 258.3563537597656,
+          "y_min": 466.1305847167969,
+          "x_max": 303.1559753417969,
+          "y_max": 474.51324462890625
+        }
+      },
+      {
+        "labelId": "w-0128",
+        "text": "Tree",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 347.56610107421875,
+          "y_min": 466.9087829589844,
+          "x_max": 369.9661560058594,
+          "y_max": 475.6644287109375
+        }
+      },
+      {
+        "labelId": "w-0129",
+        "text": "$600.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 408.19854736328125,
+          "y_min": 465.3695068359375,
+          "x_max": 444.49993896484375,
+          "y_max": 474.50250244140625
+        }
+      },
+      {
+        "labelId": "w-0130",
+        "text": "13\"",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 89.59445190429688,
+          "y_min": 480.4332580566406,
+          "x_max": 105.81492614746094,
+          "y_max": 489.56744384765625
+        }
+      },
+      {
+        "labelId": "w-0131",
+        "text": "-24\"",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 108.13137817382812,
+          "y_min": 480.43463134765625,
+          "x_max": 128.21371459960938,
+          "y_max": 489.569091796875
+        }
+      },
+      {
+        "labelId": "w-0132",
+        "text": "Diameter",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 258.351806640625,
+          "y_min": 481.5862731933594,
+          "x_max": 301.9972229003906,
+          "y_max": 490.3712158203125
+        }
+      },
+      {
+        "labelId": "w-0133",
+        "text": "Tree",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 347.5662536621094,
+          "y_min": 482.35308837890625,
+          "x_max": 369.57989501953125,
+          "y_max": 490.7278137207031
+        }
+      },
+      {
+        "labelId": "w-0134",
+        "text": "$3,800.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 407.8123474121094,
+          "y_min": 480.8243713378906,
+          "x_max": 452.9962463378906,
+          "y_max": 490.3387451171875
+        }
+      },
+      {
+        "labelId": "w-0135",
+        "text": "25\"",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 89.59515380859375,
+          "y_min": 497.4099426269531,
+          "x_max": 105.043212890625,
+          "y_max": 505.4024963378906
+        }
+      },
+      {
+        "labelId": "w-0136",
+        "text": "-",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 108.518310546875,
+          "y_min": 498.1703186035156,
+          "x_max": 113.92547607421875,
+          "y_max": 505.4010314941406
+        }
+      },
+      {
+        "labelId": "w-0137",
+        "text": "36\"",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 113.92491149902344,
+          "y_min": 498.1690368652344,
+          "x_max": 130.14527893066406,
+          "y_max": 505.4006042480469
+        }
+      },
+      {
+        "labelId": "w-0138",
+        "text": "Diameter",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 258.7230529785156,
+          "y_min": 497.8030700683594,
+          "x_max": 301.9969787597656,
+          "y_max": 506.2845764160156
+        }
+      },
+      {
+        "labelId": "w-0139",
+        "text": "Tree",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 347.5671691894531,
+          "y_min": 497.7973937988281,
+          "x_max": 369.9661560058594,
+          "y_max": 505.78924560546875
+        }
+      },
+      {
+        "labelId": "w-0140",
+        "text": "$5,200.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 409.3570861816406,
+          "y_min": 495.5040283203125,
+          "x_max": 452.61102294921875,
+          "y_max": 505.4024963378906
+        }
+      },
+      {
+        "labelId": "w-0141",
+        "text": "Hazardous",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 89.18407440185547,
+          "y_min": 514.0255737304688,
+          "x_max": 141.33975219726562,
+          "y_max": 522.5265502929688
+        }
+      },
+      {
+        "labelId": "w-0142",
+        "text": "Hanger",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 145.18069458007812,
+          "y_min": 512.6422119140625,
+          "x_max": 179.96182250976562,
+          "y_max": 522.6222534179688
+        }
+      },
+      {
+        "labelId": "w-0143",
+        "text": "Tree",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 347.9521484375,
+          "y_min": 513.6336059570312,
+          "x_max": 369.9660949707031,
+          "y_max": 521.6287231445312
+        }
+      },
+      {
+        "labelId": "w-0144",
+        "text": "$6,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 408.1985778808594,
+          "y_min": 512.4766235351562,
+          "x_max": 452.2270202636719,
+          "y_max": 521.625
+        }
+      },
+      {
+        "labelId": "w-0145",
+        "text": "Hazardous",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 89.97954559326172,
+          "y_min": 544.5621337890625,
+          "x_max": 144.4332275390625,
+          "y_max": 554.46435546875
+        }
+      },
+      {
+        "labelId": "w-0146",
+        "text": "Stump",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 148.29364013671875,
+          "y_min": 543.8097534179688,
+          "x_max": 182.27960205078125,
+          "y_max": 554.469970703125
+        }
+      },
+      {
+        "labelId": "w-0147",
+        "text": "(Documentation,",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 185.75367736816406,
+          "y_min": 543.4347534179688,
+          "x_max": 270.3301086425781,
+          "y_max": 554.4830932617188
+        }
+      },
+      {
+        "labelId": "w-0148",
+        "text": "Removal,",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 274.9627990722656,
+          "y_min": 544.5896606445312,
+          "x_max": 322.4652404785156,
+          "y_max": 554.4907836914062
+        }
+      },
+      {
+        "labelId": "w-0149",
+        "text": "Backfill,",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 327.48406982421875,
+          "y_min": 544.5974731445312,
+          "x_max": 369.1934814453125,
+          "y_max": 554.4977416992188
+        }
+      },
+      {
+        "labelId": "w-0150",
+        "text": "and",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 371.1230773925781,
+          "y_min": 545.74560546875,
+          "x_max": 390.4336853027344,
+          "y_max": 554.5009155273438
+        }
+      },
+      {
+        "labelId": "w-0151",
+        "text": "Disposal)",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 394.680419921875,
+          "y_min": 543.8463745117188,
+          "x_max": 442.95538330078125,
+          "y_max": 554.5086669921875
+        }
+      },
+      {
+        "labelId": "w-0152",
+        "text": "Size",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 147.90115356445312,
+          "y_min": 558.8419799804688,
+          "x_max": 168.76222229003906,
+          "y_max": 567.9910888671875
+        }
+      },
+      {
+        "labelId": "w-0153",
+        "text": "Range",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 172.61705017089844,
+          "y_min": 557.7195434570312,
+          "x_max": 203.9060516357422,
+          "y_max": 568.018310546875
+        }
+      },
+      {
+        "labelId": "w-0154",
+        "text": "(inches)",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 208.1461181640625,
+          "y_min": 557.7470092773438,
+          "x_max": 245.61415100097656,
+          "y_max": 568.0504760742188
+        }
+      },
+      {
+        "labelId": "w-0155",
+        "text": "Unit",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 348.7253112792969,
+          "y_min": 558.0638427734375,
+          "x_max": 368.80755615234375,
+          "y_max": 566.817626953125
+        }
+      },
+      {
+        "labelId": "w-0156",
+        "text": "Unit",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 441.4109802246094,
+          "y_min": 558.8190307617188,
+          "x_max": 460.3420715332031,
+          "y_max": 567.5887451171875
+        }
+      },
+      {
+        "labelId": "w-0157",
+        "text": "Price",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 464.1956481933594,
+          "y_min": 558.4133911132812,
+          "x_max": 487.7612609863281,
+          "y_max": 567.5679321289062
+        }
+      },
+      {
+        "labelId": "w-0158",
+        "text": ">24\"",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 91.52532196044922,
+          "y_min": 573.8829345703125,
+          "x_max": 115.66268920898438,
+          "y_max": 581.49609375
+        }
+      },
+      {
+        "labelId": "w-0159",
+        "text": "-",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 115.66194915771484,
+          "y_min": 573.88525390625,
+          "x_max": 121.69684600830078,
+          "y_max": 581.4967041015625
+        }
+      },
+      {
+        "labelId": "w-0160",
+        "text": "36\"",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 121.69610595703125,
+          "y_min": 573.8858032226562,
+          "x_max": 139.79930114746094,
+          "y_max": 581.4984130859375
+        }
+      },
+      {
+        "labelId": "w-0161",
+        "text": "Diameter",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 258.74456787109375,
+          "y_min": 575.0359497070312,
+          "x_max": 301.99749755859375,
+          "y_max": 582.2662353515625
+        }
+      },
+      {
+        "labelId": "w-0162",
+        "text": "Tree",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 347.1806945800781,
+          "y_min": 575.0302734375,
+          "x_max": 369.5799865722656,
+          "y_max": 581.8815307617188
+        }
+      },
+      {
+        "labelId": "w-0164",
+        "text": "37\"",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 92.68353271484375,
+          "y_min": 588.5547485351562,
+          "x_max": 110.2284927368164,
+          "y_max": 595.78759765625
+        }
+      },
+      {
+        "labelId": "w-0165",
+        "text": "-",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 110.2274169921875,
+          "y_min": 588.5573120117188,
+          "x_max": 116.07645416259766,
+          "y_max": 595.7884521484375
+        }
+      },
+      {
+        "labelId": "w-0166",
+        "text": "48\"",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 116.07537841796875,
+          "y_min": 588.5581665039062,
+          "x_max": 133.62034606933594,
+          "y_max": 595.7910766601562
+        }
+      },
+      {
+        "labelId": "w-0167",
+        "text": "Diameter",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 257.970703125,
+          "y_min": 588.9638061523438,
+          "x_max": 302.383544921875,
+          "y_max": 597.7236938476562
+        }
+      },
+      {
+        "labelId": "w-0168",
+        "text": "Tree",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 347.95233154296875,
+          "y_min": 588.9638061523438,
+          "x_max": 370.3523254394531,
+          "y_max": 597.7193603515625
+        }
+      },
+      {
+        "labelId": "w-0169",
+        "text": "$2,116.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 408.1985168457031,
+          "y_min": 587.4221801757812,
+          "x_max": 452.2242431640625,
+          "y_max": 596.5574951171875
+        }
+      },
+      {
+        "labelId": "w-0170",
+        "text": ">",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 88.82386016845703,
+          "y_min": 605.5291137695312,
+          "x_max": 96.16950225830078,
+          "y_max": 612.0075073242188
+        }
+      },
+      {
+        "labelId": "w-0171",
+        "text": "48\"",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 98.47757720947266,
+          "y_min": 602.841552734375,
+          "x_max": 115.09500885009766,
+          "y_max": 611.995361328125
+        }
+      },
+      {
+        "labelId": "w-0172",
+        "text": "+",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 117.40254211425781,
+          "y_min": 605.4942016601562,
+          "x_max": 123.97581481933594,
+          "y_max": 611.9716186523438
+        }
+      },
+      {
+        "labelId": "w-0173",
+        "text": "Diameter",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 258.35772705078125,
+          "y_min": 604.4080810546875,
+          "x_max": 302.769775390625,
+          "y_max": 612.7835083007812
+        }
+      },
+      {
+        "labelId": "w-0174",
+        "text": "Tree",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 347.56695556640625,
+          "y_min": 604.4080810546875,
+          "x_max": 369.9661560058594,
+          "y_max": 612.781005859375
+        }
+      },
+      {
+        "labelId": "w-0175",
+        "text": "$4,732.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 407.81243896484375,
+          "y_min": 603.2333984375,
+          "x_max": 452.2294616699219,
+          "y_max": 612.3937377929688
+        }
+      }
+    ]
+  },
+  "cells": {
+    "status": "labeled",
+    "items": [
+      {
+        "labelId": "c-0001",
+        "text": "Document",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 86.5,
+          "y_min": 71.5,
+          "x_max": 314.5,
+          "y_max": 88.5
+        },
+        "isHeader": true,
+        "columnName": "Document"
+      },
+      {
+        "labelId": "c-0002",
+        "text": "Unit",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 314.5,
+          "y_min": 71.5,
+          "x_max": 409.5,
+          "y_max": 88.5
+        },
+        "isHeader": true,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0003",
+        "text": "Unit Price",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 409.5,
+          "y_min": 71.5,
+          "x_max": 527.5,
+          "y_max": 88.5
+        },
+        "isHeader": true,
+        "columnName": "Unit Price"
+      },
+      {
+        "labelId": "c-0004",
+        "text": "Asbestos Inspection and Documentation",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 86.5,
+          "y_min": 88.5,
+          "x_max": 314.5,
+          "y_max": 103.5
+        },
+        "isHeader": false,
+        "columnName": "Document"
+      },
+      {
+        "labelId": "c-0005",
+        "text": "Per Parcel",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 314.5,
+          "y_min": 88.5,
+          "x_max": 409.5,
+          "y_max": 103.5
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0006",
+        "text": "$1,300.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 409.5,
+          "y_min": 88.5,
+          "x_max": 527.5,
+          "y_max": 103.5
+        },
+        "isHeader": false,
+        "columnName": "Unit Price"
+      },
+      {
+        "labelId": "c-0007",
+        "text": "Abatement Crew",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 86.5,
+          "y_min": 103.5,
+          "x_max": 314.5,
+          "y_max": 119.5
+        },
+        "isHeader": false,
+        "columnName": "Document"
+      },
+      {
+        "labelId": "c-0008",
+        "text": "Per Day",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 314.5,
+          "y_min": 103.5,
+          "x_max": 409.5,
+          "y_max": 119.5
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0009",
+        "text": "$2,130.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 409.5,
+          "y_min": 103.5,
+          "x_max": 527.5,
+          "y_max": 119.5
+        },
+        "isHeader": false,
+        "columnName": "Unit Price"
+      },
+      {
+        "labelId": "c-0010",
+        "text": "Site Restoration",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 86.5,
+          "y_min": 119.5,
+          "x_max": 314.5,
+          "y_max": 135.5
+        },
+        "isHeader": false,
+        "columnName": "Document"
+      },
+      {
+        "labelId": "c-0011",
+        "text": "Per Parcel",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 314.5,
+          "y_min": 119.5,
+          "x_max": 409.5,
+          "y_max": 135.5
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0012",
+        "text": "$1,460.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 409.5,
+          "y_min": 119.5,
+          "x_max": 527.5,
+          "y_max": 135.5
+        },
+        "isHeader": false,
+        "columnName": "Unit Price"
+      },
+      {
+        "labelId": "c-0013",
+        "text": "Backfill Activities",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 86.5,
+          "y_min": 135.5,
+          "x_max": 314.5,
+          "y_max": 151.5
+        },
+        "isHeader": false,
+        "columnName": "Document"
+      },
+      {
+        "labelId": "c-0014",
+        "text": "CY",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 314.5,
+          "y_min": 135.5,
+          "x_max": 409.5,
+          "y_max": 151.5
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0015",
+        "text": "$160.00 per CY",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 409.5,
+          "y_min": 135.5,
+          "x_max": 527.5,
+          "y_max": 151.5
+        },
+        "isHeader": false,
+        "columnName": "Unit Price"
+      },
+      {
+        "labelId": "c-0016",
+        "text": "Emergency Demo - Make Safe",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 86.5,
+          "y_min": 151.5,
+          "x_max": 314.5,
+          "y_max": 167.5
+        },
+        "isHeader": false,
+        "columnName": "Document"
+      },
+      {
+        "labelId": "c-0017",
+        "text": "Per Parcel",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 314.5,
+          "y_min": 151.5,
+          "x_max": 409.5,
+          "y_max": 167.5
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0018",
+        "text": "$6,105.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 409.5,
+          "y_min": 151.5,
+          "x_max": 527.5,
+          "y_max": 167.5
+        },
+        "isHeader": false,
+        "columnName": "Unit Price"
+      },
+      {
+        "labelId": "c-0019",
+        "text": "Debris Tonnage",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 85,
+          "y_min": 196.5,
+          "x_max": 313,
+          "y_max": 213.5
+        },
+        "isHeader": true,
+        "columnName": "Debris Tonnage"
+      },
+      {
+        "labelId": "c-0020",
+        "text": "Unit",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 313,
+          "y_min": 196.5,
+          "x_max": 409,
+          "y_max": 213.5
+        },
+        "isHeader": true,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0021",
+        "text": "Unit Price",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 409,
+          "y_min": 196.5,
+          "x_max": 526,
+          "y_max": 213.5
+        },
+        "isHeader": true,
+        "columnName": "Unit Price"
+      },
+      {
+        "labelId": "c-0022",
+        "text": "C&D (Construction and Demolition) Debris",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 85,
+          "y_min": 213.5,
+          "x_max": 313,
+          "y_max": 229
+        },
+        "isHeader": false,
+        "columnName": "Debris Tonnage"
+      },
+      {
+        "labelId": "c-0023",
+        "text": "Ton",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 313,
+          "y_min": 213.5,
+          "x_max": 409,
+          "y_max": 229
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0024",
+        "text": "$152.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 409,
+          "y_min": 213.5,
+          "x_max": 526,
+          "y_max": 229
+        },
+        "isHeader": false,
+        "columnName": "Unit Price"
+      },
+      {
+        "labelId": "c-0025",
+        "text": "Asbestos Containing Material (ACM)",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 85,
+          "y_min": 229,
+          "x_max": 313,
+          "y_max": 244.5
+        },
+        "isHeader": false,
+        "columnName": "Debris Tonnage"
+      },
+      {
+        "labelId": "c-0026",
+        "text": "Ton",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 313,
+          "y_min": 229,
+          "x_max": 409,
+          "y_max": 244.5
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0028",
+        "text": "Hazardous Lead Material",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 85,
+          "y_min": 244.5,
+          "x_max": 313,
+          "y_max": 259.5
+        },
+        "isHeader": false,
+        "columnName": "Debris Tonnage"
+      },
+      {
+        "labelId": "c-0029",
+        "text": "Ton",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 313,
+          "y_min": 244.5,
+          "x_max": 409,
+          "y_max": 259.5
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0031",
+        "text": "Salvage Materials",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 85,
+          "y_min": 259.5,
+          "x_max": 313,
+          "y_max": 275
+        },
+        "isHeader": false,
+        "columnName": "Debris Tonnage"
+      },
+      {
+        "labelId": "c-0032",
+        "text": "Ton",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 313,
+          "y_min": 259.5,
+          "x_max": 409,
+          "y_max": 275
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0034",
+        "text": "Vegetative Materials",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 85,
+          "y_min": 275,
+          "x_max": 313,
+          "y_max": 290
+        },
+        "isHeader": false,
+        "columnName": "Debris Tonnage"
+      },
+      {
+        "labelId": "c-0035",
+        "text": "Ton",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 313,
+          "y_min": 275,
+          "x_max": 409,
+          "y_max": 290
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0036",
+        "text": "$152.50",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 409,
+          "y_min": 275,
+          "x_max": 526,
+          "y_max": 290
+        },
+        "isHeader": false,
+        "columnName": "Unit Price"
+      },
+      {
+        "labelId": "c-0037",
+        "text": "Debris Tonnage",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 85,
+          "y_min": 320.5,
+          "x_max": 313,
+          "y_max": 337.5
+        },
+        "isHeader": true,
+        "columnName": "Debris Tonnage"
+      },
+      {
+        "labelId": "c-0038",
+        "text": "Unit",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 313,
+          "y_min": 320.5,
+          "x_max": 409,
+          "y_max": 337.5
+        },
+        "isHeader": true,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0039",
+        "text": "Unit Price",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 409,
+          "y_min": 320.5,
+          "x_max": 526,
+          "y_max": 337.5
+        },
+        "isHeader": true,
+        "columnName": "Unit Price"
+      },
+      {
+        "labelId": "c-0040",
+        "text": "C&D (Construction and Demolition) Debris",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 85,
+          "y_min": 337.5,
+          "x_max": 313,
+          "y_max": 353
+        },
+        "isHeader": false,
+        "columnName": "Debris Tonnage"
+      },
+      {
+        "labelId": "c-0041",
+        "text": "Ton",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 313,
+          "y_min": 337.5,
+          "x_max": 409,
+          "y_max": 353
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0042",
+        "text": "152.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 409,
+          "y_min": 337.5,
+          "x_max": 526,
+          "y_max": 353
+        },
+        "isHeader": false,
+        "columnName": "Unit Price"
+      },
+      {
+        "labelId": "c-0043",
+        "text": "Asbestos Containing Material (ACM)",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 85,
+          "y_min": 353,
+          "x_max": 313,
+          "y_max": 368.5
+        },
+        "isHeader": false,
+        "columnName": "Debris Tonnage"
+      },
+      {
+        "labelId": "c-0044",
+        "text": "Ton",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 313,
+          "y_min": 353,
+          "x_max": 409,
+          "y_max": 368.5
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0046",
+        "text": "Hazardous Lead Material",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 85,
+          "y_min": 368.5,
+          "x_max": 313,
+          "y_max": 383.5
+        },
+        "isHeader": false,
+        "columnName": "Debris Tonnage"
+      },
+      {
+        "labelId": "c-0047",
+        "text": "Ton",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 313,
+          "y_min": 368.5,
+          "x_max": 409,
+          "y_max": 383.5
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0049",
+        "text": "Salvage Materials",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 85,
+          "y_min": 383.5,
+          "x_max": 313,
+          "y_max": 399
+        },
+        "isHeader": false,
+        "columnName": "Debris Tonnage"
+      },
+      {
+        "labelId": "c-0050",
+        "text": "Ton",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 313,
+          "y_min": 383.5,
+          "x_max": 409,
+          "y_max": 399
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0052",
+        "text": "Vegetative Materials",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 85,
+          "y_min": 399,
+          "x_max": 313,
+          "y_max": 414
+        },
+        "isHeader": false,
+        "columnName": "Debris Tonnage"
+      },
+      {
+        "labelId": "c-0053",
+        "text": "Ton",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 313,
+          "y_min": 399,
+          "x_max": 409,
+          "y_max": 414
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0054",
+        "text": "152.60",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 409,
+          "y_min": 399,
+          "x_max": 526,
+          "y_max": 414
+        },
+        "isHeader": false,
+        "columnName": "Unit Price"
+      },
+      {
+        "labelId": "c-0055",
+        "text": "Size Range (inches)",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 84,
+          "y_min": 445.5,
+          "x_max": 313.5,
+          "y_max": 461
+        },
+        "isHeader": true,
+        "columnName": "Size Range (inches)"
+      },
+      {
+        "labelId": "c-0056",
+        "text": "Unit",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 313.5,
+          "y_min": 445.5,
+          "x_max": 406.5,
+          "y_max": 461
+        },
+        "isHeader": true,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0057",
+        "text": "Unit Price",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 406.5,
+          "y_min": 445.5,
+          "x_max": 524.5,
+          "y_max": 461
+        },
+        "isHeader": true,
+        "columnName": "Unit Price"
+      },
+      {
+        "labelId": "c-0058",
+        "text": "6\" - 12\"",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 84,
+          "y_min": 461,
+          "x_max": 250,
+          "y_max": 477.5
+        },
+        "isHeader": false,
+        "columnName": "Size Range (inches)"
+      },
+      {
+        "labelId": "c-0059",
+        "text": "Diameter",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 250,
+          "y_min": 461,
+          "x_max": 313.5,
+          "y_max": 477.5
+        },
+        "isHeader": false,
+        "columnName": null
+      },
+      {
+        "labelId": "c-0060",
+        "text": "Tree",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 313.5,
+          "y_min": 461,
+          "x_max": 406.5,
+          "y_max": 477.5
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0061",
+        "text": "$600.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 406.5,
+          "y_min": 461,
+          "x_max": 524.5,
+          "y_max": 477.5
+        },
+        "isHeader": false,
+        "columnName": "Unit Price"
+      },
+      {
+        "labelId": "c-0062",
+        "text": "13\" -24\"",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 84,
+          "y_min": 477.5,
+          "x_max": 250,
+          "y_max": 493
+        },
+        "isHeader": false,
+        "columnName": "Size Range (inches)"
+      },
+      {
+        "labelId": "c-0063",
+        "text": "Diameter",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 250,
+          "y_min": 477.5,
+          "x_max": 313.5,
+          "y_max": 493
+        },
+        "isHeader": false,
+        "columnName": null
+      },
+      {
+        "labelId": "c-0064",
+        "text": "Tree",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 313.5,
+          "y_min": 477.5,
+          "x_max": 406.5,
+          "y_max": 493
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0065",
+        "text": "$3,800.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 406.5,
+          "y_min": 477.5,
+          "x_max": 524.5,
+          "y_max": 493
+        },
+        "isHeader": false,
+        "columnName": "Unit Price"
+      },
+      {
+        "labelId": "c-0066",
+        "text": "25\" - 36\"",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 84,
+          "y_min": 493,
+          "x_max": 250,
+          "y_max": 509
+        },
+        "isHeader": false,
+        "columnName": "Size Range (inches)"
+      },
+      {
+        "labelId": "c-0067",
+        "text": "Diameter",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 250,
+          "y_min": 493,
+          "x_max": 313.5,
+          "y_max": 509
+        },
+        "isHeader": false,
+        "columnName": null
+      },
+      {
+        "labelId": "c-0068",
+        "text": "Tree",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 313.5,
+          "y_min": 493,
+          "x_max": 406.5,
+          "y_max": 509
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0069",
+        "text": "$5,200.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 406.5,
+          "y_min": 493,
+          "x_max": 524.5,
+          "y_max": 509
+        },
+        "isHeader": false,
+        "columnName": "Unit Price"
+      },
+      {
+        "labelId": "c-0070",
+        "text": "Hazardous Hanger",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 84,
+          "y_min": 509,
+          "x_max": 313.5,
+          "y_max": 524
+        },
+        "isHeader": false,
+        "columnName": "Size Range (inches)"
+      },
+      {
+        "labelId": "c-0071",
+        "text": "Tree",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 313.5,
+          "y_min": 509,
+          "x_max": 406.5,
+          "y_max": 524
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0072",
+        "text": "$6,000.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 406.5,
+          "y_min": 509,
+          "x_max": 524.5,
+          "y_max": 524
+        },
+        "isHeader": false,
+        "columnName": "Unit Price"
+      },
+      {
+        "labelId": "c-0073",
+        "text": "Size Range (inches)",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 83.5,
+          "y_min": 554.5,
+          "x_max": 313,
+          "y_max": 570.5
+        },
+        "isHeader": true,
+        "columnName": "Size Range (inches)"
+      },
+      {
+        "labelId": "c-0074",
+        "text": "Unit",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 313,
+          "y_min": 554.5,
+          "x_max": 406,
+          "y_max": 570.5
+        },
+        "isHeader": true,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0075",
+        "text": "Unit Price",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 406,
+          "y_min": 554.5,
+          "x_max": 524.5,
+          "y_max": 570.5
+        },
+        "isHeader": true,
+        "columnName": "Unit Price"
+      },
+      {
+        "labelId": "c-0076",
+        "text": ">24\" - 36\"",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 83.5,
+          "y_min": 570.5,
+          "x_max": 249.5,
+          "y_max": 586.5
+        },
+        "isHeader": false,
+        "columnName": "Size Range (inches)"
+      },
+      {
+        "labelId": "c-0077",
+        "text": "Diameter",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 249.5,
+          "y_min": 570.5,
+          "x_max": 313,
+          "y_max": 586.5
+        },
+        "isHeader": false,
+        "columnName": null
+      },
+      {
+        "labelId": "c-0078",
+        "text": "Tree",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 313,
+          "y_min": 570.5,
+          "x_max": 406,
+          "y_max": 586.5
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0080",
+        "text": "37\" - 48\"",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 83.5,
+          "y_min": 586.5,
+          "x_max": 249.5,
+          "y_max": 601
+        },
+        "isHeader": false,
+        "columnName": "Size Range (inches)"
+      },
+      {
+        "labelId": "c-0081",
+        "text": "Diameter",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 249.5,
+          "y_min": 586.5,
+          "x_max": 313,
+          "y_max": 601
+        },
+        "isHeader": false,
+        "columnName": null
+      },
+      {
+        "labelId": "c-0082",
+        "text": "Tree",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 313,
+          "y_min": 586.5,
+          "x_max": 406,
+          "y_max": 601
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0083",
+        "text": "$2,116.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 406,
+          "y_min": 586.5,
+          "x_max": 524.5,
+          "y_max": 601
+        },
+        "isHeader": false,
+        "columnName": "Unit Price"
+      },
+      {
+        "labelId": "c-0084",
+        "text": "> 48\" +",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 83.5,
+          "y_min": 601,
+          "x_max": 249.5,
+          "y_max": 615.5
+        },
+        "isHeader": false,
+        "columnName": "Size Range (inches)"
+      },
+      {
+        "labelId": "c-0085",
+        "text": "Diameter",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 249.5,
+          "y_min": 601,
+          "x_max": 313,
+          "y_max": 615.5
+        },
+        "isHeader": false,
+        "columnName": null
+      },
+      {
+        "labelId": "c-0086",
+        "text": "Tree",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 313,
+          "y_min": 601,
+          "x_max": 406,
+          "y_max": 615.5
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0087",
+        "text": "$4,732.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 406,
+          "y_min": 601,
+          "x_max": 524.5,
+          "y_max": 615.5
+        },
+        "isHeader": false,
+        "columnName": "Unit Price"
+      }
+    ]
+  },
+  "rows": {
+    "status": "labeled",
+    "items": [
+      {
+        "rowKey": "r-0001",
+        "orderedCellLabelIds": [
+          "c-0001",
+          "c-0002",
+          "c-0003"
+        ]
+      },
+      {
+        "rowKey": "r-0002",
+        "orderedCellLabelIds": [
+          "c-0004",
+          "c-0005",
+          "c-0006"
+        ]
+      },
+      {
+        "rowKey": "r-0003",
+        "orderedCellLabelIds": [
+          "c-0007",
+          "c-0008",
+          "c-0009"
+        ]
+      },
+      {
+        "rowKey": "r-0004",
+        "orderedCellLabelIds": [
+          "c-0010",
+          "c-0011",
+          "c-0012"
+        ]
+      },
+      {
+        "rowKey": "r-0005",
+        "orderedCellLabelIds": [
+          "c-0013",
+          "c-0014",
+          "c-0015"
+        ]
+      },
+      {
+        "rowKey": "r-0006",
+        "orderedCellLabelIds": [
+          "c-0016",
+          "c-0017",
+          "c-0018"
+        ]
+      },
+      {
+        "rowKey": "r-0007",
+        "orderedCellLabelIds": [
+          "c-0019",
+          "c-0020",
+          "c-0021"
+        ]
+      },
+      {
+        "rowKey": "r-0008",
+        "orderedCellLabelIds": [
+          "c-0022",
+          "c-0023",
+          "c-0024"
+        ]
+      },
+      {
+        "rowKey": "r-0012",
+        "orderedCellLabelIds": [
+          "c-0034",
+          "c-0035",
+          "c-0036"
+        ]
+      },
+      {
+        "rowKey": "r-0013",
+        "orderedCellLabelIds": [
+          "c-0037",
+          "c-0038",
+          "c-0039"
+        ]
+      },
+      {
+        "rowKey": "r-0014",
+        "orderedCellLabelIds": [
+          "c-0040",
+          "c-0041",
+          "c-0042"
+        ]
+      },
+      {
+        "rowKey": "r-0018",
+        "orderedCellLabelIds": [
+          "c-0052",
+          "c-0053",
+          "c-0054"
+        ]
+      },
+      {
+        "rowKey": "r-0019",
+        "orderedCellLabelIds": [
+          "c-0055",
+          "c-0056",
+          "c-0057"
+        ]
+      },
+      {
+        "rowKey": "r-0020",
+        "orderedCellLabelIds": [
+          "c-0058",
+          "c-0059",
+          "c-0060",
+          "c-0061"
+        ]
+      },
+      {
+        "rowKey": "r-0021",
+        "orderedCellLabelIds": [
+          "c-0062",
+          "c-0063",
+          "c-0064",
+          "c-0065"
+        ]
+      },
+      {
+        "rowKey": "r-0022",
+        "orderedCellLabelIds": [
+          "c-0066",
+          "c-0067",
+          "c-0068",
+          "c-0069"
+        ]
+      },
+      {
+        "rowKey": "r-0023",
+        "orderedCellLabelIds": [
+          "c-0070",
+          "c-0071",
+          "c-0072"
+        ]
+      },
+      {
+        "rowKey": "r-0024",
+        "orderedCellLabelIds": [
+          "c-0073",
+          "c-0074",
+          "c-0075"
+        ]
+      },
+      {
+        "rowKey": "r-0026",
+        "orderedCellLabelIds": [
+          "c-0080",
+          "c-0081",
+          "c-0082",
+          "c-0083"
+        ]
+      },
+      {
+        "rowKey": "r-0027",
+        "orderedCellLabelIds": [
+          "c-0084",
+          "c-0085",
+          "c-0086",
+          "c-0087"
+        ]
+      }
+    ]
+  },
+  "coverage": {
+    "status": "labeled",
+    "truth": "native_text_complete",
+    "note": "Pinned PDF has 167 native PyMuPDF words and 100 persisted native layout items on this page. Native source layer is present; raster-only reviewer B could not observe it. This coverage classification does not resolve dashed monetary signs, the stump rate, or remaining word-geometry review blockers."
+  },
+  "labeledBy": "delegated_dual_ai:chatgpt+claude",
+  "labeledAt": null
+}

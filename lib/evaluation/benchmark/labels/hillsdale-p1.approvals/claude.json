@@ -1,0 +1,42 @@
+{
+  "approvalVersion": "e3-benchmark-delegated-approval-v1",
+  "authority": "delegated_dual_ai_benchmark_approval",
+  "delegationScope": "e3_benchmark_labels_finalization",
+  "pageKey": "hillsdale-p1",
+  "source": {
+    "documentKey": "hillsdale",
+    "sha256": "596adaccf865625723dc832f5206a8f690eb17d96921ef185df35b113c767537",
+    "byteLength": 3227431,
+    "physicalPageNumber": 1
+  },
+  "frame": {
+    "frame_version": "canonical_frame_v1",
+    "coordinate_space": "canonical_v1",
+    "view": [
+      0,
+      0,
+      611,
+      792
+    ],
+    "rotation": 0,
+    "user_unit": 1,
+    "width": 611,
+    "height": 792
+  },
+  "adjudicationSha256": "009d409969c294cb08cad550d931cc9bb75ce6eea8b53e8cb958c37058e4890e",
+  "comparisonSha256": "38ad1fa31a0cda647801acb1cfd53c975aaeba7c5d20bc2e4e1c11b2e4c5d24c",
+  "reviewerALabelSetSha256": "e3a2aec4f53d114ce8392beb8e74704623ae72342cb9ffd4cf8c5ba24ed91803",
+  "reviewerBLabelSetSha256": "86f49904073ef8fc202c4e7a45d5a5147490089e71b964fa1b85263b9a41bebd",
+  "suggestionsSha256": "15faff27f12884c7014029426c44616336d88da87d877ee44a76937d9780aee6",
+  "candidateSha256": "0f5d060208c6294e1ff3267e8b66657f15cfe109b58947a1c1b0723064dff292",
+  "candidateSummary": {
+    "words": 166,
+    "cells": 80,
+    "rows": 20,
+    "coverage": "native_text_complete"
+  },
+  "approverIdentity": "claude",
+  "decision": "approve",
+  "approvedAt": "2026-10-09T23:55:00.000Z",
+  "rationale": "Approve this exact digest. It is benchmark-only label approval, with no production, qualification or rate authority. My v1 rejection of digest 0e1bf338... stands for that digest. Both v1 defects are fixed here. (1) Clipped box: c-0066 '-' (108.52-113.93) and '36\"' (113.92-130.15) now bind to disjoint glyphs from native token '-36\"', so no observation is duplicated. (2) Dash tokenization: I checked it against the enlarged source crop myself. The source shows spaced dashes in '6\" - 12\"', '25\" - 36\"', '>24\" - 36\"' and '37\" - 48\"', and '13\" -24\"' has a space only before the dash. The candidate's tokens match. Pending word geometry is now 0. I counted the 166 bound words myself. I spot-checked boxes against the 2x page render and the overlay, and they line up within about 1 pt. Adjacent overlaps are float-tiling slivers, for example 6\"/- at 0.0015 pt. No retained word includes another word's ink. Caveat: the boxes are OCR advance cells, not ink-tight. They absorb whitespace, and trailing quote/comma edges may sit up to about 1 pt off. I could not measure that at sub-point precision. The seven exclusions stay: cells c-0027/30/33/45/48/51/79, rows r-0009/10/11/15/16/17/25 and their nine rate words. No misread rate text is retained."
+}

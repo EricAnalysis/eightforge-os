@@ -1,0 +1,42 @@
+{
+  "approvalVersion": "e3-benchmark-delegated-approval-v1",
+  "authority": "delegated_dual_ai_benchmark_approval",
+  "delegationScope": "e3_benchmark_labels_finalization",
+  "pageKey": "hillsdale-p1",
+  "source": {
+    "documentKey": "hillsdale",
+    "sha256": "596adaccf865625723dc832f5206a8f690eb17d96921ef185df35b113c767537",
+    "byteLength": 3227431,
+    "physicalPageNumber": 1
+  },
+  "frame": {
+    "frame_version": "canonical_frame_v1",
+    "coordinate_space": "canonical_v1",
+    "view": [
+      0,
+      0,
+      611,
+      792
+    ],
+    "rotation": 0,
+    "user_unit": 1,
+    "width": 611,
+    "height": 792
+  },
+  "adjudicationSha256": "009d409969c294cb08cad550d931cc9bb75ce6eea8b53e8cb958c37058e4890e",
+  "comparisonSha256": "38ad1fa31a0cda647801acb1cfd53c975aaeba7c5d20bc2e4e1c11b2e4c5d24c",
+  "reviewerALabelSetSha256": "e3a2aec4f53d114ce8392beb8e74704623ae72342cb9ffd4cf8c5ba24ed91803",
+  "reviewerBLabelSetSha256": "86f49904073ef8fc202c4e7a45d5a5147490089e71b964fa1b85263b9a41bebd",
+  "suggestionsSha256": "15faff27f12884c7014029426c44616336d88da87d877ee44a76937d9780aee6",
+  "candidateSha256": "0f5d060208c6294e1ff3267e8b66657f15cfe109b58947a1c1b0723064dff292",
+  "candidateSummary": {
+    "words": 166,
+    "cells": 80,
+    "rows": 20,
+    "coverage": "native_text_complete"
+  },
+  "approverIdentity": "chatgpt",
+  "decision": "approve",
+  "approvedAt": "2026-10-09T22:08:37.636Z",
+  "rationale": "Approve this exact revised source-label candidate: all 166 retained source words bind literally to actual PDF glyph observations, with no reused glyph IDs or interpolated/split cell geometry. Seven adjacent glyph-boundary overlaps are float-scale only (largest intersection 0.013155 pt squared); no implausible word widths. Enlarged source range crop and glyph overlay confirm source-specific dash spacing, including joined -24 and separated other dashes. Source render cell/row evidence and Claude prior independent cell/row proof remain valid. All six dashed rates and the illegible first stump rate, their seven priced rows and nine rate words remain excluded. This grants benchmark-only label approval, no production or qualification authority."
+}

@@ -103,8 +103,13 @@ export function valueReadingDraft(entry: ResolutionCase, proposalId: string) {
     && suggestion.proposalId === proposalId);
   if (suggestions.length !== 1 || suggestions[0]?.source !== 'forgewing_value_reading') return null;
   const row = suggestions[0].rateRow;
-  // A category outside the offered list stays out of the draft; the person chooses one.
-  const category = row.category && enter.category?.options.includes(row.category) ? row.category : '';
+  // A category outside the offered list never enters the draft. Without an allowed reading the
+  // draft keeps the category the machine row already carries (as F1 does for a typed review),
+  // so using a suggestion never silently drops it; with neither, the person chooses one.
+  const allowed = (value: string | null | undefined): value is string =>
+    Boolean(value) && Boolean(enter.category?.options.includes(value as string));
+  const machineCategory = enter.currentValue?.category;
+  const category = allowed(row.category) ? row.category : allowed(machineCategory) ? machineCategory : '';
   return { description: row.description, unit: row.unit_type, rate: String(row.rate_amount), category };
 }
 

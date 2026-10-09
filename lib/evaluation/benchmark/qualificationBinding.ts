@@ -26,7 +26,12 @@ import type { CanonicalBox } from '@/lib/extraction/geometry/canonicalPageFrame'
  * no category evidence was found) is human-only, never benchmarked.
  */
 
-export const QUALIFICATION_BINDING_VERSION = 'b461-target-binding-v1' as const;
+/**
+ * v2: a production crop is scored only on what it shows (the row's category is truth only when
+ * its cell is visible in the crop; a category from outside the crop is an invention). Fixed
+ * before any B4.6.1 provider run.
+ */
+export const QUALIFICATION_BINDING_VERSION = 'b461-target-binding-v2' as const;
 
 /** A labelled page and the pinned document it belongs to. The caller verifies the label frame against the source. */
 export type LabelledQualificationPage = Readonly<{

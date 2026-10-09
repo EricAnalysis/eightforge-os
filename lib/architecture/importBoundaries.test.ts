@@ -158,6 +158,9 @@ const FORGEWING_AUTHORIZED_CONSUMERS = new Set([
   'app/api/projects/[id]/resolution-cases/value-reading/route.ts',
 ]);
 const FORGEWING_EVALUATION_AUTHORIZED_CONSUMERS = new Set([
+  // Pure B4.6.1 registration pins the adapter's source path as data only.
+  // This permits that mention, not imports of Forgewing runtime modules.
+  'lib/evaluation/benchmark/qualificationContract.ts',
   'app/evaluation/forgewing/a3-linkage/page.tsx',
   'app/api/evaluation/forgewing/a3-linkage/source/route.ts',
   'app/api/evaluation/forgewing/a3-linkage/validate/route.ts',
@@ -1484,6 +1487,23 @@ describe('Forgewing proposal authority seal', () => {
     );
     expect(forgewingBoundaryViolations(root)).toEqual([
       'lib/evaluation/otherMeasure.ts -> @/lib/forgewing/proposal/schema (unauthorized Forgewing consumer)',
+    ]);
+  });
+
+  it('permits only the exact pure qualification contract source pin while retaining runtime import boundaries', () => {
+    const root = fixtureRoot();
+    const pin = "export const sourcePin = { 'lib/forgewing/runtime/valueReadingClient.ts': 'hash' };";
+    source(root, 'lib/evaluation/benchmark/qualificationContract.ts', pin);
+    expect(forgewingBoundaryViolations(root)).toEqual([]);
+    source(root, 'lib/evaluation/benchmark/otherContract.ts', pin);
+    expect(forgewingBoundaryViolations(root)).toEqual([
+      'lib/evaluation/benchmark/otherContract.ts -> references Forgewing outside its module boundary',
+    ]);
+    source(root, 'lib/evaluation/benchmark/qualificationContract.ts',
+      "import { provider } from '@/lib/forgewing/runtime/valueReadingClient';");
+    expect(forgewingBoundaryViolations(root)).toEqual([
+      'lib/evaluation/benchmark/otherContract.ts -> references Forgewing outside its module boundary',
+      'lib/evaluation/benchmark/qualificationContract.ts -> @/lib/forgewing/runtime/valueReadingClient (unauthorized Forgewing consumer)',
     ]);
   });
 

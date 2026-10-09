@@ -136,7 +136,7 @@ describe('B4.2 value-reading authority boundaries', () => {
     const positions = order.map((marker) => run.indexOf(marker));
     expect(positions.every((position) => position >= 0)).toBe(true);
     expect([...positions].sort((left, right) => left - right)).toEqual(positions);
-    expect(run).toMatch(/renderDigestSha256,\n\s+model: request\.model,/);
+    expect(run).toMatch(/renderDigestSha256,\r?\n\s+model: request\.model,/);
   });
 
   it('constructs the provider and renderer only in the authenticated Ask route (B4.5)', () => {

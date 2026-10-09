@@ -998,7 +998,7 @@ describe('generic single-page priced schedule reconstruction', () => {
     expect(frozen.parser_version).toBe('priced_schedule_reconstruction_v1');
     expect(frozen.pages[0]!.columns.find((column) => column.header_text === 'Amount')!.role).toBe('rate');
     const current = buildPagePricedScheduleReconstruction({ layout: layoutOf([page(7, lines)]) });
-    expect(current.parser_version).toBe('priced_schedule_reconstruction_v5');
+    expect(current.parser_version).toBe('priced_schedule_reconstruction_v6');
     expect(current.pages.flatMap((entry) => entry.columns).some((column) => column.role === 'rate')).toBe(false);
   });
 

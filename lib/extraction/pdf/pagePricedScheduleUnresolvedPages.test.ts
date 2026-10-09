@@ -8,6 +8,7 @@ import {
   type PdfLayoutObservationIdentityContext,
 } from '@/lib/extraction/pdf/layoutObservationIdentity';
 import { buildPagePricedScheduleReconstruction } from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
+import { PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION } from '@/lib/extraction/pdf/pricedScheduleVersion';
 
 /**
  * Durable unresolved evidence (Forgewing resolution layer B2). A page that
@@ -70,6 +71,18 @@ const bare = (y: number, description: string, amount: string) => line(y, [
   { x: 470, text: amount, width: 40 },
 ]);
 const prose = (y: number) => line(y, [{ x: 50, text: 'This agreement is entered into by the parties', width: 300 }]);
+const limitHeader = () => line(720, [
+  { x: 50, text: 'TYPE OF INSURANCE', width: 90 },
+  { x: 200, text: 'POLICY NUMBER', width: 80 },
+  { x: 450, text: 'LIMITS', width: 30 },
+]);
+const limitBody = () => [
+  bare(700, 'Each occurrence', '1000000'),
+  bare(690, 'Aggregate', '2000000'),
+  // Empty limits are authored currency slots too; they are not prices.
+  line(680, [{ x: 450, text: '$', width: 8 }]),
+];
+const limitFooter = () => line(640, [{ x: 50, text: 'DESCRIPTION OF OPERATIONS / LOCATIONS / VEHICLES', width: 350 }]);
 
 function layoutOf(lines: readonly PdfLayoutLine[]): PdfLayout {
   return { page_count: PAGE, gaps: [], pages: [{ page_number: PAGE, width: 612, height: 792, lines: [...lines] }] };
@@ -89,7 +102,7 @@ describe('durable unresolved priced pages', () => {
     const result = buildPagePricedScheduleReconstruction({ layout: layoutOf(twoTables()) });
     // Current (v4) reconstruction semantics, stored under the historical
     // priced_schedule_reconstruction_v1 envelope key.
-    expect(result.parser_version).toBe('priced_schedule_reconstruction_v5');
+    expect(result.parser_version).toBe(PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION);
     expect(result.pages.map((entry) => [entry.header_y, entry.rows.length])).toEqual([[720, 2], [600, 2]]);
     expect(result.unresolved_pages).toBeUndefined();
   });
@@ -181,6 +194,58 @@ describe('durable unresolved priced pages', () => {
       bare(690, 'Total', '15.50'),
     ]) });
     expect(result).toEqual({ parser_version: result.parser_version, pages: [] });
+  });
+
+  it('does not type an authored, bounded insurance-limit column as priced lines', () => {
+    const layout = layoutOf([limitHeader(), ...limitBody(), limitFooter()]);
+    const result = buildPagePricedScheduleReconstruction({ layout });
+    expect(result.pages).toEqual([]);
+    expect(result.unresolved_pages).toBeUndefined();
+    const layer = buildPdfLayoutObservationsLayer({ layout, reconstruction: result, context: CONTEXT });
+    expect(layer.observations).toEqual([]);
+    expect(layer.closure).toMatchObject({ status: 'not_applicable', accepted_ref_count: 0 });
+    // Classification leaves the extractor's original lines and identities intact.
+    expect(layout.pages[0]!.lines[1]!.tokens[0]!.observation_id).toBeDefined();
+  });
+
+  it.each(['missing_policy', 'missing_boundary', 'wrong_order'] as const)(
+    'keeps monetary candidates when insurance-limit structural evidence is %s', (variant) => {
+      const authoredHeader = limitHeader();
+      if (variant === 'missing_policy') authoredHeader.tokens = authoredHeader.tokens.filter((entry) => entry.text !== 'POLICY NUMBER');
+      if (variant === 'wrong_order') authoredHeader.tokens.find((entry) => entry.text === 'POLICY NUMBER')!.x = 480;
+      const result = buildPagePricedScheduleReconstruction({ layout: layoutOf([
+        authoredHeader, ...limitBody(), ...(variant === 'missing_boundary' ? [] : [limitFooter()]),
+      ]) });
+      expect(result.unresolved_pages).toMatchObject([{ reason: 'header_not_found', priced_lines: [{}, {}, {}] }]);
+    },
+  );
+
+  it('retains a separate headerless priced schedule below the insurance-form section', () => {
+    const schedule = [bare(620, 'Alpha service', '12.00'), bare(600, 'Beta service', '3.50'), bare(580, 'Gamma service', '7.00')];
+    const layout = layoutOf([limitHeader(), ...limitBody(), limitFooter(), ...schedule]);
+    const result = buildPagePricedScheduleReconstruction({ layout });
+    expect(result.unresolved_pages![0]!.priced_lines.map((entry) => entry.y)).toEqual([620, 600, 580]);
+    const layer = buildPdfLayoutObservationsLayer({ layout, reconstruction: result, context: CONTEXT });
+    expect(layer.observations.map((entry) => entry.id).sort()).toEqual(schedule.flatMap((entry) => entry.tokens.map((item) => item.observation_id!)).sort());
+    expect(layer.closure).toMatchObject({ status: 'not_applicable', accepted_ref_count: 0 });
+  });
+
+  it('retains monetary lines outside the limits column and lines crossing its boundary', () => {
+    const outside = [700, 690, 680].map((y) => line(y, [
+      { x: 50, text: 'Insurance service', width: 100 }, { x: 300, text: '$', width: 8 }, { x: 320, text: '12.00', width: 40 },
+    ]));
+    const crossing = bare(715, 'Service', '5.00');
+    const result = buildPagePricedScheduleReconstruction({ layout: layoutOf([limitHeader(), ...outside, crossing, limitFooter()]) });
+    expect(result.unresolved_pages![0]!.priced_lines.map((entry) => entry.y)).toEqual([715, 700, 690, 680]);
+  });
+
+  it('does not override a qualifying price table that also mentions insurance', () => {
+    const result = buildPagePricedScheduleReconstruction({ layout: layoutOf([
+      header(760), priced(740, 'Insurance service', '12.00'), priced(730, 'Other service', '3.50'),
+      limitHeader(), ...limitBody(), limitFooter(),
+    ]) });
+    expect(result.pages).toHaveLength(1);
+    expect(result.pages[0]!.rows.some((entry) => entry.cells.some((cell) => cell.raw_text === 'Insurance service'))).toBe(true);
   });
 
   it('does not report prose that merely mentions amounts', () => {

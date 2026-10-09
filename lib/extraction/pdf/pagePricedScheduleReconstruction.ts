@@ -1199,6 +1199,38 @@ function unresolvedPageLine(line: PdfLayoutPage['lines'][number]): PricedSchedul
 }
 
 /**
+ * Currency is not itself pricing evidence. An authored insurance-form header
+ * can prove that its monetary column holds coverage limits instead. Require
+ * both independent header roles and a following section boundary; incomplete
+ * evidence leaves the lines unresolved. Only the bounded column is excluded,
+ * so a separate headerless schedule on the same page keeps its evidence.
+ */
+function insuranceLimitLines(page: PdfLayoutPage): ReadonlySet<PdfLayoutPage['lines'][number]> {
+  const excluded = new Set<PdfLayoutPage['lines'][number]>();
+  for (const header of page.lines) {
+    const type = header.tokens.filter((token) => /^type of insurance$/i.test(token.text.trim()));
+    const policy = header.tokens.filter((token) => /^policy number$/i.test(token.text.trim()));
+    const limits = header.tokens.filter((token) => /^limits$/i.test(token.text.trim()));
+    if (type.length !== 1 || policy.length !== 1 || limits.length !== 1) continue;
+    if (type[0]!.x + type[0]!.width > policy[0]!.x
+      || policy[0]!.x + policy[0]!.width > limits[0]!.x) continue;
+    const boundaries = page.lines.filter((line) => line.y < header.y
+      && line.tokens.some((token) => /^(?:description of operations(?:\s|\/|$)|certificate holder$)/i.test(token.text.trim())
+        && token.x <= type[0]!.x));
+    const boundaryY = Math.max(...boundaries.map((line) => line.y));
+    if (!Number.isFinite(boundaryY)) continue;
+    for (const line of page.lines) {
+      const markers = line.tokens.filter(isRowSpineToken);
+      if (line.y >= header.y || line.y <= boundaryY || markers.length === 0) continue;
+      if (markers.every((token) => token.y > boundaryY && token.y + token.height < header.y
+        && token.x >= limits[0]!.x
+        && token.x + token.width <= (page.width ?? Infinity))) excluded.add(line);
+    }
+  }
+  return excluded;
+}
+
+/**
  * Records why a page that presents priced lines produced no reconstructed page.
  * Called only for pages reconstructPage returned null for; it never changes what
  * reconstruction admits. Null when the page presents too few priced lines to be
@@ -1206,7 +1238,7 @@ function unresolvedPageLine(line: PdfLayoutPage['lines'][number]): PricedSchedul
  */
 function unresolvedPricedPage(page: PdfLayoutPage): PricedScheduleUnresolvedPage | null {
   const byVisualOrder = [...page.lines].sort((left, right) => right.y - left.y);
-  const pricedLines = byVisualOrder.filter((line) => line.tokens.some((token) => isRowSpineToken(token)));
+  let pricedLines = byVisualOrder.filter((line) => line.tokens.some((token) => isRowSpineToken(token)));
   // Cheap gate first: most pages carry no priced lines and need no header pass.
   if (pricedLines.length < MINIMUM_PRICED_ROWS) return null;
   const headers = detectHeaders(page);
@@ -1223,6 +1255,10 @@ function unresolvedPricedPage(page: PdfLayoutPage): PricedScheduleUnresolvedPage
     reason = 'unresolved_later_header';
   } else {
     for (const candidate of unresolvedHeaderCandidateLines(page)) headerYs.add(candidate.y);
+    if (headerYs.size === 0) {
+      const limits = insuranceLimitLines(page);
+      pricedLines = pricedLines.filter((line) => !limits.has(line));
+    }
     if (headerYs.size > 1) reason = 'ambiguous_header_candidates';
     else if (headerYs.size === 0 && pricedLines.filter((line) => line.kind === 'table_candidate').length
       >= UNRESOLVED_PAGE_MINIMUM_PRICED_LINES) {

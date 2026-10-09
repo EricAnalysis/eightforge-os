@@ -1,0 +1,10 @@
+{
+  "schema": "eightforge_eval_corpus_pins_v1",
+  "documents": [
+    {
+      "label": "GoodlettsvillePriceSheet",
+      "file": "goodlettsville_price_sheet.pdf",
+      "sha256": "a9a0e6538426d3f34f0521aeb70f511ce0e5941479b29adb05114e21b641c920"
+    }
+  ]
+}

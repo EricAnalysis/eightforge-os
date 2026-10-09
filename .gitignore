@@ -73,3 +73,4 @@ __pycache__/
 
 # B4.6 value-reading benchmark runs: row text and readings are client material.
 scripts/evaluation/artifacts/b46/local/
+scripts/evaluation/artifacts/b461/local/

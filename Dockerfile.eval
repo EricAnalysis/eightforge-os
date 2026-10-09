@@ -1,0 +1,80 @@
+# syntax=docker/dockerfile:1
+# check=skip=FromPlatformFlagConstDisallowed
+#
+# EightForge canonical evaluation runtime: cross-machine reproducibility of the
+# pinned PDF extraction/evaluation workload only. Not a development, CI test or
+# production image. See docs/testing/docker-evaluation-runtime.md.
+#
+# Build it with scripts/evaluation/docker/build-eval-image.mjs, which sends a
+# `git archive` of one commit as the build context, so the image holds the
+# committed blob bytes on every platform (no CRLF checkout drift, no untracked
+# or ignored files such as .env.local or a cached eng.traineddata).
+#
+# Base images are the official Node and Python images, pinned by digest, from
+# the AWS public mirror of Docker official images (same digests as Docker Hub,
+# without its anonymous pull limits). linux/amd64 everywhere, so the native
+# canvas binary and the tesseract WebAssembly core are the same on every host
+# (the constant --platform is deliberate, hence the check skip above).
+
+# The canonical Node runtime: the production major (Vercel 24.x, package.json
+# engines), exact release pinned. Node selects the tesseract WebAssembly core
+# (Node 24 loads relaxed-SIMD), so evaluation must run production's major.
+# Overridable only for runtime-parity audits (EIGHTFORGE_EVAL_NODE_IMAGE in
+# build-eval-image.mjs); the manifest records the version that ran.
+ARG NODE_IMAGE=public.ecr.aws/docker/library/node:24.21.0-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20
+
+FROM --platform=linux/amd64 ${NODE_IMAGE} AS node
+
+FROM --platform=linux/amd64 public.ecr.aws/docker/library/python:3.13.7-slim-bookworm@sha256:adafcc17694d715c905b4c7bebd96907a1fd5cf183395f0ebc4d3428bd22d92d
+
+ENV LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    TZ=UTC \
+    PYTHONUTF8=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
+    NEXT_TELEMETRY_DISABLED=1 \
+    npm_config_audit=false \
+    npm_config_fund=false \
+    npm_config_update_notifier=false
+
+# System fonts (canvas text fallback) at exact Debian bookworm versions.
+RUN apt-get update \
+ && apt-get install --yes --no-install-recommends \
+      fontconfig=2.14.1-4 \
+      fonts-dejavu-core=2.37-6 \
+      fonts-liberation2=2.1.5-1 \
+ && rm -rf /var/lib/apt/lists/*
+
+# Node from the pinned official image (production and CI pin major 24; this pins the exact release).
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+ && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
+ && node --version
+
+WORKDIR /opt/eightforge
+
+# An optional build-time CA bundle for TLS-intercepting proxies; never stored in a layer.
+COPY requirements-test.txt ./
+RUN --mount=type=secret,id=build_ca,required=false \
+    if [ -s /run/secrets/build_ca ]; then export PIP_CERT=/run/secrets/build_ca; fi \
+ && python -m pip install --no-cache-dir -r requirements-test.txt
+
+COPY . .
+
+ARG SOURCE_COMMIT
+RUN test -n "$SOURCE_COMMIT" || { echo "SOURCE_COMMIT build arg is required (use build-eval-image.mjs)"; exit 1; } \
+ && test ! -e eng.traineddata \
+ && test ! -e .env.local \
+ && mkdir -p /opt/eightforge-eval \
+ && node scripts/evaluation/docker/source-tree-digest.mjs "$SOURCE_COMMIT" . > /opt/eightforge-eval/build-info.json \
+ && cat /opt/eightforge-eval/build-info.json
+
+RUN --mount=type=secret,id=build_ca,required=false \
+    if [ -s /run/secrets/build_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/build_ca; fi \
+ && npm ci
+
+ENTRYPOINT ["node", "node_modules/vite-node/vite-node.mjs", "--config", "vitest.config.ts", "scripts/evaluation/runPinnedEvaluation.ts", "--"]
+CMD ["--corpus", "/corpus", "--pins", "/pins/pins.json", "--out", "/artifacts/run"]

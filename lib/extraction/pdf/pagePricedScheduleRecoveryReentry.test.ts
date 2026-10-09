@@ -6,6 +6,7 @@ import {
   type RecoveryCandidateV2,
 } from '@/lib/extraction/recovery/recoveryCandidateV2';
 import type { PdfLayout, PdfLayoutLine, PdfLayoutPage, PdfToken } from '@/lib/extraction/pdf/extractText';
+import { buildRulingLineInput } from '@/lib/extraction/pdf/rulingLineEvidence';
 import {
   buildPagePricedScheduleReconstruction,
   type ConfirmedRateObservation,
@@ -499,6 +500,60 @@ describe('confirmed recovery re-entry through priced schedule reconstruction', (
 });
 
 describe('candidate-based continuation attribution re-entry', () => {
+  it('does not detach a confirmed continuation from its reviewed description across physical bands', () => {
+    const layout = continuationAmbiguousPageLayout();
+    const page = layout.pages[0]!;
+    const width = page.width!;
+    const height = page.height!;
+    page.lines.push(pricedLine(PAGE, 540, {
+      description: 'Third synthetic service', unit: 'Ton', origin: 'A to B', currency: '$', amount: '9.00',
+    }));
+    for (const [lineIndex, sourceLine] of page.lines.entries()) {
+      for (const [tokenIndex, entry] of sourceLine.tokens.entries()) {
+        entry.source = 'ocr_fallback';
+        entry.observation_id ??= observation(`obs:ruling:${lineIndex}:${tokenIndex}`);
+        entry.ocr_source_geometry = {
+          bbox: { x0: entry.x, x1: entry.x + entry.width, y0: height - entry.y, y1: height - entry.y + entry.height },
+          pixel_width: width, pixel_height: height,
+        };
+      }
+    }
+    const rgba = new Uint8Array(width * height * 4).fill(255);
+    const paint = (x: number, y: number) => {
+      const offset = 4 * (y * width + x);
+      rgba[offset] = rgba[offset + 1] = rgba[offset + 2] = 0;
+    };
+    for (const y of [80, 120, 150, 180, 240, 300]) for (let x = 30; x <= 605; x++) paint(x, y);
+    for (const x of [30, 170, 270, 425, 605]) for (let y = 80; y <= 300; y++) paint(x, y);
+    const input = buildRulingLineInput({
+      sourceSha256: 'b'.repeat(64), renderSha256: 'c'.repeat(64), physicalPageNumber: PAGE,
+      width, height, rgba,
+      tokenGeometry: page.lines.flatMap(sourceLine => sourceLine.tokens)
+        .map(entry => ({ text: entry.text, bbox: entry.ocr_source_geometry!.bbox })),
+    });
+    const params = {
+      layout, rulingLineInputs: [input], rulingLineSourceSha256: 'b'.repeat(64),
+      recoveryCandidateBuildContext: candidateBuildContext, currentPageEvidence: unchangedEvidence(layout),
+    };
+    const candidate = buildPagePricedScheduleReconstruction(params).recovery_candidates!
+      .find(entry => entry.recoveryType === 'priced_schedule_continuation_attribution' && entry.targetRowIdentity.endsWith(':r0'))!;
+    expect(candidate).toBeDefined();
+    // The exact confirmation can publish this description when there is no
+    // conflicting physical separator, proving the fixture exercises re-entry.
+    const ordinary = buildPagePricedScheduleReconstruction({
+      ...params, rulingLineInputs: [], confirmedRecoveryCandidates: [candidate],
+    });
+    expect(ordinary.pages[0]!.rows.some(row => row.cells.some(cell => cell.raw_text === 'Inert Debris Removal and Disposal'))).toBe(true);
+    expect(ordinary.recovery_diagnostics).toEqual([]);
+    const result = buildPagePricedScheduleReconstruction({ ...params, confirmedRecoveryCandidates: [candidate] });
+    expect(result.pages[0]!.rows.some(row => row.cells.some(cell => cell.raw_text.includes('Inert Debris')))).toBe(false);
+    expect(result.recovery_diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ reason: 'confirmed_recovery_not_applied', candidate_id: candidate.candidateId }),
+    ]));
+    const fragment = page.lines.flatMap(sourceLine => sourceLine.tokens).find(entry => entry.text === 'Disposal')!;
+    expect(result.pages[0]!.unassigned_lines.flatMap(entry => entry.source_refs)
+      .filter(ref => ref.observation_id === fragment.observation_id)).toHaveLength(1);
+  });
   it('A/B: generates deterministic targets but leaves the ambiguous fragment withheld without review', () => {
     const layout = continuationAmbiguousPageLayout();
     const result = reconstruct(layout);

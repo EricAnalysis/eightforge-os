@@ -1,5 +1,4 @@
 import { pickPreferredExtractionBlob } from '@/lib/blobExtractionSelection';
-import { categoryReviewTargets } from '@/lib/contracts/categoryReview';
 import { investigateCase } from '@/lib/resolution/caseInvestigation';
 import { resolveInvestigationContext } from '@/lib/resolution/investigationContext';
 import { loadProjectDocumentPrecedenceSnapshot, type ProjectDocumentPrecedenceSnapshot } from '@/lib/server/documentPrecedence';
@@ -8,15 +7,12 @@ import type { ProjectExecutionItemRow } from '@/lib/executionItems';
 import {
   currentDocumentEvidenceFromExtractionData,
   documentReviewedValueState,
-  withheldPricedLineTargets,
-  reviewRequiredValueTargets,
 } from '@/lib/humanFactAssertions/regionBoundAssertions';
 import { documentPageFrames, type DocumentPageFrames } from '@/lib/recovery/diagnosticVisualEvidence';
 import { recoveryCandidateVisualEvidence } from '@/lib/recovery/recoveryVisualEvidence';
 import type { ProjectDecisionRow } from '@/lib/projectOverview';
 import {
   buildResolutionQueue,
-  type AttentionDiagnostic,
   type DocumentEvidenceAttention,
   type DocumentReviewedValueState,
   type PendingRecoveryProposal,
@@ -24,7 +20,7 @@ import {
   type ResolutionQueue,
 } from '@/lib/resolution/resolutionCases';
 import { resolveProjectIssueObjects } from '@/lib/resolveProjectIssueObjects';
-import { extractionDocumentDiagnostics, type DocumentDiagnostic } from '@/lib/server/documentDiagnosticsRead';
+import { documentEvidenceAttention } from '@/lib/server/documentEvidenceAttention';
 import { resolveForgewingEntitlement, type OrganizationForgewingEntitlementResolver } from '@/lib/server/forgewingEntitlement';
 import { readRecoveryReviewQueue, type RecoveryReviewCandidate } from '@/lib/server/forgewingRecoveryReviewRead';
 import { loadRegionBoundAssertionRows, type RegionAssertionClient } from '@/lib/server/regionBoundHumanAssertions';
@@ -93,22 +89,6 @@ function selectableConfirmations(candidate: RecoveryReviewCandidate): RecoveryCo
         proposed: entry.proposed,
         visual: recoveryCandidateVisualEvidence(candidate, entry.observationId),
       }));
-}
-
-function attentionDiagnostic(diagnostic: DocumentDiagnostic): AttentionDiagnostic {
-  return {
-    diagnosticId: diagnostic.diagnosticId,
-    code: diagnostic.code,
-    attention: diagnostic.attention,
-    recoverability: diagnostic.recoverability,
-    recoveryType: diagnostic.recoveryType,
-    severity: diagnostic.severity,
-    summary: diagnostic.summary,
-    physicalPageNumber: diagnostic.scope.physicalPageNumber,
-    observationIds: diagnostic.evidenceRefs.flatMap((ref) => (ref.kind === 'observation' ? [ref.observationId] : [])),
-    visual: diagnostic.visualEvidence,
-    recoveryProposalId: diagnostic.recoveryProposalId,
-  };
 }
 
 export async function readResolutionQueue(
@@ -243,20 +223,12 @@ export async function readResolutionQueue(
   for (const documentId of documentIds) {
     const preferred = preferredExtractionByDocument.get(documentId);
     if (!preferred?.data) continue;
-    const diagnostics = extractionDocumentDiagnostics({
+    evidenceAttentionByDocument.set(documentId, documentEvidenceAttention({
       organizationId: query.organizationId,
-      sourceDocumentId: documentId,
-      extraction: preferred.data,
-      extractionSnapshotId: String(preferred.id ?? `${documentId}:${preferred.created_at ?? ''}`),
-      occurredAt: new Date(preferred.created_at ? Date.parse(preferred.created_at) || 0 : 0).toISOString(),
+      documentId,
+      extraction: { id: preferred.id, created_at: preferred.created_at, data: preferred.data },
       proposals: recoveryCandidatesByDocument.get(documentId) ?? [],
-    });
-    evidenceAttentionByDocument.set(documentId, {
-      diagnostics: diagnostics.map(attentionDiagnostic),
-      withheldTargets: withheldPricedLineTargets(preferred.data, documentId),
-      reviewRequiredTargets: reviewRequiredValueTargets(preferred.data, documentId),
-      categoryReviewTargets: categoryReviewTargets(preferred.data, documentId),
-    });
+    }));
   }
 
   const queue = buildResolutionQueue({

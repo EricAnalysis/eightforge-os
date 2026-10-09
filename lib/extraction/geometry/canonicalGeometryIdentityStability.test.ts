@@ -113,7 +113,7 @@ async function run(scenario: Scenario) {
   // reconstruction pins remain against the explicit frozen compatibility path,
   // not a relabelled current production reconstruction.
   expect(buildPagePricedScheduleReconstruction({ layout }).parser_version)
-    .toBe('priced_schedule_reconstruction_v4');
+    .toBe('priced_schedule_reconstruction_v5');
   const reconstruction = buildPagePricedScheduleReconstruction({
     layout,
     continuationEvidence: 'spacing_only',

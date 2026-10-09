@@ -87,7 +87,7 @@ function attentionOf(data: Record<string, unknown>): AttentionDiagnostic[] {
 describe('v4 table segments reach the generalized evidence-attention path', () => {
   it('reconstructs the Golden p10 shape: a scanned segment that admits rows and rejects bundles', () => {
     const { reconstruction } = extraction();
-    expect(reconstruction.parser_version).toBe('priced_schedule_reconstruction_v4');
+    expect(reconstruction.parser_version).toBe('priced_schedule_reconstruction_v5');
     expect(reconstruction.pages.map((page) => page.table_segment?.segment_index)).toEqual([0, 1]);
     expect(reconstruction.pages[1]!.rejected_spines.map((spine) => spine.reason)).toEqual(
       ['ambiguous_rate_clusters', 'ambiguous_row_continuation', 'ambiguous_row_continuation']);

@@ -3,6 +3,7 @@ import { hashCanonical } from '@/lib/extraction/domain/hash';
 import type { PdfLayout, PdfLayoutPage, PdfToken } from '@/lib/extraction/pdf/extractText';
 import type { RulingLineEvidence, RulingLineInput } from '@/lib/extraction/pdf/rulingLineEvidence';
 import { initialRulingColumnOwnership, resolveRulingLineOwnership } from '@/lib/extraction/pdf/rulingLineOwnership';
+import { rulingRowBands } from '@/lib/extraction/pdf/rulingRowBands';
 import { pricedScheduleAssemblyRole } from '@/lib/extraction/pdf/pricedScheduleRoles';
 import { isPagePricedScheduleVersion, LEGACY_PRICED_SCHEDULE_RECONSTRUCTION_VERSION, PAGE_PRICED_SCHEDULE_RECONSTRUCTION_V2, PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION,
   type PricedScheduleReconstructionVersion } from '@/lib/extraction/pdf/pricedScheduleVersion';
@@ -83,16 +84,17 @@ const LEGACY_COLUMN_ROLE_PATTERNS: HeaderVocabulary = [
 
 /**
  * The canonical header-role vocabulary (v3). Exact matches after normalization
- * only: no fuzzy matching, no repair of OCR fragments ("Descripti", "Uni"), and
+ * only: no fuzzy matching, no general repair of OCR fragments ("Descripti"), and
  * never a role from a column's position. New aliases are only those observed in
- * the extraction corpus. Corrected collisions: "amount" and "total cost" no
+ * the extraction corpus, including the exact OCR header label "Uni" for unit.
+ * Source text and provenance stay unchanged. Corrected collisions: "amount" and "total cost" no
  * longer read as the unit rate (rate and amount stay distinct), and a lone
  * "item" is unknown rather than assumed to be a description. A label matching
  * more than one role is ambiguous and fails closed.
  */
 const COLUMN_ROLE_PATTERNS: HeaderVocabulary = [
   ['description', /^(?:description(?:\s+of\s+(?:work|works|service|services))?|item\s+description|equipment\s+description|personnel\s+description|service|classification|scope\s+of\s+work|work\s+item)$/i],
-  ['unit', /^(?:unit(?:\s+of\s+measure(?:ment)?)?|units|uom|u\s*\/\s*m|measure|measurement)$/i],
+  ['unit', /^(?:uni|unit(?:\s+of\s+measure(?:ment)?)?|units|uom|u\s*\/\s*m|measure|measurement)$/i],
   ['origin_destination', /^(?:origin\s*\/?\s*destination|origin|destination|from\s*\/?\s*to|route|haul\s+route)$/i],
   ['rate', /^(?:cost(?:\s+per\s+unit)?|rate(?:\s*\/\s*unit)?|unit\s+price|unit\s+cost|price|charge)$/i],
   ['category', /^category$/i],
@@ -1460,6 +1462,7 @@ function attachRoleLessTokens<T extends { lines: readonly SourceLine[] }>(
   columns: readonly PricedScheduleColumnBand[],
   banded: readonly BandedToken[],
   unattached: (PricedScheduleCellSourceRef & { column_index: number })[],
+  rowBands?: ReadonlyMap<PdfToken, number | null> | null,
 ): Map<T, PricedScheduleUnresolvedRoleCell[]> {
   const result = new Map<T, PricedScheduleUnresolvedRoleCell[]>();
   if (roleLess.length === 0) return result;
@@ -1469,6 +1472,10 @@ function attachRoleLessTokens<T extends { lines: readonly SourceLine[] }>(
     const tokens = row.lines.flatMap((line) => line.tokens);
     return {
       row,
+      bands: new Set(tokens.flatMap(token => {
+        const band = rowBands?.get(token);
+        return band == null ? [] : [band];
+      })),
       low: Math.min(...tokens.map((token) => token.y)) - tolerance,
       high: Math.max(...tokens.map((token) => token.y + token.height)) + tolerance,
     };
@@ -1476,7 +1483,8 @@ function attachRoleLessTokens<T extends { lines: readonly SourceLine[] }>(
   const byRow = new Map<T, Map<number, PdfToken[]>>();
   for (const { token, columnIndex } of roleLess) {
     const center = token.y + token.height / 2;
-    const hits = extents.filter((extent) => center >= extent.low && center <= extent.high);
+    const hits = extents.filter((extent) => center >= extent.low && center <= extent.high
+      && (!rowBands?.has(token) || (rowBands.get(token) != null && extent.bands.has(rowBands.get(token)!))));
     if (hits.length !== 1) {
       unattached.push({ ...sourceRefForToken(token), column_index: columnIndex });
       continue;
@@ -2231,6 +2239,36 @@ function reconstructPage(
   };
 
   const rejectedSpines: PricedScheduleRejectedSpine[] = [];
+  // Physical separators constrain evidence ownership; they never supply a
+  // price, a semantic role, or permission to publish another row.
+  const rowBands = continuationEvidence !== 'spacing_only' && rulingContext && !inheritedHeader
+    ? rulingRowBands(rulingContext.layout, header.columns, rulingContext.input) : null;
+  const partitionLines = (lines: readonly SourceLine[]) => {
+    const bands = new Map<number, BandedToken[]>();
+    const uncertain: BandedToken[] = [];
+    const unproven: BandedToken[] = [];
+    for (const entry of lines.flatMap(line => line.banded)) {
+      if (!rowBands?.has(entry.token)) { unproven.push(entry); continue; }
+      const band = rowBands.get(entry.token);
+      if (band == null) uncertain.push(entry);
+      else bands.set(band, [...(bands.get(band) ?? []), entry]);
+    }
+    return { bands, uncertain, unproven,
+      crosses: bands.size > 1 || uncertain.length > 0 };
+  };
+  const structuralTokens = new Set<PdfToken>();
+  // A column position alone cannot make a fragment priced. Reuse the parser's
+  // authored rate-cluster recognition, without inferring or repairing a value.
+  const hasPricedBandMinimum = (entries: readonly BandedToken[]) =>
+    entries.some(entry => entry.role === 'description' && entry.token.text.trim().length > 0)
+    && buildSourceLines(entries).some(line => rateLikeClusterCount(line) > 0);
+  const reportStructural = (entries: readonly BandedToken[]) => {
+    for (const entry of entries) {
+      if (structuralTokens.has(entry.token)) continue;
+      structuralTokens.add(entry.token);
+      reportLine({ y: entry.y, banded: [entry], tokens: [entry.token] }, 'ambiguous_row_assignment');
+    }
+  };
   const unattachedRoleLess: (PricedScheduleCellSourceRef & { column_index: number })[] = [];
   for (const { token, columnIndex } of ambiguousColumnRoleLess) {
     unattachedRoleLess.push({ ...sourceRefForToken(token), column_index: columnIndex });
@@ -2240,6 +2278,25 @@ function reconstructPage(
     lines: readonly SourceLine[],
     reason: PricedScheduleRejectedSpineReason,
   ) => {
+    const partition = partitionLines(lines);
+    if (partition.crosses) {
+      // Never duplicate or clip an unsplittable observation into two value
+      // cases. Preserve it once as unassigned structural evidence instead.
+      reportStructural([...partition.uncertain, ...partition.unproven]);
+      for (const entries of partition.bands.values()) {
+        const split = buildSourceLines(entries);
+        if (!hasPricedBandMinimum(entries)) {
+          reportStructural(entries);
+          continue;
+        }
+        const ordered = split.sort((left, right) => right.y - left.y);
+        rejectedSpines.push({ reason, physical_page_number: page.page_number,
+          raw_text: ordered.map(lineRawText).filter(Boolean).join(' '),
+          source_refs: ordered.flatMap(line => line.tokens.map(sourceRefForToken)),
+          y: ordered[0]!.y });
+      }
+      return;
+    }
     const ordered = [...lines].sort((left, right) => right.y - left.y);
     rejectedSpines.push({
       reason,
@@ -2594,11 +2651,30 @@ function reconstructPage(
 
   const assembled = eligibleSpineLines.map((spine) => {
     const index = spineIndex.get(spine)!;
-    const lines = [spine, ...attached.get(spine)!].sort((left, right) => right.y - left.y);
+    const structured = structuredRates.get(spine) ?? null;
+    let lines = [spine, ...attached.get(spine)!].sort((left, right) => right.y - left.y);
+    const partition = partitionLines(lines);
+    if (partition.crosses && partition.uncertain.length === 0 && partition.unproven.length === 0) {
+      const pricedBands = [...partition.bands.values()].filter(hasPricedBandMinimum);
+      const retained = pricedBands.length === 1 ? pricedBands[0]! : null;
+      const retainsSpineProof = retained?.some(entry => entry.role === 'rate'
+        && (structured ? entry.token === structured.amount
+          : spine.tokens.includes(entry.token) && isRowSpineToken(entry.token)));
+      // Confirmed continuations keep the exact reviewed line and target
+      // context; rebuilding their lines would lose applied-candidate closure.
+      if (retained && retainsSpineProof && !lines.some(line => continuationCandidateByLine.has(line))) {
+        // One proven priced band plus structural fragments is still one row.
+        // Detach whole observations before building cells or applying any
+        // admission/confirmation gates. Never publish a second priced band.
+        for (const entries of partition.bands.values()) {
+          if (entries !== retained) reportStructural(entries);
+        }
+        lines = buildSourceLines(retained).sort((left, right) => right.y - left.y);
+      }
+    }
     const contributed = lines.flatMap((line) => line.banded);
     // A structured rate is unambiguous only while the row's rate column holds
     // exactly the tokens that proved it.
-    const structured = structuredRates.get(spine) ?? null;
     const rateTokens = contributed.filter((entry) => entry.role === 'rate').map((entry) => entry.token);
     const ambiguous = structured
       ? rateTokens.length !== (structured.marker ? 2 : 1) || !rateTokens.includes(structured.amount)
@@ -2710,6 +2786,10 @@ function reconstructPage(
 
   const accepted: typeof bodyCandidates = [];
   for (const entry of bodyCandidates) {
+    if (partitionLines(entry.lines).crosses) {
+      rejectLines(entry.spine, entry.lines, 'insufficient_row_structure');
+      continue;
+    }
     // A row must carry the evidence a priced row is made of: something it is
     // for, and what it costs. Unit and route stay optional, because real
     // schedules leave them blank on individual rows.
@@ -2748,7 +2828,7 @@ function reconstructPage(
     for (const candidateId of entry.continuationCandidateIds) appliedCandidates.add(candidateId);
   }
 
-  const roleLessByRow = attachRoleLessTokens(accepted, roleLess, header.columns, banded, unattachedRoleLess);
+  const roleLessByRow = attachRoleLessTokens(accepted, roleLess, header.columns, banded, unattachedRoleLess, rowBands);
   const highestSpineY = Math.max(...spineLines.map((line) => line.y));
   const lowestSpineY = Math.min(...spineLines.map((line) => line.y));
   for (const line of ambiguousColumnLines) {

@@ -116,8 +116,9 @@ Exact next continuation prompt:
 > Continue from current main and this latest snapshot. Golden/Hillsdale/DN are
 > owner-accepted VERIFIED with bounded stored-state proof and the field-parity
 > limitation. Do not rerun production analysis. Read the separate fact-conflict
-> audit and branch codex/active-extraction-fact-conflicts. Finish baseline
-> classification and the existing Ask diagnostic gate before merging this
+> audit and draft PR #205, branch codex/active-extraction-fact-conflicts.
+> Reuse the completed baseline comparison. Resolve the existing Ask gate before
+> merging this
 > surgical fix (baseline and candidate both 60/42/18/28); do not weaken
 > 22/22 + zero-gap requirements or invent source
 > precedence. Preserve observations and existing human review authority. Track
@@ -1042,3 +1043,8 @@ PR #203 merged manually after both full Vitest checks passed (1m53s and
 2m35s), at main 3d9fc1c6d2e00533df687570c245daf0fbbb3de8. The code fix
 remains separate and must not merge while its Ask lock fails. No production
 field rewrite or re-analysis occurred.
+
+Conflict implementation is committed/pushed as 5821bb6 in draft PR #205
+(https://github.com/EricAnalysis/eightforge-os/pull/205). CI is pending; the
+known Ask lock prevents merge even if both full unit lanes pass. No new
+production defect repair or arbitrary date publication is claimed.

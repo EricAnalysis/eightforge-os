@@ -284,3 +284,8 @@ PR #203 merged manually after both full Vitest checks passed (1m53s and
 2m35s), at main 3d9fc1c6d2e00533df687570c245daf0fbbb3de8. The code fix
 remains separate and must not merge while its Ask lock fails. No production
 field rewrite or re-analysis occurred.
+
+Conflict implementation is committed/pushed as 5821bb6 in draft PR #205
+(https://github.com/EricAnalysis/eightforge-os/pull/205). CI is pending; the
+known Ask lock prevents merge even if both full unit lanes pass. No new
+production defect repair or arbitrary date publication is claimed.

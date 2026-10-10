@@ -13,8 +13,9 @@
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import {
   loadFactsFromExtractions,
-  loadExtractionRows,
+  loadExtractionFactResolution,
 } from '@/lib/server/documentExtractions';
+import type { ActiveExtractionFactConflict } from '@/lib/extraction/activeFactConflicts';
 import { computeDerivedFacts } from '@/lib/server/derivedFacts';
 import { evaluateCondition, evaluateRule } from '@/lib/ruleEvaluation';
 import type {
@@ -51,6 +52,7 @@ export type LoadFactsWithDerivedResult = {
   facts: Facts;
   derived_facts: Facts;
   extraction_row_count: number;
+  extraction_conflicts: ActiveExtractionFactConflict[];
 };
 
 /**
@@ -62,10 +64,7 @@ export async function loadFactsWithDerived(params: {
   domain: string;
   documentType: string;
 }): Promise<LoadFactsWithDerivedResult> {
-  const [baseFacts, rows] = await Promise.all([
-    loadFactsFromExtractions(params.documentId),
-    loadExtractionRows(params.documentId),
-  ]);
+  const { facts: baseFacts, rows, conflicts } = await loadExtractionFactResolution(params.documentId);
 
   const derived_facts = computeDerivedFacts({
     rows,
@@ -75,11 +74,16 @@ export async function loadFactsWithDerived(params: {
   });
 
   const facts: Facts = { ...baseFacts, ...derived_facts };
+  // Derived keys cannot accidentally republish a withheld base key.
+  for (const conflict of conflicts) {
+    for (const row of conflict.observations) delete facts[row.field_key];
+  }
 
   return {
     facts,
     derived_facts,
     extraction_row_count: rows.length,
+    extraction_conflicts: conflicts,
   };
 }
 
@@ -137,20 +141,22 @@ export async function evaluateDocument(params: {
   facts: Facts;
   results: RuleEvalResult[];
   matched: RuleEvalResult[];
+  extraction_conflicts: ActiveExtractionFactConflict[];
 }> {
-  const [facts, rules] = await Promise.all([
-    loadFacts(params.documentId),
+  const [resolution, rules] = await Promise.all([
+    loadExtractionFactResolution(params.documentId),
     loadRules({
       organizationId: params.organizationId,
       domain: params.domain,
       documentType: params.documentType,
     }),
   ]);
+  const { facts, conflicts } = resolution;
 
   const results = rules.map((rule) => evaluateRule(rule, facts));
   const matched = results.filter((r) => r.matched);
 
-  return { facts, results, matched };
+  return { facts, results, matched, extraction_conflicts: conflicts };
 }
 
 // ---------------------------------------------------------------------------

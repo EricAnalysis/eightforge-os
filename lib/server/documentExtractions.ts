@@ -10,6 +10,7 @@
 
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import type { Facts } from '@/lib/types/rules';
+import { resolveActiveExtractionFacts, type ActiveExtractionFactConflict } from '@/lib/extraction/activeFactConflicts';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -45,6 +46,10 @@ type ExtractionRow = {
 
 /** Row shape returned from DB for rule/derived-fact use (active, field_key not null). */
 export type ExtractionRowForFacts = {
+  id?: string;
+  document_id?: string;
+  source?: string | null;
+  status?: string;
   field_key: string;
   field_value_text: string | null;
   field_value_number: number | null;
@@ -205,41 +210,16 @@ export async function upsertManyExtractionFacts(
  * always read back as a number even if field_type metadata is wrong.
  */
 export async function loadFactsFromExtractions(documentId: string): Promise<Facts> {
-  const admin = getSupabaseAdmin();
-  if (!admin) return {};
+  return (await loadExtractionFactResolution(documentId)).facts;
+}
 
-  const { data, error } = await admin
-    .from('document_extractions')
-    .select(
-      'field_key, field_value_text, field_value_number, field_value_date, field_value_boolean, field_type',
-    )
-    .eq('document_id', documentId)
-    .eq('status', 'active')
-    .not('field_key', 'is', null);
-
-  if (error || !data) return {};
-
-  const facts: Facts = {};
-
-  for (const row of data) {
-    const key = row.field_key as string;
-    if (!key) continue;
-
-    // Prefer typed columns in priority order, fall back to text
-    if (row.field_value_number != null) {
-      facts[key] = Number(row.field_value_number);
-    } else if (row.field_value_boolean != null) {
-      facts[key] = Boolean(row.field_value_boolean);
-    } else if (row.field_value_date != null) {
-      facts[key] = new Date(row.field_value_date as string);
-    } else if (row.field_value_text != null) {
-      facts[key] = row.field_value_text as string;
-    } else {
-      facts[key] = null;
-    }
-  }
-
-  return facts;
+export async function loadExtractionFactResolution(documentId: string): Promise<{
+  facts: Facts;
+  conflicts: ActiveExtractionFactConflict[];
+  rows: ExtractionRowForFacts[];
+}> {
+  const rows = await loadExtractionRows(documentId);
+  return { ...resolveActiveExtractionFacts(rows), rows };
 }
 
 /**
@@ -255,13 +235,15 @@ export async function loadExtractionRows(
   const { data, error } = await admin
     .from('document_extractions')
     .select(
-      'field_key, field_value_text, field_value_number, field_value_date, field_value_boolean, field_type',
+      'id, document_id, source, status, field_key, field_value_text, field_value_number, field_value_date, field_value_boolean, field_type',
     )
     .eq('document_id', documentId)
     .eq('status', 'active')
     .not('field_key', 'is', null);
 
-  if (error || !data) return [];
+  if (error) throw new Error(`Failed to load active extraction observations: ${error.message}`);
+  if (!data) return [];
+  if (data.length >= 1000) throw new Error('Active extraction observation read reached the row bound; complete conflict verification requires review.');
   return data as ExtractionRowForFacts[];
 }
 

@@ -901,7 +901,7 @@ function buildFactAnswer(facts: StructuredFact[]): {
 
   if (uniqueValues.length > 1) {
     return {
-      answer: `I found multiple persisted values for ${humanize(topFact.label)}. The strongest current value is ${formatValue(topFact.value, topFact.label)}, but there are conflicting records to review.`,
+      answer: `I found conflicting persisted values for ${humanize(topFact.label)}. No single effective value is available until human review resolves the conflict.`,
       sources: grouped.slice(0, 3).map(factSource),
       limitations: ['Structured facts disagree across the current project record.'],
     };
@@ -1109,6 +1109,35 @@ export function buildAskResponse(params: {
   orgId: string;
   handoffContext?: PortfolioHandoffContext;
 }): AskResponse {
+  const activeConflicts = params.retrieval.factConflicts ?? [];
+  if (activeConflicts.length > 0) {
+    const conflict = activeConflicts[0];
+    const label = humanize(conflict.fieldKey);
+    const observations = conflict.observations;
+    const sources: Source[] = observations.map((row) => ({
+      type: 'fact',
+      label: `${label} observation`,
+      documentId: conflict.documentId ?? undefined,
+      factId: row.id ?? undefined,
+      confidence: 0,
+      timestamp: new Date(0).toISOString(),
+    }));
+    return {
+      answer: `Active extraction observations conflict for ${label}. No single effective value is available. Review the preserved source evidence through the existing document fact review path.`,
+      confidence: 'low', confidenceScore: 0, sources,
+      limitations: ['Conflicting active machine values are withheld; no source or confidence winner was selected.'],
+      suggestedActions: [{ type: 'view_document', label: 'Review document facts', target: conflict.documentId ?? undefined }],
+      conflict: {
+        requiresReview: true,
+        sourceA: { label, layer: observations[0]?.source ?? 'document_extraction', sourceId: observations[0]?.id ?? `${conflict.documentId}:${conflict.fieldKey}:0` },
+        sourceB: { label, layer: observations[1]?.source ?? 'document_extraction', sourceId: observations[1]?.id ?? `${conflict.documentId}:${conflict.fieldKey}:1` },
+      },
+      intent: params.question.intent, retrievalUsed: 'facts', originalQuestion: params.question.originalQuestion,
+      projectId: params.projectId, orgId: params.orgId, createdAt: new Date().toISOString(),
+      validationState: 'Requires Review', nextAction: 'Review document facts',
+      promptVersion: ASK_PROJECT_SYSTEM_PROMPT_VERSION,
+    };
+  }
   const context = params.retrieval.rawData.validatorContext as ValidatorContext | undefined;
   const matchedLayer = params.retrieval.rawData.matchedLayer ?? 'documents';
   let answer = '';

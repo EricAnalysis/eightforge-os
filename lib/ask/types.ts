@@ -299,6 +299,8 @@ export interface AskProjectRecord {
 
 export interface RetrievalResult {
   facts: StructuredFact[];
+  /** Withheld machine observations; existing human review may resolve the key. */
+  factConflicts?: import('@/lib/extraction/activeFactConflicts').ActiveExtractionFactConflict[];
   validatorFindings: ValidatorFinding[];
   decisions: DecisionRecord[];
   documents: AskDocument[];

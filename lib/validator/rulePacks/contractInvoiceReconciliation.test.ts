@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'vitest';
 
 import { collapseEffectiveFactRecords, type EffectiveFactRecord } from '@/lib/effectiveFacts';
+import { extractionConflict } from '@/lib/canonical/truth/envelope';
 import { evaluateContractInvoiceReconciliation } from '@/lib/validator/rulePacks/contractInvoiceReconciliation';
 import {
   buildValidationSummary,
@@ -211,6 +212,20 @@ function buildInput(params?: {
 }
 
 describe('contract invoice reconciliation validator', () => {
+  it('withholds conflicting expiration observations instead of reusing a canonical blob date', () => {
+    const input = buildInput();
+    const facts = input.factsByDocumentId.get(CONTRACT_DOCUMENT_ID)!;
+    input.factsByDocumentId.set(CONTRACT_DOCUMENT_ID, facts.map(fact => fact.key === 'expiration_date'
+      ? { ...fact, value: null, extractionConflict: extractionConflict({ stateReason: 'conflicting_active_extraction_values' }) }
+      : fact));
+    input.contractValidationContext = {
+      analysis: { contract_identity: {}, term_model: { expiration_date: { value: '2020-01-01' } } },
+    } as ProjectValidatorInput['contractValidationContext'];
+    const result = evaluateContractInvoiceReconciliation(input);
+    assert.equal(result.summary.service_period_status, 'MISSING');
+    assert.equal(result.findings.some(finding => finding.rule_id === 'FINANCIAL_INVOICE_SERVICE_PERIOD_WITHIN_CONTRACT_TERM'), false);
+  });
+
   it('does not block when vendor names only differ by legal suffix and punctuation', () => {
     const input = buildInput({
       invoiceRows: [{

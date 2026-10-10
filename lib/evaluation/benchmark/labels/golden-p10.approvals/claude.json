@@ -1,0 +1,42 @@
+{
+  "approvalVersion": "e3-benchmark-delegated-approval-v1",
+  "authority": "delegated_dual_ai_benchmark_approval",
+  "delegationScope": "e3_benchmark_labels_finalization",
+  "pageKey": "golden-p10",
+  "source": {
+    "documentKey": "golden",
+    "sha256": "922161a533bb6b8c1afb52cb9536044c8a6836bed62401634f4f505025631e8f",
+    "byteLength": 2481310,
+    "physicalPageNumber": 10
+  },
+  "frame": {
+    "frame_version": "canonical_frame_v1",
+    "coordinate_space": "canonical_v1",
+    "view": [
+      0,
+      0,
+      612.48,
+      792
+    ],
+    "rotation": 0,
+    "user_unit": 1,
+    "width": 612.48,
+    "height": 792
+  },
+  "adjudicationSha256": "fc7a73e1753fbf96f91910396b4f88a190dce001eb1daa3728a92c7b42b320b2",
+  "comparisonSha256": "39011f6658c3cedd1ae264bc2c3a3c805a44c9513c7977aac8bea6ce05f37b7f",
+  "reviewerALabelSetSha256": "870c130d76962804ec46edc4fe31824c136bfcd4cbdafe953d56edb323681725",
+  "reviewerBLabelSetSha256": "4375153cab2703222b2e0508e1ef1d2ff0cf217b7c36abb2e8ad036421c39ecd",
+  "suggestionsSha256": "2b479b0a7066cb317e17c8d35bebf7949d2f28ddfe478061568897337155bcb7",
+  "candidateSha256": "ef4505942b8cbebcebc423774e6528c87aff0c0d05db77349ad22063de5b36f4",
+  "candidateSummary": {
+    "words": 311,
+    "cells": 160,
+    "rows": 40,
+    "coverage": "requires_ocr"
+  },
+  "approverIdentity": "claude",
+  "decision": "approve",
+  "approvedAt": "2026-10-10T14:07:51.000Z",
+  "rationale": "Claude approves this exact digest for E3 evaluation ground truth only. Independently recomputed with repository code at ab1249e from the frozen inputs: comparison, adjudication, reviewer A/B, suggestions and candidate digests match; the deterministic candidate equals the preview. Frozen inputs are byte-identical to the reviewed package; only the two dash resolutions (word 143 / cell 73 (Bucket Truck)) changed in the adjudication, now the source en dash U+2013 that my prior rejection required. Every word text and box and every cell text and box equals my source-only, visually verified reviewer-B proposal (0 differences); rows, header and column semantics are unchanged; coverage requires_ocr. Accepted documented limitations: rule-touching ink extended to the rule edge, scan-bridged components divided at reviewed breaks, reviewer span clips, connected speckle retained, and grapple kept without the ambiguous baseline mark. No OCR suggestion supplied boxes. No class qualification, paid DN retest, production action or expanded authority."
+}

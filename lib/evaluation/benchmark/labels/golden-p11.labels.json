@@ -1,0 +1,4109 @@
+{
+  "labelSetVersion": "extraction-benchmark-labels-v1",
+  "authority": "delegated_dual_ai_evaluation_ground_truth_only",
+  "pageKey": "golden-p11",
+  "source": {
+    "documentKey": "golden",
+    "sha256": "922161a533bb6b8c1afb52cb9536044c8a6836bed62401634f4f505025631e8f",
+    "byteLength": 2481310,
+    "physicalPageNumber": 11
+  },
+  "frame": {
+    "frame_version": "canonical_frame_v1",
+    "coordinate_space": "canonical_v1",
+    "view": [
+      0,
+      0,
+      612.48,
+      792
+    ],
+    "rotation": 0,
+    "user_unit": 1,
+    "width": 612.48,
+    "height": 792
+  },
+  "words": {
+    "status": "labeled",
+    "items": [
+      {
+        "labelId": "w-0001",
+        "text": "Category",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 70.5,
+          "y_min": 83.5,
+          "x_max": 110.75,
+          "y_max": 92.5
+        }
+      },
+      {
+        "labelId": "w-0002",
+        "text": "Description",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 140,
+          "y_min": 83,
+          "x_max": 192,
+          "y_max": 92.5
+        }
+      },
+      {
+        "labelId": "w-0003",
+        "text": "Unit",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 438.25,
+          "y_min": 82,
+          "x_max": 457,
+          "y_max": 90.75
+        }
+      },
+      {
+        "labelId": "w-0004",
+        "text": "Rate",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 477.5,
+          "y_min": 82.25,
+          "x_max": 496.75,
+          "y_max": 90.75
+        }
+      },
+      {
+        "labelId": "w-0005",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 70.75,
+          "y_min": 95.25,
+          "x_max": 116.25,
+          "y_max": 106
+        }
+      },
+      {
+        "labelId": "w-0006",
+        "text": "61-90",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 140.5,
+          "y_min": 96,
+          "x_max": 165.25,
+          "y_max": 106
+        }
+      },
+      {
+        "labelId": "w-0007",
+        "text": "Ton",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 169.75,
+          "y_min": 96.75,
+          "x_max": 183.5,
+          "y_max": 104.5
+        }
+      },
+      {
+        "labelId": "w-0008",
+        "text": "Crane",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 186.75,
+          "y_min": 97,
+          "x_max": 211.75,
+          "y_max": 104.5
+        }
+      },
+      {
+        "labelId": "w-0009",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 438.75,
+          "y_min": 95.75,
+          "x_max": 459,
+          "y_max": 103.75
+        }
+      },
+      {
+        "labelId": "w-0010",
+        "text": "$195.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 477.75,
+          "y_min": 94,
+          "x_max": 511.75,
+          "y_max": 104.5
+        }
+      },
+      {
+        "labelId": "w-0011",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71,
+          "y_min": 109.75,
+          "x_max": 116.25,
+          "y_max": 119.75
+        }
+      },
+      {
+        "labelId": "w-0012",
+        "text": "Service",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 140.25,
+          "y_min": 109.75,
+          "x_max": 171.5,
+          "y_max": 118
+        }
+      },
+      {
+        "labelId": "w-0013",
+        "text": "Truck",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 174,
+          "y_min": 110.25,
+          "x_max": 197.75,
+          "y_max": 118
+        }
+      },
+      {
+        "labelId": "w-0014",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 438.75,
+          "y_min": 109.25,
+          "x_max": 459,
+          "y_max": 117.75
+        }
+      },
+      {
+        "labelId": "w-0015",
+        "text": "$50.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 477.5,
+          "y_min": 107.5,
+          "x_max": 506.25,
+          "y_max": 117.5
+        }
+      },
+      {
+        "labelId": "w-0016",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71,
+          "y_min": 123.25,
+          "x_max": 116.5,
+          "y_max": 133.25
+        }
+      },
+      {
+        "labelId": "w-0017",
+        "text": "Water",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 140,
+          "y_min": 123,
+          "x_max": 166,
+          "y_max": 133.25
+        }
+      },
+      {
+        "labelId": "w-0018",
+        "text": "Truck",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 168.75,
+          "y_min": 121.75,
+          "x_max": 192.25,
+          "y_max": 131.5
+        }
+      },
+      {
+        "labelId": "w-0019",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 438.75,
+          "y_min": 122.5,
+          "x_max": 459.25,
+          "y_max": 130.5
+        }
+      },
+      {
+        "labelId": "w-0020",
+        "text": "$95.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 477.75,
+          "y_min": 121.5,
+          "x_max": 506.75,
+          "y_max": 131.25
+        }
+      },
+      {
+        "labelId": "w-0021",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71,
+          "y_min": 134.25,
+          "x_max": 116.75,
+          "y_max": 146.5
+        }
+      },
+      {
+        "labelId": "w-0022",
+        "text": "Portable",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 140.75,
+          "y_min": 135,
+          "x_max": 176.25,
+          "y_max": 144.75
+        }
+      },
+      {
+        "labelId": "w-0023",
+        "text": "Light",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 179.5,
+          "y_min": 136.5,
+          "x_max": 199.75,
+          "y_max": 146.5
+        }
+      },
+      {
+        "labelId": "w-0024",
+        "text": "Plant",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 202.5,
+          "y_min": 137,
+          "x_max": 224,
+          "y_max": 144.75
+        }
+      },
+      {
+        "labelId": "w-0025",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 439.25,
+          "y_min": 135.75,
+          "x_max": 459.75,
+          "y_max": 144
+        }
+      },
+      {
+        "labelId": "w-0026",
+        "text": "$80.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 477.5,
+          "y_min": 134.25,
+          "x_max": 507,
+          "y_max": 144.5
+        }
+      },
+      {
+        "labelId": "w-0027",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71.25,
+          "y_min": 148.75,
+          "x_max": 116.5,
+          "y_max": 160
+        }
+      },
+      {
+        "labelId": "w-0028",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 140.75,
+          "y_min": 149.5,
+          "x_max": 187.25,
+          "y_max": 160
+        }
+      },
+      {
+        "labelId": "w-0029",
+        "text": "Transports",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 189.5,
+          "y_min": 150.5,
+          "x_max": 235.25,
+          "y_max": 160
+        }
+      },
+      {
+        "labelId": "w-0030",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 439.25,
+          "y_min": 149.5,
+          "x_max": 459.5,
+          "y_max": 158
+        }
+      },
+      {
+        "labelId": "w-0031",
+        "text": "$115.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 478.25,
+          "y_min": 147.75,
+          "x_max": 512.5,
+          "y_max": 158.5
+        }
+      },
+      {
+        "labelId": "w-0032",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71.25,
+          "y_min": 163.75,
+          "x_max": 116.75,
+          "y_max": 173.5
+        }
+      },
+      {
+        "labelId": "w-0033",
+        "text": "Pickup",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 141,
+          "y_min": 163.75,
+          "x_max": 168.75,
+          "y_max": 173.5
+        }
+      },
+      {
+        "labelId": "w-0034",
+        "text": "Truck",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 171.75,
+          "y_min": 164.25,
+          "x_max": 196,
+          "y_max": 172.25
+        }
+      },
+      {
+        "labelId": "w-0035",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 439.5,
+          "y_min": 163.25,
+          "x_max": 459.75,
+          "y_max": 171.25
+        }
+      },
+      {
+        "labelId": "w-0036",
+        "text": "$25.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 478,
+          "y_min": 162,
+          "x_max": 507.25,
+          "y_max": 171.5
+        }
+      },
+      {
+        "labelId": "w-0037",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71.25,
+          "y_min": 177,
+          "x_max": 116.75,
+          "y_max": 187
+        }
+      },
+      {
+        "labelId": "w-0038",
+        "text": "Flatbed",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 141,
+          "y_min": 177.5,
+          "x_max": 172.5,
+          "y_max": 185.25
+        }
+      },
+      {
+        "labelId": "w-0039",
+        "text": "Truck",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 175.5,
+          "y_min": 177.5,
+          "x_max": 199.25,
+          "y_max": 185.25
+        }
+      },
+      {
+        "labelId": "w-0040",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 439.5,
+          "y_min": 176.5,
+          "x_max": 459.75,
+          "y_max": 184.5
+        }
+      },
+      {
+        "labelId": "w-0041",
+        "text": "$45.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 478.25,
+          "y_min": 175.5,
+          "x_max": 507.5,
+          "y_max": 185.25
+        }
+      },
+      {
+        "labelId": "w-0042",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71,
+          "y_min": 190.5,
+          "x_max": 120,
+          "y_max": 200
+        }
+      },
+      {
+        "labelId": "w-0043",
+        "text": "Low-Boy",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 140.75,
+          "y_min": 190.75,
+          "x_max": 178.5,
+          "y_max": 200
+        }
+      },
+      {
+        "labelId": "w-0044",
+        "text": "Tractor",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 181,
+          "y_min": 190,
+          "x_max": 211.75,
+          "y_max": 198.5
+        }
+      },
+      {
+        "labelId": "w-0045",
+        "text": "Trailer",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 214.25,
+          "y_min": 190.5,
+          "x_max": 241.25,
+          "y_max": 199.25
+        }
+      },
+      {
+        "labelId": "w-0046",
+        "text": "for",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 243,
+          "y_min": 190.25,
+          "x_max": 254.25,
+          "y_max": 198.5
+        }
+      },
+      {
+        "labelId": "w-0047",
+        "text": "equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 256.75,
+          "y_min": 190.25,
+          "x_max": 302,
+          "y_max": 200
+        }
+      },
+      {
+        "labelId": "w-0048",
+        "text": "transport",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 304.25,
+          "y_min": 191.25,
+          "x_max": 346.25,
+          "y_max": 200
+        }
+      },
+      {
+        "labelId": "w-0049",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 439.5,
+          "y_min": 189.75,
+          "x_max": 459.75,
+          "y_max": 200
+        }
+      },
+      {
+        "labelId": "w-0050",
+        "text": "$115.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 478.25,
+          "y_min": 188.25,
+          "x_max": 513,
+          "y_max": 198.75
+        }
+      },
+      {
+        "labelId": "w-0051",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71.5,
+          "y_min": 203.75,
+          "x_max": 117,
+          "y_max": 213.75
+        }
+      },
+      {
+        "labelId": "w-0052",
+        "text": "Water",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 140.5,
+          "y_min": 204,
+          "x_max": 166.75,
+          "y_max": 213.75
+        }
+      },
+      {
+        "labelId": "w-0053",
+        "text": "Truck",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 169.5,
+          "y_min": 204,
+          "x_max": 193,
+          "y_max": 213.75
+        }
+      },
+      {
+        "labelId": "w-0054",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 439.5,
+          "y_min": 203.25,
+          "x_max": 459.75,
+          "y_max": 211.25
+        }
+      },
+      {
+        "labelId": "w-0055",
+        "text": "$95.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 478.25,
+          "y_min": 201.5,
+          "x_max": 507.5,
+          "y_max": 212.5
+        }
+      },
+      {
+        "labelId": "w-0056",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71.25,
+          "y_min": 217.75,
+          "x_max": 117.25,
+          "y_max": 227.5
+        }
+      },
+      {
+        "labelId": "w-0057",
+        "text": "Service",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 140.75,
+          "y_min": 217.5,
+          "x_max": 172,
+          "y_max": 225.5
+        }
+      },
+      {
+        "labelId": "w-0058",
+        "text": "Truck",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 174.75,
+          "y_min": 217.5,
+          "x_max": 203.75,
+          "y_max": 225.5
+        }
+      },
+      {
+        "labelId": "w-0059",
+        "text": "for",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 204,
+          "y_min": 219,
+          "x_max": 212.5,
+          "y_max": 225.5
+        }
+      },
+      {
+        "labelId": "w-0060",
+        "text": "Heavy",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 215,
+          "y_min": 217.75,
+          "x_max": 241,
+          "y_max": 227.5
+        }
+      },
+      {
+        "labelId": "w-0061",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 243.75,
+          "y_min": 217.75,
+          "x_max": 289,
+          "y_max": 227.5
+        }
+      },
+      {
+        "labelId": "w-0062",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 439.25,
+          "y_min": 216.75,
+          "x_max": 460.25,
+          "y_max": 225.5
+        }
+      },
+      {
+        "labelId": "w-0063",
+        "text": "$50.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 478.25,
+          "y_min": 215,
+          "x_max": 507.5,
+          "y_max": 225.5
+        }
+      },
+      {
+        "labelId": "w-0064",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 69.5,
+          "y_min": 230,
+          "x_max": 117,
+          "y_max": 240.75
+        }
+      },
+      {
+        "labelId": "w-0065",
+        "text": "Self-loading",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 139.75,
+          "y_min": 229.25,
+          "x_max": 193.5,
+          "y_max": 240.75
+        }
+      },
+      {
+        "labelId": "w-0066",
+        "text": "Dump",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 193.5,
+          "y_min": 229.75,
+          "x_max": 220.5,
+          "y_max": 240.75
+        }
+      },
+      {
+        "labelId": "w-0067",
+        "text": "Truck",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 223.5,
+          "y_min": 231,
+          "x_max": 246.5,
+          "y_max": 239.75
+        }
+      },
+      {
+        "labelId": "w-0068",
+        "text": "with",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 248.75,
+          "y_min": 230,
+          "x_max": 266.25,
+          "y_max": 238.75
+        }
+      },
+      {
+        "labelId": "w-0069",
+        "text": "knuckle-boom",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 269.25,
+          "y_min": 230,
+          "x_max": 329.5,
+          "y_max": 239.25
+        }
+      },
+      {
+        "labelId": "w-0070",
+        "text": "and",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 332.75,
+          "y_min": 231,
+          "x_max": 348,
+          "y_max": 238.75
+        }
+      },
+      {
+        "labelId": "w-0071",
+        "text": "debris",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 351,
+          "y_min": 230,
+          "x_max": 376.75,
+          "y_max": 239.5
+        }
+      },
+      {
+        "labelId": "w-0072",
+        "text": "grapple",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 379.75,
+          "y_min": 230,
+          "x_max": 410.5,
+          "y_max": 240.75
+        }
+      },
+      {
+        "labelId": "w-0073",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 439.5,
+          "y_min": 230.25,
+          "x_max": 460,
+          "y_max": 238.25
+        }
+      },
+      {
+        "labelId": "w-0074",
+        "text": "$190.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 478.5,
+          "y_min": 229.25,
+          "x_max": 513.25,
+          "y_max": 239.75
+        }
+      },
+      {
+        "labelId": "w-0075",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71.25,
+          "y_min": 244.5,
+          "x_max": 117.5,
+          "y_max": 254.25
+        }
+      },
+      {
+        "labelId": "w-0076",
+        "text": "Dump",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 141.25,
+          "y_min": 244.5,
+          "x_max": 166.5,
+          "y_max": 254.25
+        }
+      },
+      {
+        "labelId": "w-0077",
+        "text": "Truck,",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 169.5,
+          "y_min": 244.75,
+          "x_max": 195,
+          "y_max": 254.25
+        }
+      },
+      {
+        "labelId": "w-0078",
+        "text": "5",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 198.25,
+          "y_min": 244.75,
+          "x_max": 202.75,
+          "y_max": 252.25
+        }
+      },
+      {
+        "labelId": "w-0079",
+        "text": "-",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 206.25,
+          "y_min": 248.25,
+          "x_max": 209.5,
+          "y_max": 249.5
+        }
+      },
+      {
+        "labelId": "w-0080",
+        "text": "12",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 212.5,
+          "y_min": 244.5,
+          "x_max": 222,
+          "y_max": 252.25
+        }
+      },
+      {
+        "labelId": "w-0081",
+        "text": "Cu.",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 225.25,
+          "y_min": 244.5,
+          "x_max": 239,
+          "y_max": 252.25
+        }
+      },
+      {
+        "labelId": "w-0082",
+        "text": "Yd.",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 241.75,
+          "y_min": 244.5,
+          "x_max": 254.25,
+          "y_max": 252.5
+        }
+      },
+      {
+        "labelId": "w-0083",
+        "text": "Capacity",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 257.25,
+          "y_min": 244.25,
+          "x_max": 294.75,
+          "y_max": 254.25
+        }
+      },
+      {
+        "labelId": "w-0084",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 440,
+          "y_min": 243.5,
+          "x_max": 460.25,
+          "y_max": 251.75
+        }
+      },
+      {
+        "labelId": "w-0085",
+        "text": "$170.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 478.5,
+          "y_min": 242,
+          "x_max": 513.5,
+          "y_max": 252.25
+        }
+      },
+      {
+        "labelId": "w-0086",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71.25,
+          "y_min": 258,
+          "x_max": 117.25,
+          "y_max": 267.75
+        }
+      },
+      {
+        "labelId": "w-0087",
+        "text": "Dump",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 141.25,
+          "y_min": 258.25,
+          "x_max": 166.75,
+          "y_max": 267.75
+        }
+      },
+      {
+        "labelId": "w-0088",
+        "text": "Truck,",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 169.25,
+          "y_min": 256.25,
+          "x_max": 195,
+          "y_max": 267
+        }
+      },
+      {
+        "labelId": "w-0089",
+        "text": "16",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 199.25,
+          "y_min": 258.5,
+          "x_max": 210,
+          "y_max": 265.75
+        }
+      },
+      {
+        "labelId": "w-0090",
+        "text": "-",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 211.75,
+          "y_min": 261.5,
+          "x_max": 214.5,
+          "y_max": 263
+        }
+      },
+      {
+        "labelId": "w-0091",
+        "text": "20",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 217.5,
+          "y_min": 258.25,
+          "x_max": 227.75,
+          "y_max": 266
+        }
+      },
+      {
+        "labelId": "w-0092",
+        "text": "Cu.",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 230.75,
+          "y_min": 258.25,
+          "x_max": 244,
+          "y_max": 266
+        }
+      },
+      {
+        "labelId": "w-0093",
+        "text": "Yd.",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 247.25,
+          "y_min": 256.75,
+          "x_max": 259.75,
+          "y_max": 266
+        }
+      },
+      {
+        "labelId": "w-0094",
+        "text": "Capacity",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 263.25,
+          "y_min": 258,
+          "x_max": 300.5,
+          "y_max": 267.75
+        }
+      },
+      {
+        "labelId": "w-0095",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 439.75,
+          "y_min": 257,
+          "x_max": 460.25,
+          "y_max": 266
+        }
+      },
+      {
+        "labelId": "w-0096",
+        "text": "$170.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 478.75,
+          "y_min": 255.5,
+          "x_max": 513.5,
+          "y_max": 265.75
+        }
+      },
+      {
+        "labelId": "w-0097",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71.5,
+          "y_min": 271.25,
+          "x_max": 117.25,
+          "y_max": 281.25
+        }
+      },
+      {
+        "labelId": "w-0098",
+        "text": "Dump",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 141.5,
+          "y_min": 271.75,
+          "x_max": 166.5,
+          "y_max": 281.25
+        }
+      },
+      {
+        "labelId": "w-0099",
+        "text": "Truck,",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 169.5,
+          "y_min": 271.25,
+          "x_max": 195,
+          "y_max": 280.5
+        }
+      },
+      {
+        "labelId": "w-0100",
+        "text": "21-40",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 198.5,
+          "y_min": 270.75,
+          "x_max": 223.5,
+          "y_max": 279.75
+        }
+      },
+      {
+        "labelId": "w-0101",
+        "text": "Cu.",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 226.5,
+          "y_min": 271.75,
+          "x_max": 240.25,
+          "y_max": 280.5
+        }
+      },
+      {
+        "labelId": "w-0102",
+        "text": "Yd.",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 243,
+          "y_min": 271.5,
+          "x_max": 256.75,
+          "y_max": 280
+        }
+      },
+      {
+        "labelId": "w-0103",
+        "text": "Capacity",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 259.25,
+          "y_min": 270.75,
+          "x_max": 296.25,
+          "y_max": 281.25
+        }
+      },
+      {
+        "labelId": "w-0104",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 440,
+          "y_min": 270.5,
+          "x_max": 460.25,
+          "y_max": 278.75
+        }
+      },
+      {
+        "labelId": "w-0105",
+        "text": "$170.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 478.75,
+          "y_min": 268.75,
+          "x_max": 513.75,
+          "y_max": 279.25
+        }
+      },
+      {
+        "labelId": "w-0106",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71.5,
+          "y_min": 284.75,
+          "x_max": 117.5,
+          "y_max": 294.75
+        }
+      },
+      {
+        "labelId": "w-0107",
+        "text": "Trailer",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 140.75,
+          "y_min": 284.75,
+          "x_max": 167.5,
+          "y_max": 292.75
+        }
+      },
+      {
+        "labelId": "w-0108",
+        "text": "Dump",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 170.75,
+          "y_min": 284.75,
+          "x_max": 196,
+          "y_max": 294.75
+        }
+      },
+      {
+        "labelId": "w-0109",
+        "text": "Truck,",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 198.75,
+          "y_min": 284.75,
+          "x_max": 224.75,
+          "y_max": 294
+        }
+      },
+      {
+        "labelId": "w-0110",
+        "text": "41-60",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 227.5,
+          "y_min": 285,
+          "x_max": 252.25,
+          "y_max": 292.75
+        }
+      },
+      {
+        "labelId": "w-0111",
+        "text": "Cu.",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 255,
+          "y_min": 285,
+          "x_max": 268.75,
+          "y_max": 292.75
+        }
+      },
+      {
+        "labelId": "w-0112",
+        "text": "Yd.",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 272,
+          "y_min": 284.75,
+          "x_max": 284.75,
+          "y_max": 292.75
+        }
+      },
+      {
+        "labelId": "w-0113",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 440.25,
+          "y_min": 284,
+          "x_max": 461.5,
+          "y_max": 291.75
+        }
+      },
+      {
+        "labelId": "w-0114",
+        "text": "$190.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 479,
+          "y_min": 283,
+          "x_max": 513.75,
+          "y_max": 292.75
+        }
+      },
+      {
+        "labelId": "w-0115",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71.5,
+          "y_min": 298.25,
+          "x_max": 117.25,
+          "y_max": 308.25
+        }
+      },
+      {
+        "labelId": "w-0116",
+        "text": "Trailer",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 140.75,
+          "y_min": 298,
+          "x_max": 168,
+          "y_max": 306.25
+        }
+      },
+      {
+        "labelId": "w-0117",
+        "text": "Dump",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 170.75,
+          "y_min": 298.75,
+          "x_max": 196,
+          "y_max": 308.25
+        }
+      },
+      {
+        "labelId": "w-0118",
+        "text": "Truck,",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 198.75,
+          "y_min": 298.5,
+          "x_max": 224.5,
+          "y_max": 307.25
+        }
+      },
+      {
+        "labelId": "w-0119",
+        "text": "61",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 227.75,
+          "y_min": 298.75,
+          "x_max": 236.75,
+          "y_max": 306.5
+        }
+      },
+      {
+        "labelId": "w-0120",
+        "text": "-",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 241,
+          "y_min": 302.5,
+          "x_max": 243.5,
+          "y_max": 303.5
+        }
+      },
+      {
+        "labelId": "w-0121",
+        "text": "90",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 246.25,
+          "y_min": 298.5,
+          "x_max": 256.5,
+          "y_max": 306.25
+        }
+      },
+      {
+        "labelId": "w-0122",
+        "text": "Cu.",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 258.5,
+          "y_min": 298.5,
+          "x_max": 273.25,
+          "y_max": 306
+        }
+      },
+      {
+        "labelId": "w-0123",
+        "text": "Yd.",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 276,
+          "y_min": 298.25,
+          "x_max": 289,
+          "y_max": 306.25
+        }
+      },
+      {
+        "labelId": "w-0124",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 440.25,
+          "y_min": 297,
+          "x_max": 460.5,
+          "y_max": 305.5
+        }
+      },
+      {
+        "labelId": "w-0125",
+        "text": "$190.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 479,
+          "y_min": 296.5,
+          "x_max": 513.75,
+          "y_max": 306.5
+        }
+      },
+      {
+        "labelId": "w-0126",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71.25,
+          "y_min": 310.25,
+          "x_max": 117.5,
+          "y_max": 321
+        }
+      },
+      {
+        "labelId": "w-0127",
+        "text": "Power",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 141.5,
+          "y_min": 312.25,
+          "x_max": 168.5,
+          "y_max": 319.75
+        }
+      },
+      {
+        "labelId": "w-0128",
+        "text": "Screen",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 171,
+          "y_min": 312.25,
+          "x_max": 200.75,
+          "y_max": 321
+        }
+      },
+      {
+        "labelId": "w-0129",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 440.25,
+          "y_min": 310.75,
+          "x_max": 460.5,
+          "y_max": 318.5
+        }
+      },
+      {
+        "labelId": "w-0130",
+        "text": "$160.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 479.5,
+          "y_min": 310,
+          "x_max": 514,
+          "y_max": 319.75
+        }
+      },
+      {
+        "labelId": "w-0131",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71.5,
+          "y_min": 325.25,
+          "x_max": 117.25,
+          "y_max": 335
+        }
+      },
+      {
+        "labelId": "w-0132",
+        "text": "Stacking",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 141,
+          "y_min": 325,
+          "x_max": 177.5,
+          "y_max": 335
+        }
+      },
+      {
+        "labelId": "w-0133",
+        "text": "Conveyor",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 180.5,
+          "y_min": 325.75,
+          "x_max": 221,
+          "y_max": 335
+        }
+      },
+      {
+        "labelId": "w-0134",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 440.5,
+          "y_min": 324.25,
+          "x_max": 460.75,
+          "y_max": 333.5
+        }
+      },
+      {
+        "labelId": "w-0135",
+        "text": "$70.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 479,
+          "y_min": 322.75,
+          "x_max": 510,
+          "y_max": 333
+        }
+      },
+      {
+        "labelId": "w-0136",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71.5,
+          "y_min": 338.5,
+          "x_max": 117.75,
+          "y_max": 348
+        }
+      },
+      {
+        "labelId": "w-0137",
+        "text": "Off",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 141.25,
+          "y_min": 337.25,
+          "x_max": 154,
+          "y_max": 346.5
+        }
+      },
+      {
+        "labelId": "w-0138",
+        "text": "Road",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 157.25,
+          "y_min": 338.75,
+          "x_max": 178.5,
+          "y_max": 347
+        }
+      },
+      {
+        "labelId": "w-0139",
+        "text": "Trucks",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 181.5,
+          "y_min": 339,
+          "x_max": 210,
+          "y_max": 346.75
+        }
+      },
+      {
+        "labelId": "w-0140",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 440.5,
+          "y_min": 337.75,
+          "x_max": 461,
+          "y_max": 346.25
+        }
+      },
+      {
+        "labelId": "w-0141",
+        "text": "$25.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 479.25,
+          "y_min": 336,
+          "x_max": 508.5,
+          "y_max": 346.25
+        }
+      },
+      {
+        "labelId": "w-0142",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71.75,
+          "y_min": 352.25,
+          "x_max": 117.75,
+          "y_max": 362
+        }
+      },
+      {
+        "labelId": "w-0143",
+        "text": "Generator",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 141.5,
+          "y_min": 352.5,
+          "x_max": 184.75,
+          "y_max": 360.5
+        }
+      },
+      {
+        "labelId": "w-0144",
+        "text": "With",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 187.25,
+          "y_min": 349.5,
+          "x_max": 207,
+          "y_max": 360
+        }
+      },
+      {
+        "labelId": "w-0145",
+        "text": "Lighting",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 210.5,
+          "y_min": 352,
+          "x_max": 242.5,
+          "y_max": 362
+        }
+      },
+      {
+        "labelId": "w-0146",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 440.75,
+          "y_min": 351,
+          "x_max": 461,
+          "y_max": 359.25
+        }
+      },
+      {
+        "labelId": "w-0147",
+        "text": "$80.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 479.5,
+          "y_min": 349.5,
+          "x_max": 508.75,
+          "y_max": 360
+        }
+      },
+      {
+        "labelId": "w-0148",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71.75,
+          "y_min": 365.75,
+          "x_max": 118,
+          "y_max": 375.25
+        }
+      },
+      {
+        "labelId": "w-0149",
+        "text": "Motor",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 141.75,
+          "y_min": 365.75,
+          "x_max": 167,
+          "y_max": 373.5
+        }
+      },
+      {
+        "labelId": "w-0150",
+        "text": "Grader",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 169.5,
+          "y_min": 365.75,
+          "x_max": 198.75,
+          "y_max": 373.75
+        }
+      },
+      {
+        "labelId": "w-0151",
+        "text": "with",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 201.25,
+          "y_min": 365.25,
+          "x_max": 219.25,
+          "y_max": 374
+        }
+      },
+      {
+        "labelId": "w-0152",
+        "text": "12'",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 222.75,
+          "y_min": 365.75,
+          "x_max": 234.75,
+          "y_max": 374.5
+        }
+      },
+      {
+        "labelId": "w-0153",
+        "text": "Blade",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 238,
+          "y_min": 365.5,
+          "x_max": 261.25,
+          "y_max": 373.5
+        }
+      },
+      {
+        "labelId": "w-0154",
+        "text": "-",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 264.5,
+          "y_min": 369.5,
+          "x_max": 267.25,
+          "y_max": 370.75
+        }
+      },
+      {
+        "labelId": "w-0155",
+        "text": "CAT125",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 270,
+          "y_min": 365.75,
+          "x_max": 303.75,
+          "y_max": 373.25
+        }
+      },
+      {
+        "labelId": "w-0156",
+        "text": "or",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 306.5,
+          "y_min": 367,
+          "x_max": 315.5,
+          "y_max": 373.5
+        }
+      },
+      {
+        "labelId": "w-0157",
+        "text": "equivalent",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 317.75,
+          "y_min": 365,
+          "x_max": 361.5,
+          "y_max": 375.25
+        }
+      },
+      {
+        "labelId": "w-0158",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 440.75,
+          "y_min": 364.75,
+          "x_max": 461.25,
+          "y_max": 372.75
+        }
+      },
+      {
+        "labelId": "w-0159",
+        "text": "$150.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 479.5,
+          "y_min": 363.25,
+          "x_max": 514.5,
+          "y_max": 373.5
+        }
+      },
+      {
+        "labelId": "w-0160",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71.75,
+          "y_min": 379.25,
+          "x_max": 118,
+          "y_max": 388.75
+        }
+      },
+      {
+        "labelId": "w-0161",
+        "text": "Hydraulic",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 141.75,
+          "y_min": 378.5,
+          "x_max": 182.5,
+          "y_max": 388.75
+        }
+      },
+      {
+        "labelId": "w-0162",
+        "text": "Excavator,",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 185.5,
+          "y_min": 379.25,
+          "x_max": 229.5,
+          "y_max": 388.75
+        }
+      },
+      {
+        "labelId": "w-0163",
+        "text": "1.5",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 233.25,
+          "y_min": 378.75,
+          "x_max": 248,
+          "y_max": 388.75
+        }
+      },
+      {
+        "labelId": "w-0164",
+        "text": "Cu.",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 248.5,
+          "y_min": 379.25,
+          "x_max": 263.75,
+          "y_max": 388
+        }
+      },
+      {
+        "labelId": "w-0165",
+        "text": "Yd.",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 263.75,
+          "y_min": 379,
+          "x_max": 279.75,
+          "y_max": 387.75
+        }
+      },
+      {
+        "labelId": "w-0166",
+        "text": "Capacity",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 280,
+          "y_min": 378.5,
+          "x_max": 319,
+          "y_max": 388.75
+        }
+      },
+      {
+        "labelId": "w-0167",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 440.75,
+          "y_min": 378,
+          "x_max": 461.5,
+          "y_max": 386.5
+        }
+      },
+      {
+        "labelId": "w-0168",
+        "text": "$135.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 480,
+          "y_min": 376.5,
+          "x_max": 514.75,
+          "y_max": 386.75
+        }
+      },
+      {
+        "labelId": "w-0169",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 72,
+          "y_min": 392.25,
+          "x_max": 118.5,
+          "y_max": 402
+        }
+      },
+      {
+        "labelId": "w-0170",
+        "text": "Hydraulic",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 141.75,
+          "y_min": 392.25,
+          "x_max": 182.5,
+          "y_max": 402
+        }
+      },
+      {
+        "labelId": "w-0171",
+        "text": "Excavator,",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 185.5,
+          "y_min": 392.75,
+          "x_max": 229.75,
+          "y_max": 402
+        }
+      },
+      {
+        "labelId": "w-0172",
+        "text": "2.5",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 233,
+          "y_min": 392,
+          "x_max": 245.5,
+          "y_max": 400.25
+        }
+      },
+      {
+        "labelId": "w-0173",
+        "text": "Cu.",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 248.5,
+          "y_min": 392.75,
+          "x_max": 262,
+          "y_max": 401.25
+        }
+      },
+      {
+        "labelId": "w-0174",
+        "text": "Yd.",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 265.25,
+          "y_min": 392.75,
+          "x_max": 277.75,
+          "y_max": 400.5
+        }
+      },
+      {
+        "labelId": "w-0175",
+        "text": "Capacity",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 281,
+          "y_min": 392.5,
+          "x_max": 319,
+          "y_max": 402
+        }
+      },
+      {
+        "labelId": "w-0176",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 441,
+          "y_min": 391.75,
+          "x_max": 461.5,
+          "y_max": 399.5
+        }
+      },
+      {
+        "labelId": "w-0177",
+        "text": "$135.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 480,
+          "y_min": 390,
+          "x_max": 514.25,
+          "y_max": 400.5
+        }
+      },
+      {
+        "labelId": "w-0178",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 72.25,
+          "y_min": 405.75,
+          "x_max": 117.75,
+          "y_max": 415.75
+        }
+      },
+      {
+        "labelId": "w-0179",
+        "text": "Soil",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 141.5,
+          "y_min": 404.75,
+          "x_max": 157,
+          "y_max": 414
+        }
+      },
+      {
+        "labelId": "w-0180",
+        "text": "Compactor",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 160.5,
+          "y_min": 406,
+          "x_max": 208.5,
+          "y_max": 415.75
+        }
+      },
+      {
+        "labelId": "w-0181",
+        "text": "–",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 210.5,
+          "y_min": 409.25,
+          "x_max": 215.75,
+          "y_max": 412
+        }
+      },
+      {
+        "labelId": "w-0182",
+        "text": "up",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 218.75,
+          "y_min": 407.5,
+          "x_max": 228.5,
+          "y_max": 415.75
+        }
+      },
+      {
+        "labelId": "w-0183",
+        "text": "to",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 231.25,
+          "y_min": 406.5,
+          "x_max": 239,
+          "y_max": 413.5
+        }
+      },
+      {
+        "labelId": "w-0184",
+        "text": "80",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 242.25,
+          "y_min": 405.75,
+          "x_max": 252,
+          "y_max": 413.5
+        }
+      },
+      {
+        "labelId": "w-0185",
+        "text": "HP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 255,
+          "y_min": 404.5,
+          "x_max": 267,
+          "y_max": 413.75
+        }
+      },
+      {
+        "labelId": "w-0186",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 439.25,
+          "y_min": 405.25,
+          "x_max": 461.25,
+          "y_max": 413.25
+        }
+      },
+      {
+        "labelId": "w-0187",
+        "text": "$85.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 480.25,
+          "y_min": 404.25,
+          "x_max": 509.25,
+          "y_max": 413.75
+        }
+      },
+      {
+        "labelId": "w-0188",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 72,
+          "y_min": 419.5,
+          "x_max": 118,
+          "y_max": 428.75
+        }
+      },
+      {
+        "labelId": "w-0189",
+        "text": "Self-loading",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 141.5,
+          "y_min": 418.75,
+          "x_max": 193.5,
+          "y_max": 428.75
+        }
+      },
+      {
+        "labelId": "w-0190",
+        "text": "Barge",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 196.25,
+          "y_min": 419.75,
+          "x_max": 219.75,
+          "y_max": 428.75
+        }
+      },
+      {
+        "labelId": "w-0191",
+        "text": "30-45",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 222.75,
+          "y_min": 419.5,
+          "x_max": 247.5,
+          "y_max": 427.5
+        }
+      },
+      {
+        "labelId": "w-0192",
+        "text": "ft",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 250.25,
+          "y_min": 419.5,
+          "x_max": 257,
+          "y_max": 428
+        }
+      },
+      {
+        "labelId": "w-0193",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 440.75,
+          "y_min": 417.75,
+          "x_max": 461.75,
+          "y_max": 427.5
+        }
+      },
+      {
+        "labelId": "w-0194",
+        "text": "$500.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 480,
+          "y_min": 417,
+          "x_max": 514.75,
+          "y_max": 427.75
+        }
+      },
+      {
+        "labelId": "w-0195",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 72.25,
+          "y_min": 433,
+          "x_max": 117.75,
+          "y_max": 442.25
+        }
+      },
+      {
+        "labelId": "w-0196",
+        "text": "Air",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 141.25,
+          "y_min": 432.75,
+          "x_max": 152.75,
+          "y_max": 442.25
+        }
+      },
+      {
+        "labelId": "w-0197",
+        "text": "Boat",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 155.75,
+          "y_min": 433.5,
+          "x_max": 175.25,
+          "y_max": 441.25
+        }
+      },
+      {
+        "labelId": "w-0198",
+        "text": "15-25",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 178.25,
+          "y_min": 433.25,
+          "x_max": 203.5,
+          "y_max": 440.75
+        }
+      },
+      {
+        "labelId": "w-0199",
+        "text": "ft",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 206.5,
+          "y_min": 433.5,
+          "x_max": 212.25,
+          "y_max": 440.75
+        }
+      },
+      {
+        "labelId": "w-0200",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 441.25,
+          "y_min": 432,
+          "x_max": 461.5,
+          "y_max": 439.75
+        }
+      },
+      {
+        "labelId": "w-0201",
+        "text": "$225.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 480.25,
+          "y_min": 431,
+          "x_max": 515.75,
+          "y_max": 440.5
+        }
+      },
+      {
+        "labelId": "w-0202",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 72.25,
+          "y_min": 446.5,
+          "x_max": 117.75,
+          "y_max": 455.75
+        }
+      },
+      {
+        "labelId": "w-0203",
+        "text": "Marsh",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 142.25,
+          "y_min": 446.25,
+          "x_max": 168,
+          "y_max": 454.75
+        }
+      },
+      {
+        "labelId": "w-0204",
+        "text": "Buggy",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 171.25,
+          "y_min": 446.25,
+          "x_max": 196.25,
+          "y_max": 455.75
+        }
+      },
+      {
+        "labelId": "w-0205",
+        "text": "-",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 199.25,
+          "y_min": 450.25,
+          "x_max": 201.75,
+          "y_max": 451.75
+        }
+      },
+      {
+        "labelId": "w-0206",
+        "text": "(Low",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 205,
+          "y_min": 446.5,
+          "x_max": 228.25,
+          "y_max": 455.75
+        }
+      },
+      {
+        "labelId": "w-0207",
+        "text": "Impact",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 229,
+          "y_min": 446.25,
+          "x_max": 258,
+          "y_max": 455.75
+        }
+      },
+      {
+        "labelId": "w-0208",
+        "text": "Excavator)",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 260.75,
+          "y_min": 446.25,
+          "x_max": 304.5,
+          "y_max": 455.75
+        }
+      },
+      {
+        "labelId": "w-0209",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 441.25,
+          "y_min": 445,
+          "x_max": 461.75,
+          "y_max": 453.5
+        }
+      },
+      {
+        "labelId": "w-0210",
+        "text": "$300.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 480,
+          "y_min": 443.75,
+          "x_max": 515.75,
+          "y_max": 454.25
+        }
+      },
+      {
+        "labelId": "w-0211",
+        "text": "Page",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 281.75,
+          "y_min": 731,
+          "x_max": 300,
+          "y_max": 741
+        }
+      },
+      {
+        "labelId": "w-0212",
+        "text": "11",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 303,
+          "y_min": 731,
+          "x_max": 313,
+          "y_max": 738.25
+        }
+      },
+      {
+        "labelId": "w-0213",
+        "text": "of",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 316.5,
+          "y_min": 731,
+          "x_max": 325,
+          "y_max": 738
+        }
+      },
+      {
+        "labelId": "w-0214",
+        "text": "15",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 327.25,
+          "y_min": 731,
+          "x_max": 337.25,
+          "y_max": 738.25
+        }
+      }
+    ]
+  },
+  "cells": {
+    "status": "labeled",
+    "items": [
+      {
+        "labelId": "c-0001",
+        "text": "Category",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 70.5,
+          "y_min": 83.5,
+          "x_max": 110.75,
+          "y_max": 92.5
+        },
+        "isHeader": true,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0002",
+        "text": "Description",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 140,
+          "y_min": 83,
+          "x_max": 192,
+          "y_max": 92.5
+        },
+        "isHeader": true,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0003",
+        "text": "Unit",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 438.25,
+          "y_min": 82,
+          "x_max": 457,
+          "y_max": 90.75
+        },
+        "isHeader": true,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0004",
+        "text": "Rate",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 477.5,
+          "y_min": 82.25,
+          "x_max": 496.75,
+          "y_max": 90.75
+        },
+        "isHeader": true,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0005",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 70.75,
+          "y_min": 95.25,
+          "x_max": 116.25,
+          "y_max": 106
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0006",
+        "text": "61-90 Ton Crane",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 140.5,
+          "y_min": 96,
+          "x_max": 211.75,
+          "y_max": 106
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0007",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 438.75,
+          "y_min": 95.75,
+          "x_max": 459,
+          "y_max": 103.75
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0008",
+        "text": "$195.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 477.75,
+          "y_min": 94,
+          "x_max": 511.75,
+          "y_max": 104.5
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0009",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71,
+          "y_min": 109.75,
+          "x_max": 116.25,
+          "y_max": 119.75
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0010",
+        "text": "Service Truck",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 140.25,
+          "y_min": 109.75,
+          "x_max": 197.75,
+          "y_max": 118
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0011",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 438.75,
+          "y_min": 109.25,
+          "x_max": 459,
+          "y_max": 117.75
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0012",
+        "text": "$50.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 477.5,
+          "y_min": 107.5,
+          "x_max": 506.25,
+          "y_max": 117.5
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0013",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71,
+          "y_min": 123.25,
+          "x_max": 116.5,
+          "y_max": 133.25
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0014",
+        "text": "Water Truck",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 140,
+          "y_min": 121.75,
+          "x_max": 192.25,
+          "y_max": 133.25
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0015",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 438.75,
+          "y_min": 122.5,
+          "x_max": 459.25,
+          "y_max": 130.5
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0016",
+        "text": "$95.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 477.75,
+          "y_min": 121.5,
+          "x_max": 506.75,
+          "y_max": 131.25
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0017",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71,
+          "y_min": 134.25,
+          "x_max": 116.75,
+          "y_max": 146.5
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0018",
+        "text": "Portable Light Plant",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 140.75,
+          "y_min": 135,
+          "x_max": 224,
+          "y_max": 146.5
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0019",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 439.25,
+          "y_min": 135.75,
+          "x_max": 459.75,
+          "y_max": 144
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0020",
+        "text": "$80.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 477.5,
+          "y_min": 134.25,
+          "x_max": 507,
+          "y_max": 144.5
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0021",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71.25,
+          "y_min": 148.75,
+          "x_max": 116.5,
+          "y_max": 160
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0022",
+        "text": "Equipment Transports",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 140.75,
+          "y_min": 149.5,
+          "x_max": 235.25,
+          "y_max": 160
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0023",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 439.25,
+          "y_min": 149.5,
+          "x_max": 459.5,
+          "y_max": 158
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0024",
+        "text": "$115.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 478.25,
+          "y_min": 147.75,
+          "x_max": 512.5,
+          "y_max": 158.5
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0025",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71.25,
+          "y_min": 163.75,
+          "x_max": 116.75,
+          "y_max": 173.5
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0026",
+        "text": "Pickup Truck",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 141,
+          "y_min": 163.75,
+          "x_max": 196,
+          "y_max": 173.5
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0027",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 439.5,
+          "y_min": 163.25,
+          "x_max": 459.75,
+          "y_max": 171.25
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0028",
+        "text": "$25.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 478,
+          "y_min": 162,
+          "x_max": 507.25,
+          "y_max": 171.5
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0029",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71.25,
+          "y_min": 177,
+          "x_max": 116.75,
+          "y_max": 187
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0030",
+        "text": "Flatbed Truck",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 141,
+          "y_min": 177.5,
+          "x_max": 199.25,
+          "y_max": 185.25
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0031",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 439.5,
+          "y_min": 176.5,
+          "x_max": 459.75,
+          "y_max": 184.5
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0032",
+        "text": "$45.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 478.25,
+          "y_min": 175.5,
+          "x_max": 507.5,
+          "y_max": 185.25
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0033",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71,
+          "y_min": 190.5,
+          "x_max": 120,
+          "y_max": 200
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0034",
+        "text": "Low-Boy Tractor Trailer for equipment transport",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 140.75,
+          "y_min": 190,
+          "x_max": 346.25,
+          "y_max": 200
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0035",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 439.5,
+          "y_min": 189.75,
+          "x_max": 459.75,
+          "y_max": 200
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0036",
+        "text": "$115.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 478.25,
+          "y_min": 188.25,
+          "x_max": 513,
+          "y_max": 198.75
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0037",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71.5,
+          "y_min": 203.75,
+          "x_max": 117,
+          "y_max": 213.75
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0038",
+        "text": "Water Truck",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 140.5,
+          "y_min": 204,
+          "x_max": 193,
+          "y_max": 213.75
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0039",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 439.5,
+          "y_min": 203.25,
+          "x_max": 459.75,
+          "y_max": 211.25
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0040",
+        "text": "$95.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 478.25,
+          "y_min": 201.5,
+          "x_max": 507.5,
+          "y_max": 212.5
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0041",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71.25,
+          "y_min": 217.75,
+          "x_max": 117.25,
+          "y_max": 227.5
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0042",
+        "text": "Service Truck for Heavy Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 140.75,
+          "y_min": 217.5,
+          "x_max": 289,
+          "y_max": 227.5
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0043",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 439.25,
+          "y_min": 216.75,
+          "x_max": 460.25,
+          "y_max": 225.5
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0044",
+        "text": "$50.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 478.25,
+          "y_min": 215,
+          "x_max": 507.5,
+          "y_max": 225.5
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0045",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 69.5,
+          "y_min": 230,
+          "x_max": 117,
+          "y_max": 240.75
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0046",
+        "text": "Self-loading Dump Truck with knuckle-boom and debris grapple",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 139.75,
+          "y_min": 229.25,
+          "x_max": 410.5,
+          "y_max": 240.75
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0047",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 439.5,
+          "y_min": 230.25,
+          "x_max": 460,
+          "y_max": 238.25
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0048",
+        "text": "$190.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 478.5,
+          "y_min": 229.25,
+          "x_max": 513.25,
+          "y_max": 239.75
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0049",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71.25,
+          "y_min": 244.5,
+          "x_max": 117.5,
+          "y_max": 254.25
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0050",
+        "text": "Dump Truck, 5 - 12 Cu. Yd. Capacity",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 141.25,
+          "y_min": 244.25,
+          "x_max": 294.75,
+          "y_max": 254.25
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0051",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 440,
+          "y_min": 243.5,
+          "x_max": 460.25,
+          "y_max": 251.75
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0052",
+        "text": "$170.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 478.5,
+          "y_min": 242,
+          "x_max": 513.5,
+          "y_max": 252.25
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0053",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71.25,
+          "y_min": 258,
+          "x_max": 117.25,
+          "y_max": 267.75
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0054",
+        "text": "Dump Truck, 16 - 20 Cu. Yd. Capacity",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 141.25,
+          "y_min": 256.25,
+          "x_max": 300.5,
+          "y_max": 267.75
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0055",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 439.75,
+          "y_min": 257,
+          "x_max": 460.25,
+          "y_max": 266
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0056",
+        "text": "$170.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 478.75,
+          "y_min": 255.5,
+          "x_max": 513.5,
+          "y_max": 265.75
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0057",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71.5,
+          "y_min": 271.25,
+          "x_max": 117.25,
+          "y_max": 281.25
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0058",
+        "text": "Dump Truck, 21-40 Cu. Yd. Capacity",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 141.5,
+          "y_min": 270.75,
+          "x_max": 296.25,
+          "y_max": 281.25
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0059",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 440,
+          "y_min": 270.5,
+          "x_max": 460.25,
+          "y_max": 278.75
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0060",
+        "text": "$170.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 478.75,
+          "y_min": 268.75,
+          "x_max": 513.75,
+          "y_max": 279.25
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0061",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71.5,
+          "y_min": 284.75,
+          "x_max": 117.5,
+          "y_max": 294.75
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0062",
+        "text": "Trailer Dump Truck, 41-60 Cu. Yd.",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 140.75,
+          "y_min": 284.75,
+          "x_max": 284.75,
+          "y_max": 294.75
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0063",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 440.25,
+          "y_min": 284,
+          "x_max": 461.5,
+          "y_max": 291.75
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0064",
+        "text": "$190.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 479,
+          "y_min": 283,
+          "x_max": 513.75,
+          "y_max": 292.75
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0065",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71.5,
+          "y_min": 298.25,
+          "x_max": 117.25,
+          "y_max": 308.25
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0066",
+        "text": "Trailer Dump Truck, 61 - 90 Cu. Yd.",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 140.75,
+          "y_min": 298,
+          "x_max": 289,
+          "y_max": 308.25
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0067",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 440.25,
+          "y_min": 297,
+          "x_max": 460.5,
+          "y_max": 305.5
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0068",
+        "text": "$190.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 479,
+          "y_min": 296.5,
+          "x_max": 513.75,
+          "y_max": 306.5
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0069",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71.25,
+          "y_min": 310.25,
+          "x_max": 117.5,
+          "y_max": 321
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0070",
+        "text": "Power Screen",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 141.5,
+          "y_min": 312.25,
+          "x_max": 200.75,
+          "y_max": 321
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0071",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 440.25,
+          "y_min": 310.75,
+          "x_max": 460.5,
+          "y_max": 318.5
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0072",
+        "text": "$160.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 479.5,
+          "y_min": 310,
+          "x_max": 514,
+          "y_max": 319.75
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0073",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71.5,
+          "y_min": 325.25,
+          "x_max": 117.25,
+          "y_max": 335
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0074",
+        "text": "Stacking Conveyor",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 141,
+          "y_min": 325,
+          "x_max": 221,
+          "y_max": 335
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0075",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 440.5,
+          "y_min": 324.25,
+          "x_max": 460.75,
+          "y_max": 333.5
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0076",
+        "text": "$70.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 479,
+          "y_min": 322.75,
+          "x_max": 510,
+          "y_max": 333
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0077",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71.5,
+          "y_min": 338.5,
+          "x_max": 117.75,
+          "y_max": 348
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0078",
+        "text": "Off Road Trucks",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 141.25,
+          "y_min": 337.25,
+          "x_max": 210,
+          "y_max": 347
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0079",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 440.5,
+          "y_min": 337.75,
+          "x_max": 461,
+          "y_max": 346.25
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0080",
+        "text": "$25.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 479.25,
+          "y_min": 336,
+          "x_max": 508.5,
+          "y_max": 346.25
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0081",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71.75,
+          "y_min": 352.25,
+          "x_max": 117.75,
+          "y_max": 362
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0082",
+        "text": "Generator With Lighting",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 141.5,
+          "y_min": 349.5,
+          "x_max": 242.5,
+          "y_max": 362
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0083",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 440.75,
+          "y_min": 351,
+          "x_max": 461,
+          "y_max": 359.25
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0084",
+        "text": "$80.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 479.5,
+          "y_min": 349.5,
+          "x_max": 508.75,
+          "y_max": 360
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0085",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71.75,
+          "y_min": 365.75,
+          "x_max": 118,
+          "y_max": 375.25
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0086",
+        "text": "Motor Grader with 12' Blade - CAT125 or equivalent",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 141.75,
+          "y_min": 365,
+          "x_max": 361.5,
+          "y_max": 375.25
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0087",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 440.75,
+          "y_min": 364.75,
+          "x_max": 461.25,
+          "y_max": 372.75
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0088",
+        "text": "$150.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 479.5,
+          "y_min": 363.25,
+          "x_max": 514.5,
+          "y_max": 373.5
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0089",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 71.75,
+          "y_min": 379.25,
+          "x_max": 118,
+          "y_max": 388.75
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0090",
+        "text": "Hydraulic Excavator, 1.5 Cu. Yd. Capacity",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 141.75,
+          "y_min": 378.5,
+          "x_max": 319,
+          "y_max": 388.75
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0091",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 440.75,
+          "y_min": 378,
+          "x_max": 461.5,
+          "y_max": 386.5
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0092",
+        "text": "$135.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 480,
+          "y_min": 376.5,
+          "x_max": 514.75,
+          "y_max": 386.75
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0093",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 72,
+          "y_min": 392.25,
+          "x_max": 118.5,
+          "y_max": 402
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0094",
+        "text": "Hydraulic Excavator, 2.5 Cu. Yd. Capacity",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 141.75,
+          "y_min": 392,
+          "x_max": 319,
+          "y_max": 402
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0095",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 441,
+          "y_min": 391.75,
+          "x_max": 461.5,
+          "y_max": 399.5
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0096",
+        "text": "$135.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 480,
+          "y_min": 390,
+          "x_max": 514.25,
+          "y_max": 400.5
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0097",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 72.25,
+          "y_min": 405.75,
+          "x_max": 117.75,
+          "y_max": 415.75
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0098",
+        "text": "Soil Compactor – up to 80 HP",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 141.5,
+          "y_min": 404.5,
+          "x_max": 267,
+          "y_max": 415.75
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0099",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 439.25,
+          "y_min": 405.25,
+          "x_max": 461.25,
+          "y_max": 413.25
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0100",
+        "text": "$85.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 480.25,
+          "y_min": 404.25,
+          "x_max": 509.25,
+          "y_max": 413.75
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0101",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 72,
+          "y_min": 419.5,
+          "x_max": 118,
+          "y_max": 428.75
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0102",
+        "text": "Self-loading Barge 30-45 ft",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 141.5,
+          "y_min": 418.75,
+          "x_max": 257,
+          "y_max": 428.75
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0103",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 440.75,
+          "y_min": 417.75,
+          "x_max": 461.75,
+          "y_max": 427.5
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0104",
+        "text": "$500.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 480,
+          "y_min": 417,
+          "x_max": 514.75,
+          "y_max": 427.75
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0105",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 72.25,
+          "y_min": 433,
+          "x_max": 117.75,
+          "y_max": 442.25
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0106",
+        "text": "Air Boat 15-25 ft",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 141.25,
+          "y_min": 432.75,
+          "x_max": 212.25,
+          "y_max": 442.25
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0107",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 441.25,
+          "y_min": 432,
+          "x_max": 461.5,
+          "y_max": 439.75
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0108",
+        "text": "$225.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 480.25,
+          "y_min": 431,
+          "x_max": 515.75,
+          "y_max": 440.5
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      },
+      {
+        "labelId": "c-0109",
+        "text": "Equipment",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 72.25,
+          "y_min": 446.5,
+          "x_max": 117.75,
+          "y_max": 455.75
+        },
+        "isHeader": false,
+        "columnName": "Category"
+      },
+      {
+        "labelId": "c-0110",
+        "text": "Marsh Buggy - (Low Impact Excavator)",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 142.25,
+          "y_min": 446.25,
+          "x_max": 304.5,
+          "y_max": 455.75
+        },
+        "isHeader": false,
+        "columnName": "Description"
+      },
+      {
+        "labelId": "c-0111",
+        "text": "Hour",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 441.25,
+          "y_min": 445,
+          "x_max": 461.75,
+          "y_max": 453.5
+        },
+        "isHeader": false,
+        "columnName": "Unit"
+      },
+      {
+        "labelId": "c-0112",
+        "text": "$300.00",
+        "box": {
+          "coordinate_space": "canonical_v1",
+          "x_min": 480,
+          "y_min": 443.75,
+          "x_max": 515.75,
+          "y_max": 454.25
+        },
+        "isHeader": false,
+        "columnName": "Rate"
+      }
+    ]
+  },
+  "rows": {
+    "status": "labeled",
+    "items": [
+      {
+        "rowKey": "r-0001",
+        "orderedCellLabelIds": [
+          "c-0001",
+          "c-0002",
+          "c-0003",
+          "c-0004"
+        ]
+      },
+      {
+        "rowKey": "r-0002",
+        "orderedCellLabelIds": [
+          "c-0005",
+          "c-0006",
+          "c-0007",
+          "c-0008"
+        ]
+      },
+      {
+        "rowKey": "r-0003",
+        "orderedCellLabelIds": [
+          "c-0009",
+          "c-0010",
+          "c-0011",
+          "c-0012"
+        ]
+      },
+      {
+        "rowKey": "r-0004",
+        "orderedCellLabelIds": [
+          "c-0013",
+          "c-0014",
+          "c-0015",
+          "c-0016"
+        ]
+      },
+      {
+        "rowKey": "r-0005",
+        "orderedCellLabelIds": [
+          "c-0017",
+          "c-0018",
+          "c-0019",
+          "c-0020"
+        ]
+      },
+      {
+        "rowKey": "r-0006",
+        "orderedCellLabelIds": [
+          "c-0021",
+          "c-0022",
+          "c-0023",
+          "c-0024"
+        ]
+      },
+      {
+        "rowKey": "r-0007",
+        "orderedCellLabelIds": [
+          "c-0025",
+          "c-0026",
+          "c-0027",
+          "c-0028"
+        ]
+      },
+      {
+        "rowKey": "r-0008",
+        "orderedCellLabelIds": [
+          "c-0029",
+          "c-0030",
+          "c-0031",
+          "c-0032"
+        ]
+      },
+      {
+        "rowKey": "r-0009",
+        "orderedCellLabelIds": [
+          "c-0033",
+          "c-0034",
+          "c-0035",
+          "c-0036"
+        ]
+      },
+      {
+        "rowKey": "r-0010",
+        "orderedCellLabelIds": [
+          "c-0037",
+          "c-0038",
+          "c-0039",
+          "c-0040"
+        ]
+      },
+      {
+        "rowKey": "r-0011",
+        "orderedCellLabelIds": [
+          "c-0041",
+          "c-0042",
+          "c-0043",
+          "c-0044"
+        ]
+      },
+      {
+        "rowKey": "r-0012",
+        "orderedCellLabelIds": [
+          "c-0045",
+          "c-0046",
+          "c-0047",
+          "c-0048"
+        ]
+      },
+      {
+        "rowKey": "r-0013",
+        "orderedCellLabelIds": [
+          "c-0049",
+          "c-0050",
+          "c-0051",
+          "c-0052"
+        ]
+      },
+      {
+        "rowKey": "r-0014",
+        "orderedCellLabelIds": [
+          "c-0053",
+          "c-0054",
+          "c-0055",
+          "c-0056"
+        ]
+      },
+      {
+        "rowKey": "r-0015",
+        "orderedCellLabelIds": [
+          "c-0057",
+          "c-0058",
+          "c-0059",
+          "c-0060"
+        ]
+      },
+      {
+        "rowKey": "r-0016",
+        "orderedCellLabelIds": [
+          "c-0061",
+          "c-0062",
+          "c-0063",
+          "c-0064"
+        ]
+      },
+      {
+        "rowKey": "r-0017",
+        "orderedCellLabelIds": [
+          "c-0065",
+          "c-0066",
+          "c-0067",
+          "c-0068"
+        ]
+      },
+      {
+        "rowKey": "r-0018",
+        "orderedCellLabelIds": [
+          "c-0069",
+          "c-0070",
+          "c-0071",
+          "c-0072"
+        ]
+      },
+      {
+        "rowKey": "r-0019",
+        "orderedCellLabelIds": [
+          "c-0073",
+          "c-0074",
+          "c-0075",
+          "c-0076"
+        ]
+      },
+      {
+        "rowKey": "r-0020",
+        "orderedCellLabelIds": [
+          "c-0077",
+          "c-0078",
+          "c-0079",
+          "c-0080"
+        ]
+      },
+      {
+        "rowKey": "r-0021",
+        "orderedCellLabelIds": [
+          "c-0081",
+          "c-0082",
+          "c-0083",
+          "c-0084"
+        ]
+      },
+      {
+        "rowKey": "r-0022",
+        "orderedCellLabelIds": [
+          "c-0085",
+          "c-0086",
+          "c-0087",
+          "c-0088"
+        ]
+      },
+      {
+        "rowKey": "r-0023",
+        "orderedCellLabelIds": [
+          "c-0089",
+          "c-0090",
+          "c-0091",
+          "c-0092"
+        ]
+      },
+      {
+        "rowKey": "r-0024",
+        "orderedCellLabelIds": [
+          "c-0093",
+          "c-0094",
+          "c-0095",
+          "c-0096"
+        ]
+      },
+      {
+        "rowKey": "r-0025",
+        "orderedCellLabelIds": [
+          "c-0097",
+          "c-0098",
+          "c-0099",
+          "c-0100"
+        ]
+      },
+      {
+        "rowKey": "r-0026",
+        "orderedCellLabelIds": [
+          "c-0101",
+          "c-0102",
+          "c-0103",
+          "c-0104"
+        ]
+      },
+      {
+        "rowKey": "r-0027",
+        "orderedCellLabelIds": [
+          "c-0105",
+          "c-0106",
+          "c-0107",
+          "c-0108"
+        ]
+      },
+      {
+        "rowKey": "r-0028",
+        "orderedCellLabelIds": [
+          "c-0109",
+          "c-0110",
+          "c-0111",
+          "c-0112"
+        ]
+      }
+    ]
+  },
+  "coverage": {
+    "status": "labeled",
+    "truth": "requires_ocr",
+    "note": null
+  },
+  "labeledBy": "delegated_dual_ai:chatgpt+claude",
+  "labeledAt": null
+}

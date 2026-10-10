@@ -2,7 +2,9 @@
 
 ## Active Codex continuation (2026-10-10, production mismatch)
 
-### Latest state at 16:39 UTC (read before the historical mismatch details)
+### Latest state at 17:00 UTC (read before the historical mismatch details)
+
+Current base main is `67b82c5b1dadac86bc2bf0b6788e1728cbf453b7`; PR #200 is merged and both full Vitest checks passed. At 17:00 UTC (1:00 PM Eastern), a new read-only query for the exact Golden retry job again failed with a Supabase connection timeout. No stored post-check gate passed in this recovery attempt, and no production writes, analysis invocations, migration retries or qualification runs occurred. Golden remains NOT FULLY ACCEPTED; Hillsdale and DN remain untouched. The standing pre-merge production migration approval requirement is now documented in `AGENTS.md`.
 
 Verified main and live production alias: `90e79dc8d397d945f01dc9a323ac9c849f1e5e40`. [PR #199](https://github.com/EricAnalysis/eightforge-os/pull/199) merged at 16:24:04 UTC after both full Vitest checks, full migration replay, Supabase Preview and Vercel passed. Production deployment `dpl_9RRv2HmTeYetW7Swh6hMUEV2Ss9C` is Ready and owns eightforge-os.vercel.app.
 

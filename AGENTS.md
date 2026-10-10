@@ -18,6 +18,16 @@ You now have a clean, layered reviewer system:
 All reviewers inherit the Shared EightForge Doctrine:
 canonical truth, evidence anchoring, auditability, deterministic workflows, minimal-diff architecture, and operator-first operational clarity.
 
+## PRODUCTION MIGRATION APPROVAL
+
+The Supabase GitHub integration may apply production migrations when a PR is
+merged. Treat merging a migration PR as a possible production mutation.
+Obtain explicit owner approval for the exact production migration before
+merging, even when CI and preview checks pass. Do not treat authorization for
+production re-analysis as authorization for a schema change. After merge,
+read the production migration history and effective schema before attempting
+an explicit apply; do not apply an already recorded migration twice.
+
 ## PROOF REUSE / NON-REDUNDANT VERIFICATION
 
 Treat previously established checks as reusable evidence.

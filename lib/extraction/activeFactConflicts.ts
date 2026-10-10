@@ -1,5 +1,4 @@
-import { canonicalEffectiveFactKey, effectiveFactValueIdentity } from '@/lib/effectiveFacts';
-import { canonicalEvidenceRef, extractionConflict, type TruthEnvelope } from '@/lib/canonical/truth/envelope';
+import { canonicalEffectiveFactKey, effectiveFactValueIdentity, type ActiveFactConflictDiagnostic } from '@/lib/effectiveFacts';
 import type { Facts } from '@/lib/types/rules';
 
 /** Observations remain stored; this module only resolves their effective read. */
@@ -22,7 +21,9 @@ export type ActiveExtractionFactConflict = {
   documentId: string | null;
   fieldKey: string;
   observations: readonly ActiveExtractionFactRow[];
-  truth: TruthEnvelope<unknown>;
+  truth: ActiveFactConflictDiagnostic & {
+    conflictingEvidence: Array<{ documentId: string | null; extractionArtifactId: string | null; sourceAnchor: string | null; rawSpan: string }>;
+  };
 };
 
 export function extractionFactValue(row: ActiveExtractionFactRow): string | number | boolean | Date | null {
@@ -59,15 +60,16 @@ export function resolveActiveExtractionFacts(rows: readonly ActiveExtractionFact
         documentId: group[0].document_id ?? null,
         fieldKey,
         observations: group,
-        truth: extractionConflict({
+        truth: {
+          state: 'extraction_conflict', value: null, requiresReview: true,
           stateReason: 'conflicting_active_extraction_values',
-          conflictingEvidence: group.map(row => canonicalEvidenceRef({
-            documentId: row.document_id,
-            extractionArtifactId: row.id,
-            sourceAnchor: row.id,
+          conflictingEvidence: group.map(row => ({
+            documentId: row.document_id ?? null,
+            extractionArtifactId: row.id ?? null,
+            sourceAnchor: row.id ?? null,
             rawSpan: String(row.field_value_date ?? row.field_value_text ?? row.field_value_number ?? row.field_value_boolean ?? ''),
           })),
-        }),
+        },
       });
       continue;
     }

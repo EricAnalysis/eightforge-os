@@ -1,4 +1,10 @@
-import { extractionConflict, type TruthEnvelope } from '@/lib/canonical/truth/envelope';
+/** Read diagnostic only: does not grant canonical publication or review authority. */
+export type ActiveFactConflictDiagnostic = {
+  state: 'extraction_conflict';
+  value: null;
+  stateReason: 'conflicting_active_extraction_values';
+  requiresReview: true;
+};
 
 export type EffectiveFactSource =
   | 'human_override'
@@ -18,7 +24,7 @@ export type EffectiveFactRecord = {
   value: unknown;
   source: EffectiveFactSource;
   evidence?: unknown[];
-  extractionConflict?: TruthEnvelope<unknown>;
+  extractionConflict?: ActiveFactConflictDiagnostic;
   conflictingObservations?: readonly EffectiveFactRecord[];
 };
 
@@ -205,7 +211,7 @@ export function collapseEffectiveFactRecords<T extends EffectiveFactRecord>(
         ...base,
         key: canonicalEffectiveFactKey(base.key),
         value: null,
-        extractionConflict: extractionConflict({ stateReason: 'conflicting_active_extraction_values' }),
+        extractionConflict: { state: 'extraction_conflict', value: null, stateReason: 'conflicting_active_extraction_values', requiresReview: true },
         conflictingObservations: observations,
         evidence: observations.flatMap(fact => fact.evidence ?? []),
       } as unknown as T;

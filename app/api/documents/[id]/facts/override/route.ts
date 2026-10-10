@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveActiveExtractionFacts, type ActiveExtractionFactRow } from '@/lib/extraction/activeFactConflicts';
+import { canonicalEffectiveFactKey } from '@/lib/effectiveFacts';
 import {
   isDocumentFactOverrideActionType,
   mapDocumentFactOverrideRow,
@@ -99,11 +100,12 @@ export async function POST(
     .select('id, document_id, source, field_key, field_value_text, field_value_number, field_value_date, field_value_boolean, confidence, page_number')
     .eq('organization_id', organizationId)
     .eq('document_id', documentId)
-    .eq('field_key', fieldKey)
+    .not('field_key', 'is', null)
     .eq('status', 'active');
   if (machineExtractionsError) return jsonError(machineExtractionsError.message, 500);
   if ((machineExtractions?.length ?? 0) >= 1000) return jsonError('Complete machine observation history is required before recording a review.', 409);
-  const machineRows = (machineExtractions ?? []) as ActiveExtractionFactRow[];
+  const machineRows = ((machineExtractions ?? []) as ActiveExtractionFactRow[])
+    .filter(row => canonicalEffectiveFactKey(row.field_key) === canonicalEffectiveFactKey(fieldKey));
   const machineResolution = resolveActiveExtractionFacts(machineRows);
   const machineExtraction = machineResolution.conflicts.length > 0
     ? null : machineRows[0] ?? null;

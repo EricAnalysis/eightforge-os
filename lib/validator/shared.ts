@@ -180,7 +180,7 @@ export type ValidatorFactRecord = {
   source: ValidatorFactSource;
   field_type: string | null;
   evidence: ValidationEvidence[];
-  extractionConflict?: import('@/lib/canonical/truth/envelope').TruthEnvelope<unknown>;
+  extractionConflict?: import('@/lib/effectiveFacts').ActiveFactConflictDiagnostic;
   conflictingObservations?: readonly ValidatorFactRecord[];
 };
 

@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'vitest';
 
 import { collapseEffectiveFactRecords, type EffectiveFactRecord } from '@/lib/effectiveFacts';
-import { extractionConflict } from '@/lib/canonical/truth/envelope';
 import { evaluateContractInvoiceReconciliation } from '@/lib/validator/rulePacks/contractInvoiceReconciliation';
 import {
   buildValidationSummary,
@@ -216,7 +215,7 @@ describe('contract invoice reconciliation validator', () => {
     const input = buildInput();
     const facts = input.factsByDocumentId.get(CONTRACT_DOCUMENT_ID)!;
     input.factsByDocumentId.set(CONTRACT_DOCUMENT_ID, facts.map(fact => fact.key === 'expiration_date'
-      ? { ...fact, value: null, extractionConflict: extractionConflict({ stateReason: 'conflicting_active_extraction_values' }) }
+      ? { ...fact, value: null, extractionConflict: { state: 'extraction_conflict' as const, value: null, stateReason: 'conflicting_active_extraction_values' as const, requiresReview: true as const } }
       : fact));
     input.contractValidationContext = {
       analysis: { contract_identity: {}, term_model: { expiration_date: { value: '2020-01-01' } } },

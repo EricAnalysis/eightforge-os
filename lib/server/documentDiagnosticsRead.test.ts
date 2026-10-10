@@ -573,6 +573,47 @@ describe('document diagnostics read model', () => {
     expect(processingFailures.map((entry) => entry.summary)).toEqual(summary ? [summary] : []);
   });
 
+  it.each([
+    ['a running job past the platform maximum duration', 'running', '2026-09-12T11:40:00Z', true],
+    ['a running job still inside the duration budget', 'running', '2026-09-12T11:50:00Z', false],
+    ['a running job with no recorded start or creation time', 'running', null, false],
+  ] as const)('derives expired at read time for %s, without writing', async (_name, status, startedAt, expired) => {
+    const jobId = '55555555-5555-4555-8555-55555555555a';
+    const result = await readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {
+      admin: admin({ documents: [{ id: DOC, processing_error: null }], document_extractions: [],
+        forgewing_recovery_generation_outcomes: [], document_analysis_jobs: [{
+          id: jobId, status, error_message: null, started_at: startedAt, completed_at: null,
+          created_at: startedAt,
+        }] }),
+      readRecoveryQueue: async () => ({ status: 'ok', candidates: [] }),
+      now: () => Date.parse('2026-09-12T12:00:00Z'),
+    });
+    const expiredDiagnostics = result.status === 'ok'
+      ? result.diagnostics.filter((entry) => entry.code === 'document_processing_expired') : [];
+    expect(expiredDiagnostics).toHaveLength(expired ? 1 : 0);
+    if (expired) {
+      expect(expiredDiagnostics[0]).toMatchObject({ currentState: 'blocked',
+        evidenceRefs: [{ kind: 'processing_job', jobId }] });
+    }
+  });
+
+  it('does not report expiry when a later job has run since the stale one', async () => {
+    const result = await readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {
+      admin: admin({ documents: [{ id: DOC, processing_error: null }], document_extractions: [],
+        forgewing_recovery_generation_outcomes: [], document_analysis_jobs: [
+          { id: '55555555-5555-4555-8555-55555555555b', status: 'running', error_message: null,
+            started_at: '2026-09-12T08:00:00Z', created_at: '2026-09-12T08:00:00Z' },
+          { id: '55555555-5555-4555-8555-55555555555c', status: 'completed', error_message: null,
+            started_at: '2026-09-12T09:00:00Z', completed_at: '2026-09-12T09:01:00Z',
+            created_at: '2026-09-12T09:00:00Z' },
+        ] }),
+      readRecoveryQueue: async () => ({ status: 'ok', candidates: [] }),
+      now: () => Date.parse('2026-09-12T12:00:00Z'),
+    });
+    expect(result.status === 'ok' && result.diagnostics
+      .filter((entry) => entry.code === 'document_processing_expired')).toEqual([]);
+  });
+
   it('keeps a latest failed job blocking when its error text is absent', async () => {
     const jobId = '55555555-5555-4555-8555-555555555559';
     const result = await readDocumentDiagnostics({ organizationId: ORG, sourceDocumentId: DOC }, {

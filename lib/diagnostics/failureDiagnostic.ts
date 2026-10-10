@@ -44,6 +44,7 @@ export const DIAGNOSTIC_CODES = [
   'recovery_budget_exhausted',
   'recovery_disabled',
   'document_processing_failed',
+  'document_processing_expired',
   'source_identity_read_failed',
   'recovery_read_failed',
 ] as const;

@@ -368,7 +368,13 @@ export async function persistExtractionStep1Shadow(
       table_chains: graph.tableChains,
       table_sections: graph.tableSections,
       arbitration_decisions: graph.arbitrationDecisions,
-      ...interpretation,
+      semantic_column_mappings: interpretation.semantic_column_mappings,
+      interpretation_records: interpretation.interpretation_records,
+      // The RPC treats an absent key as no interpretation; explicit JSON null
+      // is a present value and fails its optional-object validation.
+      ...(interpretation.interpretation_snapshot === null ? {} : {
+        interpretation_snapshot: interpretation.interpretation_snapshot,
+      }),
     },
   });
   if (error) {

@@ -68,6 +68,34 @@ export async function updateJobStatus(params: UpdateJobStatusParams): Promise<vo
   await admin.from('document_analysis_jobs').update(updates).eq('id', params.jobId);
 }
 
+/**
+ * Atomically move a queued job to running. The status condition is part of the
+ * update itself, so of two concurrent dispatches exactly one claims the job; the
+ * other sees `false` and must not process. A read-then-write claim let both run.
+ */
+export async function claimQueuedJob(params: {
+  jobId: string;
+  attemptCount: number;
+  startedAt: string;
+}): Promise<boolean> {
+  const admin = getSupabaseAdmin();
+  if (!admin) return false;
+
+  const { data, error } = await admin
+    .from('document_analysis_jobs')
+    .update({
+      status: 'running',
+      started_at: params.startedAt,
+      attempt_count: params.attemptCount + 1,
+    })
+    .eq('id', params.jobId)
+    .eq('status', 'queued')
+    .select('id');
+
+  if (error) throw new Error(`job claim failed: ${error.message}`);
+  return Array.isArray(data) && data.length === 1;
+}
+
 /** Allowed values for documents.processing_status (DB check constraint). */
 export type DocumentStatus =
   | 'uploaded'

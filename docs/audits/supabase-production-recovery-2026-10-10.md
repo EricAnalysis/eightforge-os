@@ -238,17 +238,19 @@ priority ties and Ask ranking could select the first returned observation.
 The override audit snapshot also selected one same-timestamp row arbitrarily.
 
 The scoped implementation on `codex/active-extraction-fact-conflicts` withholds
-conflicting scalar active observations, uses the existing `extraction_conflict`
-truth envelope, preserves all source observations/evidence, blocks machine
+conflicting scalar active observations, emits a typed `extraction_conflict` read diagnostic, preserves all source observations/evidence, blocks machine
 fallbacks and permits only existing non-null accepted human channels to resolve
 it. Derived/rule inputs, Validator, Ask, ceiling-type hints and override audit
 context are guarded. No date winner, persistence rewrite, migration, source
 preference, confidence preference or parallel review channel is introduced.
-Focused verification: 41 tests pass; TypeScript passes. Merge is BLOCKED by the
+Focused conflict/Ask tests and dependent regression pass; TypeScript passes. Merge is BLOCKED by the
 existing Ask diagnostic lock: its current harness runs 60 queries, returning
-42 passing / 18 failing / 33 upstream gaps, whereas CI requires 22 and zero
-gaps. The harness process passing is not gate acceptance. Compare unchanged
-main before attributing gaps to this fix; do not weaken the lock.
+42 passing / 18 failing / 28 upstream gaps, whereas CI requires 22 and zero
+gaps. The harness process passing is not gate acceptance. Unchanged main
+produces the same 60/42/18/28 result; all query answers, evidence counts and
+pass flags match. Raw artifact parity is NO because generated timestamps
+differ. The safe-fact ranking regression was corrected and tested. Do not
+weaken the lock. External evidence: ask-gate-baseline-comparison.json.
 
 Production dependency evidence: zero DN findings, no stored rule condition
 references expiration_date, and retained decision
@@ -276,3 +278,23 @@ browser evidence is external `browser-e-report.json` and browser-e captures.
 Qualification remains disk-blocked: preserve DN p107 20/20 correctness and
 3,196 ms latency FAIL against 3,000 ms. No retest, paid call, taxonomy/exclusion
 change. Existing production/OCR/Docker/runtime proofs remain reusable.
+
+PR #203 merged manually after both full Vitest checks passed (1m53s and
+2m35s), at main 3d9fc1c6d2e00533df687570c245daf0fbbb3de8. The code fix
+remains separate and must not merge while its Ask lock fails. No production
+field rewrite or re-analysis occurred.
+
+Conflict implementation is committed/pushed through 6b2443b in draft PR #205
+(https://github.com/EricAnalysis/eightforge-os/pull/205). The Ask CI job failed because its Supabase credentials are not configured;
+the separate known 22-query zero-gap lock also remains unsatisfied. Full unit
+CI outcomes must be read before any future merge. Do not place a production
+service-role credential in GitHub without separate authorization. No new
+production defect repair or arbitrary date publication is claimed.
+
+The initial full unit lane caught imports crossing the sealed canonical tree.
+Correction 6b2443b keeps the read diagnostic in the legacy fact layer; it adds
+no canonical publication or review authority and does not relax the import
+guard. Architecture/conflict/Ask/Validator targeted slice: 110/110 pass;
+TypeScript passes. Existing dependent regression: 55/55 pass. Both full unit CI lanes pass on 6b2443b (3m3s and 3m6s). The Ask CI job
+still fails for missing credentials; the local 22/zero-gap lock remains unmet.
+PR #205 stays draft/unmerged. No gate is weakened.

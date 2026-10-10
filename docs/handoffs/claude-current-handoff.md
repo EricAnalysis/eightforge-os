@@ -2,6 +2,124 @@
 
 ## Active Codex continuation (2026-10-10, production mismatch)
 
+### Latest recovery state (read before the historical blocked snapshots)
+
+**Current acceptance: Golden production re-analysis VERIFIED.** The owner
+confirmed acceptance of the stored checks and classified 69-to-76 count/identity
+delta, with the field-parity limit below retained. This supersedes the earlier
+stop snapshots in this section. Complete live-case field parity and successful
+shadow publication are not claimed. Hillsdale is authorized for one normal
+Reprocess after immediate evidence capture and preflight; DN remains paused
+until Hillsdale passes. No Golden rerun or migration retry is authorized.
+
+#### Exact inventory comparison and stop classification
+
+Bounded exports of retained `a92feea5` and new `e0feefb8` payloads passed
+database SHA-256/byte checks. Existing offline inventory completed with DB and
+provider credentials removed: 62 extraction cases before and 70 after.
+Stable identity/kind diff has 47 additions and 39 removals, all on pages 8-10.
+The proposed residual equality fails (69-62=7, 76-70=6), triggering the owner's
+explicit stop condition at that time. No implementation, repair or production
+invocation followed during classification. Current acceptance is stated above.
+
+The difference is classified: `resolveProjectIssueObjects` creates synthetic
+finding cases for standalone open deterministic decisions, even without
+finding IDs. A local run using saved findings/decisions yields four unchanged
+persisted-finding case IDs plus three old decision cases versus two new ones.
+Thus 62+4+3=69 and 70+4+2=76; +8 extraction cases minus one decision case = +7.
+The claim that findings being unchanged makes all non-extraction cases
+unchanged was incorrect. Local classification used empty evidence/execution
+inputs; inventory uses offline org and no page frames, so neither is claimed
+as full live-case field parity. External `golden-gate7-classification.md`,
+`golden-case-inventory-diff.json` and `golden-residual-classification.json`
+record exact identities and limitations. No new code is required to explain
+this count difference. Continue only within the owner's stop/acceptance rules.
+
+Exact residual identities from external `golden-residual-classification.json`:
+
+- Removed `finding:decision:4f06817a-4099-46b0-8d49-62a784b5e48d`
+  (contract ceiling not established).
+- Removed `finding:decision:6a473f24-f2b8-4fae-ac86-a79567e071e5`
+  (missing contractor evidence).
+- Removed `finding:decision:92211b18-2720-4c6f-a810-8e37258cdea9`
+  (missing rate schedule evidence).
+- Added `finding:decision:09e67df4-48e6-468c-b5da-353bc0c85680`
+  (contract term requires confirmation).
+- Added `finding:decision:9321b1eb-ae90-4b94-9483-26588895d2d3`
+  (pricing applicability unresolved).
+
+The one-case decrease is net three removed/two added, not a uniquely paired
+single dropped decision. Export hashes and activity event IDs/timestamps are
+recorded in `docs/audits/supabase-production-recovery-2026-10-10.md`, gate 7.
+Activity evidence reports creations, not deletion identities; saved pre/post
+records and the residual file establish the removed identities.
+
+Export pins (JSON wrapper UTF-8 bytes, not PDF hashes):
+
+- Pre `a92feea5`: 3,584,669 bytes, SHA-256
+  `c491922bdad2f704fda861976a5ce14ebcce88815d2132f092b6fb76b73b40c8`.
+- Post `e0feefb8`: 3,725,687 bytes, SHA-256
+  `5be0769bf563edeaf429d64b68a6699d2d2d61222ff0efab18c468ce7bc9b375`.
+
+Activity events `9105089e-4d96-49a3-bea1-4815f03103e7` at 15:59:37.125493 UTC
+and `14fcd91a-303d-4656-ab6d-93ab2c6084fc` at 16:34:29.194859 UTC record
+`pipeline_processing_canonical_intelligence` creations of three then two
+decisions/tasks. Both report zero updated/preserved and request validation
+refresh; that request does not establish refresh completion or deletion IDs.
+External activity evidence SHA-256:
+`b2921edfd26d046acefaf0b6a7dcb0fe131de32a6fa8063ad0c37e90b8d29421`.
+
+Claude's earlier read-only audit left Golden NOT VERIFIED at gate 7 before
+the completed classification and owner's acceptance above.
+A fresh bounded Codex read after that report succeeded and confirms Golden has
+four full payload rows in `document_extractions` (`field_key IS NULL`), 26 active
+field rows, three open decisions and **two** open `workflow_tasks` (not one).
+The historical "114 snapshots" count likewise refers to full payload rows in
+`document_extractions`, not the separate shadow snapshot tables. These are
+different persistence stores; the wording must not imply populated shadow tables.
+Local evidence records the prior 69-case aggregate and screenshots, but contains
+no complete saved 69-case-ID list. The subsequent bounded export/inventory
+and saved-decision classification above explain the identity/count delta;
+complete historical/live case field parity is still outside that proof.
+Do not relax the owner's acceptance gate or launch a new Golden job.
+
+Base main is `1a65cd38a8acdabe717a420fe9df7d47373b7919` after PR #201.
+The owner approved one fast database reboot, then one full project restart
+after the fast reboot failed to restore reads. Each was submitted once.
+The full restart at approximately 17:35 UTC restored SQL access by
+17:40:20.484922 UTC and the dashboard showed Healthy.
+
+Recovered read-only Golden evidence confirms one intended new completed job
+`87119ccb-acff-4a22-b287-bc5522bab766`, full snapshot
+`e0feefb8-4787-469f-9e6f-6b2a03331f65`, 26 unique normalized field facts,
+unchanged source identity, retained prior jobs/snapshot metadata and unchanged
+prior latest data fingerprint. Human tables remain empty and unchanged;
+findings and validation runs are unchanged. The stored runtime revision is
+`90e79dc8d397d945f01dc9a323ac9c849f1e5e40`; the repository hash function
+reproduces runtime digest `cbdbe0a81231cb3b851c85e486ac0e501a73d8ea923a7f93554031640d2e59f8`.
+All 15 physical-page mappings are source-bound. Final trace canonical
+persistence is true; its 25-row inspection assembly matches the extraction
+diagnostic snapshot. Document remains decisioned.
+
+Three obsolete machine missing-evidence decisions/tasks were replaced by two
+current term/applicability reviews; the validator approval decision remains.
+Resolution Workspace changed from 69 to 76 cases (74 document/two project;
+29 withheld, 28 rates to confirm, 12 unread, six validator, one structure).
+Exact before/after case identities are not yet independently reconciled.
+The subsequent full-snapshot read failed with `Transport closed`, triggering
+the explicit connector-uncertainty stop rule at that time. That historical
+block was superseded by recovered reads, classification and acceptance above.
+No new Golden run, Hillsdale/DN run, migration retry, further
+restart or paid qualification occurred. Shadow publication is still unproven.
+
+Next: recover read-only access and finish preferred-snapshot/case-delta checks.
+Do not accept aggregate counts alone. Proceed to Hillsdale's fresh deterministic
+preflight only after every Golden gate passes. No automatic repair or rerun.
+Evidence: external `production-continuation-20261010/golden-recovery-verification.json`,
+`golden-retry-canonical-trace.json`, `golden-retry-assembly.json`,
+`golden-retry-final-evidence.json`, successful probe and transport-error records.
+See `docs/audits/supabase-production-recovery-2026-10-10.md`.
+
 ### Latest state at 17:00 UTC (read before the historical mismatch details)
 
 Current base main is `67b82c5b1dadac86bc2bf0b6788e1728cbf453b7`; PR #200 is merged and both full Vitest checks passed. At 17:00 UTC (1:00 PM Eastern), a new read-only query for the exact Golden retry job again failed with a Supabase connection timeout. No stored post-check gate passed in this recovery attempt, and no production writes, analysis invocations, migration retries or qualification runs occurred. Golden remains NOT FULLY ACCEPTED; Hillsdale and DN remain untouched. The standing pre-merge production migration approval requirement is now documented in `AGENTS.md`.

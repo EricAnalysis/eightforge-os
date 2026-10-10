@@ -44,6 +44,9 @@ const RECOVERY_OUTCOME_DIAGNOSTIC_CODE = Object.freeze({
   recovery_disabled: 'recovery_disabled',
 } as const satisfies Record<string, DiagnosticCode>);
 
+/** Platform maximum duration (300 s) plus margin: a running job older than this is expired. */
+export const PROCESSING_EXPIRY_MS = 15 * 60 * 1000;
+
 export type DiagnosticCurrentState =
   | 'detected' | 'recovery_available' | 'human_review_required' | 'reprocess_required'
   | 'unbound' | 'blocked' | 'engineering_attention' | 'deferred' | 'not_recovered'
@@ -565,6 +568,7 @@ export async function readDocumentDiagnostics(
     admin?: DiagnosticReadClient | null;
     readRecoveryQueue?: typeof readRecoveryReviewQueue;
     resolveRecoveryConfirmations?: typeof resolveEffectiveRecoveryConfirmations;
+    now?: () => number;
   }> = {},
 ): Promise<DocumentDiagnosticsResult> {
   const admin = dependencies.admin === undefined
@@ -579,7 +583,7 @@ export async function readDocumentDiagnostics(
       .select('diagnostic_id, source_artifact_id, extraction_snapshot_id, physical_page_number, page_representation_digest, recovery_type, outcome_code, sanitized_reason, provider_invoked, candidate_ids, observed_at')
       .eq('organization_id', query.organizationId).eq('source_document_id', query.sourceDocumentId),
     admin.from('document_analysis_jobs')
-      .select('id, status, error_message, completed_at, created_at')
+      .select('id, status, error_message, started_at, completed_at, created_at')
       .eq('organization_id', query.organizationId).eq('document_id', query.sourceDocumentId),
     (dependencies.readRecoveryQueue ?? readRecoveryReviewQueue)({ organizationId: query.organizationId,
       sourceDocumentId: query.sourceDocumentId }, { admin: admin as never }),
@@ -673,6 +677,24 @@ export async function readDocumentDiagnostics(
       evidenceRefs: [{ kind: 'processing_job', jobId: String(job.id) }],
       extractionSnapshotId: null, processingRunId: String(job.id),
       occurredAt: iso(job.completed_at ?? job.created_at) });
+    if (item) diagnostics.push(item);
+  }
+  // A job still persisted as running beyond the platform's maximum function duration (300 s on the
+  // current Hobby + Fluid plan) cannot still be executing. Shown as expired at read time only: the
+  // stored row is never changed here.
+  const expiryCutoff = (dependencies.now ?? Date.now)() - PROCESSING_EXPIRY_MS;
+  const latestJob = records(jobRead.data).filter((row) => typeof row.id === 'string')
+    .sort((left, right) => iso(right.created_at).localeCompare(iso(left.created_at))
+      || String(right.id).localeCompare(String(left.id), 'en-US'))[0];
+  const startedRaw = latestJob?.started_at ?? latestJob?.created_at;
+  const startedMs = typeof startedRaw === 'string' ? Date.parse(startedRaw) : NaN;
+  if (latestJob?.status === 'running' && Number.isFinite(startedMs) && startedMs < expiryCutoff) {
+    const item = buildDiagnostic({ code: 'document_processing_expired',
+      organizationId: query.organizationId, sourceDocumentId: query.sourceDocumentId,
+      sourceArtifactId: null, physicalPageNumber: null, pageRepresentationDigest: null,
+      evidenceRefs: [{ kind: 'processing_job', jobId: String(latestJob.id) }],
+      extractionSnapshotId: null, processingRunId: String(latestJob.id),
+      occurredAt: iso(latestJob.started_at ?? latestJob.created_at) });
     if (item) diagnostics.push(item);
   }
   if (terminalJobs.length === 0 && typeof document.processing_error === 'string'

@@ -72,6 +72,7 @@ const ATTENTION: Readonly<Record<DiagnosticCode, DiagnosticAttention>> = Object.
   recovery_disabled: 'diagnostics_panel',
   // Runtime state.
   document_processing_failed: 'diagnostics_panel',
+  document_processing_expired: 'diagnostics_panel',
   source_identity_read_failed: 'diagnostics_panel',
   recovery_read_failed: 'diagnostics_panel',
 });
@@ -188,6 +189,9 @@ const BASE_REGISTRY: Readonly<Record<DiagnosticCode, Omit<FailureRegistryEntry, 
       'Recovery generation is not enabled under the current operational policy.'),
     document_processing_failed: entry('runtime', 'blocking', 'retryable_runtime_failure', null,
       'reprocess_document', 'Document processing failed before completion.'),
+    document_processing_expired: entry('runtime', 'blocking', 'retryable_runtime_failure', null,
+      'reprocess_document',
+      'Processing is still recorded as running but has exceeded the platform maximum duration, so it is expired.'),
     source_identity_read_failed: entry('runtime', 'warning', 'retryable_runtime_failure', null,
       'reprocess_document', 'The source identity could not be read safely.'),
     recovery_read_failed: entry('runtime', 'warning', 'retryable_runtime_failure', null,

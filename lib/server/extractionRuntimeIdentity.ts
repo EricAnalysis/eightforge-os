@@ -13,7 +13,7 @@ export type ExtractionDependencyFingerprints =
       schema: 'extraction_dependency_fingerprints_v1';
       /** Native addons this process has actually loaded (from the process report), by node_modules path. */
       loaded_native_addons: Record<string, string>;
-      /** The OCR core tesseract.js selects on this CPU, decided by the same feature tests its node getCore runs. */
+      /** The OCR core returned by the installed worker adapter for extraction's actual load options. */
       tesseract: {
         wasm_simd: boolean;
         wasm_relaxed_simd: boolean;
@@ -59,9 +59,21 @@ async function observeFingerprints(): Promise<ExtractionDependencyFingerprints> 
   };
   const wasm_simd = await simd();
   const wasm_relaxed_simd = await relaxedSimd();
-  // Extraction creates its worker with the default OEM, which loads an LSTM core.
-  const build = wasm_relaxed_simd ? 'tesseract-core-relaxedsimd-lstm'
-    : wasm_simd ? 'tesseract-core-simd-lstm' : 'tesseract-core-lstm';
+  // createWorker('eng', undefined, ...) defaults to LSTM_ONLY; its worker
+  // dispatches getCore with the Boolean lstmOnly option, not a numeric OEM.
+  // Observe the installed adapter's returned module rather than predicting its
+  // choice from package versions or assuming that Boolean means a -lstm file.
+  const getCore = tesseractRequire('./src/worker-script/node/getCore.js') as
+    (lstmOnly: boolean, corePath: undefined, response: { progress: () => void }) => Promise<unknown>;
+  const selectedCore = await getCore(true, undefined, { progress: () => {} });
+  const builds = ['tesseract-core', 'tesseract-core-simd', 'tesseract-core-relaxedsimd',
+    'tesseract-core-lstm', 'tesseract-core-simd-lstm', 'tesseract-core-relaxedsimd-lstm'];
+  const selectedBuilds = builds.filter((candidate) => {
+    const moduleFile = tesseractRequire.resolve(`tesseract.js-core/${candidate}`);
+    return tesseractRequire.cache[moduleFile]?.exports === selectedCore;
+  });
+  if (selectedBuilds.length !== 1) throw new Error('Cannot bind the selected OCR core to exactly one installed module');
+  const build = selectedBuilds[0]!;
   const coreDir = path.dirname(repoRequire.resolve('tesseract.js-core/package.json'));
   const coreFiles = readdirSync(coreDir).filter((name) => name.startsWith(`${build}.`)).sort();
   tesseract = {

@@ -5,7 +5,12 @@
 import { after, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { getActorContext } from '@/lib/server/getActorContext';
-import { getJob, updateJobStatus, setDocumentStatus } from '@/lib/server/analysisJobService';
+import {
+  claimQueuedJob,
+  getJob,
+  updateJobStatus,
+  setDocumentStatus,
+} from '@/lib/server/analysisJobService';
 import { extractDocument } from '@/lib/server/documentExtraction';
 import { loadConfirmedRecoverySelections } from '@/lib/server/effectiveRecoveryConfirmations';
 import { runAiEnrichment } from '@/lib/server/documentAiEnrichment';
@@ -96,11 +101,26 @@ export async function POST(
       return jsonError('storage_path missing', 400);
     }
 
-    await updateJobStatus({
-      jobId,
-      status: 'running',
-      startedAt: new Date().toISOString(),
-    });
+    let claimed: boolean;
+    try {
+      claimed = await claimQueuedJob({
+        jobId,
+        attemptCount: job.attempt_count ?? 0,
+        startedAt: new Date().toISOString(),
+      });
+    } catch (claimError) {
+      // The claim outcome is unknown, so another dispatch may own the job:
+      // never mark it failed from here.
+      console.error('[jobs/process] job claim error:', claimError);
+      return jsonError('Job could not be claimed. Please try again.', 503);
+    }
+    if (!claimed) {
+      // Another dispatch claimed this job first; it owns the job's outcome.
+      return NextResponse.json(
+        { error: 'Job is not in queued state' },
+        { status: 409 }
+      );
+    }
     await setDocumentStatus({ documentId: job.document_id, status: 'processing' });
 
     const extractionShadowObservedAt = new Date().toISOString();

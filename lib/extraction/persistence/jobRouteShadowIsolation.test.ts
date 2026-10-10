@@ -84,6 +84,7 @@ describe('job processing compliance shadow isolation', () => {
         status: 'queued',
         analysis_mode: 'deterministic',
       })),
+      claimQueuedJob: vi.fn(async () => true),
       updateJobStatus: vi.fn(async () => undefined),
       setDocumentStatus: vi.fn(async () => undefined),
     }));

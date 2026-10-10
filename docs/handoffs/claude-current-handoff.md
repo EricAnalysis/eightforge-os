@@ -1,17 +1,127 @@
 # Claude continuation: EightForge / Forgewing (2026-10-10)
 
-## Active Codex continuation (2026-10-10, production mismatch)
+## Active Codex continuation (2026-10-10, accepted production refresh / separate fact conflict)
 
 ### Latest recovery state (read before the historical blocked snapshots)
 
-**Current acceptance: Golden production re-analysis VERIFIED.** The owner
-confirmed acceptance of the stored checks and classified 69-to-76 count/identity
-delta, with the field-parity limit below retained. This supersedes the earlier
-stop snapshots in this section. Complete live-case field parity and successful
-shadow publication are not claimed. Hillsdale is authorized for one normal
-Reprocess after immediate evidence capture and preflight; DN remains paused
-until Hillsdale passes. No Golden rerun or migration retry is authorized.
+**Current owner acceptance: Golden, Hillsdale and DN production re-analysis
+VERIFIED. The sequential production refresh is complete.** Acceptance proves
+the bounded production re-analysis predictions and stored post-state, not
+exhaustive live-case field, action or history parity. This supersedes the earlier
+stop snapshots and preflight instructions below. Successful shadow publication
+is not claimed. No further Reprocess or migration retry is authorized.
 
+#### Accepted Hillsdale and DN results
+
+Hillsdale job `62ee75c2-ab01-45b4-aac5-3cdf617fb486` completed attempt 1,
+producing extraction `2ad3bb02-66d0-4375-b1d6-280ee563ea07`. Its existing
+repository inventories reproduce extraction cases 19-to-66 and live queue
+22-to-69: 51 added, four removed and 15 retained identities, with all changes
+on pages 2-3. Three non-extraction cases remain on each side. The owner accepted
+Hillsdale with the same field-parity limitation as Golden.
+
+DN job `ef1e226a-ad2b-44ea-b08e-11cc1b25edcd` completed attempt 1 in
+167.674 seconds (22:05:15.438 to 22:08:03.112 UTC), below the 300-second limit.
+Extraction `7fd81454-03b8-4e0a-8d16-d69b78ec1e26` has reconstruction v6,
+runtime revision `90e79dc8d397d945f01dc9a323ac9c849f1e5e40` and registered
+native/canvas fingerprint `8af96229a864c193df54f9c3eefb489ce8fab0867dfab9ed8c694b53034cfb60`.
+The runtime identity digest remains
+`cbdbe0a81231cb3b851c85e486ac0e501a73d8ea923a7f93554031640d2e59f8`.
+Source hash is unchanged and the document is Decisioned. Stored checks show
+one new job and one full extraction, with no duplicate job/extraction.
+
+DN p110 false priced-line cases fell 18-to-0; extraction cases 47-to-29 and
+live queue 48-to-30. The exact diff has zero additions, 18 removals (all p110)
+and 29 retained identities. Expected p107 cases (20 scanned-rate reviews,
+two withheld bundles), p106 cases (six category reviews) and the p124 coverage
+gap remain. The one decision case remains. The owner now accepts DN as
+VERIFIED with the same bounded proof limitation.
+
+Payload export pins, matched against database SHA-256:
+
+- Hillsdale pre `260cfe57`: 1,485,218 bytes,
+  `69bc1aa75f8383d60e1eb4962cdfe5c2e80595f5bc99904324f8c6de32db1126`.
+- Hillsdale post `2ad3bb02`: 1,443,556 bytes,
+  `eabcbdc470a4e2b0309bde9a7937be8375a39636769de9188075c6b953ac9e46`.
+- DN pre `f3f20a7b`: 5,767,047 bytes,
+  `611b647e65901a1a67ec78f79d9a9a5be48195855f809c5b3a73dc10517ae0bd`.
+- DN post `7fd81454`: 5,652,731 bytes,
+  `f0457885186e9bf340644f487b91c290595b7bd9f3746cb7e15f60a75d57b3e5`.
+
+Full decisions, payloads, before/after inventories, identity diffs, snapshots,
+completion reports and browser captures remain outside Git under
+`C:/Users/ADMS Thompson/.codex/tmp/production-continuation-20261010`.
+The older completion reports describe their then-pending acceptance; this
+owner decision supersedes those statuses without rewriting historical evidence.
+PR #202 merged manually after both full Vitest checks passed; base main is
+`9b12cc59b8580846154b877a981d6ac7f582fc09`. Its docs-only production build was
+canceled; the serving revision remained `90e79dc` for both accepted refreshes.
+
+#### Separate active-fact defect / current work
+
+Phase A confirmed the defect independently of DN acceptance. Normalization emits
+heuristic and evidence-v1 observations separately. Persistence supersedes the
+previous document batch, then inserts all new observations; no within-batch
+uniqueness exists. Field rows carry no extraction-run foreign key, so the
+existing boundary is document plus canonical fact key. Active reads have no
+ordering: rules previously overwrote the key (last row wins), while Validator
+priority ties and Ask ranking could select the first returned observation.
+The override audit snapshot also selected one same-timestamp row arbitrarily.
+
+The scoped implementation on `codex/active-extraction-fact-conflicts` withholds
+conflicting scalar active observations, uses the existing `extraction_conflict`
+truth envelope, preserves all source observations/evidence, blocks machine
+fallbacks and permits only existing non-null accepted human channels to resolve
+it. Derived/rule inputs, Validator, Ask, ceiling-type hints and override audit
+context are guarded. No date winner, persistence rewrite, migration, source
+preference, confidence preference or parallel review channel is introduced.
+Focused verification: 41 tests pass; TypeScript passes. Merge is BLOCKED by the
+existing Ask diagnostic lock: its current harness runs 60 queries, returning
+42 passing / 18 failing / 33 upstream gaps, whereas CI requires 22 and zero
+gaps. The harness process passing is not gate acceptance. Compare unchanged
+main before attributing gaps to this fix; do not weaken the lock.
+
+Production dependency evidence: zero DN findings, no stored rule condition
+references expiration_date, and retained decision
+`f96cb3ae-fc14-470b-bbae-f6c2cc7d73f3` references pricing applicability only.
+Both conflicting observations remain stored. Full audit evidence is external
+`active-fact-conflict-production-audit.json`. The absent public.document_facts
+relation is not an alternate production consumer.
+
+Scope limit: document UI independently re-normalizes the preferred extraction
+blob, and canonical contract analysis already contains Jan 29, 2022. The
+active-row consumer fix does not rewrite that blob or claim to resolve which
+date is correct. DN browser showed the contract period Resolved and expiration
+Requires Review; retain this as separately exposed blob/UI debt.
+
+Browser E completed read-only on production `90e79dc`: open queues Golden 76,
+Hillsdale 69, DN 30; document filters 74/66/29 plus project cases 2/3/1;
+category selectors opened/escaped and + markers 4/40/6; Golden p10/Hillsdale p2
+source overlays rendered. DN p124 explains OCR without usable evidence and
+has no truth-save control; p110 has no priced-line case. No expired job exists,
+so the existing 15-minute expiry tests are reused, not claimed as browser proof.
+Document-detail preview was unavailable although workspace overlays rendered.
+No reviewed truth, outcome, provider call or Reprocess was mutated. Full
+browser evidence is external `browser-e-report.json` and browser-e captures.
+
+Qualification remains disk-blocked: preserve DN p107 20/20 correctness and
+3,196 ms latency FAIL against 3,000 ms. No retest, paid call, taxonomy/exclusion
+change. Existing production/OCR/Docker/runtime proofs remain reusable.
+
+Exact next continuation prompt:
+
+> Continue from current main and this latest snapshot. Golden/Hillsdale/DN are
+> owner-accepted VERIFIED with bounded stored-state proof and the field-parity
+> limitation. Do not rerun production analysis. Read the separate fact-conflict
+> audit and branch codex/active-extraction-fact-conflicts. Finish baseline
+> classification and the existing Ask diagnostic gate before merging this
+> surgical fix; do not weaken 22/22 + zero-gap requirements or invent source
+> precedence. Preserve observations and existing human review authority. Track
+> the independent canonical-blob/UI date path separately; do not choose a date
+> or rewrite truth automatically. Browser E is complete with expired-job and
+> preview limits recorded; reuse its external evidence. Qualification remains
+> disk-blocked, DN 20/20 and 3,196 ms FAIL versus 3,000 ms, no paid calls. Merge
+> only green scoped changes and update this handoff with exact PR/check status.
 #### Exact inventory comparison and stop classification
 
 Bounded exports of retained `a92feea5` and new `e0feefb8` payloads passed

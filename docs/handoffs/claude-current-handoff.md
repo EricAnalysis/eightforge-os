@@ -1,6 +1,125 @@
-# Claude continuation: EightForge / Forgewing (2026-10-09)
+# Claude continuation: EightForge / Forgewing (2026-10-10)
 
-## Current snapshot after source-label PR #192
+## Current snapshot (2026-10-10, after #194–#198)
+
+### Main and merged PRs
+
+Implementation main after #197: `16a8c9cbd062d5eb069be67cf713d2dec05f62a0`. #198 was open at the time of writing; refresh its merge state.
+
+| PR | What |
+|---|---|
+| [#194](https://github.com/EricAnalysis/eightforge-os/pull/194) | Atomic job claim. One conditional `UPDATE … WHERE status='queued'`; the loser returns 409 and an unknown claim returns 503 without writes. Records Hobby + Fluid duration (300 s default and maximum). |
+| [#195](https://github.com/EricAnalysis/eightforge-os/pull/195) | Extraction payloads record observed native dependency fingerprints: loaded `.node` addons from the process report, the selected tesseract core files and the language-data hashes, once per process. OCR trust audit gap 2 is closed. |
+| [#196](https://github.com/EricAnalysis/eightforge-os/pull/196) | `/api/admin/reset-stuck-documents` scoped to the caller's organization. It was cross-tenant. |
+| [#197](https://github.com/EricAnalysis/eightforge-os/pull/197) | Golden p10/p11 labels finalized with genuine dual approvals. |
+| [#198](https://github.com/EricAnalysis/eightforge-os/pull/198) | Read-time `document_processing_expired` diagnostic; reset-route fix (`documents` has **no `updated_at`**, so stuck is measured from the latest job start); job reconciliation record; crop runtime registration. |
+
+### Source labels: all final
+
+| Page | Status | Notes |
+|---|---|---|
+| golden-p8 | final | Earlier. |
+| golden-p10 | final | Digest `ef4505942b8c…`. 311 words, 160 cells, 40 rows. |
+| golden-p11 | final | Digest `c630b56daa1d…`. 214 words, 112 cells, 28 rows. |
+| hillsdale-p1 | final | #192. |
+| hillsdale-p3 | final | |
+| dn-p106 | final | |
+| dn-p107 | final | |
+| dn-p110 | no priced labels | It is an insurance certificate. |
+
+- Golden geometry was source-measured (`docs/audits/b461-golden-p10-p11-source-labels-2026-10-10.md`).
+- The first Golden candidates were rejected by Claude over a hyphen-versus-en-dash defect. Corrected candidates were approved by both reviewers.
+- p11 `grapple` stays without a period; this is the documented ambiguity.
+
+### Production mutations performed (owner-approved 2026-10-10)
+
+1. **Three historical `running` jobs reconciled.** The jobs were `f5c0c348…`, `b2827cd8…` and `9293abe6…`.
+   - Each was re-read immediately before the write and updated with one conditional `UPDATE`.
+   - Each became `failed` with `expired: exceeded platform maximum duration`.
+   - Each update matched exactly one row, and no document was touched. Production now has no `running` or `queued` jobs.
+   - See `docs/audits/production-job-reconciliation-2026-10-10.md`.
+2. No other production writes. No re-analysis has run.
+
+### Production re-analysis (D): preflight done, execution needs an operator session
+
+The preflight, run 2026-10-10, is all green.
+- **Org and project:** all three documents are in org `1111…1111`, and their project organizations match.
+- **Stale state:** each is `decisioned` and not deleted. The latest extraction is the expected stale one, two extractions each:
+
+  | Document | Document ID | Latest extraction |
+  |---|---|---|
+  | Golden | `c8b779f2…` | `a92feea5…` |
+  | Hillsdale | `f75b65b5…` | `260cfe57…` |
+  | DN | `257883ae…` | `f3f20a7b…` |
+
+- **Source:** `source_sha256` matches the pins: `922161a5…`, `596adacc…` and `69247bff…`.
+- **No active owner:** zero active jobs on any document.
+- **Pre-state:** zero `human_fact_assertions` on any document.
+
+  | Document | Open decisions | Open tasks | Open project findings |
+  |---|---:|---:|---:|
+  | Golden | 3 | 2 | 4 |
+  | Hillsdale | 2 | 2 | 1 |
+  | DN | 1 | 1 | none |
+
+- The snapshot JSON is kept outside Git.
+
+**Blocker:** the normal production path is the authenticated `POST /api/documents/process`, which is what the document page's **Reprocess** button calls. It needs a signed-in operator session, and Claude has no session and must not mint one.
+
+**Runbook:**
+1. The owner clicks Reprocess on Golden.
+2. Claude verifies:
+   - a new `document_analysis_jobs` row reached `completed`;
+   - exactly one new extraction;
+   - reconstruction v6 in the new payload;
+   - `runtime_identity_v1.identity.dependency_fingerprints` observed;
+   - assertions unchanged;
+   - decision, task and finding deltas.
+3. Only then repeat for Hillsdale, then DN. Expect zero priced-row cases on DN p110.
+4. Stop on any truth or provenance loss.
+
+### Browser verification (E): blocked by login
+
+The deployed app needs Vercel SSO and an app login. These items are unverified in a browser:
+- category select and `+ category`;
+- per-document counts and the document filter;
+- page-condition explanation;
+- `document processing expired`;
+- Resolution Workspace cases.
+
+The owner or Codex must do this with a session.
+
+### Qualification
+
+- **DN p107 is inactive.** It was 20/20 correct, but the median total of 3,196 ms is over the frozen 3,000 ms bar. Do not change the bar.
+- **Crop runtime is registered** (`docs/audits/b461-crop-runtime-registration-2026-10-10.md`): pinned Linux x64 image, Node v24.21.0, canvas `8af96229…`. No contract or request identity changed, so the DN proofs are reused. No paid DN run follows from registration.
+- A paid DN run requires a real latency optimization that produces a new frozen latency-ready request identity.
+- **Other classes** (ocr_price_sheet: Golden p8/p10/p11 and Hillsdale p3; native_price_sheet: Hillsdale p1) are now label-complete.
+  - Preparing or scoring them needs the full pinned corpus (DN and Hillsdale PDFs are outside Git, not in the Claude container), Docker on the registered runtime, and the provider key.
+  - Run `prepare` (zero-call) where the corpus lives first, to confirm a 20-row minimum per class. Run any paid class only under the existing provider clearance.
+
+### Remaining blockers (owner or Codex)
+
+1. An operator session for D's three Reprocess clicks; Claude does the pre and post checks.
+2. A session for E.
+3. Corpus, Docker and key access for any further qualification prepare or score.
+
+### Paste-ready Claude continuation
+
+> Continue EightForge / Forgewing from current main. Read the top snapshot of
+> docs/handoffs/claude-current-handoff.md. Confirm #198 merged (fix and merge
+> it if not). Do not repeat the job reconciliation; it is done and audited.
+> For production re-analysis, re-run the read-only preflight for the next
+> document, then ask the owner to click Reprocess on exactly that document. Run
+> the post-checks, and stop on any mismatch before the next document. Order:
+> Golden, Hillsdale, DN. Never mint or read credentials. Keep DN p107 inactive:
+> no paid run without a new frozen latency-ready request identity, and never
+> change the 3,000 ms bar. Reuse OCR parity, Docker/corpus, DN correctness,
+> #194 claim and unchanged extraction proofs. Keep client material outside Git.
+> Merge green PRs within scope and update this snapshot at the next transfer
+> point.
+
+## Previous snapshot after source-label PR #192 (superseded)
 
 Verified implementation main: `5e0f16c6dc93edd3f50f17b920f3a7469f158431`.
 Merged [PR #192](https://github.com/EricAnalysis/eightforge-os/pull/192) adds

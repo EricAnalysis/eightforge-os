@@ -1,6 +1,30 @@
 # Claude continuation: EightForge / Forgewing (2026-10-10)
 
-## Current snapshot (2026-10-10, after #194–#198)
+## Active Codex continuation (2026-10-10, production mismatch)
+
+Verified main and deployed production revision: `792913240480159e5c76523e4004be1f3ef6f1f8`. PR #198 merged at 15:53:14 UTC with both full Vitest checks green. The earlier login blocker is resolved: Codex used the existing signed-in Chrome session, without creating credentials.
+
+**Production sequence stopped after Golden.** Immediate preflight matched the exact organization, project, stale extraction and pinned source hash, with no active owner and no human assertions. One normal Reprocess click created job `29fe1f23-425e-477a-a95a-b61adee284fc` and extraction `19e5c631-8347-43b7-bfc1-a1e4dab71508`. The job completed at 15:59:37 UTC, attempt 1, but this is **not successful re-analysis**: the new extraction is `pdf_fallback`, has zero rate mentions and null typed fields (previously OCR recovery, 15 rate mentions). Its reconstruction version is v6 but dependency fingerprints are `not_observed`.
+
+The confirmed deployed failure is PDF.js's missing `node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs`. The live log records fake-worker initialization failure. Remediation commits on `codex/production-reanalysis-continuation`: `dd3f4f7` (worker assets and actual selected-core fingerprints), `142f42d` (omit absent optional Step 1 snapshot), `533859e` (fact status compatibility migration). They are not yet verified merged or deployed. Final normal Turbopack build passed; all four route NFT manifests contain every one of the 87 isolated startup-probe assets. Focused tests passed (13 runtime/tracing and 10 Step 1); disposable PostgreSQL compatibility tests passed. Full CI replay remains required.
+
+Old extraction rows and all review/assertion records are retained. Golden's open decisions changed 3 to 4, tasks 2 to 3, project findings remain 4. Decision/task identities changed during normal recomputation; before/after snapshots preserve those details. No direct rollback or cleanup SQL was run. Hillsdale and DN remain untouched. Do not process them until Golden's mismatch is reconciled and the corrected normal path passes all post-checks.
+
+Additional live errors: normalized field upsert violates `document_extractions_status_check` (database permits success/failed/partial, producer writes active); Step 1 shadow publication rejects invalid collections. The optional-snapshot serialization repair needs no database change. The prepared compatibility migration preserves all old statuses and allows active/superseded only for field-level facts. **Production migration apply still needs explicit owner authorization**; no DDL has been applied and no status mapping or row rewrite is proposed. Do not retry Golden before this prerequisite is resolved.
+
+External evidence: `C:/Users/ADMS Thompson/.codex/tmp/production-continuation-20261010` contains all-document pre-state, Golden immediate pre-state, after-state, and exact runtime logs. Client data stays outside Git.
+
+Qualification: Docker and all three byte-pinned PDFs are available on this host; the existing evaluation image still matches the registered crop runtime. Current captures are v5 and do not prove the current v6 implementation. Preparation readiness and commands are in `C:/Users/ADMS Thompson/.codex/tmp/b461-current-readiness-20261010/READINESS.md`. About 0.9 GiB C: space remains after physical managed dependency installation; primary checkout is unchanged. No new corpus capture, provider call, paid qualification or DN retest ran. DN p107 remains inactive at 20/20 correctness, median 3,196 ms against unchanged 3,000 ms bar.
+
+Browser checks: Golden document search shows four findings/three execution actions; Resolution Workspace shows 69 cases (66 document/three project), working document filter, + category markers and selectable category draft. Draft reset and no review saved. Unread p10 line explains ambiguous headers/withheld pricing. The p8 main-pane amount and investigation disagree; recheck after remediation. No current running job exists for a live derived-expiry sample; reuse #198 tests. Browser evidence remains external.
+
+Paste-ready continuation:
+
+> Continue from this active snapshot in the clean managed b461-contract-continuation checkout. Preserve the unrelated dirty primary checkout. Verify branch, HEAD and pending diff. Finish the missing PDF/OCR deployment-resource correction with positive shipped-file checks and isolated worker startup; do not claim source correctness from local package presence. Record separate production persistence defects without changing authority/status semantics by guess. Merge only green scoped PRs. Verify deployed revision and repeat Golden only after remediation and fresh preflight. Stop again on mismatch; Hillsdale and DN stay paused until Golden passes. Keep immutable production evidence outside Git and perform no direct rollback/cleanup. Browser verification remains incomplete. Reuse unchanged proofs; no paid DN run or bar change. Update this active snapshot with exact commits, mutations and remaining blockers before transfer.
+
+
+
+## Previous Claude snapshot (superseded by active Codex continuation)
 
 ### Main and merged PRs
 

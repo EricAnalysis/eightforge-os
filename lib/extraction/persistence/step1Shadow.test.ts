@@ -122,6 +122,52 @@ afterEach(() => {
 });
 
 describe('Step 1 shadow persistence', () => {
+  it.each(['absent', 'empty'] as const)(
+    'publishes extraction without an interpretation snapshot when the bridge is %s',
+    async (bridgeState) => {
+      vi.stubEnv('EIGHTFORGE_BUILD_DIGEST', 'step1-test-build');
+      const mock = client();
+      const bridge = vi.fn(async () => ({
+        interpretation_snapshot: null,
+        semantic_column_mappings: [],
+        interpretation_records: [],
+      }));
+      await persistExtractionStep1Shadow({
+        ...input(mock.admin),
+        ...(bridgeState === 'empty' ? { step3InterpretationBridge: bridge } : {}),
+      });
+      const payload = mock.calls.find(
+        (call) => call.name === 'publish_extraction_step1_shadow',
+      )!.payload;
+      // SQL distinguishes an absent property (SQL NULL) from JSON null and
+      // only enters the interpretation insertion branch when this key exists.
+      expect(payload).not.toHaveProperty('interpretation_snapshot');
+      expect(payload.semantic_column_mappings).toEqual([]);
+      expect(payload.interpretation_records).toEqual([]);
+      expect(bridge).toHaveBeenCalledTimes(bridgeState === 'empty' ? 1 : 0);
+    },
+  );
+
+  it('forwards a present interpretation snapshot and its records unchanged', async () => {
+    vi.stubEnv('EIGHTFORGE_BUILD_DIGEST', 'step1-test-build');
+    const mock = client();
+    const interpretation = {
+      interpretation_snapshot: { id: 'snapshot-1', status: 'blocked' },
+      semantic_column_mappings: [{ id: 'mapping-1' }],
+      interpretation_records: [{ id: 'record-1' }],
+    };
+    await persistExtractionStep1Shadow({
+      ...input(mock.admin),
+      step3InterpretationBridge: async () => interpretation,
+    });
+    const payload = mock.calls.find(
+      (call) => call.name === 'publish_extraction_step1_shadow',
+    )!.payload;
+    expect(payload.interpretation_snapshot).toBe(interpretation.interpretation_snapshot);
+    expect(payload.semantic_column_mappings).toBe(interpretation.semantic_column_mappings);
+    expect(payload.interpretation_records).toBe(interpretation.interpretation_records);
+  });
+
   it('forwards deterministic continuation and arbitration artifacts through the Step 3 bridge unchanged', async () => {
     vi.stubEnv('EIGHTFORGE_BUILD_DIGEST', 'step1-test-build');
     const mock = client();

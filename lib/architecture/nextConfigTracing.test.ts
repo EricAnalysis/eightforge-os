@@ -17,12 +17,45 @@ const picomatch = require('next/dist/compiled/picomatch') as (glob: string | str
   options?: Record<string, unknown>) => (input: string) => boolean;
 
 const excludes = (nextConfig.outputFileTracingExcludes ?? {}) as Record<string, string[]>;
+const includes = (nextConfig.outputFileTracingIncludes ?? {}) as Record<string, string[]>;
+
+// The independent worker dependency closure plus assets its Emscripten core
+// loads dynamically. Being absent from excludes does not make a file ship.
+const REQUIRED_WORKER_FILES = [
+  'node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs',
+  'node_modules/tesseract.js/package.json',
+  'node_modules/tesseract.js/src/worker-script/node/index.js',
+  'node_modules/tesseract.js/src/worker-script/node/getCore.js',
+  'node_modules/tesseract.js/src/worker-script/node/gunzip.js',
+  'node_modules/tesseract.js/src/worker-script/node/cache.js',
+  'node_modules/tesseract.js/src/worker-script/index.js',
+  'node_modules/tesseract.js/src/worker-script/constants/defaultOutput.js',
+  'node_modules/tesseract.js/src/worker-script/utils/arrayBufferToBase64.js',
+  'node_modules/tesseract.js/src/worker-script/utils/dump.js',
+  'node_modules/tesseract.js/src/worker-script/utils/setImage.js',
+  ...['OEM', 'PSM', 'imageType'].map(name => `node_modules/tesseract.js/src/constants/${name}.js`),
+  ...['getEnvironment', 'log'].map(name => `node_modules/tesseract.js/src/utils/${name}.js`),
+  'node_modules/tesseract.js-core/package.json',
+  ...['', '-simd', '-relaxedsimd', '-lstm', '-simd-lstm', '-relaxedsimd-lstm'].flatMap(build =>
+    ['js', 'wasm', 'wasm.js'].map(extension => `node_modules/tesseract.js-core/tesseract-core${build}.${extension}`)),
+  'node_modules/wasm-feature-detect/package.json',
+  'node_modules/wasm-feature-detect/dist/cjs/index.cjs',
+  'node_modules/@tesseract.js-data/eng/4.0.0/eng.traineddata.gz',
+  ...['package.json', 'index.js', 'lib/decoder.js', 'lib/encoder.js'].map(file => `node_modules/bmp-js/${file}`),
+  ...['package.json', 'index.js'].map(file => `node_modules/is-url/${file}`),
+  ...['package.json', 'runtime.js'].map(file => `node_modules/regenerator-runtime/${file}`),
+  ...['package.json', 'lib/index.js'].map(file => `node_modules/node-fetch/${file}`),
+  ...['package.json', 'index.js', 'lib/mappingTable.json'].map(file => `node_modules/tr46/${file}`),
+  ...['package.json', 'lib/index.js'].map(file => `node_modules/webidl-conversions/${file}`),
+  ...['package.json', 'lib/URL-impl.js', 'lib/URL.js', 'lib/public-api.js', 'lib/url-state-machine.js', 'lib/utils.js']
+    .map(file => `node_modules/whatwg-url/${file}`),
+];
 
 /** Files the extraction, OCR and value-reading functions load at runtime. */
 const REQUIRED_RUNTIME_FILES = [
   'node_modules/@tesseract.js-data/eng/4.0.0/eng.traineddata.gz',
   'node_modules/tesseract.js/src/index.js',
-  // The OCR core Node 24 loads (default OEM) and the detector that selects it.
+  // A supported OCR core branch and the detector that selects the installed adapter's branch.
   'node_modules/tesseract.js/src/worker-script/node/getCore.js',
   'node_modules/tesseract.js-core/tesseract-core-relaxedsimd-lstm.js',
   'node_modules/tesseract.js-core/tesseract-core-relaxedsimd-lstm.wasm',
@@ -44,6 +77,53 @@ function appRoutes(dir = 'app', prefix = ''): string[] {
 }
 
 describe('function tracing excludes', () => {
+  it('covers the worker entry dependency graph, including imports absent from the request thread', async () => {
+    // Trace the worker independently: it is spawned by a path, not imported by
+    // the route. Resolve through the installed package to support worktree
+    // node_modules junctions without silently tracing only the junction itself.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { nodeFileTrace } = require('next/dist/compiled/@vercel/nft') as {
+      nodeFileTrace: (files: string[], options: { base: string; processCwd: string }) =>
+        Promise<{ fileList: Set<string> }>;
+    };
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const packageFile = require.resolve('tesseract.js/package.json') as string;
+    const dependencyRoot = path.dirname(path.dirname(path.dirname(packageFile)));
+    const workerEntry = path.join(path.dirname(packageFile), 'src/worker-script/node/index.js');
+    const traced = await nodeFileTrace([workerEntry], { base: dependencyRoot, processCwd: dependencyRoot });
+    const included = picomatch(Object.values(includes).flat(), { dot: true });
+    const workerFiles = [...traced.fileList].map(file => file.split(path.sep).join('/'));
+    expect(workerFiles).toContain('node_modules/tesseract.js/src/worker-script/index.js');
+    expect(workerFiles).toContain('node_modules/wasm-feature-detect/dist/cjs/index.cjs');
+    for (const file of workerFiles) {
+      expect(included(file), `worker dependency ${file} must be included`).toBe(true);
+    }
+  });
+
+  it('positively includes the PDF worker and OCR worker dependency closure on every extraction route', () => {
+    for (const route of ['/api/documents/process', '/api/documents/upload',
+      '/api/documents/[id]/evaluate', '/api/jobs/process/[jobId]']) {
+      const patterns = Object.entries(includes).filter(([key]) => picomatch(key, { contains: true })(route))
+        .flatMap(([, files]) => files);
+      const included = picomatch(patterns, { dot: true });
+      const excluded = picomatch(Object.entries(excludes)
+        .filter(([key]) => picomatch(key, { contains: true })(route)).flatMap(([, files]) => files),
+      { contains: true, dot: true });
+      for (const file of REQUIRED_WORKER_FILES) {
+        expect(included(file), `${route} must ship ${file}`).toBe(true);
+        expect(excluded(file), `${route} must not discard ${file}`).toBe(false);
+        expect(readFileSync(file).byteLength, `${file} must exist in the installed dependency tree`).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('limits worker asset inclusion to the four extraction routes', () => {
+    const matched = appRoutes().filter(route => Object.keys(includes)
+      .some(key => picomatch(key, { contains: true })(route)));
+    expect(matched.sort()).toEqual(['/api/documents/process', '/api/documents/upload',
+      '/api/documents/[id]/evaluate', '/api/jobs/process/[jobId]'].sort());
+  });
+
   it('never drop a file production loads, matched the way Next matches them while tracing', () => {
     const tracingWide = Object.keys(excludes).filter((key) => picomatch(key)('next-server'));
     expect(tracingWide).toEqual(['*']);

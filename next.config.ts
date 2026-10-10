@@ -15,6 +15,44 @@ const EVALUATION_DATA = [
   'public/vendor/pdfjs/**',
 ];
 
+// Worker entrypoints and their dynamic assets are not imports of the request
+// thread, so Next's tracer cannot discover their complete runtime closure.
+// Keep this finite dependency list on extraction functions only. Retain every
+// core branch the installed worker adapter can select; packaging must not change
+// its CPU/OEM selection to make initialization pass.
+const EXTRACTION_WORKER_FILES = [
+  'node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs',
+  'node_modules/tesseract.js/src/worker-script/**',
+  'node_modules/tesseract.js/src/constants/{OEM,PSM,imageType}.js',
+  'node_modules/tesseract.js/src/utils/{getEnvironment,log}.js',
+  'node_modules/tesseract.js/package.json',
+  'node_modules/tesseract.js-core/package.json',
+  'node_modules/tesseract.js-core/tesseract-core.{js,wasm,wasm.js}',
+  'node_modules/tesseract.js-core/tesseract-core-simd.{js,wasm,wasm.js}',
+  'node_modules/tesseract.js-core/tesseract-core-relaxedsimd.{js,wasm,wasm.js}',
+  'node_modules/tesseract.js-core/tesseract-core-lstm.{js,wasm,wasm.js}',
+  'node_modules/tesseract.js-core/tesseract-core-simd-lstm.{js,wasm,wasm.js}',
+  'node_modules/tesseract.js-core/tesseract-core-relaxedsimd-lstm.{js,wasm,wasm.js}',
+  'node_modules/wasm-feature-detect/package.json',
+  'node_modules/wasm-feature-detect/dist/cjs/index.cjs',
+  'node_modules/@tesseract.js-data/eng/4.0.0/eng.traineddata.gz',
+  // Shared worker-script imports; node-fetch is its Node fallback adapter.
+  'node_modules/bmp-js/{package.json,index.js,lib/*.js}',
+  'node_modules/is-url/{package.json,index.js}',
+  'node_modules/regenerator-runtime/{package.json,runtime.js}',
+  'node_modules/node-fetch/{package.json,lib/index.js}',
+  'node_modules/tr46/{package.json,index.js,lib/mappingTable.json}',
+  'node_modules/webidl-conversions/{package.json,lib/index.js}',
+  'node_modules/whatwg-url/{package.json,lib/*.js}',
+];
+
+const EXTRACTION_ROUTES = [
+  '/api/documents/process',
+  '/api/documents/upload',
+  '/api/documents/*/evaluate',
+  '/api/jobs/process/*',
+];
+
 const nextConfig: NextConfig = {
   // Prevent Next.js webpack from bundling native PDF/OCR packages.
   // These packages use Node.js-specific APIs (fs, canvas, workers) that break
@@ -29,6 +67,9 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: __dirname,
   },
+  outputFileTracingIncludes: Object.fromEntries(
+    EXTRACTION_ROUTES.map((route) => [route, EXTRACTION_WORKER_FILES]),
+  ),
   // Every deployment stores each function's traced files, and the Hobby plan
   // counts that storage across retained deployments. Leave out what no
   // deployed function can load (docs/decisions/VERCEL_FUNCTION_SIZE.md).

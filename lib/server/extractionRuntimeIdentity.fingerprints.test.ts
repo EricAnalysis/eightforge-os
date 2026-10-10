@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   observeExtractionRuntimeIdentity,
@@ -27,8 +29,17 @@ describe('extraction dependency fingerprints', () => {
     expect(canvas![1]).toBe(sha256(`node_modules/${canvas![0]}`));
 
     const core = fingerprints.tesseract!;
-    expect(core.selected_core_build).toBe(core.wasm_relaxed_simd ? 'tesseract-core-relaxedsimd-lstm'
-      : core.wasm_simd ? 'tesseract-core-simd-lstm' : 'tesseract-core-lstm');
+    // Observe the same actual adapter call used by createWorker's load packet.
+    // Some adapters accept a Boolean, others interpret it as numeric OEM; the
+    // fingerprint must name whichever module this installed adapter returns.
+    const repoRequire = createRequire(path.join(process.cwd(), 'package.json'));
+    const tesseractRequire = createRequire(repoRequire.resolve('tesseract.js/package.json'));
+    const getCore = tesseractRequire('./src/worker-script/node/getCore.js') as
+      (lstmOnly: boolean, corePath: undefined, response: { progress: () => void }) => Promise<unknown>;
+    const selected = await getCore(true, undefined, { progress: () => {} });
+    expect(tesseractRequire.cache[tesseractRequire.resolve(`tesseract.js-core/${core.selected_core_build}`)]?.exports)
+      .toBe(selected);
+    expect(typeof selected).toBe('function');
     const wasm = `${core.selected_core_build}.wasm`;
     expect(core.selected_core_files[wasm]).toBe(sha256(`node_modules/tesseract.js-core/${wasm}`));
     expect(fingerprints.language_data!['eng.traineddata.gz'])

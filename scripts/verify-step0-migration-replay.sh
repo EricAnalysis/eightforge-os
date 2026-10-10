@@ -123,6 +123,7 @@ SQL
 "${psql[@]}" --file scripts/sql/verify-workflow-database-authority.sql
 "${psql[@]}" --file scripts/sql/verify-repository-plan-v2-persistence.sql
 "${psql[@]}" --file scripts/sql/verify-repository-plan-engineering-review.sql
+"${psql[@]}" --file scripts/sql/verify-document-extraction-fact-status.sql
 
 # Hold each first transaction open after the SECURITY DEFINER call so the
 # second real PostgreSQL session must contend on the migration's advisory lock.

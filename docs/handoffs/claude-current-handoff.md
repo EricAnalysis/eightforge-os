@@ -1053,5 +1053,6 @@ The initial full unit lane caught imports crossing the sealed canonical tree.
 Correction 6b2443b keeps the read diagnostic in the legacy fact layer; it adds
 no canonical publication or review authority and does not relax the import
 guard. Architecture/conflict/Ask/Validator targeted slice: 110/110 pass;
-TypeScript passes. Existing dependent regression: 55/55 pass. New CI is
-pending and the Ask credential plus 22/zero-gap blockers remain.
+TypeScript passes. Existing dependent regression: 55/55 pass. Both full unit CI lanes pass on 6b2443b (3m3s and 3m6s). The Ask CI job
+still fails for missing credentials; the local 22/zero-gap lock remains unmet.
+PR #205 stays draft/unmerged. No gate is weakened.

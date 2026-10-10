@@ -69,8 +69,7 @@ priority ties and Ask ranking could select the first returned observation.
 The override audit snapshot also selected one same-timestamp row arbitrarily.
 
 The scoped implementation on `codex/active-extraction-fact-conflicts` withholds
-conflicting scalar active observations, uses the existing `extraction_conflict`
-truth envelope, preserves all source observations/evidence, blocks machine
+conflicting scalar active observations, emits a typed `extraction_conflict` read diagnostic, preserves all source observations/evidence, blocks machine
 fallbacks and permits only existing non-null accepted human channels to resolve
 it. Derived/rule inputs, Validator, Ask, ceiling-type hints and override audit
 context are guarded. No date winner, persistence rewrite, migration, source
@@ -1043,9 +1042,16 @@ PR #203 merged manually after both full Vitest checks passed (1m53s and
 remains separate and must not merge while its Ask lock fails. No production
 field rewrite or re-analysis occurred.
 
-Conflict implementation is committed/pushed as 5821bb6 in draft PR #205
+Conflict implementation is committed/pushed through 6b2443b in draft PR #205
 (https://github.com/EricAnalysis/eightforge-os/pull/205). The Ask CI job failed because its Supabase credentials are not configured;
 the separate known 22-query zero-gap lock also remains unsatisfied. Full unit
 CI outcomes must be read before any future merge. Do not place a production
 service-role credential in GitHub without separate authorization. No new
 production defect repair or arbitrary date publication is claimed.
+
+The initial full unit lane caught imports crossing the sealed canonical tree.
+Correction 6b2443b keeps the read diagnostic in the legacy fact layer; it adds
+no canonical publication or review authority and does not relax the import
+guard. Architecture/conflict/Ask/Validator targeted slice: 110/110 pass;
+TypeScript passes. Existing dependent regression: 55/55 pass. New CI is
+pending and the Ask credential plus 22/zero-gap blockers remain.

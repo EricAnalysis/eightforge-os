@@ -118,15 +118,14 @@ Exact next continuation prompt:
 > limitation. Do not rerun production analysis. Read the separate fact-conflict
 > audit and draft PR #205, branch codex/active-extraction-fact-conflicts.
 > Reuse the completed baseline comparison. Resolve the existing Ask gate before
-> merging this
-> surgical fix (baseline and candidate both 60/42/18/28); do not weaken
-> 22/22 + zero-gap requirements or invent source
-> precedence. Preserve observations and existing human review authority. Track
+> merging this surgical fix (baseline and candidate both 60/42/18/28); do not weaken
+> 22/22 + zero-gap requirements or invent source precedence. Preserve observations and existing human review authority. Track
 > the independent canonical-blob/UI date path separately; do not choose a date
 > or rewrite truth automatically. Browser E is complete with expired-job and
 > preview limits recorded; reuse its external evidence. Qualification remains
 > disk-blocked, DN 20/20 and 3,196 ms FAIL versus 3,000 ms, no paid calls. Merge
 > only green scoped changes and update this handoff with exact PR/check status.
+
 #### Exact inventory comparison and stop classification
 
 Bounded exports of retained `a92feea5` and new `e0feefb8` payloads passed
@@ -1045,6 +1044,8 @@ remains separate and must not merge while its Ask lock fails. No production
 field rewrite or re-analysis occurred.
 
 Conflict implementation is committed/pushed as 5821bb6 in draft PR #205
-(https://github.com/EricAnalysis/eightforge-os/pull/205). CI is pending; the
-known Ask lock prevents merge even if both full unit lanes pass. No new
+(https://github.com/EricAnalysis/eightforge-os/pull/205). The Ask CI job failed because its Supabase credentials are not configured;
+the separate known 22-query zero-gap lock also remains unsatisfied. Full unit
+CI outcomes must be read before any future merge. Do not place a production
+service-role credential in GitHub without separate authorization. No new
 production defect repair or arbitrary date publication is claimed.

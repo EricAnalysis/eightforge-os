@@ -286,6 +286,8 @@ remains separate and must not merge while its Ask lock fails. No production
 field rewrite or re-analysis occurred.
 
 Conflict implementation is committed/pushed as 5821bb6 in draft PR #205
-(https://github.com/EricAnalysis/eightforge-os/pull/205). CI is pending; the
-known Ask lock prevents merge even if both full unit lanes pass. No new
+(https://github.com/EricAnalysis/eightforge-os/pull/205). The Ask CI job failed because its Supabase credentials are not configured;
+the separate known 22-query zero-gap lock also remains unsatisfied. Full unit
+CI outcomes must be read before any future merge. Do not place a production
+service-role credential in GitHub without separate authorization. No new
 production defect repair or arbitrary date publication is claimed.

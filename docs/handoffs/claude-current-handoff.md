@@ -2,6 +2,20 @@
 
 ## Active Codex continuation (2026-10-10, production mismatch)
 
+### Latest state at 16:33 UTC (read before the historical mismatch details)
+
+Verified main and live production alias: `90e79dc8d397d945f01dc9a323ac9c849f1e5e40`. [PR #199](https://github.com/EricAnalysis/eightforge-os/pull/199) merged at 16:24:04 UTC after both full Vitest checks, full migration replay, Supabase Preview and Vercel passed. Production deployment `dpl_9RRv2HmTeYetW7Swh6hMUEV2Ss9C` is Ready and owns eightforge-os.vercel.app.
+
+Owner explicitly approved applying the exact migration and continuing. The immediate pre-write check found the Supabase GitHub integration already applied `20261010170000` on merge. The recorded SQL matches the merged migration; status constraint is validated, snapshot-data guard remains enforced, and existing 114 snapshots remain. No second DDL call was performed. Future migration approvals must precede merge when production approval is required, because this integration applies migrations automatically.
+
+Golden retry is RUNNING, job `87119ccb-acff-4a22-b287-bc5522bab766`, attempt 1, started 16:32:38 UTC after fresh ownership/source/latest-extraction/no-active-owner checks. Immediate pre-state is `golden-retry-immediate-before.json` in the external production evidence root below. Do not launch another Golden job. Verify this job first, then Hillsdale and DN sequentially; stop on mismatch. Hillsdale and DN remain untouched as of this snapshot.
+
+Qualification disk blocker: unused Docker builder-cache prune reclaimed 2.933 GB internally, preserving nine images, ten containers and three volumes. Physical C: free space remains 972,484,608 bytes. Generated managed dependency/build-directory deletion was rejected before execution by automatic approval review; no alternate deletion mechanism was attempted. No current image build, v6 capture, zero-call prepare or provider run was started. Disk audit `b461-current-readiness-20261010/current-main-disk-block.json` SHA-256 `c57eec65eeb4261efa3696346bcd597e3e6e413fa31dde47f85cda3eaf7cf51e`. Obtain sufficient physical capacity before maintained immutable build/prepare; no hybrid overlay or historical-v5 current claim.
+
+Continuation: verify active Golden job and post-state immediately. Read the latest snapshot in this section before older paragraphs, which describe the initial failed run and pre-merge remediation. No job cleanup/rollback or duplicate reprocess. The migration is applied; do not request or perform it again. Owner authorized sequential production re-analysis, not paid DN retesting. Preserve the unchanged 3,000 ms bar and prior 20/20 correctness / 3,196 ms fail. Keep client evidence outside Git. Update this snapshot with each completed job/extraction/queue and production revision before transfer.
+
+### Initial mismatch and remediation history (superseded by latest state above)
+
 Verified main and deployed production revision: `792913240480159e5c76523e4004be1f3ef6f1f8`. PR #198 merged at 15:53:14 UTC with both full Vitest checks green. The earlier login blocker is resolved: Codex used the existing signed-in Chrome session, without creating credentials.
 
 **Production sequence stopped after Golden.** Immediate preflight matched the exact organization, project, stale extraction and pinned source hash, with no active owner and no human assertions. One normal Reprocess click created job `29fe1f23-425e-477a-a95a-b61adee284fc` and extraction `19e5c631-8347-43b7-bfc1-a1e4dab71508`. The job completed at 15:59:37 UTC, attempt 1, but this is **not successful re-analysis**: the new extraction is `pdf_fallback`, has zero rate mentions and null typed fields (previously OCR recovery, 15 rate mentions). Its reconstruction version is v6 but dependency fingerprints are `not_observed`.

@@ -9,7 +9,13 @@ This is a read-only audit. It reuses `docs/audits/ocr-runtime-parity-2026-10-07.
 There is no blocking mismatch, so qualification can proceed. Three gaps were found, each with an owner:
 
 1. **Qualification runs are not yet bound to the captures they read.** Fixed when the B4.6.1 contract is frozen (step E): the run records the capture-set digest and runtime identity digest, and refuses to mix them.
-2. **Production extraction payloads do not record their runtime.** This is still open from the 10-07 audit, recommendation 3. Owner: production runtime hardening (step H).
+2. **Production extraction payloads do not record their runtime.** This was open from the 10-07 audit, recommendation 3. Owner: production runtime hardening (step H).
+   - #189 added Node, ABI, V8, platform, architecture and deployment revision.
+   - Follow-up 2026-10-10: payloads now also carry observed `dependency_fingerprints` (`extraction_dependency_fingerprints_v1`), measured once per process from the files themselves:
+     - the native addons the process has actually loaded, read from the Node process report, including the canvas binary;
+     - the OCR core tesseract.js selects on that CPU, with each core file's SHA-256;
+     - the language data's SHA-256.
+   - Nothing is inferred from installed pins; if observation fails, the field stays `not_observed`.
 3. **The function-tracing guard did not cover the OCR core.** Fixed here: the core build Node 24 loads, and the feature detector that picks it, are now required runtime files in `lib/architecture/nextConfigTracing.test.ts`.
 
 ## 1. Runtime identity, now

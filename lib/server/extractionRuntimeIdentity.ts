@@ -1,7 +1,99 @@
+import { createHash } from 'node:crypto';
+import { readFileSync, readdirSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import path from 'node:path';
 import { hashCanonical } from '@/lib/extraction/domain/hash';
 
 /** Runtime observation, not qualification proof or an extraction authority gate. */
 export type ExtractionRuntimeIdentity = ReturnType<typeof observeExtractionRuntimeIdentity>;
+
+export type ExtractionDependencyFingerprints =
+  | 'not_observed'
+  | {
+      schema: 'extraction_dependency_fingerprints_v1';
+      /** Native addons this process has actually loaded (from the process report), by node_modules path. */
+      loaded_native_addons: Record<string, string>;
+      /** The OCR core tesseract.js selects on this CPU, decided by the same feature tests its node getCore runs. */
+      tesseract: {
+        wasm_simd: boolean;
+        wasm_relaxed_simd: boolean;
+        selected_core_build: string;
+        selected_core_files: Record<string, string>;
+      } | null;
+      /** The language data extraction passes as langPath. */
+      language_data: Record<string, string> | null;
+    };
+
+let fingerprints: ExtractionDependencyFingerprints = 'not_observed';
+let priming: Promise<void> | null = null;
+
+function sha256File(file: string): string {
+  return createHash('sha256').update(readFileSync(file)).digest('hex');
+}
+
+function nodeModulesKey(file: string): string | null {
+  const normalized = file.split(path.sep).join('/');
+  const index = normalized.lastIndexOf('/node_modules/');
+  return index >= 0 ? normalized.slice(index + '/node_modules/'.length) : null;
+}
+
+async function observeFingerprints(): Promise<ExtractionDependencyFingerprints> {
+  const repoRequire = createRequire(path.join(process.cwd(), 'package.json'));
+  // Load the renderer's native addon now so every payload of this process records the same, actually
+  // loaded binary (PDF rendering loads it anyway); then read what the process has really dlopen'ed.
+  await import('@napi-rs/canvas');
+  const report = process.report?.getReport() as { sharedObjects?: unknown } | undefined;
+  const shared = Array.isArray(report?.sharedObjects) ? report.sharedObjects as unknown[] : [];
+  const loaded_native_addons: Record<string, string> = {};
+  for (const file of shared) {
+    if (typeof file !== 'string' || !file.endsWith('.node')) continue;
+    const key = nodeModulesKey(file);
+    if (key) loaded_native_addons[key] = sha256File(file);
+  }
+
+  let tesseract: Extract<ExtractionDependencyFingerprints, object>['tesseract'] = null;
+  const tesseractRequire = createRequire(repoRequire.resolve('tesseract.js/package.json'));
+  const { simd, relaxedSimd } = tesseractRequire('wasm-feature-detect') as {
+    simd: () => Promise<boolean>;
+    relaxedSimd: () => Promise<boolean>;
+  };
+  const wasm_simd = await simd();
+  const wasm_relaxed_simd = await relaxedSimd();
+  // Extraction creates its worker with the default OEM, which loads an LSTM core.
+  const build = wasm_relaxed_simd ? 'tesseract-core-relaxedsimd-lstm'
+    : wasm_simd ? 'tesseract-core-simd-lstm' : 'tesseract-core-lstm';
+  const coreDir = path.dirname(repoRequire.resolve('tesseract.js-core/package.json'));
+  const coreFiles = readdirSync(coreDir).filter((name) => name.startsWith(`${build}.`)).sort();
+  tesseract = {
+    wasm_simd,
+    wasm_relaxed_simd,
+    selected_core_build: build,
+    selected_core_files: Object.fromEntries(coreFiles.map((name) => [name, sha256File(path.join(coreDir, name))])),
+  };
+
+  const langDir = path.join(process.cwd(), 'node_modules', '@tesseract.js-data', 'eng', '4.0.0');
+  const language_data = Object.fromEntries(readdirSync(langDir).sort()
+    .map((name) => [name, sha256File(path.join(langDir, name))]));
+
+  return { schema: 'extraction_dependency_fingerprints_v1', loaded_native_addons, tesseract, language_data };
+}
+
+/**
+ * Observe this process's native dependency fingerprints once. Never throws: if anything cannot be
+ * observed, payloads keep recording 'not_observed' rather than a guess from installed pins.
+ */
+export function primeExtractionRuntimeFingerprints(): Promise<void> {
+  priming ??= observeFingerprints()
+    .then((observed) => { fingerprints = observed; })
+    .catch(() => { fingerprints = 'not_observed'; });
+  return priming;
+}
+
+/** Test seam: forget the process observation. */
+export function resetExtractionRuntimeFingerprintsForTests(): void {
+  fingerprints = 'not_observed';
+  priming = null;
+}
 
 export function observeExtractionRuntimeIdentity() {
   const revision = process.env.VERCEL_GIT_COMMIT_SHA;
@@ -16,8 +108,9 @@ export function observeExtractionRuntimeIdentity() {
     deployment_revision: revision && /^[a-f0-9]{40}$/i.test(revision) ? revision.toLowerCase() : null,
     deployment_environment: environment === 'production' || environment === 'preview' || environment === 'development'
       ? environment : null,
-    // Never infer that installed pins identify the binaries/core actually used.
-    dependency_fingerprints: 'not_observed' as const,
+    // Observed from this process (loaded addons, selected OCR core, language data), never inferred
+    // from installed pins; 'not_observed' until primed or when observation failed.
+    dependency_fingerprints: fingerprints,
   };
   return { identity, identity_digest: hashCanonical(identity) };
 }

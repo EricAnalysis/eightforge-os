@@ -32,7 +32,9 @@ describe('extractDocument transaction_data routing', () => {
     );
 
     assert.equal(payload.extraction.runtime_identity_v1?.identity.node_version, process.version);
-    assert.equal(payload.extraction.runtime_identity_v1?.identity.dependency_fingerprints, 'not_observed');
+    const fingerprints = payload.extraction.runtime_identity_v1?.identity.dependency_fingerprints;
+    assert.ok(fingerprints && fingerprints !== 'not_observed', 'extraction records observed dependency fingerprints');
+    assert.equal(fingerprints.schema, 'extraction_dependency_fingerprints_v1');
     const extraction = payload.extraction.content_layers_v1 as {
       spreadsheet?: {
         normalized_ticket_export?: unknown;

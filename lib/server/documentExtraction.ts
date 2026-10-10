@@ -2,7 +2,11 @@
 // Server-side document extraction: text decoding, PDF text extraction, and fallbacks.
 
 import { join as joinPath } from 'node:path';
-import { observeExtractionRuntimeIdentity, type ExtractionRuntimeIdentity } from '@/lib/server/extractionRuntimeIdentity';
+import {
+  observeExtractionRuntimeIdentity,
+  primeExtractionRuntimeFingerprints,
+  type ExtractionRuntimeIdentity,
+} from '@/lib/server/extractionRuntimeIdentity';
 import type {
   TypedExtraction,
   ContractExtraction,
@@ -1689,6 +1693,7 @@ export async function extractDocument(
   provenanceContext?: ExtractionProvenanceContext | null,
   recoveryContext?: ExtractionRecoveryContext | null,
 ): Promise<ExtractionPayload> {
+  await primeExtractionRuntimeFingerprints();
   const size = fileBytes.byteLength;
   const pdfLayoutObservationIdentityContext: PdfLayoutObservationIdentityContext | null =
     provenanceContext

@@ -5,7 +5,7 @@ import { observeExtractionRuntimeIdentity } from './extractionRuntimeIdentity';
 afterEach(() => vi.unstubAllEnvs());
 
 describe('extraction runtime observations', () => {
-  it('records the executing runtime without claiming native dependency verification', () => {
+  it('records the executing runtime without claiming unobserved native dependencies', () => {
     vi.stubEnv('VERCEL_GIT_COMMIT_SHA', '');
     vi.stubEnv('VERCEL_ENV', '');
     const observation = observeExtractionRuntimeIdentity();

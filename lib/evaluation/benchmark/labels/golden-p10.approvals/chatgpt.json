@@ -1,0 +1,42 @@
+{
+  "approvalVersion": "e3-benchmark-delegated-approval-v1",
+  "authority": "delegated_dual_ai_benchmark_approval",
+  "delegationScope": "e3_benchmark_labels_finalization",
+  "pageKey": "golden-p10",
+  "source": {
+    "documentKey": "golden",
+    "sha256": "922161a533bb6b8c1afb52cb9536044c8a6836bed62401634f4f505025631e8f",
+    "byteLength": 2481310,
+    "physicalPageNumber": 10
+  },
+  "frame": {
+    "frame_version": "canonical_frame_v1",
+    "coordinate_space": "canonical_v1",
+    "view": [
+      0,
+      0,
+      612.48,
+      792
+    ],
+    "rotation": 0,
+    "user_unit": 1,
+    "width": 612.48,
+    "height": 792
+  },
+  "adjudicationSha256": "fc7a73e1753fbf96f91910396b4f88a190dce001eb1daa3728a92c7b42b320b2",
+  "comparisonSha256": "39011f6658c3cedd1ae264bc2c3a3c805a44c9513c7977aac8bea6ce05f37b7f",
+  "reviewerALabelSetSha256": "870c130d76962804ec46edc4fe31824c136bfcd4cbdafe953d56edb323681725",
+  "reviewerBLabelSetSha256": "4375153cab2703222b2e0508e1ef1d2ff0cf217b7c36abb2e8ad036421c39ecd",
+  "suggestionsSha256": "2b479b0a7066cb317e17c8d35bebf7949d2f28ddfe478061568897337155bcb7",
+  "candidateSha256": "ef4505942b8cbebcebc423774e6528c87aff0c0d05db77349ad22063de5b36f4",
+  "candidateSummary": {
+    "words": 311,
+    "cells": 160,
+    "rows": 40,
+    "coverage": "requires_ocr"
+  },
+  "approverIdentity": "chatgpt",
+  "decision": "approve",
+  "approvedAt": "2026-10-10T13:57:20.986Z",
+  "rationale": "ChatGPT approves the corrected exact digest for E3 evaluation truth only. Restored reviewer-B U+2013 text at the specified word and cell based on owner instruction and Claude source-stroke evidence. Repository assembly is deeply equal to the previously reviewed candidate after exactly these two text edits per page. Every box, row, header/column field, coverage value, remaining transcription and source identity is unchanged, including grapple without a period. Reuse the unchanged geometry proofs and independent source verification. Original Claude rejection is byte-preserved, schema-valid and rejected by the existing finalization function. New Claude approval is still required; no qualification or production authority is granted."
+}

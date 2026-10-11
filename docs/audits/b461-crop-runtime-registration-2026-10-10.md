@@ -29,3 +29,13 @@ The reference measurement is image `sha256:729747f57177bb3cc20bfe6f1a89e8645f251
 ## Value reading stays inactive
 
 No qualified class exists. DN p107 (`dense_scanned_ocr_priced_schedule`) is inactive on latency. The other classes become scoreable only as their labels, captures and bindings reach the 20-row minimum per class under the unchanged contract.
+
+## Correction (2026-10-11)
+
+The statement above that registering the runtime "changes no provider input" and leaves the request identity unchanged is **wrong**. The DN p107 exception preflight ([#210](https://github.com/EricAnalysis/eightforge-os/pull/210), `b461-dn-p107-exception-void-2026-10-11.md`) found that, on the registered runtime:
+- 13 of DN p107's 20 crops render to different bytes than the historical Windows run;
+- the request identity, which is a digest over those bytes, therefore differs for those 13 targets.
+
+So the DN correctness proofs from 2026-10-09 apply to the bytes rendered on Windows, not to the registered runtime's bytes.
+
+The registration itself still stands: future runs must use the registered runtime. A run there is a **new request identity** for DN p107. It can't reuse the 2026-10-09 correctness proof, and it needs its own owner-approved, pre-registered execution.

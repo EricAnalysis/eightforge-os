@@ -198,7 +198,7 @@ export const VALIDATOR_DOCUMENT_SELECT =
 const SOURCE_ARTIFACT_SELECT =
   'id, source_document_id, source_sha256, storage_object_version, storage_bucket, storage_path, identity_origin, media_type_sniffed, byte_length, created_at';
 const EXTRACTION_FACT_SELECT =
-  'document_id, field_key, field_type, field_value_text, field_value_number, field_value_date, field_value_boolean, source, confidence';
+  'id, status, document_id, field_key, field_type, field_value_text, field_value_number, field_value_date, field_value_boolean, source, confidence';
 const LEGACY_EXTRACTION_SELECT = 'document_id, created_at, data';
 
 const PROJECT_CODE_FACT_KEYS = ['project_code', 'project_number'] as const;
@@ -1634,6 +1634,7 @@ export function buildFactsByDocumentId(params: {
   const reviewsByDocumentId = new Map<string, DocumentFactReviewRow[]>();
 
   for (const row of params.factRows) {
+    if (row.status != null && row.status !== 'active') continue;
     const existing = normalizedByDocumentId.get(row.document_id) ?? [];
     existing.push(row);
     normalizedByDocumentId.set(row.document_id, existing);
@@ -1658,16 +1659,22 @@ export function buildFactsByDocumentId(params: {
 
     for (const row of normalizedRows) {
       normalizedKeys.add(row.field_key);
-      facts.push(
-        factRecord({
-          documentId: document.id,
-          key: row.field_key,
-          value: extractionRowValue(row),
-          source: 'normalized_row',
-          fieldType: row.field_type,
-          note: 'Normalized extracted fact row.',
-        }),
-      );
+      const record = factRecord({
+        documentId: document.id,
+        key: row.field_key,
+        value: extractionRowValue(row),
+        source: 'normalized_row',
+        fieldType: row.field_type,
+        note: `Normalized extracted fact row (${row.source ?? 'unknown source'}).`,
+      });
+      facts.push({
+        ...record,
+        id: row.id ?? record.id,
+        evidence: record.evidence.map(evidence => ({ ...evidence,
+          fact_id: row.id ?? evidence.fact_id,
+          record_id: row.id ?? evidence.record_id,
+        })),
+      });
     }
 
     const legacyRow = params.legacyRowsByDocumentId.get(document.id);

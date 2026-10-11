@@ -122,6 +122,8 @@ export type ValidatorSourceArtifactSnapshotResult = {
 };
 
 export type ValidatorExtractionFactRow = {
+  id?: string;
+  status?: string;
   document_id: string;
   field_key: string;
   field_type: string | null;
@@ -178,6 +180,8 @@ export type ValidatorFactRecord = {
   source: ValidatorFactSource;
   field_type: string | null;
   evidence: ValidationEvidence[];
+  extractionConflict?: import('@/lib/effectiveFacts').ActiveFactConflictDiagnostic;
+  conflictingObservations?: readonly ValidatorFactRecord[];
 };
 
 export type ValidatorEvidenceResult = ValidationEvidence;
@@ -689,7 +693,9 @@ export function findFirstStringFact(
   documentIds: readonly string[],
   keys: readonly string[],
 ): string | null {
-  for (const fact of findFactRecords(factsByDocumentId, documentIds, keys)) {
+  const records = findFactRecords(factsByDocumentId, documentIds, keys);
+  if (records.some(fact => fact.extractionConflict?.state === 'extraction_conflict')) return null;
+  for (const fact of records) {
     const value = stringifyValue(fact.value);
     if (value) return value;
   }
@@ -702,7 +708,9 @@ export function findFirstNumberFact(
   documentIds: readonly string[],
   keys: readonly string[],
 ): number | null {
-  for (const fact of findFactRecords(factsByDocumentId, documentIds, keys)) {
+  const records = findFactRecords(factsByDocumentId, documentIds, keys);
+  if (records.some(fact => fact.extractionConflict?.state === 'extraction_conflict')) return null;
+  for (const fact of records) {
     const value = toNumber(fact.value);
     if (value != null) return value;
   }

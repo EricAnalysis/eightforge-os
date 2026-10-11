@@ -21,6 +21,7 @@ type OverrideActivityMachineSnapshot = {
   source_label?: string | null;
   page?: number | null;
   field_key?: string | null;
+  extraction_conflict?: import('@/lib/extraction/activeFactConflicts').ActiveExtractionFactConflict;
 } | null;
 
 function documentLabel(document: OverrideActivityDocument): string {
@@ -72,6 +73,8 @@ export function buildDocumentOverrideActivityInput(params: {
       raw_value: insertedOverride.raw_value,
       effective_value: insertedOverride.raw_value ?? insertedOverride.value_json,
       original_machine_value: originalMachineValue?.value ?? null,
+      ...(originalMachineValue?.extraction_conflict
+        ? { original_machine_conflict: originalMachineValue.extraction_conflict } : {}),
       original_machine_confidence: originalMachineValue?.confidence ?? null,
       evidence: originalMachineValue
         ? {

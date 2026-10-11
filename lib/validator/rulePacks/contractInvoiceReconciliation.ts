@@ -235,6 +235,7 @@ function uniqueStrings(values: Array<string | null | undefined>): string[] {
 }
 
 function factStringValue(facts: readonly ValidatorFactRecord[]): string | null {
+  if (facts.some(fact => fact.extractionConflict?.state === 'extraction_conflict')) return null;
   for (const fact of facts) {
     if (typeof fact.value === 'string' && fact.value.trim().length > 0) {
       return fact.value.trim();
@@ -276,6 +277,9 @@ function resolvedVendorValue(facts: readonly ValidatorFactRecord[]): {
   value: string | null;
   source: ResolvedVendorSource;
 } {
+  if (facts.some(fact => fact.extractionConflict?.state === 'extraction_conflict')) {
+    return { value: null, source: null };
+  }
   for (const fact of facts) {
     if (typeof fact.value === 'string' && fact.value.trim().length > 0) {
       return {
@@ -298,6 +302,7 @@ function vendorNamesMatch(
 }
 
 function factNumberValue(facts: readonly ValidatorFactRecord[]): number | null {
+  if (facts.some(fact => fact.extractionConflict?.state === 'extraction_conflict')) return null;
   for (const fact of facts) {
     const value = toNumber(fact.value);
     if (value != null) return value;
@@ -715,6 +720,7 @@ export function evaluateContractInvoiceReconciliation(
   );
 
   const contractVendor =
+    contractVendorFacts.some(fact => fact.extractionConflict) ? null :
     factStringValue(contractVendorFacts)
     ?? (
       typeof input.contractValidationContext?.analysis.contract_identity.contractor_name?.value === 'string'
@@ -722,6 +728,7 @@ export function evaluateContractInvoiceReconciliation(
         : null
     );
   const contractClient =
+    contractClientFacts.some(fact => fact.extractionConflict) ? null :
     factStringValue(contractClientFacts)
     ?? (
       typeof input.contractValidationContext?.analysis.contract_identity.owner_name?.value === 'string'
@@ -729,6 +736,7 @@ export function evaluateContractInvoiceReconciliation(
         : null
     );
   const contractStartRaw =
+    contractTermStartFacts.some(fact => fact.extractionConflict) ? null :
     factStringValue(contractTermStartFacts)
     ?? (
       typeof input.contractValidationContext?.analysis.contract_identity.effective_date?.value === 'string'
@@ -736,6 +744,7 @@ export function evaluateContractInvoiceReconciliation(
         : null
     );
   const contractEndRaw =
+    contractTermEndFacts.some(fact => fact.extractionConflict) ? null :
     factStringValue(contractTermEndFacts)
     ?? (
       typeof input.contractValidationContext?.analysis.term_model.expiration_date?.value === 'string'

@@ -1,4 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { canonicalEffectiveFactKey } from '@/lib/effectiveFacts';
+import { resolveActiveExtractionFacts, type ActiveExtractionFactConflict } from '@/lib/extraction/activeFactConflicts';
 import { isMissingProjectIdColumnError } from '@/lib/isMissingProjectIdColumnError';
 import { buildAskRelationships, detectReasoningCase, type AskReasoningCase } from '@/lib/ask/reasoning';
 import { buildValidatorContext } from '@/lib/ask/validatorIntegration';
@@ -31,6 +33,8 @@ type ExtractionFactRow = {
   id: string;
   document_id: string;
   field_key: string;
+  source?: string | null;
+  status?: string;
   field_type: string | null;
   field_value_text: string | null;
   field_value_number: number | null;
@@ -566,33 +570,66 @@ async function loadFactEnhancements(params: {
     const review = key ? reviewByKey.get(key) ?? null : null;
     const anchor = key ? anchorByKey.get(key) ?? null : null;
     const overriddenValue = override ? overrideValue(override.value_json) ?? override.raw_value : null;
-    const reviewedValue = review ? overrideValue(review.reviewed_value_json) : null;
+    const acceptedReview = review && (review.review_status === 'confirmed' || review.review_status === 'corrected')
+      && review.reviewed_value_json != null ? review : null;
+    const reviewedValue = acceptedReview ? overrideValue(acceptedReview.reviewed_value_json) : null;
 
     return {
       ...fact,
       value: overriddenValue ?? reviewedValue ?? fact.value,
-      sourceKind: override
+      sourceKind: override && overriddenValue != null
         ? 'human_override'
-        : review
+        : acceptedReview && reviewedValue != null
           ? 'human_review'
           : fact.sourceKind,
-      sourceLabel: override
+      sourceLabel: override && overriddenValue != null
         ? 'Manual override'
-        : review
+        : acceptedReview && reviewedValue != null
           ? 'Reviewed document fact'
           : fact.sourceLabel,
       reviewStatus: review?.review_status ?? fact.reviewStatus,
       overrideId: override?.id ?? fact.overrideId,
-      confidence: override
+      confidence: override && overriddenValue != null
         ? 100
-        : review
+        : acceptedReview && reviewedValue != null
           ? Math.max(fact.confidence, 95)
           : fact.confidence,
-      timestamp: override?.created_at ?? review?.reviewed_at ?? fact.timestamp,
+      timestamp: override?.created_at ?? acceptedReview?.reviewed_at ?? fact.timestamp,
       page: anchor?.page_number ?? fact.page,
       anchorId: anchor?.id ?? fact.anchorId,
     };
   });
+}
+
+function askFactKey(documentId: string, fieldKey: string): string {
+  return `${documentId}:${canonicalEffectiveFactKey(fieldKey)}`;
+}
+
+/** Keep observations inspectable while withholding every effective machine fallback. */
+async function resolveAskMachineFacts(params: {
+  admin: SupabaseClient;
+  orgId: string;
+  rows: ExtractionFactRow[];
+  facts: StructuredFact[];
+}): Promise<{ facts: StructuredFact[]; conflicts: ActiveExtractionFactConflict[] }> {
+  const { conflicts } = resolveActiveExtractionFacts(params.rows);
+  const projectFacts = params.facts.filter((fact) => fact.extractedFrom.startsWith('project:'));
+  const documentFacts = params.facts.filter((fact) => !fact.extractedFrom.startsWith('project:'));
+  const enhanced = [...projectFacts, ...await loadFactEnhancements({ ...params, facts: documentFacts })];
+  const humanKeys = new Set(enhanced
+    .filter((fact) => fact.sourceKind === 'human_override' || fact.sourceKind === 'human_review')
+    .map((fact) => askFactKey(fact.extractedFrom, fact.fieldKey ?? fact.label)));
+  const unresolved = conflicts.filter((conflict) => !humanKeys.has(askFactKey(conflict.documentId ?? '', conflict.fieldKey)));
+  const conflictKeys = new Set(conflicts.map((conflict) => askFactKey(conflict.documentId ?? '', conflict.fieldKey)));
+  const unique = new Map<string, StructuredFact>();
+  // Preserve the existing stable ranking/lineage order for non-conflicting facts.
+  for (const fact of enhanced) {
+    const key = askFactKey(fact.extractedFrom, fact.fieldKey ?? fact.label);
+    if (conflictKeys.has(key) && fact.sourceKind !== 'human_override' && fact.sourceKind !== 'human_review') continue;
+    const identity = `${key}:${fact.sourceKind}:${JSON.stringify(fact.value)}`;
+    if (!unique.has(identity)) unique.set(identity, fact);
+  }
+  return { facts: [...unique.values()], conflicts: unresolved };
 }
 
 async function loadStructuredFacts(params: {
@@ -604,6 +641,7 @@ async function loadStructuredFacts(params: {
 }): Promise<{
   source: 'canonical_project_facts' | 'document_facts' | 'document_extractions';
   facts: StructuredFact[];
+  conflicts: ActiveExtractionFactConflict[];
 }> {
   const alias = selectFactAlias(params.question);
   const canonicalFacts = buildCanonicalProjectFacts(params.project);
@@ -620,7 +658,7 @@ async function loadStructuredFacts(params: {
   const extractionResult = await params.admin
     .from('document_extractions')
     .select(
-      'id, document_id, field_key, field_type, field_value_text, field_value_number, field_value_date, field_value_boolean, confidence, created_at, documents!inner(id, project_id, organization_id, title, name)',
+      'id, document_id, field_key, field_type, field_value_text, field_value_number, field_value_date, field_value_boolean, source, status, confidence, created_at, documents!inner(id, project_id, organization_id, title, name)',
     )
     .eq('organization_id', params.orgId)
     .eq('status', 'active')
@@ -632,8 +670,12 @@ async function loadStructuredFacts(params: {
   if (extractionResult.error) {
     throw new Error(`Failed to load structured facts: ${extractionResult.error.message}`);
   }
+  if ((extractionResult.data?.length ?? 0) >= 500) {
+    throw new Error('Structured extraction facts reached the read bound; complete conflict verification requires review.');
+  }
 
   const mapped = ((extractionResult.data ?? []) as ExtractionFactRow[])
+    .filter((row) => row.status == null || row.status === 'active')
     .map((row): StructuredFact | null => {
       const document = firstRelation(row.documents);
       const value = extractionValue(row);
@@ -655,20 +697,19 @@ async function loadStructuredFacts(params: {
     })
     .filter((row): row is StructuredFact => row != null);
 
-  const enhanced = await loadFactEnhancements({
+  const resolved = await resolveAskMachineFacts({
     admin: params.admin,
     orgId: params.orgId,
-    facts: mapped,
+    rows: (extractionResult.data ?? []) as ExtractionFactRow[],
+    facts: mergeFacts(mergeFacts(canonicalFacts, documentFacts), mapped),
   });
+  const conflicts = resolved.conflicts.filter((conflict) => scoreMatch({
+    text: humanizeLabel(conflict.fieldKey), keywords: params.question.keywords,
+    exactTerms: alias.phrases, preferredFieldKeys: alias.fieldKeys,
+  }) > 0);
 
   const ranked = rankFacts({
-    facts: mergeFacts(
-      mergeFacts(
-        rankFacts({ facts: canonicalFacts, question: params.question, alias }),
-        documentFacts,
-      ),
-      enhanced,
-    ),
+    facts: resolved.facts,
     question: params.question,
     alias,
   });
@@ -677,12 +718,14 @@ async function loadStructuredFacts(params: {
     return {
       source: structuredFactsSourceForFact(ranked[0]),
       facts: ranked.slice(0, 6),
+      conflicts,
     };
   }
 
   return {
     source: 'document_extractions',
     facts: [],
+    conflicts,
   };
 }
 
@@ -695,11 +738,13 @@ async function loadFactsByFieldKeys(params: {
 }): Promise<{
   source: 'canonical_project_facts' | 'document_facts' | 'document_extractions';
   facts: StructuredFact[];
+  conflicts: ActiveExtractionFactConflict[];
 }> {
   if (params.fieldKeys.length === 0) {
     return {
       source: 'document_extractions',
       facts: [],
+      conflicts: [],
     };
   }
   const canonicalFacts = buildCanonicalProjectFacts(params.project)
@@ -718,7 +763,7 @@ async function loadFactsByFieldKeys(params: {
   const extractionResult = await params.admin
     .from('document_extractions')
     .select(
-      'id, document_id, field_key, field_type, field_value_text, field_value_number, field_value_date, field_value_boolean, confidence, created_at, documents!inner(id, project_id, organization_id, title, name)',
+      'id, document_id, field_key, field_type, field_value_text, field_value_number, field_value_date, field_value_boolean, source, status, confidence, created_at, documents!inner(id, project_id, organization_id, title, name)',
     )
     .eq('organization_id', params.orgId)
     .eq('status', 'active')
@@ -730,8 +775,12 @@ async function loadFactsByFieldKeys(params: {
   if (extractionResult.error) {
     throw new Error(`Failed to load reasoning facts: ${extractionResult.error.message}`);
   }
+  if ((extractionResult.data?.length ?? 0) >= 1000) {
+    throw new Error('Reasoning extraction facts reached the read bound; complete conflict verification requires review.');
+  }
 
   const mapped = ((extractionResult.data ?? []) as ExtractionFactRow[])
+    .filter((row) => row.status == null || row.status === 'active')
     .map((row): StructuredFact | null => {
       const document = firstRelation(row.documents);
       const value = extractionValue(row);
@@ -753,23 +802,25 @@ async function loadFactsByFieldKeys(params: {
     })
     .filter((row): row is StructuredFact => row != null);
 
-  const enhanced = await loadFactEnhancements({
+  const resolved = await resolveAskMachineFacts({
     admin: params.admin,
     orgId: params.orgId,
-    facts: mapped,
+    rows: (extractionResult.data ?? []) as ExtractionFactRow[],
+    facts: mergeFacts(mergeFacts(canonicalFacts, documentFacts), mapped),
   });
-
-  const primaryFacts = mergeFacts(mergeFacts(canonicalFacts, documentFacts), enhanced);
+  const primaryFacts = resolved.facts;
   if (primaryFacts.length > 0) {
     return {
       source: structuredFactsSourceForFact(primaryFacts[0]),
       facts: primaryFacts,
+      conflicts: resolved.conflicts,
     };
   }
 
   return {
     source: 'document_extractions',
     facts: [],
+    conflicts: resolved.conflicts,
   };
 }
 
@@ -1192,6 +1243,7 @@ export async function retrieveProjectTruth(params: {
   });
 
   result.facts = factResult.facts;
+  result.factConflicts = factResult.conflicts;
   result.rawData.structuredFactsSource = factResult.source;
 
   if (reasoningCase) {
@@ -1204,6 +1256,9 @@ export async function retrieveProjectTruth(params: {
     });
 
     result.rawData.reasoningFacts = mergeFacts(result.facts, reasoningFactsResult.facts);
+    const conflictMap = new Map([...factResult.conflicts, ...reasoningFactsResult.conflicts]
+      .map((conflict) => [askFactKey(conflict.documentId ?? '', conflict.fieldKey), conflict]));
+    result.factConflicts = [...conflictMap.values()];
   }
 
   const shouldLoadValidator =

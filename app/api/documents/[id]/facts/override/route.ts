@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { resolveActiveExtractionFacts, type ActiveExtractionFactRow } from '@/lib/extraction/activeFactConflicts';
+import { canonicalEffectiveFactKey } from '@/lib/effectiveFacts';
 import {
   isDocumentFactOverrideActionType,
   mapDocumentFactOverrideRow,
@@ -93,16 +95,20 @@ export async function POST(
     (activeOverrides as Array<Pick<DocumentFactOverrideRow, 'id' | 'field_key' | 'value_json' | 'raw_value' | 'action_type' | 'reason'>> | null)?.[0]?.id ?? null;
   const previousOverride =
     (activeOverrides as Array<Pick<DocumentFactOverrideRow, 'id' | 'field_key' | 'value_json' | 'raw_value' | 'action_type' | 'reason'>> | null)?.[0] ?? null;
-  const { data: machineExtraction } = await admin
+  const { data: machineExtractions, error: machineExtractionsError } = await admin
     .from('document_extractions')
-    .select('field_key, field_value_text, field_value_number, field_value_date, field_value_boolean, confidence, page_number')
+    .select('id, document_id, source, field_key, field_value_text, field_value_number, field_value_date, field_value_boolean, confidence, page_number')
     .eq('organization_id', organizationId)
     .eq('document_id', documentId)
-    .eq('field_key', fieldKey)
-    .eq('status', 'active')
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .not('field_key', 'is', null)
+    .eq('status', 'active');
+  if (machineExtractionsError) return jsonError(machineExtractionsError.message, 500);
+  if ((machineExtractions?.length ?? 0) >= 1000) return jsonError('Complete machine observation history is required before recording a review.', 409);
+  const machineRows = ((machineExtractions ?? []) as ActiveExtractionFactRow[])
+    .filter(row => canonicalEffectiveFactKey(row.field_key) === canonicalEffectiveFactKey(fieldKey));
+  const machineResolution = resolveActiveExtractionFacts(machineRows);
+  const machineExtraction = machineResolution.conflicts.length > 0
+    ? null : machineRows[0] ?? null;
 
   if ((activeOverrides?.length ?? 0) > 0) {
     const { error: deactivateError } = await admin
@@ -162,7 +168,9 @@ export async function POST(
           reason: inserted.reason,
           supersedes_override_id: inserted.supersedes_override_id,
         },
-        originalMachineValue: machineExtraction
+        originalMachineValue: machineResolution.conflicts.length > 0
+          ? { value: null, extraction_conflict: machineResolution.conflicts[0], source_label: 'document_extractions', field_key: fieldKey }
+          : machineExtraction
           ? {
               value: extractionValue(machineExtraction as Record<string, unknown>),
               confidence:

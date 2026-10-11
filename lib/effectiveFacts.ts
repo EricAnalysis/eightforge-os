@@ -1,3 +1,11 @@
+/** Read diagnostic only: does not grant canonical publication or review authority. */
+export type ActiveFactConflictDiagnostic = {
+  state: 'extraction_conflict';
+  value: null;
+  stateReason: 'conflicting_active_extraction_values';
+  requiresReview: true;
+};
+
 export type EffectiveFactSource =
   | 'human_override'
   | 'human_assertion'
@@ -16,6 +24,8 @@ export type EffectiveFactRecord = {
   value: unknown;
   source: EffectiveFactSource;
   evidence?: unknown[];
+  extractionConflict?: ActiveFactConflictDiagnostic;
+  conflictingObservations?: readonly EffectiveFactRecord[];
 };
 
 // Human sources outrank every machine source. Between human channels the
@@ -102,6 +112,11 @@ export function canonicalEffectiveFactKey(fieldKey: string): string {
   return FIELD_KEY_ALIASES[normalized] ?? normalized;
 }
 
+export function effectiveFactValueIdentity(value: unknown): string {
+  if (value instanceof Date) return `date:${Number.isNaN(value.getTime()) ? 'invalid' : value.toISOString()}`;
+  return `${typeof value}:${JSON.stringify(value)}`;
+}
+
 export function effectiveFactPriority(source: EffectiveFactSource): number {
   return SOURCE_PRIORITY[source] ?? 99;
 }
@@ -180,12 +195,31 @@ export function collapseEffectiveFactRecords<T extends EffectiveFactRecord>(
     grouped.set(key, current);
   }
 
-  return [...grouped.values()].map((group) => {
-    if (group.some((fact) => isArrayFact(fact.key, fact.value))) {
+  return [...grouped.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, group]) => {
+    const sorted = [...group].sort(compareEffectiveFactPriority);
+    const normalized = group.filter(fact => fact.source === 'normalized_row');
+    const conflict = normalized.some(fact => fact.extractionConflict?.state === 'extraction_conflict')
+      || (normalized.every(fact => !Array.isArray(fact.value))
+        && new Set(normalized.map(fact => effectiveFactValueIdentity(fact.value))).size > 1);
+    // An unresolved normalized observation cannot be bypassed by another machine layer.
+    // Existing typed human channels retain their existing precedence.
+    if (conflict && !sorted.some(fact => fact.value != null && ['human_override', 'human_assertion', 'human_review'].includes(fact.source))) {
+      const observations = normalized.flatMap(fact => fact.conflictingObservations ?? [fact])
+        .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+      const base = [...observations].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))[0];
+      return {
+        ...base,
+        key: canonicalEffectiveFactKey(base.key),
+        value: null,
+        extractionConflict: { state: 'extraction_conflict', value: null, stateReason: 'conflicting_active_extraction_values', requiresReview: true },
+        conflictingObservations: observations,
+        evidence: observations.flatMap(fact => fact.evidence ?? []),
+      } as unknown as T;
+    }
+    if (!conflict && group.some((fact) => isArrayFact(fact.key, fact.value))) {
       return collapseArrayFacts(group);
     }
-
-    const [winner] = [...group].sort(compareEffectiveFactPriority);
+    const [winner] = sorted;
     return {
       ...winner,
       key: canonicalEffectiveFactKey(winner.key),

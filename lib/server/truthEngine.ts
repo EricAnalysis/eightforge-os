@@ -8,6 +8,7 @@
  */
 
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
+import { resolveActiveExtractionFacts, type ActiveExtractionFactRow } from '@/lib/extraction/activeFactConflicts';
 import { resolveCanonicalProjectFacts } from '@/lib/projectFacts';
 import {
   operatorApprovalLabel,
@@ -348,19 +349,16 @@ async function loadContractFactHints(projectId: string): Promise<{
 
   const { data: factRows } = await admin
     .from('document_extractions')
-    .select('field_key, field_value_text')
+    .select('document_id, field_key, field_value_text')
     .in('document_id', documentIds)
     .eq('status', 'active')
     .in('field_key', ['contract_ceiling_type']);
 
-  const contractCeilingType = ((factRows ?? []) as Array<{
-    field_key: string | null;
-    field_value_text: string | null;
-  }>)
-    .find((row) => row.field_key === 'contract_ceiling_type')
-    ?.field_value_text
-    ?.trim()
-    .toLowerCase() ?? null;
+  const rows = (factRows ?? []) as ActiveExtractionFactRow[];
+  const resolution = resolveActiveExtractionFacts(rows);
+  const values = new Set(rows.map(row => row.field_value_text?.trim().toLowerCase()).filter(Boolean));
+  const contractCeilingType = resolution.conflicts.length === 0 && values.size === 1
+    ? [...values][0] ?? null : null;
 
   return { contractCeilingType };
 }

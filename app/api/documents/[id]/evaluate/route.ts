@@ -168,7 +168,7 @@ export async function POST(
       );
     }
     // ── 3. Load facts (with derived layer) ───────────────────────────────
-    const { facts, derived_facts, extraction_row_count } =
+    const { facts, derived_facts, extraction_row_count, extraction_conflicts } =
       await loadFactsWithDerived({
         documentId,
         domain: document.domain,
@@ -240,6 +240,8 @@ export async function POST(
       domain: document.domain,
       document_type: document.document_type,
       facts_loaded: Object.keys(facts).length,
+      extraction_conflicts,
+      review_required: (extraction_conflicts?.length ?? 0) > 0,
       rules_evaluated: results.length,
       matched_rules: matched.length,
       decisions_created: decisionsResult.created,

@@ -211,6 +211,20 @@ function buildInput(params?: {
 }
 
 describe('contract invoice reconciliation validator', () => {
+  it('withholds conflicting expiration observations instead of reusing a canonical blob date', () => {
+    const input = buildInput();
+    const facts = input.factsByDocumentId.get(CONTRACT_DOCUMENT_ID)!;
+    input.factsByDocumentId.set(CONTRACT_DOCUMENT_ID, facts.map(fact => fact.key === 'expiration_date'
+      ? { ...fact, value: null, extractionConflict: { state: 'extraction_conflict' as const, value: null, stateReason: 'conflicting_active_extraction_values' as const, requiresReview: true as const } }
+      : fact));
+    input.contractValidationContext = {
+      analysis: { contract_identity: {}, term_model: { expiration_date: { value: '2020-01-01' } } },
+    } as ProjectValidatorInput['contractValidationContext'];
+    const result = evaluateContractInvoiceReconciliation(input);
+    assert.equal(result.summary.service_period_status, 'MISSING');
+    assert.equal(result.findings.some(finding => finding.rule_id === 'FINANCIAL_INVOICE_SERVICE_PERIOD_WITHIN_CONTRACT_TERM'), false);
+  });
+
   it('does not block when vendor names only differ by legal suffix and punctuation', () => {
     const input = buildInput({
       invoiceRows: [{

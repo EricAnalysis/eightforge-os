@@ -19,7 +19,8 @@ describe('deterministic source-rule explanations', () => {
       expect(display.category).toBe('Source documents');
       expect(display.raw_key).toBe(finding.rule_id);
       expect(display.explanation).not.toContain('identified an issue');
-      expect(display.recommended_action).toContain('upload or link');
+      // One source: the label recommends exactly what the finding requires.
+      expect(display.recommended_action).toBe(finding.required_action);
     }
     expect(JSON.stringify(findings)).toBe(before);
   });

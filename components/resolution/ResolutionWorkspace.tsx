@@ -299,6 +299,8 @@ export function ResolutionDecisionPane({ entry, forgewingSuggestionsIncluded, sa
   const execution = offeredAction(entry, 'resolve_execution_item');
   const openValidator = offeredAction(entry, 'open_in_validator');
   const openDocument = offeredAction(entry, 'open_document');
+  const uploadDocument = offeredAction(entry, 'upload_document');
+  const openLinkedDocuments = offeredAction(entry, 'open_linked_documents');
   const requestReading = offeredAction(entry, 'request_value_reading');
   const reviewReading = offeredAction(entry, 'review_value_reading');
   const showSuggestions = forgewingSuggestionsIncluded && entry.suggestions.length > 0;
@@ -584,6 +586,12 @@ export function ResolutionDecisionPane({ entry, forgewingSuggestionsIncluded, sa
         ) : null}
         {openDocument ? (
           <Link href={openDocument.href} className="text-[var(--ef-purple-primary)] hover:underline">Open document</Link>
+        ) : null}
+        {openLinkedDocuments ? (
+          <Link href={openLinkedDocuments.href} className="text-[var(--ef-purple-primary)] hover:underline">Open linked documents</Link>
+        ) : null}
+        {uploadDocument ? (
+          <Link href={uploadDocument.href} className="text-[var(--ef-purple-primary)] hover:underline">Upload document</Link>
         ) : null}
       </div>
     </div>

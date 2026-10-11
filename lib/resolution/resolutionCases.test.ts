@@ -203,6 +203,25 @@ describe('ResolutionCase read model (B5-A)', () => {
     expect(byId.get('finding:plain')!.actions.map((action) => action.kind)).toEqual(['open_in_validator']);
   });
 
+  it('offers the rule catalogue actions a finding can use, after the write-path actions (B6.2)', () => {
+    const result = queue({
+      findings: [
+        finding('sources', { category: 'required_sources', rule_id: 'SOURCES_NO_RATE_SCHEDULE' }),
+        finding('cited'),
+      ],
+      evidence: [evidence('cited', 'rate-row-7')],
+    });
+    const byId = new Map(result.cases.map((entry) => [entry.caseId, entry]));
+    expect(byId.get('finding:sources')!.actions).toEqual([
+      { kind: 'open_in_validator', href: `/platform/projects/${PROJECT}?activeTab=validator&selectedIssue=sources#project-validator` },
+      { kind: 'upload_document', href: '/platform/documents' },
+      { kind: 'open_linked_documents', href: `/platform/projects/${PROJECT}#project-documents` },
+    ]);
+    // Evidence that cites a document opens it at the cited page.
+    expect(byId.get('finding:cited')!.actions.map((action) => action.kind)).toEqual(['open_in_validator', 'open_document']);
+    expect(byId.get('finding:cited')!.actions[1]).toEqual({ kind: 'open_document', href: `/platform/documents/${CONTRACT}?page=8` });
+  });
+
   it('names the execution outcome route with the method it accepts', () => {
     const result = queue({
       findings: [finding('executing', { linked_action_id: 'exec-1' })],

@@ -1,3 +1,5 @@
+import { validatorRuleExplanation } from '@/lib/validator/ruleExplanations';
+
 export interface IssueDisplayLabel {
   /** Short operator-facing title. Never a raw key. Max ~60 chars. */
   title: string;
@@ -18,55 +20,7 @@ export interface IssueDisplayLabel {
 type IssueDisplayTemplate = Omit<IssueDisplayLabel, 'raw_key'>;
 
 const ISSUE_DISPLAY_LABELS: Readonly<Record<string, IssueDisplayTemplate>> = {
-  SOURCES_NO_CONTRACT: {
-    title: 'Project contract is missing',
-    explanation: 'The project has no linked contract in its canonical contract context, so validation has no governing contract to check.',
-    recommended_action: 'Review linked documents and upload or link the governing contract.',
-    category: 'Source documents',
-  },
-  SOURCES_NO_RATE_SCHEDULE: {
-    title: 'Required pricing schedule is missing',
-    explanation: 'The governing contract requires pricing support, but validation has neither canonical rate-schedule facts nor a linked pricing schedule.',
-    recommended_action: 'Review the contract and linked pricing documents, then upload or link the required schedule.',
-    category: 'Source documents',
-  },
-  SOURCES_NO_INVOICE_DATA: {
-    title: 'Invoice data is missing',
-    explanation: 'The current billing or closeout validation phase requires invoice data, but validation has no linked invoice documents or extracted invoice rows.',
-    recommended_action: 'Review linked documents and upload or link the invoice data for this phase.',
-    category: 'Source documents',
-  },
-  SOURCES_NO_TICKET_DATA: {
-    title: 'Work support data is missing',
-    explanation: 'The current execution, billing or closeout phase requires work support, but validation has no structured mobile tickets, load tickets or transaction-data rows.',
-    recommended_action: 'Review linked documents and upload or link the ticket or transaction support.',
-    category: 'Source documents',
-  },
-  FINANCIAL_RATE_CODE_MISSING: {
-    title: 'Invoice line missing rate code',
-    explanation:
-      'This invoice line does not include a billing code that matches the project pricing schedule. It cannot be tied to authorized contract rates.',
-    recommended_action:
-      'Review the invoice line and confirm the correct billing code or mark as not applicable.',
-    category: 'Invoice',
-  },
-  TRANSACTION_MISSING_INVOICE_LINK: {
-    title: 'Transaction not linked to invoice',
-    explanation:
-      'A transaction or support row is not connected to the invoice line it is meant to support. The billed work may not have auditable support.',
-    recommended_action:
-      'Link the row to the invoice or exclude it from approval support.',
-    category: 'Support',
-  },
   'contract_intelligence:pricing_applicability_unclear': {
-    title: 'Pricing schedule applicability unresolved',
-    explanation:
-      'A rate schedule exists in the contract, but the applicable pricing basis for the billed work has not been confirmed. Disposal treatment, reimbursement, or other pricing gates leave the governing rates unclear.',
-    recommended_action:
-      'Review the contract pricing clause and confirm which rate schedule governs this work scope.',
-    category: 'Contract',
-  },
-  FINANCIAL_RATE_BASED_PRICING_APPLICABILITY_UNCLEAR: {
     title: 'Pricing schedule applicability unresolved',
     explanation:
       'A rate schedule exists in the contract, but the applicable pricing basis for the billed work has not been confirmed. Disposal treatment, reimbursement, or other pricing gates leave the governing rates unclear.',
@@ -88,22 +42,6 @@ const ISSUE_DISPLAY_LABELS: Readonly<Record<string, IssueDisplayTemplate>> = {
       'The contract contains activation or authorization language, but whether the trigger condition has been met is not resolved in the document alone.',
     recommended_action:
       'Confirm whether work authorization is in effect and attach any required authorization document.',
-    category: 'Contract',
-  },
-  FINANCIAL_RATE_BASED_ACTIVATION_GATE_UNRESOLVED: {
-    title: 'Contract activation needs confirmation',
-    explanation:
-      'The contract contains activation or authorization language, but whether the trigger condition has been met is not resolved in the document alone.',
-    recommended_action:
-      'Confirm whether work authorization is in effect and attach any required authorization document.',
-    category: 'Contract',
-  },
-  CONTRACT_RATE_SCHEDULE_HINT_MISMATCH: {
-    title: 'Rate schedule hint not extracted',
-    explanation:
-      'Upload guidance says this contract includes a rate schedule, but extraction did not produce any canonical rate rows.',
-    recommended_action:
-      'Review the hinted schedule location, correct the guidance if needed, and re-run contract extraction.',
     category: 'Contract',
   },
   contract_ceiling_missing: {
@@ -175,6 +113,16 @@ export function getIssueDisplayLabel(
 ): IssueDisplayLabel {
   const raw_key = rawKey ?? '';
   const normalizedKey = rawKey ? normalizeKey(rawKey) : '';
+  const rule = validatorRuleExplanation(normalizedKey);
+  if (rule) {
+    return {
+      title: rule.title,
+      explanation: rule.explanation,
+      recommended_action: rule.requiredAction,
+      category: rule.category,
+      raw_key,
+    };
+  }
   const template = normalizedKey ? ISSUE_DISPLAY_LABELS[normalizedKey] : null;
 
   if (template) {

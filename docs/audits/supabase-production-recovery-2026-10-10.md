@@ -9,6 +9,18 @@ exhaustive field/action/history parity. Earlier stop states below describe the
 recovery chronology and are superseded. The newly exposed conflicting active
 fact defect is recorded separately and does not invalidate DN acceptance.
 
+**2026-10-11 closeout:** Ask repair PR #206 merged at
+`167d485001093aa8a7bf27272e010c3666520482`; rebased active-fact conflict PR #205
+merged at `75e7df032db8578b1da777f58b773a7b4cdd569c`. Both waited for green Ask,
+both full Vitest lanes and Vercel preview, then merged manually. The historical
+draft/blocked states below are superseded. See
+`docs/ask/ask-diagnostic-gate-audit.md` for the complete classification and proof.
+No production credentials were added to CI. The conflict fix retains all
+observations and accepted human authority without selecting either date. No
+production rewrite, re-analysis or qualification call occurred. Merged code is
+not itself evidence of production deployment. The blob/UI limitation, Browser E
+coverage limits and frozen disk-blocked qualification result below remain.
+
 ## Confirmed symptoms
 
 The owner independently reproduced `SELECT 1` failing in SQL Editor with

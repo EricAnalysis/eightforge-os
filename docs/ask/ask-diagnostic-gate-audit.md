@@ -4,7 +4,8 @@ Date: 2026-10-10. Phase A baseline: main
 `322ca483abf763b81b1463da995cf96155dcf6db`. Conflict candidate: PR #205,
 `6b2443bb7136a70197c8092d90546647954d29c9`.
 
-**The gate is not green. PR #205 remains draft and must not merge on this audit.**
+**Phase A checkpoint: the gate was not green and #205 could not merge on this
+audit alone.** The completed Phase B/merge evidence is recorded below.
 The corpus expansion was intentional, the CI count is stale, and genuine Ask
 answer-selection defects coexist with stale diagnostic scoring and mutable
 integration data. Correcting the count alone cannot establish acceptance.
@@ -182,8 +183,7 @@ unsupported statements; preserving it would preserve fabricated capability.
 
 Local checks: 87 Ask tests pass, the 60-query fixture has zero correctness
 failures, and `npx tsc --noEmit` passes. Identity drift is enforced rather than
-normalized away. Required CI and final independent review are pending at this
-checkpoint. Commands:
+normalized away. Commands:
 
 ```text
 npx vitest run lib/ask --reporter=dot
@@ -191,7 +191,23 @@ npx vitest run --config scripts/ask/vitest.hermetic.config.ts --pool forks
 npx tsc --noEmit
 ```
 
-PR #205 may be reconsidered only after the correctly repaired gate is green,
-then rebased with affected conflict/Ask/Validator checks and required CI. This
-audit does not grant that acceptance and does not change source preference,
-human authority, frozen qualification thresholds, or production truth.
+## Completed merge evidence (2026-10-11)
+
+PR #206 head `b892a06629c0b0de7e625fdaa78bab10feb669b5` passed independent
+review after fixes, Ask CI run `38149934962`, both full Vitest lanes
+`38149932382` / `38149935085`, and Vercel preview. It merged manually as
+`167d485001093aa8a7bf27272e010c3666520482`.
+
+PR #205 rebased cleanly to `43e410cb05deff70488fda9e3983b2a90da22b02`.
+Range-diff proves its two conflict patches unchanged. Local dependent checks
+passed 591 tests / 63 files, TypeScript and three hermetic harness tests. Ask
+CI `38150685515`, full Vitest `38150683204` / `38150685530`, and Vercel preview
+passed before it was marked ready and merged manually as
+`75e7df032db8578b1da777f58b773a7b4cdd569c`.
+
+Both CI correctness artifacts match the local Ask repair artifact byte-for-byte:
+SHA-256 `59fd4cfe58a07da660c0a93199982f3a7c44547a0e487d83093498a6f0177374`.
+This proves the pinned correctness contract, not absence of live capability gaps.
+No production credentials were added, production analysis rerun, paid call made,
+or frozen qualification threshold changed. Production deployment is not inferred
+from these merges.

@@ -918,6 +918,7 @@ function isTotalLineageQuestion(question: ClassifiedQuestion, facts: StructuredF
   const text = question.originalQuestion.toLowerCase();
   return (
     facts.some((fact) => canonicalFieldKey(fact.fieldKey ?? fact.label) === 'total_billed') &&
+    /\b(?:total|billed|amount)\b/.test(text) &&
     (text.includes('come from') || text.includes('where did') || text.includes('source'))
   );
 }
@@ -1125,10 +1126,26 @@ export function buildAskResponse(params: {
     });
   }
 
-  const directAnswer = directCanonicalReadAnswer({
-    question: params.question,
-    retrieval: params.retrieval,
+  // Preserve direct scalar and lineage reads, but do not let an unrelated
+  // highest-ranked fact preempt a typed readiness/support/review selector.
+  const scalarText = params.question.originalQuestion.toLowerCase();
+  const directScalarQuestion = /^(?:what is|what's|how much (?:is|has))\b/i.test(scalarText)
+    && !/\b(?:risk|exposure|supported|unsupported|next|ready|review|correct|exception|governing|documentation|required)\b/i.test(scalarText);
+  const requestedScalarKey = /\bbilled\b/.test(scalarText) ? 'total_billed'
+    : /\b(?:nte|ceiling)\b/.test(scalarText) ? 'nte_amount'
+    : /\b(?:contractor|vendor)\b/.test(scalarText) ? 'contractor_name' : null;
+  const scalarFacts = params.retrieval.facts.filter((fact) => {
+    const key = canonicalFieldKey(fact.fieldKey ?? fact.label);
+    return requestedScalarKey ? key === requestedScalarKey || (requestedScalarKey === 'nte_amount' && key === 'contract_ceiling')
+      : key.split('_').every((word) => word.length > 1 && scalarText.split(/\W+/).includes(word));
   });
+  const lineageAnswer = isTotalLineageQuestion(params.question, params.retrieval.facts)
+    ? buildTotalLineageAnswer(params.retrieval.facts)
+    : null;
+  const directAnswer = lineageAnswer ?? ((matchedLayer === 'relationships' || directScalarQuestion) ? directCanonicalReadAnswer({
+    question: params.question,
+    retrieval: matchedLayer === 'relationships' ? params.retrieval : { ...params.retrieval, facts: scalarFacts },
+  }) : null);
   if (directAnswer) {
     answer = directAnswer.answer;
     sources = directAnswer.sources;
@@ -1155,7 +1172,7 @@ export function buildAskResponse(params: {
         project: params.project,
         projectId: params.projectId,
       }, routerResult.intent);
-  const selectorReturnedGap = selectorAnswer?.confidence === 'not_found';
+  const selectorReturnedGap = selectorAnswer?.confidence === 'not_found' && directAnswer == null;
 
   const selectorGap = buildProjectUpstreamGap({
     question: params.question,
@@ -1163,9 +1180,10 @@ export function buildAskResponse(params: {
     selectorReturnedGap,
   });
   if (selectorReturnedGap && selectorGap) {
+    const selectedMissing = selectorAnswer.value?.match(/Missing upstream field:\s*(.+)/i)?.[1];
     return buildActionableProjectGapResponse({
       question: params.question,
-      gap: selectorGap,
+      gap: selectedMissing ? { ...selectorGap, missing: selectedMissing } : selectorGap,
       projectId: params.projectId,
       orgId: params.orgId,
       retrievalUsed: matchedLayer,
@@ -1173,10 +1191,12 @@ export function buildAskResponse(params: {
     });
   }
 
+  let usedSelectorAnswer = false;
   if (!answer && selectorAnswer?.value && selectorAnswer.sourceId) {
     answer = selectorAnswer.value;
     sources = selectorAnswer.sources;
     limitations = [];
+    usedSelectorAnswer = true;
   }
 
   if (!answer && matchedLayer === 'relationships' && params.retrieval.relationships.length > 0) {
@@ -1350,11 +1370,14 @@ export function buildAskResponse(params: {
   if (guardedRead.fallbackUsed && !limitations.some((limitation) => limitation.toLowerCase().includes('raw extraction fallback'))) {
     limitations = ['Unverified - raw extraction fallback.', ...limitations];
   }
-  const upstreamGap = detectUpstreamGap({
+  const hasSelectedCanonicalAnswer = usedSelectorAnswer && selectorAnswer?.confidence === 'verified'
+    && selectorAnswer.sources.length > 0 && !selectorAnswer.isFallback;
+  const hasDirectSourcedAnswer = directAnswer != null && directAnswer.sources.length > 0;
+  const upstreamGap = hasSelectedCanonicalAnswer || hasDirectSourcedAnswer ? null : detectUpstreamGap({
     question: params.question,
     retrieval: params.retrieval,
   });
-  const selectorReturnedExecutionSummary = selectorAnswer?.confidence === 'verified' && selectorAnswer.sourceLayer === 'execution_summary';
+  const selectorReturnedExecutionSummary = usedSelectorAnswer && selectorAnswer?.confidence === 'verified' && selectorAnswer.sourceLayer === 'execution_summary';
   const canonical = formatCanonicalProjectAnswer({
     answer,
     sources,

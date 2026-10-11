@@ -62,6 +62,7 @@ supabase/.temp/
 response*.json
 
 # Python caches
+scripts/ask/artifacts/
 __pycache__/
 *.py[cod]
 

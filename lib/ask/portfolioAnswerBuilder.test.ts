@@ -2,9 +2,8 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'vitest';
 import { buildPortfolioAskAnswer } from '@/lib/ask/portfolioAnswerBuilder';
 
-describe('portfolio ask answer builder', () => {
-  it('presents upstream portfolio exposure and pattern aggregates without recomputing them from affected projects', () => {
-    const response = buildPortfolioAskAnswer({
+function fixture(): Parameters<typeof buildPortfolioAskAnswer>[0] {
+    return {
       question: 'What needs portfolio attention?',
       promptVersion: 'test',
       stalenessByProjectId: new Map(),
@@ -125,12 +124,44 @@ describe('portfolio ask answer builder', () => {
           },
         ],
       },
-    });
+    };
+}
 
+describe('portfolio ask answer builder', () => {
+  it('presents upstream portfolio exposure and pattern aggregates without recomputing them from affected projects', () => {
+    const response = buildPortfolioAskAnswer(fixture());
     assert.equal(response.portfolioSections?.financialExposure.totalAtRiskAmount, 1000);
     assert.match(response.answer ?? '', /Total at risk amount: \$1,000\./);
     assert.equal(response.portfolioSections?.projectsAffected[0]?.openExecutionItemCount, 2);
     assert.equal(response.portfolioSections?.patternDetected.label, 'Repeated rate mismatch aggregate across 3 canonical finding signals.');
     assert.deepEqual(response.portfolioSections?.patternDetected.affectedProjects, []);
+  });
+
+  it.each(['Which projects are blocked?', 'Which projects are ready for approval?', 'Which projects have stale validation snapshots?'])(
+    'reads the canonical status aggregate before declaring it absent: %s', (question) => {
+      const input = fixture();
+      input.question = question;
+      const response = buildPortfolioAskAnswer(input);
+      assert.equal(response.dataFound, true);
+      assert.ok(response.sources.includes('portfolio-safe project status aggregate'));
+      assert.doesNotMatch(response.answer ?? '', /isn't answerable/);
+      if (question.includes('blocked')) {
+        assert.match(response.answer ?? '', /Project One/);
+        assert.equal(response.portfolioSections?.projectsAffected[0]?.projectId, 'project-1');
+      } else {
+        assert.match(response.answer ?? '', /project count 0/);
+        assert.equal(response.nextActions?.[0]?.label, 'No action required');
+      }
+    },
+  );
+
+  it('preserves an explicit refusal for the absent ceiling-proximity aggregate', () => {
+    const input = fixture();
+    input.question = 'Which projects are approaching contract ceiling?';
+    const response = buildPortfolioAskAnswer(input);
+    assert.equal(response.dataFound, false);
+    assert.match(response.answer ?? '', /isn't answerable/);
+    assert.match(response.answer ?? '', /ceiling/i);
+    assert.equal(response.nextActions?.[0]?.label, 'Open Portfolio');
   });
 });

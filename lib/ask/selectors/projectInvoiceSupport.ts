@@ -8,11 +8,41 @@ import { resolveCanonicalProjectValidationSnapshot } from '@/lib/projectFacts';
 import type { ProjectSelectorParams, SelectorAnswer } from '@/lib/ask/selectors';
 import {
   factValue,
-  fallbackSource,
   formatCurrency,
-  selectedSources,
   sourceId,
+  sourceFromFinding,
+  sourceFromFact,
 } from './selectorUtils';
+
+function rateFindingAnswer(params: ProjectSelectorParams, missingRate: boolean): SelectorAnswer {
+  const findings = params.retrieval.validatorFindings.filter((finding) => {
+    const statement = finding.description;
+    if (!/invoice|billed|line item/i.test(statement)) return false;
+    return missingRate
+      ? /(?:missing|no|not found|absent|unmatched).*(?:contract rate|rate[- ](?:table|row|schedule))|(?:contract rate|rate[- ](?:table|row|schedule)).*(?:missing|not found|absent)/i.test(statement)
+      : /rate/i.test(statement) && /contract|expected/i.test(statement) && /mismatch|matches|compared|comparison|actual|billed/i.test(statement);
+  });
+  if (findings.length === 0) {
+    const missing = missingRate ? 'invoice line missing-contract-rate findings' : 'invoice line contract-rate comparison findings';
+    const message = `This cannot be answered from current canonical system truth. Missing upstream field: Validator ${missing} with source evidence.`;
+    return {
+      value: message, sourceLayer: 'validation_snapshot', sourceId: `project:${params.projectId}:missing-rate-findings`,
+      isFallback: false, isStale: false, confidence: 'not_found', evidence: [], sources: [],
+      validationState: 'Not Found', gateImpact: 'Contract-rate correctness remains unproven.',
+      nextAction: 'Run Validator', findings: [],
+    };
+  }
+  const sources = findings.map(sourceFromFinding);
+  return {
+    value: `Stored validator rate findings: ${findings.map((finding) => finding.description).join(' ')}`,
+    sourceLayer: 'validation_snapshot', sourceId: sourceId(sources[0]),
+    isFallback: false, isStale: false, confidence: 'verified',
+    evidence: findings.map((finding, index) => ({ label: sources[index].label, value: finding.description, sourceId: sourceId(sources[index]) })),
+    sources, validationState: 'Requires Review',
+    gateImpact: 'Review the stored rate findings; these observations do not establish correctness of every invoice line.',
+    nextAction: 'Open Validator', findings,
+  };
+}
 
 function validationStateFromCanonicalStatus(status: string | null | undefined): SelectorAnswer['validationState'] {
   switch (status) {
@@ -31,48 +61,69 @@ function validationStateFromCanonicalStatus(status: string | null | undefined): 
 
 export function selectProjectInvoiceSupport(params: ProjectSelectorParams): SelectorAnswer {
   const text = params.question.originalQuestion.toLowerCase();
+  if (text.includes('correct contract rates')) return rateFindingAnswer(params, false);
+  if (text.includes('missing from the contract rate table')) return rateFindingAnswer(params, true);
   const snapshot = resolveCanonicalProjectValidationSnapshot({
     validationStatus: params.project.validationStatus,
     validationSummary: params.project.validationSummary,
   });
   const invoices = snapshot.invoice_summaries;
   const facts = params.retrieval.facts;
-  const findings = params.retrieval.validatorFindings;
   const totalBilledFact = factValue(facts, ['total_billed']);
   const nteFact = factValue(facts, ['nte_amount', 'contract_ceiling']);
-  const invoiceLines = invoices.length > 0
-    ? invoices.map((invoice) =>
-        `Invoice ${invoice.invoice_number ?? 'unknown'} billed ${formatCurrency(invoice.billed_amount)}; supported amount ${formatCurrency(invoice.supported_amount)}; unsupported amount ${formatCurrency(invoice.at_risk_amount)}; approval ${invoice.approval_status}; support source ${invoice.billed_amount_source}.`,
-      ).join(' ')
-    : 'Invoice support source is validator-backed project facts.';
-  const exposureText =
-    `Total exposure ${formatCurrency(snapshot.facts.total_at_risk)}; supported ${formatCurrency(snapshot.facts.exposure?.total_transaction_supported_amount ?? null)}; unsupported ${formatCurrency(snapshot.facts.unsupported_amount)}; validator source.`;
-  let answer =
-    `Invoice support selector: ${invoiceLines} ${exposureText}`;
-
-  if (text.includes('unsupported')) {
-    answer = `Unsupported invoice amounts: ${invoiceLines} Missing support or mismatch basis comes from validator source.`;
-  } else if (text.includes('fully supported')) {
-    answer = `Fully supported invoice amounts: ${invoiceLines} Each support source is the canonical invoice exposure summary.`;
-  } else if (text.includes('invoice exposure')) {
-    answer = `Invoice exposure selector: ${exposureText}`;
-  } else if (text.includes('correct contract rates')) {
-    answer = `Invoice contract rate validation: invoice line evidence uses expected contract rate from contract source and actual rate from validator source. ${findings[0]?.description ?? 'Current validator rate findings are the canonical source.'}`;
-  } else if (text.includes('missing from the contract rate table')) {
-    answer = `Invoice line items missing contract rate table: invoice line category and line item basis are read from validator findings; missing contract rate table basis ${findings[0]?.description ?? 'validator source'}.`;
-  } else if (text.includes('contract ceiling')) {
-    answer =
-      `Contract ceiling proximity: NTE ceiling ${formatCurrency(typeof nteFact?.value === 'number' ? nteFact.value : snapshot.facts.nte_amount)}; ` +
-      `billed total ${formatCurrency(typeof totalBilledFact?.value === 'number' ? totalBilledFact.value : snapshot.facts.total_billed)}; remaining or overage source is canonical project validation snapshot.`;
-  }
-
-  const sources = selectedSources({
-    facts: [totalBilledFact, nteFact].filter((fact): fact is NonNullable<typeof fact> => fact != null),
-    findings,
-    projectId: params.projectId,
-    fallbackLabel: 'Canonical invoice exposure source',
+  const number = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
+  const missing = (field: string): SelectorAnswer => ({
+    value: `This cannot be answered from current canonical system truth. Missing upstream field: ${field}.`,
+    sourceLayer: 'validation_snapshot', sourceId: `project:${params.projectId}:missing-invoice-support`,
+    isFallback: false, isStale: false, confidence: 'not_found', evidence: [], sources: [],
+    validationState: 'Not Found', gateImpact: 'Invoice support and ceiling conclusions remain unproven.',
+    nextAction: 'Run Validator', findings: [],
   });
-  const firstSource = sources[0] ?? fallbackSource(params.projectId, 'Canonical invoice exposure source');
+  if (/ticket costs/i.test(text)) return missing('Validator ticket-specific unsupported cost amounts with ticket identity and source evidence');
+  const ceiling = text.includes('contract ceiling');
+  const exposure = text.includes('invoice exposure') || text.includes('at risk');
+  const invoiceAmounts = text.includes('unsupported') || text.includes('fully supported');
+  const billed = number(totalBilledFact?.value) ? totalBilledFact.value : snapshot.facts.total_billed;
+  const nte = number(nteFact?.value) ? nteFact.value : snapshot.facts.nte_amount;
+  if (ceiling && (!number(billed) || !number(nte))) {
+    return missing('canonical total_billed and nte_amount');
+  }
+  if (exposure && !number(snapshot.facts.total_at_risk)) {
+    return missing('Validator invoice exposure total_at_risk');
+  }
+  if (invoiceAmounts && (invoices.length === 0 || invoices.some(invoice =>
+    !invoice.invoice_number || !number(invoice.billed_amount) || !number(invoice.supported_amount)
+    || !number(invoice.at_risk_amount)))) {
+    return missing('Validator invoice_summaries with invoice identity, billed_amount, supported_amount and at_risk_amount');
+  }
+  if (!ceiling && !exposure && !invoiceAmounts) return missing('requested typed invoice support summary');
+
+  const invoiceLines = invoices.map(invoice =>
+    `Invoice ${invoice.invoice_number} billed ${formatCurrency(invoice.billed_amount)}; supported amount ${formatCurrency(invoice.supported_amount)}; unsupported amount ${formatCurrency(invoice.at_risk_amount)}; approval ${invoice.approval_status}; support source ${invoice.billed_amount_source}.`,
+  ).join(' ');
+  const exposureText = `Total exposure ${formatCurrency(snapshot.facts.total_at_risk)}`
+    + (number(snapshot.facts.exposure?.total_transaction_supported_amount)
+      ? `; supported ${formatCurrency(snapshot.facts.exposure.total_transaction_supported_amount)}` : '')
+    + (number(snapshot.facts.unsupported_amount) ? `; unsupported ${formatCurrency(snapshot.facts.unsupported_amount)}` : '')
+    + '; validator snapshot source.';
+  const answer = ceiling
+    ? `Stored contract ceiling and billed amounts: NTE ceiling ${formatCurrency(nte)}; billed total ${formatCurrency(billed)}. No remaining amount, overage or proximity conclusion is available in this read.`
+    : exposure ? `Invoice exposure selector: ${exposureText}`
+    : text.includes('fully supported')
+      ? `Fully supported invoice amounts: ${invoiceLines} Each support source is the canonical invoice exposure summary.`
+      : `Unsupported invoice amounts: ${invoiceLines} Missing support or mismatch basis comes from validator source.`;
+  // Only the fields actually used in this answer provide its evidence. An
+  // unrelated finding or billed scalar cannot establish invoice support.
+  const sources = ceiling
+    ? [totalBilledFact, nteFact].filter((fact): fact is NonNullable<typeof fact> => fact != null && number(fact.value)).map(sourceFromFact)
+    : [];
+  if (!ceiling || !number(totalBilledFact?.value) || !number(nteFact?.value)) {
+    sources.unshift({ type: 'validator', label: ceiling ? 'Canonical ceiling snapshot' : 'Canonical invoice exposure snapshot',
+      snippet: ceiling ? answer : exposure ? exposureText : invoiceLines, confidence: 96,
+      timestamp: snapshot.facts.last_run_at ?? new Date(0).toISOString(),
+      factId: `project:${params.projectId}:validator-summary` });
+  }
+  const firstSource = sources[0];
 
   return {
     value: answer,
@@ -80,7 +131,7 @@ export function selectProjectInvoiceSupport(params: ProjectSelectorParams): Sele
     sourceId: sourceId(firstSource),
     isFallback: false,
     isStale: false,
-    confidence: firstSource.factId?.includes(':validator-summary') ? 'partial' : 'verified',
+    confidence: 'verified',
     evidence: sources.map((source) => ({
       label: source.label,
       value: source.snippet ?? source.label,
@@ -90,6 +141,6 @@ export function selectProjectInvoiceSupport(params: ProjectSelectorParams): Sele
     validationState: validationStateFromCanonicalStatus(snapshot.facts.status),
     gateImpact: 'Affects invoice readiness, unsupported amount review, contract rate validation, and payment release.',
     nextAction: firstSource.type === 'validator' ? 'Open Validator' : 'Open Evidence',
-    findings,
+    findings: [],
   };
 }

@@ -159,15 +159,6 @@ export function buildPortfolioAskAnswer(params: {
       routerResult,
     });
   }
-  const upstreamGap = buildPortfolioUpstreamGap(params.question);
-  if (upstreamGap) {
-    return buildPortfolioGapAnswer({
-      question: params.question,
-      promptVersion: params.promptVersion,
-      gap: upstreamGap,
-    });
-  }
-
   const metricsByProjectId = new Map(params.portfolio.topRiskProjects.map((project) => [project.projectId, project] as const));
   const signals = params.operations.project_rollups.map((item, index): PortfolioProjectSignal => {
     const metrics = metricsByProjectId.get(item.project.id);
@@ -359,12 +350,25 @@ export function buildPortfolioAskAnswer(params: {
     })),
   );
 
-  return selectPortfolioProjectStatus({
+  const selected = selectPortfolioProjectStatus({
     question: params.question,
     portfolio: params.portfolio,
     operations: params.operations,
     stalenessByProjectId: params.stalenessByProjectId,
     projectStatusAggregate,
     base,
-  }) ?? base;
+  });
+  if (selected) return selected;
+
+  // Read an available canonical aggregate before declaring its field absent.
+  // Unsupported aggregates (for example ceiling proximity) still fail closed.
+  const upstreamGap = buildPortfolioUpstreamGap(params.question);
+  if (upstreamGap) {
+    return buildPortfolioGapAnswer({
+      question: params.question,
+      promptVersion: params.promptVersion,
+      gap: upstreamGap,
+    });
+  }
+  return base;
 }

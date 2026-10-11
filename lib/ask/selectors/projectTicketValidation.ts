@@ -6,7 +6,7 @@
 // + matrixSourced + matrixEvidenceAdequate.
 import type { ProjectSelectorParams, SelectorAnswer } from '@/lib/ask/selectors';
 import { resolveCanonicalProjectValidationSnapshot } from '@/lib/projectFacts';
-import { fallbackSource, selectedSources, sourceId } from './selectorUtils';
+import { sourceFromFinding, sourceId } from './selectorUtils';
 
 function validationStateFromCanonicalStatus(status: string | null | undefined): SelectorAnswer['validationState'] {
   switch (status) {
@@ -29,40 +29,40 @@ export function selectProjectTicketValidation(params: ProjectSelectorParams): Se
     validationStatus: params.project.validationStatus,
     validationSummary: params.project.validationSummary,
   });
-  const findings = params.retrieval.validatorFindings;
-  const top = findings[0];
-  const ticketId = top?.factId ?? top?.documentId ?? top?.id ?? 'validator-ticket-scope';
-  let answer =
-    `Ticket correction selector: ticket ${ticketId}; correction reason ${top?.description ?? 'validator evidence'}; validator evidence source.`;
-
-  if (text.includes('missing disposal')) {
-    answer =
-      `Tickets with missing disposal site, material, CYD, tonnage, or mileage: ticket ${ticketId}; missing fields disposal site material CYD tonnage mileage; source evidence ${top?.description ?? 'validator evidence'}.`;
-  } else if (text.includes('rate-code')) {
-    answer =
-      `Tickets with rate-code mismatch: ticket ${ticketId}; invoice rate code compared to expected contract rate-code; evidence ${top?.description ?? 'validator evidence'}.`;
-  } else if (text.includes('unresolved by reviewer')) {
-    answer =
-      `Tickets unresolved by reviewer: ticket ${ticketId}; reviewer review status open; finding or action ${top?.linkedActionId ?? top?.id ?? 'validator action'} remains open.`;
-  }
-
-  const sources = selectedSources({
-    findings,
-    projectId: params.projectId,
-    fallbackLabel: 'Project validator ticket evidence',
+  const missingFields = text.includes('missing disposal');
+  const rateCode = /rate[- ]code/.test(text);
+  const reviewer = text.includes('unresolved by reviewer');
+  const findings = params.retrieval.validatorFindings.filter((finding) => {
+    const statement = finding.description;
+    if (!/\bticket\b/i.test(statement)) return false;
+    if (missingFields) return /missing|absent|not recorded/i.test(statement) && /disposal site|material|\bCYD\b|tonnage|mileage/i.test(statement);
+    if (rateCode) return /rate[- ]code/i.test(statement) && /mismatch|does not match|different/i.test(statement);
+    if (reviewer) return /reviewer|review status/i.test(statement) && /unresolved|pending|open/i.test(statement);
+    return /correction|incorrect|missing|mismatch|invalid/i.test(statement);
   });
-  const firstSource = sources[0] ?? fallbackSource(params.projectId, 'Project validator ticket evidence');
+  if (findings.length === 0) {
+    const field = missingFields ? 'ticket missing-field findings' : rateCode ? 'ticket rate-code mismatch findings' : reviewer ? 'ticket reviewer-status findings' : 'ticket correction findings';
+    return {
+      value: `This cannot be answered from current canonical system truth. Missing upstream field: Validator ${field} with ticket identity and source evidence.`,
+      sourceLayer: 'validation_snapshot', sourceId: `project:${params.projectId}:missing-ticket-findings`,
+      isFallback: false, isStale: false, confidence: 'not_found', evidence: [], sources: [],
+      validationState: 'Not Found', gateImpact: 'Ticket conclusions remain unproven without matching stored evidence.',
+      nextAction: 'Run Validator', findings: [],
+    };
+  }
+  const sources = findings.map(sourceFromFinding);
+  const firstSource = sources[0];
 
   return {
-    value: answer,
+    value: `Stored validator ticket findings: ${findings.map((finding) => finding.description).join(' ')}`,
     sourceLayer: 'validation_snapshot',
     sourceId: sourceId(firstSource),
     isFallback: false,
     isStale: false,
-    confidence: firstSource.factId?.includes(':validator-summary') ? 'partial' : 'verified',
-    evidence: sources.map((source) => ({
+    confidence: 'verified',
+    evidence: sources.map((source, index) => ({
       label: source.label,
-      value: source.snippet ?? source.label,
+      value: findings[index].description,
       sourceId: sourceId(source),
     })),
     sources,

@@ -12,6 +12,7 @@ import {
   humanize,
   selectedSources,
   sourceId,
+  sourceFromFinding,
 } from './selectorUtils';
 
 function validationStateFromCanonicalStatus(status: string | null | undefined): SelectorAnswer['validationState'] {
@@ -374,6 +375,27 @@ export function selectProjectApprovalExecutionState(params: ProjectSelectorParam
     };
   }
 
+  const storedSummary = params.project.validationSummary;
+  if (storedSummary == null || typeof storedSummary !== 'object' || Array.isArray(storedSummary)
+    || !('status' in storedSummary) || typeof storedSummary.status !== 'string'
+    || !('blocker_count' in storedSummary) || typeof storedSummary.blocker_count !== 'number' || !Number.isFinite(storedSummary.blocker_count)
+    || !('warning_count' in storedSummary) || typeof storedSummary.warning_count !== 'number' || !Number.isFinite(storedSummary.warning_count)) {
+    const blockingFindings = params.retrieval.validatorFindings.filter((finding) => finding.blocksProject);
+    if (blockingFindings.length > 0 && /blocked|blocking|preventing|action before approval/.test(text)) {
+      const sources = blockingFindings.map(sourceFromFinding);
+      return {
+        value: `Stored approval-blocking findings: ${blockingFindings.map((finding) => finding.description).join(' ')}. Readiness and total blocker counts are not available in this read.`,
+        sourceLayer: 'validation_snapshot', sourceId: sourceId(sources[0]),
+        isFallback: false, isStale: false, confidence: 'verified',
+        evidence: blockingFindings.map((finding, index) => ({ label: sources[index].label,
+          value: finding.description, sourceId: sourceId(sources[index]) })), sources,
+        validationState: 'Blocked', gateImpact: 'Stored findings block approval.', nextAction: 'Open Validator',
+        findings: blockingFindings, decisions: [],
+      };
+    }
+    return upstreamGapAnswer(params,
+      'This cannot be answered from current canonical system truth. Missing upstream field: persisted validation status, blocker_count and warning_count for approval readiness.');
+  }
   const context = params.retrieval.rawData.validatorContext;
   const findings = params.retrieval.validatorFindings;
   const decisions = params.retrieval.decisions;
@@ -412,6 +434,18 @@ export function selectProjectApprovalExecutionState(params: ProjectSelectorParam
     projectId: params.projectId,
     fallbackLabel: 'Project validator approval status source',
   });
+  // A persisted validation snapshot is the source of readiness/counts even
+  // when retrieval has no matching individual finding or scalar fact.
+  if (storedSummary != null && typeof storedSummary === 'object' && !Array.isArray(storedSummary)
+    && 'status' in storedSummary && typeof storedSummary.status === 'string'
+    && 'blocker_count' in storedSummary && typeof storedSummary.blocker_count === 'number'
+    && 'warning_count' in storedSummary && typeof storedSummary.warning_count === 'number') {
+    sources.unshift(sourceForPrebuiltField({
+      type: 'validator', label: 'Canonical project validation snapshot',
+      snippet: `Readiness ${status}; blocker count ${blockerCount}; warning count ${warningCount}`,
+      sourceId: `project:${params.projectId}:validator-summary`,
+    }));
+  }
   const firstSource = sources[0] ?? fallbackSource(params.projectId, 'Project validator approval status source');
 
   return {
@@ -420,7 +454,8 @@ export function selectProjectApprovalExecutionState(params: ProjectSelectorParam
     sourceId: sourceId(firstSource),
     isFallback: false,
     isStale: false,
-    confidence: firstSource.factId?.includes(':validator-summary') ? 'partial' : 'verified',
+    confidence: firstSource.label === 'Canonical project validation snapshot' ? 'verified'
+      : firstSource.factId?.includes(':validator-summary') ? 'partial' : 'verified',
     evidence: sources.map((source) => ({
       label: source.label,
       value: source.snippet ?? source.label,

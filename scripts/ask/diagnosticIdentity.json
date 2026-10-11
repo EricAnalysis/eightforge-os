@@ -1,0 +1,9 @@
+{
+  "corpusVersion": "ask-operator-corpus-60-v1",
+  "corpusSha256": "86825d4e2e7a9e43d9ca5d1acd0f21c0592edb75c72d7348f0f258091001f164",
+  "fixtureVersion": "ask-synthetic-canonical-v1",
+  "inputSha256": "a6667ed292405cd196308842af5dec6e3d3dc7eab73cb0fe6af64d9362a488e6",
+  "contractSha256": "176935a28623ca2cbc37ebf47b2e7c93e022304eb18ee7a88634f83e644cde9a",
+  "expectedMaterialCoverage": 25,
+  "expectedRefusalCoverage": 35
+}

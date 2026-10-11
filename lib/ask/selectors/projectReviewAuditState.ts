@@ -6,7 +6,7 @@
 // + matrixSourced + matrixEvidenceAdequate.
 import type { ProjectSelectorParams, SelectorAnswer } from '@/lib/ask/selectors';
 import { resolveCanonicalProjectValidationSnapshot } from '@/lib/projectFacts';
-import { fallbackSource, selectedSources, sourceId } from './selectorUtils';
+import { fallbackSource, sourceId, sourceFromFact } from './selectorUtils';
 
 function validationStateFromCanonicalStatus(status: string | null | undefined): SelectorAnswer['validationState'] {
   switch (status) {
@@ -46,6 +46,26 @@ function upstreamGapAnswer(params: ProjectSelectorParams, message: string): Sele
   };
 }
 
+function emptySnapshotAnswer(params: ProjectSelectorParams, field: string, value: string): SelectorAnswer {
+  const source = {
+    type: 'validator' as const,
+    label: `Canonical review snapshot ${field}`,
+    snippet: value,
+    confidence: 96,
+    timestamp: new Date(0).toISOString(),
+    factId: `project:${params.projectId}:validator-summary:${field}`,
+  };
+  return {
+    value,
+    sourceLayer: 'validation_snapshot', sourceId: source.factId,
+    isFallback: false, isStale: false, confidence: 'verified',
+    evidence: [{ label: source.label, value, sourceId: source.factId }],
+    sources: [source], validationState: 'Confirmed',
+    gateImpact: 'No document review action is identified by this canonical snapshot.',
+    nextAction: 'No action required', findings: [], documents: [],
+  };
+}
+
 export function selectProjectReviewAuditState(params: ProjectSelectorParams): SelectorAnswer {
   const text = params.question.originalQuestion.toLowerCase();
   const snapshot = resolveCanonicalProjectValidationSnapshot({
@@ -53,10 +73,18 @@ export function selectProjectReviewAuditState(params: ProjectSelectorParams): Se
     validationSummary: params.project.validationSummary,
   });
   const validationState = validationStateFromCanonicalStatus(snapshot.facts.status);
+  const rawSummary = params.project.validationSummary;
+  const summary = rawSummary != null && typeof rawSummary === 'object' && !Array.isArray(rawSummary)
+    ? rawSummary as Record<string, unknown>
+    : null;
 
   if (text.includes('marked reviewed')) {
     const reviewedDocuments = snapshot.facts.reviewed_documents_with_warnings;
     if (reviewedDocuments[0] == null) {
+      if (Array.isArray(summary?.reviewed_documents_with_warnings) && summary.reviewed_documents_with_warnings.length === 0) {
+        return emptySnapshotAnswer(params, 'reviewed_documents_with_warnings',
+          'Reviewed documents with warnings: the canonical snapshot records no document with a review event and warning count. Source: validator review snapshot.');
+      }
       return upstreamGapAnswer(
         params,
         'This cannot be answered from current canonical system truth. Missing upstream field: Audit/Validator reviewed_documents_with_warnings[] with warning_count and review_event_source.',
@@ -100,6 +128,10 @@ export function selectProjectReviewAuditState(params: ProjectSelectorParams): Se
   if (text.includes('inspect first')) {
     const firstDocument = snapshot.facts.first_document_to_inspect;
     if (firstDocument == null) {
+      if (summary != null && Object.hasOwn(summary, 'first_document_to_inspect') && summary.first_document_to_inspect === null) {
+        return emptySnapshotAnswer(params, 'first_document_to_inspect',
+          'First document to inspect: no document is identified by the canonical snapshot. Risk reason: no blocker/warning/action inspection priority is recorded. Source: validator review snapshot.');
+      }
       return upstreamGapAnswer(
         params,
         'This cannot be answered from current canonical system truth. Missing upstream field: Validator/Execution first_document_to_inspect with risk_reason and priority_source.',
@@ -142,54 +174,31 @@ export function selectProjectReviewAuditState(params: ProjectSelectorParams): Se
     };
   }
 
-  const findings = params.retrieval.validatorFindings;
-  const documents = params.retrieval.documents;
-  const facts = params.retrieval.facts;
-  const doc = documents[0] ?? null;
-  const finding = findings[0] ?? null;
-  let answer =
-    `Documents still need review selector: document ${doc?.title ?? 'project document'} review status open; reason remains open from document facts, audit, and validator source.`;
-
-  if (text.includes('manually confirmed')) {
-    answer =
-      `Manually confirmed facts selector: fact ${facts[0]?.label ?? 'project fact'} confirmed value ${String(facts[0]?.value ?? 'recorded')}; reviewer review timestamp source is document fact review.`;
-  } else if (text.includes('overridden by a human')) {
-    answer =
-      `Human overridden facts selector: fact ${facts[0]?.label ?? 'project fact'} override value ${String(facts[0]?.value ?? 'recorded')}; prior value if available plus actor reason source are audit/document fact override.`;
-  } else if (text.includes('findings were overridden')) {
-    answer =
-      `Overridden findings selector: finding ${finding?.id ?? 'validator finding'} overridden why override reason source; actor timestamp source is audit event.`;
-  } else if (text.includes('changed since the last review')) {
-    answer =
-      `Changed since last review selector: changed item ${finding?.id ?? doc?.id ?? 'review item'}; before after state and review baseline last review source are audit and validator.`;
+  if (text.includes('manually confirmed') || text.includes('overridden by a human')) {
+    const overrides = text.includes('overridden by a human');
+    const facts = params.retrieval.facts.filter((fact) => overrides
+      ? fact.sourceKind === 'human_override' && Boolean(fact.overrideId)
+      : fact.sourceKind === 'human_review' && fact.reviewStatus === 'confirmed');
+    if (facts.length > 0) {
+      const sources = facts.map(sourceFromFact);
+      const value = facts.map((fact) => overrides
+        ? `Human overridden fact ${fact.label}: override value ${String(fact.value)}; override source ${fact.overrideId}.`
+        : `Manually confirmed fact ${fact.label}: confirmed value ${String(fact.value)}; review status confirmed; source ${fact.factId ?? fact.id}.`).join(' ')
+        + ' Actor, reason and historical review timestamp are not available in this read.';
+      return {
+        value, sourceLayer: 'document_fact', sourceId: sourceId(sources[0]),
+        isFallback: false, isStale: false, confidence: 'partial',
+        evidence: sources.map((source) => ({ label: source.label, value: source.snippet ?? source.label, sourceId: sourceId(source) })),
+        sources, validationState: 'Confirmed',
+        gateImpact: 'Reads existing human authority; historical audit metadata remains unavailable.',
+        nextAction: 'Open Evidence', findings: [], documents: [],
+      };
+    }
   }
-
-  const sources = selectedSources({
-    facts,
-    findings,
-    documents: text.includes('marked reviewed') ? [] : documents,
-    projectId: params.projectId,
-    fallbackLabel: 'Project review audit source',
-  });
-  const firstSource = sources[0] ?? fallbackSource(params.projectId, 'Project review audit source');
-
-  return {
-    value: answer,
-    sourceLayer: text.includes('overridden') || text.includes('changed') ? 'audit_event' : 'document_fact',
-    sourceId: sourceId(firstSource),
-    isFallback: false,
-    isStale: false,
-    confidence: firstSource.factId?.includes(':validator-summary') ? 'partial' : 'verified',
-    evidence: sources.map((source) => ({
-      label: source.label,
-      value: source.snippet ?? source.label,
-      sourceId: sourceId(source),
-    })),
-    sources,
-    validationState,
-    gateImpact: 'Affects document review, audit traceability, warning disposition, and operator inspection priority.',
-    nextAction: text.includes('overridden') ? 'Override with Reason' : 'Open Evidence',
-    findings,
-    documents,
-  };
+  // A document/fact/finding is not a review event or a before/after baseline.
+  // These inputs currently carry no typed audit history for those questions.
+  return upstreamGapAnswer(params,
+    text.includes('changed')
+      ? 'This cannot be answered from current canonical system truth. Missing upstream field: review baseline and before/after audit events.'
+      : 'This cannot be answered from current canonical system truth. Missing upstream field: typed document review state or human review/override audit evidence.');
 }

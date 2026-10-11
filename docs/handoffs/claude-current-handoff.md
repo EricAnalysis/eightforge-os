@@ -1,5 +1,39 @@
 # Claude continuation: EightForge / Forgewing (2026-10-10)
 
+## Ask gate recovery continuation (2026-10-11)
+
+Production acceptance remains Golden / Hillsdale / DN VERIFIED with the bounded
+field/action/history-parity limitation below. No new production analysis,
+migration, provider call or qualification run was performed.
+
+PR #205 remains DRAFT at `6b2443bb7136a70197c8092d90546647954d29c9` until the
+separate Ask repair passes required CI. The read-only Ask audit proves the
+22-to-60 expansion was intentional (`f39ccec`); the workflow count lock was
+omitted. Saved unchanged-main versus #205 parity remains reusable. See
+`docs/ask/ask-diagnostic-gate-audit.md` for all 18 failures / 28 gap mappings.
+
+The repair fixes typed-selector precedence, premature portfolio absence,
+contradictory generic gaps, canonical empty review states and unsupported
+contract/rate/ticket/review assertions. It introduces no producer, authority
+preference, schema change or production rewrite. Existing human authority is
+preserved. The credential-free, pinned 60-query correctness fixture tests 25
+sourced answers and 35 explicitly missing-input responses; it does not claim
+60 material capabilities or zero live capability gaps. Live integration remains
+available separately. Production service-role credentials are not added to CI.
+
+Local proof: all 87 Ask tests and TypeScript pass; hermetic 60-query contracts
+have zero correctness failures. Required remote CI and independent review are
+pending at this checkpoint. Do not merge #205 on local proof alone.
+
+Browser E's prior read-only production evidence below remains valid for its
+unchanged dependencies. Qualification remains disk-blocked; preserve 20/20
+correctness and 3,196 ms latency FAIL against the frozen 3,000 ms bar.
+
+Next continuation: finish independent review and required CI for the Ask repair;
+merge manually only when green. Then rebase #205 onto current main, rerun only
+affected conflict/Ask/Validator tests and required CI, verify authority semantics
+unchanged, mark ready and merge. Do not rerun production re-analysis or paid DN.
+
 ## Active Codex continuation (2026-10-10, accepted production refresh / separate fact conflict)
 
 ### Latest recovery state (read before the historical blocked snapshots)

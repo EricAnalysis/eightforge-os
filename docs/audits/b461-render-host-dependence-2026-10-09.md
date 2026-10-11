@@ -37,3 +37,16 @@ Register **before** running that the qualification crop runtime is the pinned Li
 This changes no bar, model, prompt, crop, exclusion or scorer. It moves the one observed variable, the render host, to the runtime production uses, and it is decided before the result is known. If the owner prefers to qualify on the slowest plausible host instead, the recorded FAIL stands, and the remaining lever is the crop lifecycle cache, which still needs admission, lease and eviction design.
 
 Runtime manifest and records for this measurement are kept outside Git with the other client-bearing artifacts. They contain no row text beyond what `records.json` holds.
+
+## Correction (2026-10-11)
+
+The statement above that "request identity is identical between the two runs" is **wrong**. On 2026-10-11 the DN p107 exception preflight ([#210](https://github.com/EricAnalysis/eightforge-os/pull/210), `b461-dn-p107-exception-void-2026-10-11.md`) compared each crop's render digest, the crop-byte hash that the request identity includes:
+- on the registered Linux image, **7 of 20** DN p107 crops reproduced the historical Windows bytes exactly;
+- **13 of 20 did not**, so their request digests differ too.
+
+That measurement shared the binding digest and capture set with the Windows run; it did not share every crop's bytes.
+
+What still stands: render time depends on the host (317 ms median on Linux against 723 ms on Windows), and the 2026-10-09 result stands as recorded. What changes:
+- The rendered bytes, and therefore the request identity, also depend on the host.
+- The 2026-10-09 correctness result (20/20) was measured on the bytes rendered on Windows.
+- The cause is not established. A likely candidate is pdf.js's JBIG2 decoder: it fell back on Windows (logged warnings; a later zero-call decoder probe traced them to a missing local wasm decoder) and may decode differently in the image.

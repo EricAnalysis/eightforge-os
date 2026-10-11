@@ -81,3 +81,26 @@ export function resolveValidatorRuleActions(context: ValidatorRuleActionContext)
     return resolved ? [resolved] : [];
   });
 }
+
+/**
+ * Which resolution workflow a Validator surface leads with for a rule.
+ *
+ * Closure capability does not imply primary UX ownership. The catalogue says
+ * which actions are valid for a rule (a manual rate link can close both
+ * FINANCIAL_RATE_CODE_MISSING and CROSS_DOCUMENT_CONTRACT_RATE_EXISTS); the
+ * primary workflow follows what the finding is about:
+ * - FINANCIAL_RATE_CODE_MISSING is a linkage problem, so the rate link leads;
+ * - every other rule, including CROSS_DOCUMENT_CONTRACT_RATE_EXISTS (a
+ *   contract-rate authority decision), leads with Confirm / Correct / Override,
+ *   and a valid manual rate link is offered only as a secondary action.
+ * This is an explicit list, deliberately not derived from the catalogue or the
+ * closure list, so a refactor of either cannot silently move a rule's primary
+ * workflow.
+ */
+export type ValidatorPrimaryResolutionWorkflow = 'manual_rate_link' | 'decision_execution';
+
+const RATE_LINK_PRIMARY_RULE_IDS: ReadonlySet<string> = new Set(['FINANCIAL_RATE_CODE_MISSING']);
+
+export function validatorPrimaryResolutionWorkflow(ruleId: string): ValidatorPrimaryResolutionWorkflow {
+  return RATE_LINK_PRIMARY_RULE_IDS.has(ruleId) ? 'manual_rate_link' : 'decision_execution';
+}

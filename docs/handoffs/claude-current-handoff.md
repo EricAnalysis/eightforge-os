@@ -1,13 +1,16 @@
 # Claude continuation: EightForge / Forgewing (2026-10-10)
 
-## Ask gate recovery continuation (2026-10-11)
+## Ask gate and active-fact conflict: completed (2026-10-11)
 
 Production acceptance remains Golden / Hillsdale / DN VERIFIED with the bounded
 field/action/history-parity limitation below. No new production analysis,
 migration, provider call or qualification run was performed.
 
-PR #205 remains DRAFT at `6b2443bb7136a70197c8092d90546647954d29c9` until the
-separate Ask repair passes required CI. The read-only Ask audit proves the
+PR #206 (Ask repair) merged manually at
+`167d485001093aa8a7bf27272e010c3666520482`, then PR #205 (active-fact conflict)
+merged manually at `75e7df032db8578b1da777f58b773a7b4cdd569c` after rebasing.
+Both merges waited for the Ask gate, both full Vitest lanes and Vercel preview
+to pass. No auto-merge was used. The read-only Ask audit proves the
 22-to-60 expansion was intentional (`f39ccec`); the workflow count lock was
 omitted. Saved unchanged-main versus #205 parity remains reusable. See
 `docs/ask/ask-diagnostic-gate-audit.md` for all 18 failures / 28 gap mappings.
@@ -21,18 +24,41 @@ sourced answers and 35 explicitly missing-input responses; it does not claim
 60 material capabilities or zero live capability gaps. Live integration remains
 available separately. Production service-role credentials are not added to CI.
 
-Local proof: all 87 Ask tests and TypeScript pass; hermetic 60-query contracts
-have zero correctness failures. Required remote CI and independent review are
-pending at this checkpoint. Do not merge #205 on local proof alone.
+Ask repair proof: 87 Ask tests, TypeScript and the pinned 60-query contract pass;
+independent review blockers were corrected before merge. CI Ask run
+`38149934962` and full Vitest runs `38149932382` / `38149935085` passed.
+
+Rebased #205 head `43e410cb05deff70488fda9e3983b2a90da22b02` preserves both
+conflict patches exactly (`git range-diff` reports equality). Affected local
+Ask/conflict/truth-engine/Validator checks pass 591 tests in 63 files; TypeScript
+and the three hermetic harness tests pass. CI Ask run `38150685515` and full
+Vitest runs `38150683204` / `38150685530` passed. The #206 and #205 CI correctness
+artifacts are byte-identical, SHA-256
+`59fd4cfe58a07da660c0a93199982f3a7c44547a0e487d83093498a6f0177374`.
+
+Conflicting active machine observations remain inspectable and are withheld
+without a date/source/confidence winner. Existing accepted human authority stays
+final. No schema change or production rewrite occurred. The separate blob/UI
+normalization limitation remains: this fix does not choose the correct date or
+retrospectively republish stored canonical analysis.
 
 Browser E's prior read-only production evidence below remains valid for its
 unchanged dependencies. Qualification remains disk-blocked; preserve 20/20
 correctness and 3,196 ms latency FAIL against the frozen 3,000 ms bar.
 
-Next continuation: finish independent review and required CI for the Ask repair;
-merge manually only when green. Then rebase #205 onto current main, rerun only
-affected conflict/Ask/Validator tests and required CI, verify authority semantics
-unchanged, mark ready and merge. Do not rerun production re-analysis or paid DN.
+Exact next continuation prompt:
+
+> Continue from current main after merged PRs #206 and #205. Ask correctness CI
+> is green; the active-fact conflict fix is merged with unchanged human authority.
+> Reuse the accepted Golden/Hillsdale/DN post-checks and Browser E evidence.
+> Production acceptance proves bounded predictions and stored post-state, not
+> exhaustive field/action/history parity. Qualification remains blocked by the
+> disk-capacity/capture gate: preserve 20/20 correctness and 3,196 ms latency FAIL
+> against 3,000 ms. Do not rerun production analysis, paid DN/p107, change the bar
+> or taxonomy, or assume merged code is deployed without deployment evidence.
+> Live Ask capability gaps remain separate from the pinned correctness gate;
+> resolving missing canonical producers requires its own scoped task. Keep the
+> blob/UI normalization limitation separate; never choose a date winner here.
 
 ## Active Codex continuation (2026-10-10, accepted production refresh / separate fact conflict)
 

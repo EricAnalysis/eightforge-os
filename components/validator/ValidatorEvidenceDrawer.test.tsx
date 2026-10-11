@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import type { CanonicalProjectTruthDocumentInput } from '@/lib/projectFacts';
 import type { ValidationEvidence, ValidationFinding } from '@/types/validator';
+import { VALIDATOR_RULE_EXPLANATIONS } from '@/lib/validator/ruleExplanations';
 import { ValidatorEvidenceDrawer } from './ValidatorEvidenceDrawer';
 
 vi.mock('next/link', () => ({
@@ -264,7 +265,7 @@ describe('ValidatorEvidenceDrawer reviewer context', () => {
     });
 
     expect(textContent(html)).toContain(
-      'Populate the invoice line billing code, or confirm the description-based billing key used for validation.',
+      VALIDATOR_RULE_EXPLANATIONS.FINANCIAL_RATE_CODE_MISSING.requiredAction,
     );
   });
 
@@ -390,5 +391,36 @@ describe('ValidatorEvidenceDrawer reviewer context', () => {
     expect(summary).toContain('$12,500');
     expect(summary).toContain('12500 USD');
     expect(summary).not.toContain('TX-should-not-be-summary');
+  });
+});
+
+describe('ValidatorEvidenceDrawer rule catalogue (B6)', () => {
+  it('explains what the rule checks and offers its source-document actions', () => {
+    const rule = VALIDATOR_RULE_EXPLANATIONS.SOURCES_NO_CONTRACT;
+    const markup = renderDrawer({ activeFinding: finding({
+      rule_id: 'SOURCES_NO_CONTRACT', check_key: `SOURCES_NO_CONTRACT:${PROJECT_ID}`, category: 'required_sources',
+      subject_type: 'project', subject_id: PROJECT_ID, field: 'contract_document',
+    }) });
+    expect(markup).toContain('What This Checks');
+    expect(markup).toContain(rule.title);
+    expect(markup).toContain(rule.explanation);
+    expect(markup).toContain('href="/platform/documents"');
+    expect(markup).toContain('Upload Document');
+    expect(markup).toContain(`href="/platform/projects/${PROJECT_ID}#project-documents"`);
+    expect(markup).toContain('Open Linked Documents');
+  });
+
+  it('offers no source-document actions for a rule whose fix is not a missing document', () => {
+    const markup = renderDrawer({});
+    expect(markup).toContain(VALIDATOR_RULE_EXPLANATIONS.CROSS_DOCUMENT_CONTRACT_RATE_EXISTS.explanation);
+    expect(markup).not.toContain('Upload Document');
+    expect(markup).not.toContain('Open Linked Documents');
+  });
+
+  it('leads the fix with the rule catalogue action', () => {
+    const markup = renderDrawer({ activeFinding: finding({
+      rule_id: 'FINANCIAL_UNIT_TYPE_MISMATCH', check_key: 'FINANCIAL_UNIT_TYPE_MISMATCH:line-1', field: 'unit_type',
+    }) });
+    expect(markup).toContain(VALIDATOR_RULE_EXPLANATIONS.FINANCIAL_UNIT_TYPE_MISMATCH.requiredAction);
   });
 });

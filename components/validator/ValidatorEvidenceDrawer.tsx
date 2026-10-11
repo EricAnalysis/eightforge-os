@@ -23,6 +23,8 @@ import {
   type ValidationEvidenceTarget,
 } from '@/lib/validator/evidenceNavigation';
 import { normalizeValidationFinding } from '@/lib/validator/findingSemantics';
+import { resolveValidatorRuleActions } from '@/lib/validator/ruleActions';
+import { validatorRuleExplanation } from '@/lib/validator/ruleExplanations';
 import { isHumanReviewedEvidenceNote } from '@/lib/validator/humanReviewedEvidence';
 import type {
   ValidationEvidence,
@@ -294,15 +296,12 @@ function resolveFixSteps(finding: ValidationFinding): string[] {
       ? [
         "Confirm the invoice line's billing code. If the contract schedule has no explicit code, confirm the matched schedule row or approved description-based billing key. Reject the proposed match if it points to the wrong rate item.",
       ]
-      : [
-        'Populate the invoice line billing code, or confirm the description-based billing key used for validation.',
-      ];
+      // The rule's own recommended action (shared catalogue, B6.1).
+      : [nextAction];
   }
 
   if (finding.rule_id === 'FINANCIAL_UNIT_TYPE_MISMATCH') {
-    return [
-      'Review the billed unit against the contract unit and correct the invoice or contract mapping before approval.',
-    ];
+    return [nextAction];
   }
 
   if (
@@ -703,6 +702,17 @@ export function ValidatorEvidenceDrawer({
         : 'Evidence exists, but it does not include an exact document target yet.'
     );
   const fixSteps = resolveFixSteps(activeFinding);
+  // What the rule checks, and the source-document actions it offers, from the shared catalogue (B6).
+  const ruleExplanation = validatorRuleExplanation(activeFinding.rule_id);
+  const sourceDocumentActions = resolveValidatorRuleActions({
+    ruleId: activeFinding.rule_id,
+    projectId: activeFinding.project_id,
+    findingId: activeFinding.id,
+    subjectId: activeFinding.subject_id,
+    evidence: evidence.map((item) => ({ documentId: item.source_document_id, page: item.source_page })),
+  }).flatMap((action) => (
+    action.kind === 'open_linked_documents' || action.kind === 'upload_document' ? [action] : []
+  ));
   const documentEvidenceGroups = documentEvidence.reduce<Record<string, EvidenceEntry[]>>((groups, entry) => {
     const key = classifyDocumentEvidence(entry, activeFinding);
     groups[key] = [...(groups[key] ?? []), entry];
@@ -752,6 +762,18 @@ export function ValidatorEvidenceDrawer({
           </span>
         </div>
       </section>
+
+      {ruleExplanation ? (
+        <section className="mt-6 space-y-3" data-testid="rule-explanation">
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--ef-text-muted)]">
+            What This Checks
+          </p>
+          <ForgeSectionCard as="div" surface="secondary" radius="sm" padding="md">
+            <p className="text-sm font-semibold text-[var(--ef-text-primary)]">{ruleExplanation.title}</p>
+            <p className="mt-2 text-sm leading-6 text-[var(--ef-text-secondary)]">{ruleExplanation.explanation}</p>
+          </ForgeSectionCard>
+        </section>
+      ) : null}
 
       <section className="mt-6 space-y-3">
         <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--ef-text-muted)]">
@@ -955,6 +977,15 @@ export function ValidatorEvidenceDrawer({
             >
               {executionItemId ? 'Open Execution History' : 'Open Execution'}
             </Link>
+            {sourceDocumentActions.map((action) => (
+              <Link
+                key={action.kind}
+                href={action.href}
+                className="rounded-sm border border-[var(--ef-border-subtle)] px-3 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-primary)] transition-colors hover:border-[var(--ef-text-primary)] hover:text-white"
+              >
+                {action.kind === 'upload_document' ? 'Upload Document' : 'Open Linked Documents'}
+              </Link>
+            ))}
           </div>
 
           {!primaryReviewHref ? (

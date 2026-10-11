@@ -24,6 +24,7 @@ import { isIssueRequiringReview, type IssueObject } from '@/lib/issueObjects';
 import { pageFrameVisual, type DocumentPageFrames } from '@/lib/recovery/diagnosticVisualEvidence';
 import type { VisualSourceEvidence } from '@/lib/recovery/visualSourceEvidence';
 import { isApprovalBlocker } from '@/lib/validator/findingSemantics';
+import { resolveValidatorRuleActions } from '@/lib/validator/ruleActions';
 import { isHumanReviewedEvidenceNote } from '@/lib/validator/humanReviewedEvidence';
 import type { ValidationEvidence } from '@/types/validator';
 
@@ -271,6 +272,16 @@ export type ResolutionAction =
   | Readonly<{
       kind: 'open_document';
       href: string;
+    }>
+  | Readonly<{
+      /** The existing upload surface; offered by rules whose fix is a missing source document. */
+      kind: 'upload_document';
+      href: string;
+    }>
+  | Readonly<{
+      /** The project's linked documents. */
+      kind: 'open_linked_documents';
+      href: string;
     }>;
 
 export type ResolutionCase = Readonly<{
@@ -421,8 +432,6 @@ export type ResolutionDocument = Readonly<{
   title?: string | null;
   name?: string | null;
 }>;
-
-const MANUAL_RATE_LINK_RULE_IDS = new Set(['FINANCIAL_RATE_CODE_MISSING', 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS']);
 
 /** A rule or check key such as `FINANCIAL_RATE_CODE_MISSING` or `FINANCIAL_NTE_FACT_MISSING:project-1`. */
 const RAW_RULE_KEY = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+(?::|$)/;
@@ -592,14 +601,25 @@ function validatorCases(params: {
   return params.issues.flatMap((issue) => {
     if (issue.finding.status !== 'open' || !isIssueRequiringReview(issue)) return [];
     const finding = issue.finding;
+    const rows = (evidenceByFinding.get(finding.id) ?? [])
+      .slice().sort((left, right) => left.id.localeCompare(right.id, 'en-US'));
+    // The rule's own actions, from the shared catalogue (B6.2), resolved for this finding.
+    const ruleActions = resolveValidatorRuleActions({
+      ruleId: finding.rule_id,
+      projectId: params.projectId,
+      findingId: finding.id,
+      subjectId: finding.subject_id,
+      evidence: rows.map((row) => ({ documentId: row.source_document_id, page: row.source_page })),
+    });
     const actions: ResolutionAction[] = [];
-    if (MANUAL_RATE_LINK_RULE_IDS.has(finding.rule_id)) {
+    for (const action of ruleActions) {
+      if (action.kind !== 'open_manual_rate_link') continue;
       actions.push({
         kind: 'link_invoice_line_rate',
-        method: 'POST',
-        endpoint: `/api/projects/${params.projectId}/invoice-line-rate-link`,
-        findingId: finding.id,
-        invoiceLineSubjectId: finding.subject_id,
+        method: action.method,
+        endpoint: action.endpoint,
+        findingId: action.findingId,
+        invoiceLineSubjectId: action.invoiceLineSubjectId,
       });
     }
     if (issue.executionItemId) {
@@ -614,8 +634,12 @@ function validatorCases(params: {
       kind: 'open_in_validator',
       href: `/platform/projects/${params.projectId}?activeTab=validator&selectedIssue=${finding.id}#project-validator`,
     });
-    const rows = (evidenceByFinding.get(finding.id) ?? [])
-      .slice().sort((left, right) => left.id.localeCompare(right.id, 'en-US'));
+    for (const action of ruleActions) {
+      if (action.kind === 'open_evidence_inspector') actions.push({ kind: 'open_document', href: action.href });
+      else if (action.kind === 'upload_document' || action.kind === 'open_linked_documents') {
+        actions.push({ kind: action.kind, href: action.href });
+      }
+    }
     const display = getIssueDisplayLabel(issue.issueType, issue.title);
     // The shared label falls back to the finding's check key for rules it has
     // no template for. A raw key is not an operator title: use the finding's

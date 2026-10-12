@@ -5,7 +5,11 @@ import {
   buildExecutionItemSuppressionSignature,
   executionItemSuppressionSignatureForRow,
 } from '@/lib/executionItems';
-import { syncExecutionItems } from '@/lib/execution/syncExecutionItems';
+import {
+  ADVISORY_REVIEWABLE_RULE_IDS,
+  executionItemInitialStatus,
+  syncExecutionItems,
+} from '@/lib/execution/syncExecutionItems';
 import type { ValidationEvidence, ValidationFinding } from '@/types/validator';
 
 const { logActivityEventMock } = vi.hoisted(() => ({
@@ -351,6 +355,70 @@ describe('syncExecutionItems', () => {
     assert.equal(adminMock.state.executionItems.length, 0);
     assert.equal(findValidationFinding(adminMock.state, finding.id).linked_action_id, null);
     expect(logActivityEventMock).not.toHaveBeenCalled();
+  });
+
+  it('creates a resolvable (non-blocking) item for an opted-in advisory finding (B7.1)', async () => {
+    const finding = makeFinding({
+      id: 'finding-amendment-3',
+      rule_id: 'SOURCES_REFERENCED_AMENDMENT_MISSING',
+      check_key: 'SOURCES_REFERENCED_AMENDMENT_MISSING:project-1:amendment:3',
+      category: 'required_sources',
+      severity: 'warning',
+      subject_type: 'project',
+      subject_id: 'project-1:amendment:3',
+      field: 'referenced_amendment',
+      blocked_reason: null,
+      business_severity: 'low',
+      approval_gate_effect: 'informational',
+      finding_disposition: 'info',
+      // Routing marks informational findings non-actionable; the opt-in does not depend on it.
+      action_eligible: false,
+      decision_eligible: false,
+      affected_amount: null,
+    });
+    const adminMock = createAdminMock({
+      validationFindings: [{
+        id: finding.id, check_key: finding.check_key, status: 'open', linked_action_id: null,
+        resolved_by_user_id: null, resolved_at: null, updated_at: TS,
+      }],
+    });
+
+    const result = await syncExecutionItems({
+      admin: adminMock.admin as never, projectId: 'project-1', organizationId: 'org-1',
+      runId: 'run-current', actorId: 'user-1', findings: [finding],
+    });
+
+    assert.equal(result.created, 1);
+    assert.equal(adminMock.state.executionItems.length, 1);
+    const [item] = adminMock.state.executionItems;
+    // Never `open`: an open item reads as blocking in every queue.
+    assert.equal(item!.status, 'resolvable');
+    assert.equal(item!.validator_rule_key, 'SOURCES_REFERENCED_AMENDMENT_MISSING');
+    assert.equal(findValidationFinding(adminMock.state, finding.id).linked_action_id, item!.id);
+
+    // A rerun with the same finding keeps it resolvable and does not rewrite it.
+    const rerun = await syncExecutionItems({
+      admin: adminMock.admin as never, projectId: 'project-1', organizationId: 'org-1',
+      runId: 'run-next', actorId: 'user-1', findings: [finding],
+    });
+    assert.equal(rerun.created, 0);
+    assert.equal(rerun.updated, 0);
+    assert.equal(adminMock.state.executionItems[0]!.status, 'resolvable');
+  });
+
+  it('decides execution items only for blocking actionable findings and the explicit advisory opt-in', () => {
+    expect([...ADVISORY_REVIEWABLE_RULE_IDS]).toEqual(['SOURCES_REFERENCED_AMENDMENT_MISSING']);
+    expect(executionItemInitialStatus(makeFinding())).toBe('open');
+    expect(executionItemInitialStatus(makeFinding({ action_eligible: false }))).toBeNull();
+    expect(executionItemInitialStatus(makeFinding({ status: 'dismissed' }))).toBeNull();
+    const advisory = {
+      severity: 'warning' as const, business_severity: 'low' as const, approval_gate_effect: 'informational' as const,
+      finding_disposition: 'info' as const, action_eligible: false,
+    };
+    expect(executionItemInitialStatus(makeFinding({ ...advisory, rule_id: 'SOURCES_REFERENCED_AMENDMENT_MISSING' }))).toBe('resolvable');
+    expect(executionItemInitialStatus(makeFinding({ ...advisory, rule_id: 'FINANCIAL_NTE_APPROACHING' }))).toBeNull();
+    expect(executionItemInitialStatus(makeFinding({ ...advisory, rule_id: 'SOURCES_REFERENCED_AMENDMENT_MISSING',
+      status: 'dismissed' }))).toBeNull();
   });
 
   it('does not relink a diagnostic warning to a superseded execution item with the same source key', async () => {

@@ -128,6 +128,32 @@ type ExecutionItemRecord = Omit<
   | 'last_seen_at'
 >;
 
+/**
+ * Advisory rules that still get an execution item, so an operator can Confirm or
+ * Override them (B7.1). The item is created `resolvable`, never `open`: an open
+ * item reads as blocking in every queue, and these findings never affect the
+ * approval gate (approval status reads findings, not execution items). An
+ * override dismisses the finding, suppresses its recurrence by signature, and is
+ * counted by the rule semantics review (B6.4). Explicit list: adding a rule here
+ * is a reviewed decision.
+ */
+export const ADVISORY_REVIEWABLE_RULE_IDS: ReadonlySet<string> = new Set([
+  'SOURCES_REFERENCED_AMENDMENT_MISSING',
+]);
+
+/**
+ * The status a finding's execution item is created or refreshed with, or null
+ * when the finding gets no execution item: blocking, action-eligible findings
+ * are `open`; opted-in advisory findings are `resolvable`; nothing else.
+ */
+export function executionItemInitialStatus(
+  finding: PersistableValidationFinding,
+): Extract<ExecutionItemStatus, 'open' | 'resolvable'> | null {
+  if (finding.status !== 'open') return null;
+  if (isBlockingFinding(finding)) return finding.action_eligible ? 'open' : null;
+  return ADVISORY_REVIEWABLE_RULE_IDS.has(finding.rule_id) ? 'resolvable' : null;
+}
+
 function buildExecutionItemRecord(
   projectId: string,
   finding: PersistableValidationFinding,
@@ -147,7 +173,7 @@ function buildExecutionItemRecord(
     actual_value: finding.actual ?? null,
     impact: normalized.impact ?? 'Approval readiness is affected until this issue is resolved.',
     required_action: normalized.required_action ?? 'Inspect the linked evidence and complete the required correction or approval decision.',
-    status: 'open',
+    status: executionItemInitialStatus(finding) ?? 'open',
     outcome: null,
     evidence_refs,
     fact_refs,
@@ -335,10 +361,7 @@ export async function syncExecutionItems(params: {
   const { admin, projectId, organizationId, runId, actorId } = params;
   const now = new Date().toISOString();
   const actionableFindings = params.findings.filter(
-    (finding) =>
-      finding.status === 'open' &&
-      finding.action_eligible &&
-      isBlockingFinding(finding),
+    (finding) => executionItemInitialStatus(finding) != null,
   );
   const records = actionableFindings.map((finding) => ({
     finding,
@@ -476,7 +499,7 @@ export async function syncExecutionItems(params: {
     }
 
     if (existing) {
-      if (executionItemChanged(existing, record, 'open')) {
+      if (executionItemChanged(existing, record, record.status)) {
         const { error } = await admin
           .from('execution_items')
           .update({
@@ -488,7 +511,7 @@ export async function syncExecutionItems(params: {
             actual_value: record.actual_value,
             impact: record.impact,
             required_action: record.required_action,
-            status: 'open',
+            status: record.status,
             outcome: null,
             evidence_refs: record.evidence_refs,
             fact_refs: record.fact_refs,
@@ -542,7 +565,7 @@ export async function syncExecutionItems(params: {
         actual_value: record.actual_value,
         impact: record.impact,
         required_action: record.required_action,
-        status: 'open',
+        status: record.status,
         outcome: null,
         evidence_refs: record.evidence_refs,
         fact_refs: record.fact_refs,

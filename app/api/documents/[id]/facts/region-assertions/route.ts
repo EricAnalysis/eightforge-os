@@ -99,8 +99,11 @@ export async function POST(
         physicalPageNumber: prepared.input.physicalPageNumber,
         pageRepresentationDigest: prepared.input.pageRepresentationDigest,
         sourceObservationIds: prepared.input.sourceObservationIds }) : undefined;
+  // B8.4b: the extraction the region was just verified against is the
+  // historical producer of the corrected evidence. Server-derived only.
   const recorded = await recordRegionBoundAssertion(admin as unknown as RegionAssertionClient,
-    { ...prepared.input, ...(customerMappingEvidence ? { customerMappingEvidence } : {}) });
+    { ...prepared.input, ...(customerMappingEvidence ? { customerMappingEvidence } : {}),
+      sourceExtractionId: context.extractionSnapshotId });
   if (recorded.status === 'unavailable') return jsonError('Reviewed values are not available yet', 503);
   if (recorded.status === 'stale_chain_head') {
     return jsonError('This value was reviewed again in the meantime; reload and supersede the latest review.',

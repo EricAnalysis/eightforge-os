@@ -61,6 +61,22 @@ describe('producer attribution from recorded history (B8.4b)', () => {
       .toEqual(unproven);
   });
 
+  it('attributes a manual correction to the revision pinned from its source extraction, never a later one', () => {
+    const manual = { source_document_id: DOC, forgewing_proposal_id: null, source_extraction_id: EXTRACTION };
+    expect(attributeHumanFactAssertion({ assertion: { ...manual, source_deployment_revision: PRODUCED,
+      source_deployment_environment: 'production' } })).toEqual(produced);
+    // The pin wins over any extraction a later reader might pass.
+    expect(attributeHumanFactAssertion({ assertion: { ...manual, source_deployment_revision: PRODUCED,
+      source_deployment_environment: 'production' }, proposal: null,
+      extraction: { id: EXTRACTION, document_id: DOC, data: extractionData(CURRENT) } })).toEqual(produced);
+    // Source proven, but that extraction predates runtime identity.
+    expect(attributeHumanFactAssertion({ assertion: { ...manual, source_deployment_revision: null,
+      source_deployment_environment: null } })).toEqual({ status: 'unattributed', reason: 'producer_not_recorded' });
+    // No unique source extraction could be proven at correction time.
+    expect(attributeHumanFactAssertion({ assertion: { ...manual, source_extraction_id: null } }))
+      .toEqual({ status: 'unattributed', reason: 'historical_source_unproven' });
+  });
+
   it('identifies a Forgewing outcome by provider, model and prompt, not the app commit', () => {
     const proposal = { task_type: 'value_reading', schema_version: '3', provider_model: 'provider-model-a',
       prompt_template_id: 'value-reading', prompt_template_version: '2' };

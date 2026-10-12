@@ -12,11 +12,14 @@ import type { MeasurementUnit } from '@/lib/improvementMeasurement';
  * - Human corrections inherit the producer of the evidence they corrected,
  *   never the deployment running when the person clicked Correct:
  *   - a Validator finding override -> the finding's own run;
- *   - a reviewed value from a Forgewing proposal -> the proposal's pinned
- *     extraction.
- *   Any other correction has no provable producer today and stays
- *   unattributed (`historical_source_unproven`); it is excluded from
- *   measurement, never given a guess.
+ *   - a reviewed value -> the source extraction pinned on the assertion at
+ *     correction time (server-derived; a cited proposal's pinned extraction
+ *     when there is one), with the revision that extraction recorded;
+ *   - an older assertion without that pin -> its cited proposal's pinned
+ *     extraction, if any.
+ *   A correction whose source cannot be proven stays unattributed
+ *   (`historical_source_unproven`); it is excluded from measurement, never
+ *   given a guess.
  * - Forgewing outcomes: the provider/model/prompt identity of the proposal,
  *   not merely the application commit.
  * - Customer mapping: the exact historical B8.2 revision ID and digest pinned
@@ -71,15 +74,27 @@ export function attributeValidatorFindingCorrection(input: Readonly<{
 
 /**
  * A human fact assertion inherits the extraction that produced the evidence it
- * corrected, when that link is recorded: today only through the Forgewing
- * proposal it reviewed, whose extraction snapshot was pinned at request time.
+ * corrected. Preferred: the source extraction and revision pinned on the
+ * assertion when it was recorded (B8.4b). An assertion pinned to an extraction
+ * that recorded no revision has a proven source but no recorded producer.
+ * Fallback for older rows: the cited Forgewing proposal's pinned extraction.
  */
 export function attributeHumanFactAssertion(input: Readonly<{
-  assertion: Readonly<{ source_document_id: string; forgewing_proposal_id: string | null }>;
-  proposal: Readonly<{ proposal_id: string; source_document_id: string; extraction_snapshot_id: string }> | null;
-  extraction: Readonly<{ id: string; document_id: string; data: unknown }> | null;
+  assertion: Readonly<{
+    source_document_id: string;
+    forgewing_proposal_id: string | null;
+    source_extraction_id?: string | null;
+    source_deployment_revision?: string | null;
+    source_deployment_environment?: string | null;
+  }>;
+  proposal?: Readonly<{ proposal_id: string; source_document_id: string; extraction_snapshot_id: string }> | null;
+  extraction?: Readonly<{ id: string; document_id: string; data: unknown }> | null;
 }>): UnitAttribution {
   const { assertion, proposal, extraction } = input;
+  if (assertion.source_extraction_id) {
+    return attributeDeploymentIdentity({ deployment_revision: assertion.source_deployment_revision,
+      deployment_environment: assertion.source_deployment_environment });
+  }
   if (!assertion.forgewing_proposal_id || !proposal || proposal.proposal_id !== assertion.forgewing_proposal_id
     || proposal.source_document_id !== assertion.source_document_id || !extraction
     || extraction.id !== proposal.extraction_snapshot_id || extraction.document_id !== assertion.source_document_id) {

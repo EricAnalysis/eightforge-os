@@ -61,6 +61,12 @@ export async function loadRegionBoundAssertionRows(
 
 export type RecordRegionAssertionInput = Readonly<{
   customerMappingEvidence?: import('@/lib/customerAdaptation/headerMappingEvidence').CustomerMappingEvidence;
+  /**
+   * B8.4b: the extraction the trusted server verified this region against,
+   * never a client value. The database re-checks it (and prefers a cited
+   * proposal's pinned extraction) before recording the historical producer.
+   */
+  sourceExtractionId?: string | null;
   organizationId: string;
   actorId: string;
   sourceDocumentId: string;
@@ -108,7 +114,7 @@ export async function recordRegionBoundAssertion(
   admin: RegionAssertionClient,
   input: RecordRegionAssertionInput,
 ): Promise<RecordRegionAssertionResult> {
-  const { data, error } = await admin.rpc(RECORD_REGION_BOUND_ASSERTION_RPC, {
+  const args: Record<string, unknown> = {
     p_organization_id: input.organizationId,
     p_actor_id: input.actorId,
     p_source_document_id: input.sourceDocumentId,
@@ -131,7 +137,15 @@ export async function recordRegionBoundAssertion(
     p_supersedes_assertion_id: input.supersedesAssertionId,
     p_request_digest_sha256: regionAssertionRequestDigest(input),
     ...(input.customerMappingEvidence ? { p_customer_mapping_evidence: input.customerMappingEvidence } : {}),
-  });
+  };
+  let { data, error } = await admin.rpc(RECORD_REGION_BOUND_ASSERTION_RPC,
+    input.sourceExtractionId ? { ...args, p_source_extraction_id: input.sourceExtractionId } : args);
+  if (error && input.sourceExtractionId && (error.code === 'PGRST202' || error.code === '42883')) {
+    // The provenance parameter is not in this database yet (migration
+    // ordering): record the correction exactly as before, with no producer.
+    console.warn('[regionBoundHumanAssertions] source extraction provenance unavailable; correction recorded without it');
+    ({ data, error } = await admin.rpc(RECORD_REGION_BOUND_ASSERTION_RPC, args));
+  }
   if (error) {
     if (isSchemaUnavailable(error) || error.code === '42883') return { status: 'unavailable' };
     if (error.code === '40001') return { status: 'stale_chain_head' };

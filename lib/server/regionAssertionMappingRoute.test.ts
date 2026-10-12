@@ -63,6 +63,15 @@ describe('region assertion historical mapping provenance route', () => {
     expect(vi.mocked(recordRegionBoundAssertion).mock.calls[0]![1].customerMappingEvidence)
       .toEqual({ extractionSnapshotId: id(4), mappingPins: [f.pin] });
   });
+  it('pins the source extraction the server verified, never one the client names (B8.4b)', async () => {
+    const f = fixture();
+    const response = await POST(new Request('http://localhost/api/documents/test/facts/region-assertions', {
+      method: 'POST', body: JSON.stringify({ ...f.body, sourceExtractionId: id(98) }),
+      headers: { 'Content-Type': 'application/json' } }) as NextRequest,
+      { params: Promise.resolve({ id: id(3) }) });
+    expect(response.status).toBe(201);
+    expect(vi.mocked(recordRegionBoundAssertion).mock.calls[0]![1].sourceExtractionId).toBe(id(4));
+  });
   it('omits unknown mapping history instead of substituting applicant pins', async () => {
     const f = fixture(); delete f.page.customer_header_mapping_pins;
     const response = await POST(new Request('http://localhost/api/documents/test/facts/region-assertions', {

@@ -18,6 +18,7 @@
     "compare:authority": "node --experimental-transform-types --no-warnings=ExperimentalWarning scripts/run-authority-comparison.mjs",
     "backfill:source-identity": "vite-node scripts/backfill-source-artifact-identity.ts",
     "worker:repository-plan": "vite-node --config vitest.config.ts scripts/workers/repository-plan-worker.ts",
+    "worker:improvement-deployment": "vite-node --config vitest.config.ts scripts/workers/improvement-deployment-worker.ts",
     "qualify:dn-phase14": "vite-node --config vitest.config.ts scripts/qualify-phase14-dn-target-context.ts",
     "qualify:mixed-mode-coverage": "vite-node --config vitest.config.ts scripts/qualify-mixed-mode-extraction-coverage.ts",
     "eval:phase17-continuation": "vite-node --config vitest.config.ts scripts/evaluation/phase17/runPhase17ContinuationEvaluation.ts --",

@@ -13,6 +13,7 @@ import { persistApprovalSnapshot } from '@/lib/server/approvalSnapshots';
 import { finalizeDecision } from '@/lib/server/decisionClosure';
 import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
 import type { ValidationEvidence, ValidatorResult } from '@/types/validator';
+import { validatorRuleCatalogueFingerprint } from '@/lib/validator/ruleCatalogueFingerprint';
 
 vi.mock('@/lib/server/supabaseAdmin', () => ({
   getSupabaseAdmin: vi.fn(),
@@ -435,6 +436,37 @@ describe('persistValidationRun evidence persistence', () => {
 });
 
 describe('persistValidationRun core persistence', () => {
+  it('stamps the run once with its producer: deployment revision, environment and catalogue fingerprint (B8.4b)', async () => {
+    vi.stubEnv('VERCEL_GIT_COMMIT_SHA', 'A'.repeat(40));
+    vi.stubEnv('VERCEL_ENV', 'production');
+    try {
+      const db = new MockDatabase();
+      vi.mocked(getSupabaseAdmin).mockReturnValue(db as unknown as AdminClient);
+      await persistValidationRun(PROJECT_ID, validatorResult(), 'manual');
+      const run = db.runs[0];
+      assert.equal(run.deployment_revision, 'a'.repeat(40));
+      assert.equal(run.deployment_environment, 'production');
+      assert.equal(run.rule_catalogue_fingerprint, validatorRuleCatalogueFingerprint());
+      assert.match(String(run.rule_catalogue_fingerprint), /^rule-catalogue-v1:sha256:[a-f0-9]{64}$/);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('records no producer when the platform reports none, rather than guessing', async () => {
+    vi.stubEnv('VERCEL_GIT_COMMIT_SHA', '');
+    vi.stubEnv('VERCEL_ENV', '');
+    try {
+      const db = new MockDatabase();
+      vi.mocked(getSupabaseAdmin).mockReturnValue(db as unknown as AdminClient);
+      await persistValidationRun(PROJECT_ID, validatorResult(), 'manual');
+      assert.equal(db.runs[0].deployment_revision, null);
+      assert.equal(db.runs[0].deployment_environment, null);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('completes the run, updates project summary, and resolves stale findings before side effects', async () => {
     const db = new MockDatabase();
     vi.mocked(getSupabaseAdmin).mockReturnValue(db as unknown as AdminClient);

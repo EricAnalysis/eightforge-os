@@ -114,6 +114,8 @@ export type MeasurementProducer = z.infer<typeof MeasurementProducerSchema>;
 export const UNATTRIBUTED_REASONS = [
   'producer_not_recorded',
   'historical_source_unproven',
+  /** Produced by a preview or development deployment: not production friction. */
+  'non_production_producer',
 ] as const;
 
 export const MeasurementUnitSchema = z.object({

@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { hashCanonical } from '@/lib/extraction/domain/hash';
 import { PRICED_SCHEDULE_ASSEMBLY_ROLES } from '@/lib/extraction/pdf/pricedScheduleRoles';
 import type { PricedScheduleAssemblyRole } from '@/lib/extraction/pdf/pagePricedScheduleReconstruction';
+import { CustomerHeaderEvidenceBindingSchema, CustomerHeaderSchemaIdentitySchema,
+  type CustomerHeaderEvidenceBinding } from '@/lib/customerAdaptation/headerEvidence';
 
 // Reuse the existing runtime allowlist; this increment supports assembly headers
 // only, not supporting columns, new roles, unit equivalence or business rules.
@@ -12,30 +14,37 @@ const exactText = z.string().min(1).max(512).refine((value) => value.trim().leng
 export const CustomerHeaderMappingScopeSchema = z.object({
   interpretationBoundary: z.literal('priced_schedule_assembly_header'),
   documentType: exactText,
-  sourceSchemaIdentity: exactText,
+  sourceSchemaIdentity: CustomerHeaderSchemaIdentitySchema,
 }).strict();
 
 const envelopeObject = z.object({
   domain: z.literal('eightforge.reviewed-customer-header-mapping'),
-  schemaVersion: z.literal(1),
+  schemaVersion: z.literal(2),
   organizationId: identity,
   revisionId: identity,
   scope: CustomerHeaderMappingScopeSchema,
   mappings: z.array(z.object({
     sourceLabel: exactText,
     targetRole: role,
-    supportingEvidenceRef: exactText,
+    supportingEvidence: CustomerHeaderEvidenceBindingSchema,
   }).strict()).max(100),
   humanApproval: z.object({ actorId: identity, approvedAt: z.string().datetime({ offset: true }) }).strict(),
   supersedesRevisionId: identity.nullable(),
 }).strict();
-const envelopeSchema = envelopeObject.refine((value) => value.revisionId !== value.supersedesRevisionId, 'A revision cannot supersede itself');
+function evidenceMatchesEnvelope(value: z.infer<typeof envelopeObject>): boolean {
+  return value.mappings.every((mapping) => mapping.supportingEvidence.organizationId === value.organizationId
+    && mapping.supportingEvidence.documentType === value.scope.documentType
+    && mapping.supportingEvidence.observedHeaderLabel === mapping.sourceLabel
+    && mapping.supportingEvidence.sourceSchemaIdentity === value.scope.sourceSchemaIdentity);
+}
+const envelopeSchema = envelopeObject.refine((value) => value.revisionId !== value.supersedesRevisionId
+  && evidenceMatchesEnvelope(value), 'Invalid supersession or evidence scope');
 
 export const ReviewedCustomerHeaderMappingRevisionSchema = envelopeObject.extend({
   digest: z.string().regex(/^[a-f0-9]{64}$/),
 }).superRefine((value, ctx) => {
   const { digest, ...envelope } = value;
-  if (value.revisionId === value.supersedesRevisionId || hashCanonical(envelope) !== digest) {
+  if (value.revisionId === value.supersedesRevisionId || !evidenceMatchesEnvelope(value) || hashCanonical(envelope) !== digest) {
     ctx.addIssue({ code: 'custom', message: 'Invalid revision identity or digest' });
   }
 });
@@ -76,7 +85,7 @@ type Resolution = Readonly<{
   existingRecognition: readonly string[];
   mappingRevisionId: string | null;
   mappingDigest: string | null;
-  supportingEvidenceRefs: readonly string[];
+  supportingEvidence: readonly CustomerHeaderEvidenceBinding[];
 }>;
 
 /** Pure, exact recognition only. Caller supplies all context, including existing
@@ -93,7 +102,7 @@ export function resolveCustomerHeaderMapping(input: Readonly<{
     existingRecognition: [...input.existingRecognition],
     mappingRevisionId: null as string | null,
     mappingDigest: null as string | null,
-    supportingEvidenceRefs: [] as string[],
+    supportingEvidence: [] as CustomerHeaderEvidenceBinding[],
   };
   const result = (status: Resolution['status'], reason: Resolution['reason'], resolvedRole: Resolution['role']): Resolution =>
     immutable({ ...base, status, reason, role: resolvedRole });
@@ -118,7 +127,7 @@ export function resolveCustomerHeaderMapping(input: Readonly<{
   }
   const match = revision.mappings.find((mapping) => mapping.sourceLabel === input.observedHeaderLabel);
   if (!match) return result('unchanged', 'no_mapping', unchangedRole);
-  base.supportingEvidenceRefs = [match.supportingEvidenceRef];
+  base.supportingEvidence = [match.supportingEvidence];
   if (input.existingRecognition.length > 1 || (unchangedRole !== null && unchangedRole !== match.targetRole)) {
     return result('review_required', 'recognition_conflict', null);
   }

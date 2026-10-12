@@ -1,11 +1,12 @@
-# B8.1 customer header mapping contract
+# B8 customer header mapping contract and B8.2a evidence prerequisite
 
-This module is contract-only. No production consumer, persistence, activation,
-UI, provider call or new authority is introduced.
+This module contains a pure mapping contract and a read-only authenticated
+header-evidence prerequisite. Persistence and production mapping consumption
+remain deferred to B8.2b and B8.2c.
 
 `ReviewedCustomerHeaderMappingRevision` binds organization/revision UUIDs,
 SHA-256 identity, exact document type and source-schema scope, exact source
-labels, existing target roles, opaque supporting evidence references, declared
+labels, existing target roles, typed supporting header-evidence bindings, declared
 human approval actor/time and optional superseded revision UUID.
 
 Targets reuse `PRICED_SCHEDULE_ASSEMBLY_ROLES` from `pricedScheduleRoles.ts`:
@@ -21,22 +22,57 @@ labels, contradictory entries and disagreement with upstream recognition return
 review-required with no selected role. Invalid revisions, tenant mismatch and
 scope mismatch reject with no selected role. Replay output carries revision ID
 and digest after successful scope validation, plus the original label and the
-matched evidence reference. Construction clones inputs and deeply freezes the
+matched evidence binding. Construction clones inputs and deeply freezes the
 result; resolution neither mutates nor freezes input.
 
 A digest proves object identity, not authentic human approval or evidence access.
-Supporting evidence references are opaque: this module does not dereference or
-prove their tenant ownership. The future trusted persistence/approval boundary
-must authenticate approval actors, check evidence ownership, enforce revision
+Schema version 2 replaces arbitrary string references; version 1 is rejected.
+Envelope validation checks evidence org, document type, exact label and schema
+against the revision. A well-shaped binding alone is not proof. Before approval,
+B8.2b must reload trusted persisted evidence and call `verifyCustomerHeaderEvidence`.
+The future trusted persistence/approval boundary must authenticate actors, enforce revision
 uniqueness and supersession chains, and choose exactly one approved revision for
 the requested scope. It must reject overlapping active revisions; this resolver
 does not select a winner among revisions. The future consumer must pass *all*
 existing recognition, not filter out supporting roles, and must retain the
 revision identity alongside unchanged source labels, values and geometry.
 
-Storage, approval/activation roles and production integration remain unresolved.
+Owner/admin authority for approval, activation and withdrawal is decided. The
+same actor may approve and activate, as separate audited actions with separate
+timestamps. Storage and those actions remain unimplemented in B8.2a.
 No approval metadata in this contract grants activation, publication, pricing,
 canonical mutation or execution authority.
+
+## B8.2a evidence and structural schema
+
+`GET /api/documents/[id]/customer-header-evidence?headerIndex=0` uses
+`getActorContext` and organization-filtered reads of document, project, preferred
+full extraction and source artifact. It returns verified evidence or fails
+closed. Extraction identity, schema and observations come from storage.
+
+The pure verifier closes ordered source refs against persisted PDF observations
+using the existing text, geometry, observation-identity and physical-page checks.
+It also verifies page representation digest, artifact ownership, exact label
+composition, complete header partition and contiguous column boundaries.
+Bindings pin org/project/document/extraction/artifact/source digest/page/page
+digest/header and column indices/exact label/ordered observation IDs/schema.
+
+`customer-header-schema-v1` hashes source kind, observed source method,
+interpretation family, one header row and ordered exact labels with column
+indices and spans. IDs, source digests, coordinates, inferred roles and parser
+versions are excluded, so equivalent structures across documents share scope.
+Raw evidence retains the source identity separately. Native and OCR methods
+have distinct scopes; mixed methods fail closed.
+
+This first producer accepts only one unambiguous, contiguous single-row header
+per physical page. Inherited, human-selected, segmented, overlapping, duplicate
+or ambiguously grouped headers are rejected. Missing materialized header
+observations are rejected rather than fabricated from reconstruction text.
+No extraction output is changed and no customer mapping is applied.
+
+B8.2c must persist the actual revision ID, digest and source schema with each
+interpretation. B8.2d must carry those historical pins into friction; querying
+the active mapping later cannot substitute for the revision actually used.
 
 ## Later B8 evidence and intake boundaries
 
@@ -60,5 +96,6 @@ Focused verification (from this checkout):
 
 ```powershell
 node node_modules/vitest/vitest.mjs run lib/customerAdaptation --maxWorkers 1 --no-file-parallelism --testTimeout 120000 --hookTimeout 120000
+node node_modules/vitest/vitest.mjs run lib/server/customerHeaderEvidenceRead.test.ts lib/server/customerHeaderEvidenceRoute.test.ts lib/extraction/pdf/layoutObservationEvidence.test.ts tests/blobExtractionSelection.test.ts --maxWorkers 1 --no-file-parallelism --testTimeout 120000 --hookTimeout 120000
 node node_modules/typescript/bin/tsc --noEmit --incremental false
 ```

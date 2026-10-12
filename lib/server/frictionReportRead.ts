@@ -1,4 +1,4 @@
-import { buildFrictionReport, type FrictionReport } from '@/lib/resolution/frictionReport';
+import { buildFrictionReport, type FrictionReport, type ValidatorOverrideRecord } from '@/lib/resolution/frictionReport';
 import type { ResolutionCase } from '@/lib/resolution/resolutionCases';
 import { deriveValueReadingTelemetry } from '@/lib/resolution/valueReadingLifecycle';
 import { loadRegionBoundAssertionRows } from '@/lib/server/regionBoundHumanAssertions';
@@ -14,11 +14,15 @@ import {
  * One organization's friction report (Forgewing generalization, phase 5),
  * composed from existing reads only: each project's resolution queue (the
  * same cases the workspace shows), the human_fact_assertions ledger, and the
- * value-reading proposals, reviews and outcomes. Read-only; scoped to one
+ * value-reading proposals, reviews and outcomes, and the operator overrides
+ * of Validator findings with the documents their evidence cites. Read-only; scoped to one
  * organization, never across tenants.
  */
 
 export const FRICTION_REPORT_MAX_PROJECTS = 50;
+/** Most recent operator overrides read for the rule semantics review (B6.4). */
+export const FRICTION_REPORT_MAX_OVERRIDES = 1000;
+const EVIDENCE_READ_CHUNK = 200;
 
 export type FrictionReportReadResult =
   | Readonly<{ status: 'ok'; report: FrictionReport }>
@@ -26,7 +30,12 @@ export type FrictionReportReadResult =
   | Readonly<{ status: 'read_failed'; reason: string }>;
 
 type Rows = PromiseLike<{ data: unknown; error: unknown }>;
-type Query = Rows & { eq(column: string, value: unknown): Query; in(column: string, values: readonly string[]): Query; limit(count: number): Query };
+type Query = Rows & {
+  eq(column: string, value: unknown): Query;
+  in(column: string, values: readonly string[]): Query;
+  order(column: string, options: { ascending: boolean }): Query;
+  limit(count: number): Query;
+};
 
 export async function readFrictionReport(
   query: Readonly<{ organizationId: string }>,
@@ -71,6 +80,35 @@ export async function readFrictionReport(
     const outcomes = (Array.isArray(outcomesRead.data) ? outcomesRead.data as { outcome_code?: unknown; source_document_id?: unknown }[] : [])
       .flatMap((row) => typeof row.outcome_code === 'string'
         ? [{ outcomeCode: row.outcome_code, documentId: typeof row.source_document_id === 'string' ? row.source_document_id : null }] : []);
+    // B6.4: operator overrides of Validator findings, this organization only. Ids and
+    // cited documents only; the operator's override reason is never read.
+    const overridesRead = await from('execution_items', 'id, project_id, source_id, validator_rule_key')
+      .eq('organization_id', query.organizationId).eq('source_type', 'validator_finding').eq('outcome', 'overridden')
+      .order('updated_at', { ascending: false }).limit(FRICTION_REPORT_MAX_OVERRIDES);
+    if (overridesRead.error) return { status: 'read_failed', reason: 'overrides_read_failed' };
+    const overrideRows = (Array.isArray(overridesRead.data) ? overridesRead.data as Record<string, unknown>[] : [])
+      .flatMap((row) => typeof row.id === 'string' && typeof row.project_id === 'string' && typeof row.source_id === 'string'
+        && typeof row.validator_rule_key === 'string' && projectIds.includes(row.project_id)
+        ? [{ id: row.id, projectId: row.project_id, findingId: row.source_id, ruleId: row.validator_rule_key }] : []);
+    const documentsByFinding = new Map<string, Set<string>>();
+    const findingIds = [...new Set(overrideRows.map((row) => row.findingId))];
+    for (let start = 0; start < findingIds.length; start += EVIDENCE_READ_CHUNK) {
+      const evidenceRead = await from('project_validation_evidence', 'finding_id, source_document_id')
+        .in('finding_id', findingIds.slice(start, start + EVIDENCE_READ_CHUNK));
+      if (evidenceRead.error) return { status: 'read_failed', reason: 'override_evidence_read_failed' };
+      for (const row of Array.isArray(evidenceRead.data) ? evidenceRead.data as Record<string, unknown>[] : []) {
+        if (typeof row.finding_id !== 'string' || typeof row.source_document_id !== 'string') continue;
+        // Only this organization's documents count as distinct documents.
+        if (!documentTypeById.has(row.source_document_id)) continue;
+        const documents = documentsByFinding.get(row.finding_id) ?? new Set<string>();
+        documents.add(row.source_document_id);
+        documentsByFinding.set(row.finding_id, documents);
+      }
+    }
+    const overrides: ValidatorOverrideRecord[] = overrideRows.map((row) => ({
+      organizationId: query.organizationId, projectId: row.projectId, executionItemId: row.id, findingId: row.findingId,
+      ruleId: row.ruleId, documentIds: [...(documentsByFinding.get(row.findingId) ?? [])],
+    }));
     return {
       status: 'ok',
       report: buildFrictionReport({
@@ -80,6 +118,7 @@ export async function readFrictionReport(
         assertions: assertions.rows,
         telemetry: deriveValueReadingTelemetry({ ...records, assertions: assertions.rows }),
         outcomes,
+        overrides,
       }),
     };
   } catch {

@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildFrictionReport, frictionReason, orchestratorPrefillHref } from '@/lib/resolution/frictionReport';
+import {
+  buildFrictionReport,
+  frictionReason,
+  orchestratorPrefillHref,
+  overrideDistinctDocumentCount,
+} from '@/lib/resolution/frictionReport';
+import { ruleCatalogueFingerprint } from '@/lib/validator/ruleCatalogueFingerprint';
+import { VALIDATOR_RULE_EXPLANATIONS } from '@/lib/validator/ruleExplanations';
 import type { ResolutionCase } from '@/lib/resolution/resolutionCases';
 
 /** Forgewing friction report (generalization, phase 5). Synthetic records only. */
@@ -84,5 +91,71 @@ describe('buildFrictionReport', () => {
   it('names a reason for every case kind', () => {
     expect(frictionReason(resolutionCase('unreadable_priced_line', 'd1'))).toBe('priced_line_on_unread_page');
     expect(frictionReason({ ...resolutionCase('validator_finding', 'd1'), finding: { ruleId: 'R7' } as never })).toBe('validator_rule:R7');
+  });
+});
+
+describe('rule_semantics_review (B6.4)', () => {
+  const override = (id: string, ruleId: string, documentIds: string[], extra: Record<string, unknown> = {}) => ({
+    organizationId: ORG, projectId: 'p1', executionItemId: id, findingId: `f-${id}`, ruleId, documentIds, ...extra,
+  }) as never;
+  const report = (overrides: never[]) => buildFrictionReport({ organizationId: ORG, documentTypeById: types, assertions: [],
+    telemetry: [], outcomes: [], projects: [], overrides });
+  const semantics = (overrides: never[]) => report(overrides).signals.filter((signal) => signal.kind === 'rule_semantics_review');
+
+  it('needs overrides of one rule on at least two distinct documents', () => {
+    // Two overrides on the same document, and one override citing two documents: one noisy case each.
+    expect(semantics([override('e1', 'FINANCIAL_NTE_EXCEEDED', ['d1']), override('e2', 'FINANCIAL_NTE_EXCEEDED', ['d1'])])).toEqual([]);
+    expect(semantics([override('e1', 'FINANCIAL_NTE_EXCEEDED', ['d1', 'd2'])])).toEqual([]);
+    // Different rules never combine; another organization's overrides never count.
+    expect(semantics([override('e1', 'FINANCIAL_NTE_EXCEEDED', ['d1']), override('e2', 'FINANCIAL_UNIT_TYPE_MISMATCH', ['d2'])])).toEqual([]);
+    expect(semantics([override('e1', 'FINANCIAL_NTE_EXCEEDED', ['d1']),
+      override('e2', 'FINANCIAL_NTE_EXCEEDED', ['d2'], { organizationId: 'other' })])).toEqual([]);
+    // Overrides without document evidence cannot establish distinct documents.
+    expect(semantics([override('e1', 'SOURCES_NO_CONTRACT', []), override('e2', 'SOURCES_NO_CONTRACT', [])])).toEqual([]);
+  });
+
+  it('attributes each document to a different override', () => {
+    expect(overrideDistinctDocumentCount([{ documentIds: ['d1', 'd2'] }, { documentIds: ['d1'] }])).toBe(2);
+    expect(overrideDistinctDocumentCount([{ documentIds: ['d1'] }, { documentIds: ['d1'] }, { documentIds: ['d1'] }])).toBe(1);
+    expect(overrideDistinctDocumentCount([{ documentIds: ['d1', 'd2', 'd3'] }])).toBe(1);
+    expect(overrideDistinctDocumentCount([{ documentIds: ['d1', 'd2'] }, { documentIds: ['d1', 'd2'] }, { documentIds: ['d2'] }])).toBe(2);
+  });
+
+  it('cites the rule, catalogue fingerprint, deficiency, counts and record ids, undetermined and advisory', () => {
+    const before = JSON.stringify(VALIDATOR_RULE_EXPLANATIONS);
+    const [signal, ...rest] = semantics([override('e3', 'FINANCIAL_NTE_EXCEEDED', ['d2']),
+      override('e1', 'FINANCIAL_NTE_EXCEEDED', ['d1']), override('e2', 'FINANCIAL_NTE_EXCEEDED', ['d1'])]);
+    expect(rest).toEqual([]);
+    expect(signal).toMatchObject({
+      signalId: 'rule_semantics_review:FINANCIAL_NTE_EXCEEDED', key: 'FINANCIAL_NTE_EXCEEDED', occurrences: 3, documents: 2, projects: 1,
+      semanticsReview: {
+        ruleId: 'FINANCIAL_NTE_EXCEEDED', catalogueFingerprint: ruleCatalogueFingerprint('FINANCIAL_NTE_EXCEEDED'),
+        deficiency: 'recurring_override', overrideCount: 3, distinctDocuments: 2, defectClass: 'undetermined', authority: 'advisory',
+      },
+      orchestratorPrefill: { rootCauseCategory: 'validation_rule_issue', requiresDefectClassification: true,
+        evidenceLinks: 'execution_item:e1\nexecution_item:e2\nexecution_item:e3' },
+    });
+    expect(signal!.orchestratorPrefill!.question).toContain('Defect class: undetermined');
+    expect(signal!.orchestratorPrefill!.question).toContain(ruleCatalogueFingerprint('FINANCIAL_NTE_EXCEEDED')!);
+    expect(orchestratorPrefillHref(signal!.orchestratorPrefill!)).toContain('defectClass=undetermined');
+    // Advisory only: the catalogue is untouched.
+    expect(JSON.stringify(VALIDATOR_RULE_EXPLANATIONS)).toBe(before);
+  });
+
+  it('caps evidence at ten record ids', () => {
+    const many = Array.from({ length: 12 }, (_, index) => override(`e${String(index).padStart(2, '0')}`, 'FINANCIAL_NTE_EXCEEDED', [`d${index}`]));
+    const [signal] = semantics(many);
+    expect(signal!.semanticsReview).toMatchObject({ overrideCount: 12, distinctDocuments: 12 });
+    expect(signal!.orchestratorPrefill!.evidenceLinks.split('\n')).toHaveLength(10);
+  });
+});
+
+describe('ruleCatalogueFingerprint', () => {
+  it('is versioned, differs per rule, and is null for a rule the catalogue does not know', () => {
+    const fingerprint = ruleCatalogueFingerprint('FINANCIAL_NTE_EXCEEDED');
+    expect(fingerprint).toMatch(/^rule-explanation-v1:sha256:[a-f0-9]{64}$/u);
+    expect(ruleCatalogueFingerprint('FINANCIAL_NTE_EXCEEDED')).toBe(fingerprint);
+    expect(ruleCatalogueFingerprint('FINANCIAL_UNIT_TYPE_MISMATCH')).not.toBe(fingerprint);
+    expect(ruleCatalogueFingerprint('NOT_A_RULE')).toBeNull();
   });
 });

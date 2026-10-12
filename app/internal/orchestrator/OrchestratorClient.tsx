@@ -5,6 +5,14 @@ import { Copy, Send } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { ORCHESTRATOR_ROOT_CAUSE_CATEGORIES } from '@/lib/shared/orchestratorTaxonomy';
+import {
+  isSemanticsDefectClass,
+  SEMANTICS_DEFECT_CLASS_LABEL,
+  SEMANTICS_DEFECT_CLASS_PARAM,
+  SEMANTICS_DEFECT_CLASS_UNDETERMINED,
+  SEMANTICS_DEFECT_CLASSES,
+  withHumanDefectClass,
+} from '@/lib/resolution/semanticsReview';
 
 type AccessState = 'checking' | 'allowed' | 'denied';
 type OrchestratorErrorResponse = {
@@ -23,6 +31,23 @@ export function getOrchestratorErrorMessage(payload: OrchestratorErrorResponse):
   return typeof payload.error === 'string' ? payload.error : 'Orchestrator request failed.';
 }
 
+/**
+ * The question to submit. A rule semantics review (B6.4) arrives with its defect
+ * class undetermined; it cannot be submitted until a person classifies it.
+ */
+export function orchestratorSubmission(params: {
+  question: string;
+  defectClassRequired: boolean;
+  defectClass: string;
+}): { ok: true; question: string } | { ok: false; error: string } {
+  if (!params.question.trim()) return { ok: false, error: 'Question is required.' };
+  if (!params.defectClassRequired) return { ok: true, question: params.question };
+  if (!isSemanticsDefectClass(params.defectClass)) {
+    return { ok: false, error: 'Classify this semantics review as a wording or rule-logic defect before submitting.' };
+  }
+  return { ok: true, question: withHumanDefectClass(params.question, params.defectClass) };
+}
+
 export function OrchestratorClient() {
   const router = useRouter();
   const [access, setAccess] = useState<AccessState>('checking');
@@ -30,6 +55,8 @@ export function OrchestratorClient() {
   const [rootCauseCategory, setRootCauseCategory] = useState('');
   const [affectedFiles, setAffectedFiles] = useState('');
   const [evidenceLinks, setEvidenceLinks] = useState('');
+  const [defectClassRequired, setDefectClassRequired] = useState(false);
+  const [defectClass, setDefectClass] = useState('');
   const [answer, setAnswer] = useState('');
   const [model, setModel] = useState('');
   const [filePath, setFilePath] = useState('');
@@ -49,6 +76,7 @@ export function OrchestratorClient() {
     }
     const prefilledEvidence = params.get('evidenceLinks');
     if (prefilledEvidence) setEvidenceLinks(prefilledEvidence);
+    if (params.get(SEMANTICS_DEFECT_CLASS_PARAM) === SEMANTICS_DEFECT_CLASS_UNDETERMINED) setDefectClassRequired(true);
   }, []);
 
   useEffect(() => {
@@ -86,8 +114,9 @@ export function OrchestratorClient() {
     setFilePath('');
     setModel('');
 
-    if (!question.trim()) {
-      setError('Question is required.');
+    const submission = orchestratorSubmission({ question, defectClassRequired, defectClass });
+    if (!submission.ok) {
+      setError(submission.error);
       return;
     }
 
@@ -109,7 +138,7 @@ export function OrchestratorClient() {
           Authorization: `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
-          question,
+          question: submission.question,
           rootCauseCategory: rootCauseCategory || undefined,
           affectedFiles,
           evidenceLinks,
@@ -202,6 +231,26 @@ export function OrchestratorClient() {
                 </option>
               ))}
             </select>
+
+            {defectClassRequired ? (
+              <>
+                <label className="block text-xs font-semibold text-[var(--ef-text-secondary)]" htmlFor="semantics-defect-class">
+                  Semantics defect class (required)
+                </label>
+                <select
+                  id="semantics-defect-class"
+                  required
+                  value={defectClass}
+                  onChange={(event) => setDefectClass(event.target.value)}
+                  className="w-full border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] px-3 py-2 text-xs outline-none focus:border-[var(--ef-purple-primary)]"
+                >
+                  <option value="">Undetermined: classify from the evidence</option>
+                  {SEMANTICS_DEFECT_CLASSES.map((key) => (
+                    <option key={key} value={key}>{SEMANTICS_DEFECT_CLASS_LABEL[key]}</option>
+                  ))}
+                </select>
+              </>
+            ) : null}
 
             <label className="block text-xs font-semibold text-[var(--ef-text-secondary)]" htmlFor="affected-files">
               Affected files

@@ -6,7 +6,13 @@ import {
 } from '@/lib/humanFactAssertions/regionBoundAssertions';
 import type { ResolutionCase } from '@/lib/resolution/resolutionCases';
 import type { ValueReadingTelemetryEvent } from '@/lib/resolution/valueReadingLifecycle';
+import {
+  SEMANTICS_DEFECT_CLASS_PARAM,
+  SEMANTICS_DEFECT_CLASS_UNDETERMINED,
+} from '@/lib/resolution/semanticsReview';
 import type { OrchestratorRootCauseCategoryKey } from '@/lib/shared/orchestratorTaxonomy';
+import { ruleCatalogueFingerprint } from '@/lib/validator/ruleCatalogueFingerprint';
+import { validatorRuleExplanation } from '@/lib/validator/ruleExplanations';
 
 /**
  * Forgewing friction report (Forgewing generalization, phase 5): where one
@@ -31,12 +37,48 @@ export type FrictionSignalKind =
   | 'recurring_deterministic_failure'
   | 'recurring_manual_correction'
   | 'forgewing_rejected'
-  | 'qualification_demand';
+  | 'qualification_demand'
+  | 'rule_semantics_review';
 
 export type OrchestratorPrefill = Readonly<{
   question: string;
   rootCauseCategory: OrchestratorRootCauseCategoryKey | null;
   evidenceLinks: string;
+  /** A person must classify the defect (wording or rule logic) before submitting. */
+  requiresDefectClassification?: true;
+}>;
+
+/**
+ * B6.4: evidence that operators repeatedly disagree with one Validator rule.
+ * Advisory only: it never changes the rule, its catalogue entry, its severity
+ * or its actions. The defect class is always `undetermined`; a person
+ * classifies it in the Improvement Orchestrator, and any change goes through
+ * code, tests, PR and CI.
+ */
+export type RuleSemanticsReview = Readonly<{
+  ruleId: string;
+  /** The catalogue entry in force when the signal was raised; null for a rule the catalogue does not know. */
+  catalogueFingerprint: string | null;
+  deficiency: 'recurring_override';
+  overrideCount: number;
+  /** Documents that can each be attributed to a different override (one override never counts twice). */
+  distinctDocuments: number;
+  defectClass: 'undetermined';
+  authority: 'advisory';
+}>;
+
+/**
+ * One operator override of a Validator finding: an execution item whose outcome
+ * is `overridden`. Ids and the documents its evidence cites only; never the
+ * operator's override reason, which can carry customer content.
+ */
+export type ValidatorOverrideRecord = Readonly<{
+  organizationId: string;
+  projectId: string;
+  executionItemId: string;
+  findingId: string;
+  ruleId: string;
+  documentIds: readonly string[];
 }>;
 
 export type FrictionSignal = Readonly<{
@@ -49,6 +91,8 @@ export type FrictionSignal = Readonly<{
   projects: number;
   /** Null when the remedy is a policy or qualification decision, not a product change. */
   orchestratorPrefill: OrchestratorPrefill | null;
+  /** Present only on `rule_semantics_review` signals. */
+  semanticsReview?: RuleSemanticsReview;
 }>;
 
 export type FrictionReport = Readonly<{
@@ -84,6 +128,8 @@ export type FrictionReportInput = Readonly<{
   assertions: readonly HumanFactAssertionRow[];
   telemetry: readonly ValueReadingTelemetryEvent[];
   outcomes: readonly Readonly<{ outcomeCode: string; documentId: string | null }>[];
+  /** Operator overrides of Validator findings (B6.4). Overrides only: a "correct" outcome is enforcement, not disagreement. */
+  overrides?: readonly ValidatorOverrideRecord[];
   /** A pattern recurs once it is seen on at least this many documents. Default 2. */
   minimumDocuments?: number;
 }>;
@@ -242,6 +288,7 @@ export function buildFrictionReport(input: FrictionReportInput): FrictionReport 
       orchestratorPrefill: null,
     });
   }
+  signals.push(...ruleSemanticsReviewSignals(input.organizationId, input.overrides ?? [], minimum));
   signals.sort((left, right) => right.documents - left.documents || right.occurrences - left.occurrences
     || left.signalId.localeCompare(right.signalId, 'en-US'));
 
@@ -268,9 +315,81 @@ export function buildFrictionReport(input: FrictionReportInput): FrictionReport 
   };
 }
 
+/**
+ * How many documents can each be attributed to a different override: a maximum
+ * matching between overrides and the documents their evidence cites. One
+ * override citing many documents counts once; many overrides on one document
+ * count once.
+ */
+export function overrideDistinctDocumentCount(overrides: readonly Readonly<{ documentIds: readonly string[] }>[]): number {
+  const matchedOverrideByDocument = new Map<string, number>();
+  const assign = (overrideIndex: number, visited: Set<string>): boolean => {
+    for (const documentId of overrides[overrideIndex]!.documentIds) {
+      if (visited.has(documentId)) continue;
+      visited.add(documentId);
+      const holder = matchedOverrideByDocument.get(documentId);
+      if (holder === undefined || assign(holder, visited)) {
+        matchedOverrideByDocument.set(documentId, overrideIndex);
+        return true;
+      }
+    }
+    return false;
+  };
+  let matched = 0;
+  for (let index = 0; index < overrides.length; index += 1) if (assign(index, new Set())) matched += 1;
+  return matched;
+}
+
+function ruleSemanticsReviewSignals(organizationId: string, overrides: readonly ValidatorOverrideRecord[],
+  minimum: number): FrictionSignal[] {
+  const byRule = new Map<string, ValidatorOverrideRecord[]>();
+  for (const record of overrides) {
+    if (record.organizationId !== organizationId || !record.ruleId) continue;
+    byRule.set(record.ruleId, [...(byRule.get(record.ruleId) ?? []), record]);
+  }
+  const signals: FrictionSignal[] = [];
+  for (const [ruleId, records] of byRule) {
+    const ordered = records.slice().sort((left, right) => left.executionItemId.localeCompare(right.executionItemId, 'en-US'));
+    const distinctDocuments = overrideDistinctDocumentCount(ordered.map((record) => ({
+      documentIds: [...new Set(record.documentIds)].sort((left, right) => left.localeCompare(right, 'en-US')),
+    })));
+    if (distinctDocuments < Math.max(2, minimum)) continue;
+    const projects = new Set(ordered.map((record) => record.projectId)).size;
+    const review: RuleSemanticsReview = {
+      ruleId, catalogueFingerprint: ruleCatalogueFingerprint(ruleId), deficiency: 'recurring_override',
+      overrideCount: ordered.length, distinctDocuments, defectClass: 'undetermined', authority: 'advisory',
+    };
+    const title = validatorRuleExplanation(ruleId)?.title ?? 'not in the rule catalogue';
+    signals.push({
+      signalId: `rule_semantics_review:${ruleId}`, kind: 'rule_semantics_review', key: ruleId,
+      summary: `Operators overrode "${ruleId}" findings ${ordered.length} times on ${distinctDocuments} distinct documents.`,
+      occurrences: ordered.length, documents: distinctDocuments, projects,
+      semanticsReview: review,
+      orchestratorPrefill: {
+        question: [
+          `Forgewing semantics review (rule_semantics_review): Validator rule ${ruleId} ("${title}").`,
+          `Catalogue entry: ${review.catalogueFingerprint ?? 'none'}.`,
+          `Deficiency: recurring_override. Operators overrode ${ordered.length} findings of this rule on ${distinctDocuments}`,
+          `distinct documents across ${projects} projects in one organization.`,
+          'Defect class: undetermined. Classify it as a wording defect (the catalogue explanation or action is incomplete,',
+          'stale or misleading) or a rule-logic defect (the rule fires when it should not). Then identify the smallest safe',
+          'change and its regression tests. This signal is advisory: it changes no rule, catalogue entry, severity or action;',
+          'any change goes through code, tests, PR and CI. Known limitation: execution items do not record which catalogue',
+          'entry an operator saw, so overrides recorded before a catalogue change are still counted.',
+        ].join(' '),
+        rootCauseCategory: 'validation_rule_issue',
+        evidenceLinks: ordered.slice(0, MAX_EVIDENCE_REFS).map((record) => `execution_item:${record.executionItemId}`).join('\n'),
+        requiresDefectClassification: true,
+      },
+    });
+  }
+  return signals;
+}
+
 /** The Orchestrator page, prefilled; a person reviews and submits it. */
 export function orchestratorPrefillHref(prefill: OrchestratorPrefill): string {
   const params = new URLSearchParams({ question: prefill.question, evidenceLinks: prefill.evidenceLinks });
   if (prefill.rootCauseCategory) params.set('rootCauseCategory', prefill.rootCauseCategory);
+  if (prefill.requiresDefectClassification) params.set(SEMANTICS_DEFECT_CLASS_PARAM, SEMANTICS_DEFECT_CLASS_UNDETERMINED);
   return `/internal/orchestrator?${params.toString()}`;
 }

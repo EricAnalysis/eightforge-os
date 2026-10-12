@@ -60,6 +60,7 @@ export async function loadRegionBoundAssertionRows(
 }
 
 export type RecordRegionAssertionInput = Readonly<{
+  customerMappingEvidence?: import('@/lib/customerAdaptation/headerMappingEvidence').CustomerMappingEvidence;
   organizationId: string;
   actorId: string;
   sourceDocumentId: string;
@@ -129,6 +130,7 @@ export async function recordRegionBoundAssertion(
     p_forgewing_proposal_id: input.forgewingProposalId ?? null,
     p_supersedes_assertion_id: input.supersedesAssertionId,
     p_request_digest_sha256: regionAssertionRequestDigest(input),
+    ...(input.customerMappingEvidence ? { p_customer_mapping_evidence: input.customerMappingEvidence } : {}),
   });
   if (error) {
     if (isSchemaUnavailable(error) || error.code === '42883') return { status: 'unavailable' };

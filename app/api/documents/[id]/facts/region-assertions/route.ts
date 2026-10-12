@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { pickPreferredExtractionBlob } from '@/lib/blobExtractionSelection';
+import { customerMappingEvidenceFromExtraction } from '@/lib/customerAdaptation/headerMappingEvidence';
 import { documentReviewedValueState } from '@/lib/humanFactAssertions/regionBoundAssertions';
 import { getActorContext } from '@/lib/server/getActorContext';
 import { parseRegionAssertionRequest, prepareRegionAssertionRecord } from '@/lib/server/regionAssertionRequest';
@@ -34,14 +35,14 @@ async function loadDocumentContext(admin: NonNullable<ReturnType<typeof getSupab
   if (error) return { error: error.message } as const;
   const { data: extractions, error: extractionError } = await admin
     .from('document_extractions')
-    .select('document_id, created_at, data')
+    .select('id, document_id, created_at, data')
     .eq('document_id', documentId)
     .is('field_key', null)
     .order('created_at', { ascending: false });
   if (extractionError) return { error: extractionError.message } as const;
   const preferred = pickPreferredExtractionBlob(
-    (extractions ?? []) as Array<{ document_id: string; created_at: string | null; data: Record<string, unknown> | null }>);
-  return { document, extractionData: preferred?.data ?? null } as const;
+    (extractions ?? []) as Array<{ id: string; document_id: string; created_at: string | null; data: Record<string, unknown> | null }>);
+  return { document, extractionData: preferred?.data ?? null, extractionSnapshotId: preferred?.id ?? null } as const;
 }
 
 export async function GET(
@@ -92,7 +93,14 @@ export async function POST(
   });
   if (!prepared.ok) return jsonError(prepared.error, prepared.status, prepared.code);
 
-  const recorded = await recordRegionBoundAssertion(admin as unknown as RegionAssertionClient, prepared.input);
+  const customerMappingEvidence = context.extractionSnapshotId
+    ? customerMappingEvidenceFromExtraction({ extractionData: context.extractionData,
+        extractionSnapshotId: context.extractionSnapshotId, organizationId,
+        physicalPageNumber: prepared.input.physicalPageNumber,
+        pageRepresentationDigest: prepared.input.pageRepresentationDigest,
+        sourceObservationIds: prepared.input.sourceObservationIds }) : undefined;
+  const recorded = await recordRegionBoundAssertion(admin as unknown as RegionAssertionClient,
+    { ...prepared.input, ...(customerMappingEvidence ? { customerMappingEvidence } : {}) });
   if (recorded.status === 'unavailable') return jsonError('Reviewed values are not available yet', 503);
   if (recorded.status === 'stale_chain_head') {
     return jsonError('This value was reviewed again in the meantime; reload and supersede the latest review.',

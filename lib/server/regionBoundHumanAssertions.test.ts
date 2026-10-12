@@ -76,6 +76,21 @@ describe('region-bound assertion server adapter (B3)', () => {
     expect(regionAssertionRequestDigest(INPUT)).not.toBe(regionAssertionRequestDigest({ ...INPUT, idempotencyKey: 'k-2' }));
   });
 
+  it('passes action-time mapping provenance unchanged and omits the optional RPC argument for unknown history', async () => {
+    const customerMappingEvidence = { extractionSnapshotId: '00000000-0000-4000-8000-000000000004', mappingPins: [{
+      version: 'customer_header_mapping_pin_v1' as const, organizationId: '00000000-0000-4000-8000-000000000001',
+      documentType: 'contract', revisionId: '00000000-0000-4000-8000-000000000080', digest: 'c'.repeat(64),
+      sourceSchemaIdentity: `customer-header-schema-v1:${'d'.repeat(64)}`, physicalPageNumber: 2, columnIndex: 1,
+      sourceLabel: 'Billing Rate', orderedObservationIds: [`pdf:layout-token:v1:${'e'.repeat(64)}`],
+      pageRepresentationDigest: 'a'.repeat(64),
+    }] };
+    const { client, rpc } = rpcClient({ data: [{ assertion_id: 'a-4', inserted: true }], error: null });
+    await recordRegionBoundAssertion(client, { ...INPUT, customerMappingEvidence });
+    expect((rpc.mock.calls[0] as unknown as [string, Record<string, unknown>])[1].p_customer_mapping_evidence).toEqual(customerMappingEvidence);
+    await recordRegionBoundAssertion(client, INPUT);
+    expect((rpc.mock.calls[1] as unknown as [string, Record<string, unknown>])[1]).not.toHaveProperty('p_customer_mapping_evidence');
+  });
+
   it('reads nothing, without failing validation, when the B3 columns are not deployed yet', async () => {
     const query = { in: () => query, eq: () => query, order: () => query,
       then: (resolve: (value: unknown) => unknown) => resolve({ data: null, error: { code: '42703', message: 'column does not exist' } }) };

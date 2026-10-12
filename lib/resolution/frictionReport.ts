@@ -1,4 +1,5 @@
 import { FAILURE_REGISTRY } from '@/lib/diagnostics/failureRegistry';
+import { CustomerMappingEvidenceSchema, type CustomerMappingEvidence } from '@/lib/customerAdaptation/headerMappingEvidence';
 import {
   CONTRACT_RATE_ROW_FACT_KEY,
   PRICED_EVIDENCE_DISPOSITION_FACT_KEY,
@@ -108,6 +109,9 @@ export type FrictionSignal = Readonly<{
 }>;
 
 export type FrictionReport = Readonly<{
+  /** Tenant-local provenance only; never included in a platform signal or prefill. */
+  customerMappingEvidence?: readonly Readonly<{ sourceKind: 'resolution_case' | 'human_fact_assertion' | 'value_reading_proposal' | 'value_reading_outcome';
+    sourceId: string; evidence: CustomerMappingEvidence }>[];
   organizationId: string;
   projectCount: number;
   openCases: number;
@@ -134,6 +138,8 @@ export type FrictionReport = Readonly<{
 }>;
 
 export type FrictionReportInput = Readonly<{
+  historicalValueReadingMappingEvidence?: readonly Readonly<{ sourceKind: 'value_reading_proposal' | 'value_reading_outcome';
+    sourceId: string; evidence: CustomerMappingEvidence }>[];
   organizationId: string;
   projects: readonly Readonly<{ projectId: string; cases: readonly ResolutionCase[] }>[];
   documentTypeById: ReadonlyMap<string, string | null>;
@@ -236,6 +242,15 @@ function payloadFor(kind: FrictionSignalKind, code: string, entry: Tally,
 }
 
 export function buildFrictionReport(input: FrictionReportInput): FrictionReport {
+  const customerMappingEvidence: { sourceKind: 'resolution_case' | 'human_fact_assertion' | 'value_reading_proposal' | 'value_reading_outcome'; sourceId: string;
+    evidence: CustomerMappingEvidence }[] = [];
+  const retainMappingEvidence = (sourceKind: 'resolution_case' | 'human_fact_assertion' | 'value_reading_proposal' | 'value_reading_outcome', sourceId: string, value: unknown) => {
+    const parsed = CustomerMappingEvidenceSchema.safeParse(value);
+    if (parsed.success && parsed.data.mappingPins.every(pin => pin.organizationId === input.organizationId)) {
+      customerMappingEvidence.push({ sourceKind, sourceId, evidence: parsed.data });
+    }
+  };
+  for (const record of input.historicalValueReadingMappingEvidence ?? []) retainMappingEvidence(record.sourceKind, record.sourceId, record.evidence);
   const minimum = Math.max(1, input.minimumDocuments ?? 2);
   const byKind = new Map<string, Tally>();
   const byReason = new Map<string, Tally>();
@@ -246,6 +261,7 @@ export function buildFrictionReport(input: FrictionReportInput): FrictionReport 
   let openCases = 0;
   for (const project of input.projects) {
     for (const resolutionCase of project.cases) {
+      retainMappingEvidence('resolution_case', resolutionCase.caseId, resolutionCase.sourceRefs?.customerMappingEvidence);
       openCases += 1;
       const documentId = resolutionCase.documentId;
       tally(byKind, resolutionCase.kind, documentId, project.projectId, resolutionCase.caseId);
@@ -268,6 +284,7 @@ export function buildFrictionReport(input: FrictionReportInput): FrictionReport 
   let reviewedValues = 0;
   let dispositions = 0;
   for (const row of active) {
+    retainMappingEvidence('human_fact_assertion', row.id, row.customer_mapping_evidence);
     if (row.fact_key === PRICED_EVIDENCE_DISPOSITION_FACT_KEY) dispositions += 1;
     if (row.fact_key !== CONTRACT_RATE_ROW_FACT_KEY) continue;
     reviewedValues += 1;
@@ -317,6 +334,7 @@ export function buildFrictionReport(input: FrictionReportInput): FrictionReport 
 
   return {
     organizationId: input.organizationId,
+    ...(customerMappingEvidence.length > 0 ? { customerMappingEvidence } : {}),
     projectCount: input.projects.length,
     openCases,
     byCaseKind: counts(byKind),

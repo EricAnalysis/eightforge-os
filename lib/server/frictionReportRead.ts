@@ -1,4 +1,5 @@
 import { buildFrictionReport, type FrictionReport, type ValidatorOverrideRecord } from '@/lib/resolution/frictionReport';
+import { customerMappingEvidenceFromExtraction, type CustomerMappingEvidence } from '@/lib/customerAdaptation/headerMappingEvidence';
 import type { ResolutionCase } from '@/lib/resolution/resolutionCases';
 import { deriveValueReadingTelemetry } from '@/lib/resolution/valueReadingLifecycle';
 import { loadRegionBoundAssertionRows } from '@/lib/server/regionBoundHumanAssertions';
@@ -86,13 +87,58 @@ export async function readFrictionReport(
     const assertions = await loadRegionBoundAssertionRows(admin, documentIds);
     const records = await loadValueReadingRecords(admin as never, { organizationId: query.organizationId, documentIds });
     const outcomesRead = documentIds.length === 0 ? { data: [], error: null }
-      : await from(VALUE_READING_OUTCOMES_TABLE, 'outcome_code, source_document_id')
+      : await from(VALUE_READING_OUTCOMES_TABLE, 'id, outcome_code, source_document_id, source_artifact_id, extraction_snapshot_id, physical_page_number, page_representation_digest')
         .eq('organization_id', query.organizationId).eq('recovery_type', VALUE_READING_RECOVERY_TYPE)
         .in('source_document_id', documentIds);
     if (outcomesRead.error) return { status: 'read_failed', reason: 'outcomes_read_failed' };
     const outcomes = (Array.isArray(outcomesRead.data) ? outcomesRead.data as { outcome_code?: unknown; source_document_id?: unknown }[] : [])
       .flatMap((row) => typeof row.outcome_code === 'string'
         ? [{ outcomeCode: row.outcome_code, documentId: typeof row.source_document_id === 'string' ? row.source_document_id : null }] : []);
+    // These are document_extractions IDs captured when the request was made,
+    // never the preferred extraction or today's active customer mapping.
+    const sources: { sourceKind: 'value_reading_proposal' | 'value_reading_outcome'; sourceId: string;
+      documentId: string; artifactId: string; extractionId: string; physicalPageNumber: number; pageDigest: string }[] = records.proposals
+      .filter(proposal => proposal.binding.organizationId === query.organizationId && documentTypeById.has(proposal.binding.sourceDocumentId))
+      .map(proposal => ({ sourceKind: 'value_reading_proposal', sourceId: proposal.proposalId,
+        documentId: proposal.binding.sourceDocumentId, artifactId: proposal.binding.sourceArtifactId,
+        extractionId: proposal.binding.extractionSnapshotId, physicalPageNumber: proposal.binding.physicalPageNumber,
+        pageDigest: proposal.binding.pageRepresentationDigest }));
+    for (const row of Array.isArray(outcomesRead.data) ? outcomesRead.data as Record<string, unknown>[] : []) {
+      if (typeof row.id === 'string' && typeof row.source_document_id === 'string' && documentTypeById.has(row.source_document_id)
+        && typeof row.source_artifact_id === 'string' && typeof row.extraction_snapshot_id === 'string'
+        && typeof row.physical_page_number === 'number' && typeof row.page_representation_digest === 'string') {
+        sources.push({ sourceKind: 'value_reading_outcome', sourceId: row.id, documentId: row.source_document_id,
+          artifactId: row.source_artifact_id, extractionId: row.extraction_snapshot_id,
+          physicalPageNumber: row.physical_page_number, pageDigest: row.page_representation_digest });
+      }
+    }
+    const historicalValueReadingMappingEvidence: { sourceKind: 'value_reading_proposal' | 'value_reading_outcome';
+      sourceId: string; evidence: CustomerMappingEvidence }[] = [];
+    const snapshotIds = [...new Set(sources.map(source => source.extractionId))];
+    const historicalExtractions = new Map<string, Record<string, unknown>>();
+    for (let start = 0; start < snapshotIds.length; start += EVIDENCE_READ_CHUNK) {
+      const extractionRead = await from('document_extractions', 'id, document_id, organization_id, data')
+        .eq('organization_id', query.organizationId).in('document_id', documentIds)
+        .in('id', snapshotIds.slice(start, start + EVIDENCE_READ_CHUNK));
+      if (extractionRead.error) return { status: 'read_failed', reason: 'historical_mapping_evidence_read_failed' };
+      for (const row of Array.isArray(extractionRead.data) ? extractionRead.data as Record<string, unknown>[] : []) {
+        if (typeof row.id === 'string' && row.organization_id === query.organizationId
+          && typeof row.document_id === 'string' && documentTypeById.has(row.document_id)) historicalExtractions.set(row.id, row);
+      }
+    }
+    for (const source of sources) {
+      const extraction = historicalExtractions.get(source.extractionId);
+      if (!extraction || extraction.document_id !== source.documentId) continue;
+      const data = extraction.data as { extraction?: { physical_page_provenance_v1?: { source_artifact_id?: unknown };
+        content_layers_v1?: { pdf?: { layout_observations_v1?: { source_artifact_id?: unknown } } } } } | null;
+      const artifact = data?.extraction?.content_layers_v1?.pdf?.layout_observations_v1?.source_artifact_id
+        ?? data?.extraction?.physical_page_provenance_v1?.source_artifact_id;
+      if (artifact !== source.artifactId) continue;
+      const evidence = customerMappingEvidenceFromExtraction({ extractionData: extraction.data,
+        extractionSnapshotId: source.extractionId, organizationId: query.organizationId,
+        physicalPageNumber: source.physicalPageNumber, pageRepresentationDigest: source.pageDigest });
+      if (evidence) historicalValueReadingMappingEvidence.push({ sourceKind: source.sourceKind, sourceId: source.sourceId, evidence });
+    }
     // B6.4: operator overrides of Validator findings, this organization only. Ids and
     // cited documents only; the operator's override reason is never read.
     const overridesRead = await from('execution_items', 'id, project_id, source_id, validator_rule_key')
@@ -141,6 +187,7 @@ export async function readFrictionReport(
         telemetry: deriveValueReadingTelemetry({ ...records, assertions: assertions.rows }),
         outcomes,
         overrides,
+        historicalValueReadingMappingEvidence,
       }),
     };
   } catch {

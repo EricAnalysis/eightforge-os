@@ -70,12 +70,21 @@ export function WorkflowReviewsCard() {
           Review Forgewing-generated workflow specifications.
         </p>
       </div>
-      <Link
-        href="/platform/workflows/reviews"
-        className="shrink-0 rounded-md border border-[var(--ef-purple-primary-a40)] px-3 py-1.5 text-xs text-[var(--ef-text-primary)] hover:border-[var(--ef-purple-primary)]"
-      >
-        Review assessments →
-      </Link>
+      <div className="flex shrink-0 flex-wrap gap-2">
+        <Link
+          href="/platform/workflows/reviews"
+          className="rounded-md border border-[var(--ef-purple-primary-a40)] px-3 py-1.5 text-xs text-[var(--ef-text-primary)] hover:border-[var(--ef-purple-primary)]"
+        >
+          Review assessments →
+        </Link>
+        {/* Same platform-review authority (B8.3c). */}
+        <Link
+          href="/platform/workflows/improvement-signals"
+          className="rounded-md border border-[var(--ef-border-subtle)] px-3 py-1.5 text-xs text-[var(--ef-text-primary)] hover:border-[var(--ef-purple-primary)]"
+        >
+          Triage improvement signals →
+        </Link>
+      </div>
     </section>
   );
 }

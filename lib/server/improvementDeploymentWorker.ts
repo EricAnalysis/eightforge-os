@@ -90,3 +90,62 @@ export async function runImprovementDeploymentProof(
   }
   return { status: 'completed', verifierCheckoutCommit: checkout.headCommit, outcomes };
 }
+
+// ---------------------------------------------------------------------------
+// B8.4c: producer classification for measurement.
+// ---------------------------------------------------------------------------
+
+export const READ_CLASSIFICATION_WORK_FUNCTION = 'read_improvement_classification_work' as const;
+export const RECORD_PRODUCER_CLASSIFICATION_FUNCTION = 'record_improvement_producer_classification' as const;
+
+const ClassificationWorkSchema = z.array(z.object({
+  deployed_event_id: z.string().uuid(), fix_commit_sha: sha1,
+  revisions: z.array(sha1).max(500), revisions_truncated: z.boolean(),
+}).strict()).max(25);
+
+export type ProducerClassificationRunResult =
+  | Readonly<{ status: 'completed'; verifierCheckoutCommit: string; classified: number; unverifiable: number;
+    recordFailed: number; truncatedEvents: number }>
+  | Readonly<{ status: 'failed'; code: 'read_failed' | 'invalid_work' | GitAncestryFailureCode }>;
+
+/**
+ * For each deployed fix still being measured, prove for every production
+ * revision that produced the organization's units whether it contains the
+ * attested commit. Revision SHAs only; no tenant content reaches the worker.
+ * A revision the checkout cannot answer for stays unclassified, so its units
+ * are excluded from measurement rather than guessed. A truncated list is
+ * worked in passes: classified revisions drop out of the next read.
+ */
+export async function runImprovementProducerClassification(
+  client: RpcClient,
+  repositoryRoot: string,
+  dependencies: Readonly<{ openCheckout?: typeof openGitCheckout; limit?: number }> = {},
+): Promise<ProducerClassificationRunResult> {
+  const opened = (dependencies.openCheckout ?? openGitCheckout)(repositoryRoot);
+  if (!opened.ok) return { status: 'failed', code: opened.code };
+  const { checkout } = opened;
+  let read: { data: unknown; error: unknown };
+  try {
+    read = await client.rpc(READ_CLASSIFICATION_WORK_FUNCTION, { p_limit: dependencies.limit ?? 10 });
+  } catch { return { status: 'failed', code: 'read_failed' }; }
+  if (read.error) return { status: 'failed', code: 'read_failed' };
+  const work = ClassificationWorkSchema.safeParse(read.data ?? []);
+  if (!work.success) return { status: 'failed', code: 'invalid_work' };
+
+  let classified = 0; let unverifiable = 0; let recordFailed = 0;
+  for (const event of work.data) {
+    for (const revision of event.revisions) {
+      const proof = checkout.contains(event.fix_commit_sha, revision);
+      if (!proof.ok) { unverifiable += 1; continue; }
+      try {
+        const recorded = await client.rpc(RECORD_PRODUCER_CLASSIFICATION_FUNCTION, {
+          p_deployed_event_id: event.deployed_event_id, p_producer_revision: revision,
+          p_contains_fix: proof.contains, p_verifier_checkout_commit: checkout.headCommit,
+        });
+        if (recorded.error) recordFailed += 1; else classified += 1;
+      } catch { recordFailed += 1; }
+    }
+  }
+  return { status: 'completed', verifierCheckoutCommit: checkout.headCommit, classified, unverifiable, recordFailed,
+    truncatedEvents: work.data.filter((event) => event.revisions_truncated).length };
+}

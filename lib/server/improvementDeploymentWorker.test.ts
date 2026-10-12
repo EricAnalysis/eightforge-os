@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import type { openGitCheckout } from '@/lib/server/gitAncestry';
 import {
+  READ_CLASSIFICATION_WORK_FUNCTION,
   READ_IMPROVEMENT_DEPLOYMENT_WORK_FUNCTION,
   RECORD_IMPROVEMENT_DEPLOYMENT_FUNCTION,
+  RECORD_PRODUCER_CLASSIFICATION_FUNCTION,
   runImprovementDeploymentProof,
+  runImprovementProducerClassification,
 } from '@/lib/server/improvementDeploymentWorker';
 
 const FIX = '1'.repeat(40);
@@ -82,5 +85,39 @@ describe('deployment proof worker (B8.4b)', () => {
     expect(await runImprovementDeploymentProof(fakeClient({ ...work(), pending_attestations: [{ event_id: EVENT,
       fix_commit_sha: 'main' }] }), '/checkout', { openCheckout: fakeCheckout(new Set()) }))
       .toEqual({ status: 'failed', code: 'invalid_work' });
+  });
+});
+
+describe('producer classification worker (B8.4c)', () => {
+  const DEPLOYED_EVENT = 'b84b0000-0000-4000-8000-000000000201';
+  const classificationClient = (work: unknown) => {
+    const calls: { name: string; args: Record<string, unknown> }[] = [];
+    return { calls, rpc: async (name: string, args: Record<string, unknown>) => {
+      calls.push({ name, args });
+      if (name === READ_CLASSIFICATION_WORK_FUNCTION) return { data: work, error: null };
+      return { data: [{ classification_id: DEPLOYED_EVENT, inserted: true }], error: null };
+    } };
+  };
+
+  it('records, for each revision, whether it contains the attested commit, and skips what the checkout cannot answer', async () => {
+    const client = classificationClient([{ deployed_event_id: DEPLOYED_EVENT, fix_commit_sha: FIX,
+      revisions: [BEFORE, FIRST_WITH_FIX, LATER_WITH_FIX], revisions_truncated: false }]);
+    const result = await runImprovementProducerClassification(client, '/checkout',
+      { openCheckout: fakeCheckout(new Set([FIRST_WITH_FIX]), new Set([LATER_WITH_FIX])) });
+    expect(result).toEqual({ status: 'completed', verifierCheckoutCommit: HEAD, classified: 2, unverifiable: 1,
+      recordFailed: 0, truncatedEvents: 0 });
+    expect(client.calls.filter((call) => call.name === RECORD_PRODUCER_CLASSIFICATION_FUNCTION).map((call) => call.args))
+      .toEqual([
+        { p_deployed_event_id: DEPLOYED_EVENT, p_producer_revision: BEFORE, p_contains_fix: false, p_verifier_checkout_commit: HEAD },
+        { p_deployed_event_id: DEPLOYED_EVENT, p_producer_revision: FIRST_WITH_FIX, p_contains_fix: true, p_verifier_checkout_commit: HEAD },
+      ]);
+  });
+
+  it('fails closed on an unusable checkout or malformed work', async () => {
+    expect(await runImprovementProducerClassification(classificationClient([]), '/checkout',
+      { openCheckout: () => ({ ok: false, code: 'shallow_repository' }) })).toEqual({ status: 'failed', code: 'shallow_repository' });
+    expect(await runImprovementProducerClassification(classificationClient([{ deployed_event_id: DEPLOYED_EVENT,
+      fix_commit_sha: FIX, revisions: ['main'], revisions_truncated: false }]), '/checkout',
+      { openCheckout: fakeCheckout(new Set()) })).toEqual({ status: 'failed', code: 'invalid_work' });
   });
 });

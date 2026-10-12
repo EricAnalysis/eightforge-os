@@ -125,7 +125,13 @@ export function attributeForgewingProposal(proposal: Readonly<Record<string, unk
 export function customerMappingConfiguration(evidence: unknown): string | null {
   const parsed = CustomerMappingEvidenceSchema.safeParse(evidence);
   if (!parsed.success) return null;
-  const revisions = [...new Set(parsed.data.mappingPins.map((pin) => `${pin.revisionId}:${pin.digest}`))].sort();
+  return mappingRevisionsConfiguration(parsed.data.mappingPins.map((pin) => `${pin.revisionId}:${pin.digest}`));
+}
+
+/** `<revisionId>:<digest>` values as one configuration value; null when none applied. */
+export function mappingRevisionsConfiguration(revisionDigests: readonly string[]): string | null {
+  const revisions = [...new Set(revisionDigests)].sort();
+  if (revisions.length === 0) return null;
   return revisions.length === 1 ? revisions[0]! : `mapping_set:sha256:${hashCanonical(revisions)}`;
 }
 

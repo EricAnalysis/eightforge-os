@@ -276,7 +276,7 @@ BEGIN
   EXCEPTION WHEN restrict_violation THEN NULL;
   END;
   BEGIN
-    TRUNCATE public.improvement_lifecycle_events;
+    TRUNCATE public.improvement_lifecycle_events CASCADE;
     RAISE EXCEPTION 'lifecycle events truncated';
   EXCEPTION WHEN restrict_violation THEN NULL;
   END;

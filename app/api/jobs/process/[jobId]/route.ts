@@ -12,6 +12,7 @@ import {
   setDocumentStatus,
 } from '@/lib/server/analysisJobService';
 import { extractDocument } from '@/lib/server/documentExtraction';
+import { loadActiveCustomerHeaderMappings } from '@/lib/server/customerHeaderMappingLifecycle';
 import { loadConfirmedRecoverySelections } from '@/lib/server/effectiveRecoveryConfirmations';
 import { runAiEnrichment } from '@/lib/server/documentAiEnrichment';
 import { persistAiEnrichmentDecisions } from '@/lib/server/aiDecisionPersistence';
@@ -178,6 +179,9 @@ export async function POST(
           sourceArtifactId: processingIdentity.sourceArtifactId,
         })
       : null;
+    const customerHeaderMappings = processingIdentity.status === 'persisted' && metadata.document_type
+      ? await loadActiveCustomerHeaderMappings({ organizationId: job.organization_id, documentType: metadata.document_type }, admin)
+      : null;
     const payload = (await extractDocument(
       metadata,
       bytes,
@@ -193,6 +197,7 @@ export async function POST(
       // exact accepted or modified reviews. Empty unless a human authorized a
       // re-entry, so ordinary processing is unchanged.
       processingIdentity.status === 'persisted' ? recoverySelections : null,
+      customerHeaderMappings,
     )) as ExtractionPayload & { ai_enrichment?: unknown };
 
     after(scheduleExtractionComplianceShadow({

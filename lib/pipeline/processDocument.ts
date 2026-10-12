@@ -12,6 +12,7 @@ import {
   setDocumentStatus,
 } from '@/lib/server/analysisJobService';
 import { extractDocument } from '@/lib/server/documentExtraction';
+import { loadActiveCustomerHeaderMappings } from '@/lib/server/customerHeaderMappingLifecycle';
 import {
   hasConfirmedRecoverySelections,
   loadConfirmedRecoverySelections,
@@ -378,6 +379,9 @@ export async function processDocument(params: {
     // The browser can only ever send 'recovery_reprocess', which removes
     // capability; there is no value it can send that adds any.
     const providerWorkAllowed = params.processingPurpose !== 'recovery_reprocess';
+    const customerHeaderMappings = processingIdentity.status === 'persisted' && metadata.document_type
+      ? await loadActiveCustomerHeaderMappings({ organizationId: params.organizationId, documentType: metadata.document_type }, admin)
+      : null;
     const payload = (await extractDocument(
       metadata,
       bytes,
@@ -393,6 +397,7 @@ export async function processDocument(params: {
       // exact accepted or modified reviews. Empty unless a human authorized a
       // re-entry, so ordinary processing is unchanged.
       processingIdentity.status === 'persisted' ? recoverySelections : null,
+      customerHeaderMappings,
     )) as ExtractionPayload & { ai_enrichment?: unknown };
 
     if (providerWorkAllowed) {

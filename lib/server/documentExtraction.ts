@@ -183,6 +183,8 @@ const FINDING_RE = /(?:finding|observation|issue|deficiency|violation)\s*(?:#?\d
 const REPORTING_PERIOD_RE = /(?:reporting\s+period|period\s+(?:of|from)|date\s+range)\s*[:=]?\s*(.{5,80})/gi;
 const AUTHOR_RE = /(?:prepared\s+by|author|inspector|monitor)\s*[:=]?\s*([A-Z][A-Za-z .,'-]{2,50})/gi;
 
+import { prepareCustomerHeaderMappingAssignments, type CustomerHeaderMappingContext } from '@/lib/customerAdaptation/headerMappingConsumption';
+
 export type DocumentMetadata = {
   id: string;
   title: string | null;
@@ -1692,6 +1694,7 @@ export async function extractDocument(
   fileName: string,
   provenanceContext?: ExtractionProvenanceContext | null,
   recoveryContext?: ExtractionRecoveryContext | null,
+  customerHeaderMappingContext?: CustomerHeaderMappingContext | null,
 ): Promise<ExtractionPayload> {
   await primeExtractionRuntimeFingerprints();
   const size = fileBytes.byteLength;
@@ -2270,7 +2273,7 @@ export async function extractDocument(
     const rulingLineInputs = ocrPageImages.length ? await (await import('@/lib/server/rulingLineRaster')).buildRulingLineInputsFromRenders({
       sourceBytes: fileBytes, renders: ocrPageImages, ocrPages: ocrGeometryPages,
     }) : [];
-    const pricedScheduleReconstructionLayer = buildPagePricedScheduleReconstruction({
+    const pricedScheduleInput = {
       layout: reconciledLayout,
       rulingLineInputs,
       rulingLineSourceSha256: sha256Hex(fileBytes),
@@ -2298,12 +2301,24 @@ export async function extractDocument(
             ),
           } }
         : {}),
-    });
-    const pdfLayoutObservationsLayer = buildPdfLayoutObservationsLayer({
+    };
+    let pricedScheduleReconstructionLayer = buildPagePricedScheduleReconstruction(pricedScheduleInput);
+    let pdfLayoutObservationsLayer = buildPdfLayoutObservationsLayer({
       layout: reconciledLayout,
       reconstruction: pricedScheduleReconstructionLayer,
       context: pdfLayoutObservationIdentityContext,
     });
+    if (customerHeaderMappingContext?.revisions.length && provenanceContext
+      && customerHeaderMappingContext.documentType === metadata.document_type) {
+      const assignments = prepareCustomerHeaderMappingAssignments({ mappingContext: customerHeaderMappingContext,
+        reconstruction: pricedScheduleReconstructionLayer, observations: pdfLayoutObservationsLayer,
+        sourceDocumentId: metadata.id, sourceArtifactId: provenanceContext.sourceArtifactId, currentPageEvidence });
+      if (assignments.length) {
+        pricedScheduleReconstructionLayer = buildPagePricedScheduleReconstruction({ ...pricedScheduleInput, customerHeaderMappings: assignments });
+        pdfLayoutObservationsLayer = buildPdfLayoutObservationsLayer({ layout: reconciledLayout,
+          reconstruction: pricedScheduleReconstructionLayer, context: pdfLayoutObservationIdentityContext });
+      }
+    }
     logPdf('pdf text layer built', {
       extracted_text_length: extractedText?.length ?? 0,
       text_preview_length: textPreview?.length ?? 0,

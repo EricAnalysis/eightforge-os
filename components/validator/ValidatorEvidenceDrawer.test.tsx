@@ -423,4 +423,16 @@ describe('ValidatorEvidenceDrawer rule catalogue (B6)', () => {
     }) });
     expect(markup).toContain(VALIDATOR_RULE_EXPLANATIONS.FINANCIAL_UNIT_TYPE_MISMATCH.requiredAction);
   });
+
+  it('explains a referenced-but-missing amendment without invoice-line support steps (B7.1)', () => {
+    const markup = renderDrawer({ activeFinding: finding({
+      rule_id: 'SOURCES_REFERENCED_AMENDMENT_MISSING', check_key: 'SOURCES_REFERENCED_AMENDMENT_MISSING:p1:amendment:3',
+      category: 'required_sources', severity: 'warning', subject_type: 'project', subject_id: 'p1:amendment:3',
+      field: 'referenced_amendment',
+    }) });
+    expect(markup).toContain(VALIDATOR_RULE_EXPLANATIONS.SOURCES_REFERENCED_AMENDMENT_MISSING.title);
+    expect(markup).toContain(VALIDATOR_RULE_EXPLANATIONS.SOURCES_REFERENCED_AMENDMENT_MISSING.requiredAction);
+    expect(markup).not.toContain('Open the invoice line and identify the missing supporting document');
+    expect(markup).toContain('Upload Document');
+  });
 });

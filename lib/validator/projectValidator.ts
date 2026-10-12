@@ -99,6 +99,7 @@ import {
   type ValidatorSourceArtifactSnapshotResult,
   type ValidatorSourceIdentityStoreState,
   type ValidatorTruthCategoryDocumentIds,
+  type ValidatorDocumentPageText,
 } from '@/lib/validator/shared';
 import {
   deriveBillingKeysForInvoiceLine,
@@ -114,6 +115,7 @@ import { runFinancialIntegrityRules } from '@/lib/validator/rulePacks/financialI
 import { evaluateInvoiceTransactionReconciliation } from '@/lib/validator/rulePacks/invoiceTransactionReconciliation';
 import { runIdentityConsistencyRules } from '@/lib/validator/rulePacks/identityConsistency';
 import { runRequiredSourcesRules } from '@/lib/validator/rulePacks/requiredSources';
+import { runDocumentReferenceRules } from '@/lib/validator/rulePacks/documentReferences';
 import { runTicketIntegrityRules } from '@/lib/validator/rulePacks/ticketIntegrity';
 import {
   PACK_AUTHORED_RATE_ROW_QUARANTINE,
@@ -185,6 +187,7 @@ import type { SupersededMachineRow } from '@/lib/humanFactAssertions/humanReview
 
 const PACK_REQUIRED_SOURCES = 'required_sources';
 const PACK_IDENTITY_CONSISTENCY = 'identity_consistency';
+const PACK_DOCUMENT_REFERENCES = 'document_references';
 const PACK_CONTRACT_INVOICE_RECONCILIATION = 'contract_invoice_reconciliation';
 const PACK_INVOICE_TRANSACTION_RECONCILIATION = 'invoice_transaction_reconciliation';
 const PACK_CROSS_DOCUMENT_RATE_VERIFICATION = 'cross_document_rate_verification';
@@ -3459,6 +3462,8 @@ export type ValidatorSourceSnapshot = {
   readonly heldRegionAssertions?: readonly HeldRegionAssertion[];
   /** Assembled machine rows withheld at the human-review seam (B3.1). */
   readonly humanReviewWithheldRows?: readonly HumanReviewWithheldRow[];
+  /** Page text per document from the loaded extraction blobs (B7.1 document references). */
+  readonly documentPageText?: ReadonlyMap<string, readonly ValidatorDocumentPageText[]>;
 };
 
 /**
@@ -3751,7 +3756,32 @@ export function deriveValidatorSourceSnapshot(
     sourceArtifactSnapshotDigest: buildSourceArtifactSnapshotDigest(sourceArtifactSnapshot),
     heldRegionAssertions: regionAssertionResolution.held,
     humanReviewWithheldRows: humanReviewedPricing.withheld,
+    documentPageText: buildDocumentPageText(legacyRowsByDocumentId),
   };
+}
+
+/**
+ * Each document's persisted page text (evidence_v1.page_text), keyed by
+ * document, for the document-reference pack (B7.1). Reads the blobs this
+ * snapshot already loaded; never a second read. Pages without a positive page
+ * number or with empty text are skipped.
+ */
+export function buildDocumentPageText(
+  legacyRowsByDocumentId: ReadonlyMap<string, ValidatorLegacyExtractionRow>,
+): Map<string, ValidatorDocumentPageText[]> {
+  const byDocument = new Map<string, ValidatorDocumentPageText[]>();
+  for (const [documentId, row] of legacyRowsByDocumentId) {
+    const pageText = (legacyObject(row.data) as BlobExtractionData).extraction?.evidence_v1?.page_text;
+    if (!Array.isArray(pageText)) continue;
+    const pages = pageText.flatMap((entry) => {
+      const page = entry?.page_number;
+      const text = typeof entry?.text === 'string' ? entry.text : '';
+      return typeof page === 'number' && Number.isInteger(page) && page > 0 && text.trim().length > 0
+        ? [{ page, text }] : [];
+    });
+    if (pages.length > 0) byDocument.set(documentId, pages);
+  }
+  return byDocument;
 }
 
 /**
@@ -3968,6 +3998,7 @@ export function buildValidatorInputFromSourceSnapshot(
     transactionData: validatorTransactionData,
     projectTruthAuthority,
     humanReviewDiagnostics,
+    documentPageText: snapshot.documentPageText,
   } satisfies ProjectValidatorInput;
   const reconciliationContext = buildValidatorReconciliationContext(baseInput);
 
@@ -4163,6 +4194,10 @@ export function executeProjectValidation(
     {
       id: PACK_IDENTITY_CONSISTENCY,
       run: runIdentityConsistencyRules,
+    },
+    {
+      id: PACK_DOCUMENT_REFERENCES,
+      run: runDocumentReferenceRules,
     },
     {
       id: PACK_CONTRACT_INVOICE_RECONCILIATION,

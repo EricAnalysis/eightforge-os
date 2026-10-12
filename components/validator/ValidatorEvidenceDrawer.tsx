@@ -304,6 +304,14 @@ function resolveFixSteps(finding: ValidationFinding): string[] {
     return [nextAction];
   }
 
+  // B7.1: the generic required-source steps below describe invoice-line support.
+  if (finding.rule_id === 'SOURCES_REFERENCED_AMENDMENT_MISSING') {
+    return [
+      'Open each cited page and confirm it names the amendment number.',
+      nextAction,
+    ];
+  }
+
   if (
     finding.category === 'required_sources'
     || subject.includes('support')

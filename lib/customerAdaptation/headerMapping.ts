@@ -57,6 +57,12 @@ function parseRevision(value: unknown) {
 type Envelope = z.infer<typeof envelopeSchema>;
 type DeepReadonly<T> = T extends object ? { readonly [K in keyof T]: DeepReadonly<T[K]> } : T;
 export type ReviewedCustomerHeaderMappingRevision = DeepReadonly<Envelope & { digest: string }>;
+/** Immutable active snapshot resolved by the authenticated lifecycle loader. */
+export type CustomerHeaderMappingContext = Readonly<{
+  organizationId: string;
+  documentType: string;
+  revisions: readonly ReviewedCustomerHeaderMappingRevision[];
+}>;
 export type CustomerHeaderMappingScope = z.infer<typeof CustomerHeaderMappingScopeSchema>;
 
 function immutable<T>(value: T): DeepReadonly<T> {

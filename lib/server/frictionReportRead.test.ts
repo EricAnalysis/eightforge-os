@@ -45,6 +45,8 @@ describe('readFrictionReport', () => {
       forgewing: { policyBlocked: 1 } });
     expect(fake.filters.filter((entry) => entry.column === 'organization_id').every((entry) => entry.value === 'org-1')).toBe(true);
     expect(fake.writes).toEqual([]);
+    expect(result.readBounds).toEqual({ maxProjects: 50, projectsRead: 2, projectsTruncated: false,
+      maxOverrides: 1000, overridesRead: 0, overridesTruncated: false });
   });
 });
 

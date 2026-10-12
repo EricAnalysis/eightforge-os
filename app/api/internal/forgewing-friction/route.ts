@@ -18,6 +18,7 @@ export async function GET(req: NextRequest) {
     case 'ok':
       return NextResponse.json({
         ...result.report,
+        readBounds: result.readBounds,
         signals: result.report.signals.map((signal) => ({
           ...signal,
           orchestratorHref: signal.orchestratorPrefill ? orchestratorPrefillHref(signal.orchestratorPrefill) : null,

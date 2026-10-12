@@ -17,6 +17,9 @@ const WIRE = 'lib/workflowImplementationPlanWire.ts';
 const HASH = 'lib/extraction/domain/hash.ts';
 const V1 = 'lib/workflowImplementationPlan.ts';
 const REVIEWED = 'lib/workflowReviewedSpecification.ts';
+// B8.3d: the triaged-signal plan structure and the zero-dependency triage contract.
+const SIGNAL_PLAN = 'lib/triagedSignalPlanSchema.ts';
+const TRIAGE_CONTRACT = 'lib/improvementSignalTriageContract.ts';
 const EXTENSION = /\.[cm]?[jt]sx?$/;
 const TEST = /\.(test|spec)\.[cm]?[jt]sx?$/;
 const strip = (file: string): string => file.replace(EXTENSION, '');
@@ -25,10 +28,12 @@ const edge = (specifier: string, typeOnly = false): Dependency => ({ specifier, 
 // This is an exact module graph, including erased type edges. Zod is the schema
 // leaf; the existing deterministic hash helper is the sole crypto leaf.
 const GRAPH = new Map<string, Dependency[]>([
-  [FOUNDATION, [edge('zod'), edge(V1, true), edge(WIRE), edge(HASH), edge(SNAPSHOT), edge(EVIDENCE), edge(VERIFIER, true), edge(REVIEWED)]],
+  [FOUNDATION, [edge('zod'), edge(SIGNAL_PLAN), edge(WIRE), edge(HASH), edge(SNAPSHOT), edge(EVIDENCE), edge(VERIFIER, true), edge(REVIEWED)]],
   [CONTENT, [edge('zod'), edge(HASH), edge(FOUNDATION), edge(EVIDENCE), edge(SNAPSHOT)]],
-  [GUIDANCE, [edge('zod'), edge(HASH), edge(CONTENT), edge(FOUNDATION), edge(EVIDENCE), edge(V1, true), edge(WIRE)]],
-  [PLAN_V2, [edge('zod'), edge(HASH), edge(GUIDANCE)]],
+  [GUIDANCE, [edge('zod'), edge(HASH), edge(CONTENT), edge(FOUNDATION), edge(EVIDENCE), edge(SIGNAL_PLAN), edge(WIRE)]],
+  [PLAN_V2, [edge('zod'), edge(HASH), edge(GUIDANCE), edge(WIRE)]],
+  [SIGNAL_PLAN, [edge('zod'), edge(HASH), edge(TRIAGE_CONTRACT), edge(V1, true), edge(WIRE)]],
+  [TRIAGE_CONTRACT, []],
   [REASONING, [edge(HASH), edge('lib/forgewing/runtime/budget'), edge('lib/forgewing/runtime/client'),
     edge('lib/forgewing/runtime/modelConfig'), edge(GUIDANCE), edge(PLAN_V2)]],
   [SNAPSHOT, [edge('zod')]],

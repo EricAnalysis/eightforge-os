@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { hashCanonical, sha256Hex } from '@/lib/extraction/domain/hash';
+import { PlanSourcePinSchema } from '@/lib/workflowImplementationPlanWire';
 import { RepositoryPlanGuidanceInputSchema, RepositoryPlanGuidanceSchema,
   type RepositoryPlanGuidanceArtifact, type RepositoryPlanGuidanceInputArtifact } from '@/lib/repositoryPlanGuidance';
 
@@ -75,8 +76,7 @@ const planV2EnvelopeSchema = z.object({
     effectiveReviewedSpecificationDigestSha256: sha256, foundationDigestSha256: sha256,
     contentBundleDigestSha256: sha256, guidanceInputDigestSha256: sha256,
     repositoryEvidenceCatalogDigestSha256: sha256.optional(),
-    reviewPin: z.object({ assessmentId: z.string().uuid(), assessmentVersion: z.number().int().positive(),
-      reviewId: z.string().uuid(), reviewVersion: z.number().int().positive() }).strict(), repositorySnapshot: snapshotSchema }).strict(),
+    reviewPin: PlanSourcePinSchema, repositorySnapshot: snapshotSchema }).strict(),
   guidance: RepositoryPlanGuidanceSchema, providerProvenance: RepositoryPlanProviderProvenanceSchema,
   rawOutputSha256: sha256.nullable(), validatedOutputSha256: sha256,
 }).strict();

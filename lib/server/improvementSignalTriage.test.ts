@@ -51,6 +51,7 @@ const SEMANTICS = { id: SUBMISSION, organization_id: ORG, signal_kind: 'rule_sem
 const triage = (overrides: Record<string, unknown> = {}) => ({
   submissionId: SUBMISSION, expectedTriageVersion: 0, disposition: 'route_to_engineering' as const,
   capabilityScope: 'reusable_platform_capability' as const, semanticsDefectClass: 'wording_defect' as const,
+  planClassification: 'RULE' as const,
   rationale: 'Explanation reads as if the rule fires on approved overages.', ...overrides,
 });
 
@@ -65,6 +66,7 @@ describe('recordImprovementSignalTriage (B8.3c)', () => {
     expect(fake.inserted).toEqual([{
       id: 'triage-1', submission_id: SUBMISSION, organization_id: ORG, signal_kind: 'rule_semantics_review', triage_version: 1,
       disposition: 'route_to_engineering', capability_scope: 'reusable_platform_capability', semantics_defect_class: 'wording_defect',
+      plan_classification: 'RULE',
       rationale: 'Explanation reads as if the rule fires on approved overages.', reviewer_actor_id: REVIEWER.actorId,
     }]);
   });
@@ -90,11 +92,16 @@ describe('recordImprovementSignalTriage (B8.3c)', () => {
     expect(await run({ semanticsDefectClass: null })).toEqual({ status: 'input_invalid', reason: 'semantics_defect_class_required' });
     expect(await run({ capabilityScope: null })).toEqual({ status: 'input_invalid', reason: 'capability_scope_required' });
     expect(await run({ disposition: 'reject', capabilityScope: null })).toEqual({ status: 'input_invalid', reason: 'semantics_defect_class_not_allowed' });
-    expect((await run({ disposition: 'reject', capabilityScope: null, semanticsDefectClass: null })).status).toBe('triage_recorded');
+    expect(await run({ disposition: 'reject', capabilityScope: null, semanticsDefectClass: null }))
+      .toEqual({ status: 'input_invalid', reason: 'plan_classification_not_allowed' });
+    expect((await run({ disposition: 'reject', capabilityScope: null, semanticsDefectClass: null, planClassification: null })).status)
+      .toBe('triage_recorded');
+    expect(await run({ planClassification: null })).toEqual({ status: 'input_invalid', reason: 'plan_classification_required' });
+    expect(await run({ planClassification: 'BUILD' })).toMatchObject({ status: 'input_invalid', reason: 'planClassification' });
     const failure = { ...SEMANTICS, signal_kind: 'recurring_deterministic_failure' };
     expect(await run({}, failure)).toEqual({ status: 'input_invalid', reason: 'semantics_defect_class_not_allowed' });
     expect((await run({ semanticsDefectClass: null }, failure)).status).toBe('triage_recorded');
-    expect(await run({ disposition: 'defer', semanticsDefectClass: null }, failure))
+    expect(await run({ disposition: 'defer', semanticsDefectClass: null, planClassification: null }, failure))
       .toEqual({ status: 'input_invalid', reason: 'capability_scope_not_allowed' });
   });
 
@@ -154,10 +161,22 @@ describe('improvement_signal_triage_reviews migration (B8.3c)', () => {
 describe('triageShapeError (B8.3c contract)', () => {
   it('requires scope exactly when routed, and a defect class exactly for a routed semantics review', () => {
     expect(triageShapeError({ signalKind: 'rule_semantics_review', disposition: 'customer_config_or_mapping',
-      capabilityScope: 'client_specific', semanticsDefectClass: 'wording_defect' })).toBeNull();
+      capabilityScope: 'client_specific', semanticsDefectClass: 'wording_defect', planClassification: null })).toBeNull();
     expect(triageShapeError({ signalKind: 'forgewing_rejected', disposition: 'reject', capabilityScope: null,
-      semanticsDefectClass: null })).toBeNull();
+      semanticsDefectClass: null, planClassification: null })).toBeNull();
     expect(triageShapeError({ signalKind: 'forgewing_rejected', disposition: 'reject', capabilityScope: 'client_specific',
-      semanticsDefectClass: null })).toBe('capability_scope_not_allowed');
+      semanticsDefectClass: null, planClassification: null })).toBe('capability_scope_not_allowed');
+  });
+
+  it('requires the human Plan V2 classification exactly for route_to_engineering (B8.3d)', () => {
+    const routed = { signalKind: 'recurring_manual_correction', disposition: 'route_to_engineering' as const,
+      capabilityScope: 'workflow_specific', semanticsDefectClass: null };
+    expect(triageShapeError({ ...routed, planClassification: null })).toBe('plan_classification_required');
+    expect(triageShapeError({ ...routed, planClassification: 'VERIFY' })).toBeNull();
+    for (const disposition of ['customer_config_or_mapping', 'reject', 'defer'] as const) {
+      expect(triageShapeError({ signalKind: 'forgewing_rejected', disposition,
+        capabilityScope: disposition === 'customer_config_or_mapping' ? 'client_specific' : null,
+        semanticsDefectClass: null, planClassification: 'EXTRACT' })).toBe('plan_classification_not_allowed');
+    }
   });
 });

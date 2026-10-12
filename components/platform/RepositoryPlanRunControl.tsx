@@ -108,14 +108,15 @@ export default function RepositoryPlanRunControl({ request, accessToken }: {
   accessToken: string;
 }) {
   const [state, setState] = useState<RepositoryPlanRunDisplayState>({ kind: 'ready' });
+  // Either source pin (assessment review or triaged signal) identifies the run.
+  const requestKey = JSON.stringify(request);
   const generation = useRef(0);
   const active = useRef<AbortController | null>(null);
 
   useEffect(() => () => {
     generation.current += 1;
     active.current?.abort();
-  }, [accessToken, request.assessmentId, request.assessmentVersion, request.reviewId,
-    request.reviewVersion, request.classification]);
+  }, [accessToken, requestKey]);
 
   async function run(): Promise<void> {
     generation.current += 1;

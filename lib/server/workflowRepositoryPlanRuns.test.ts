@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ create: vi.fn(), read: vi.fn(), resolve: vi.fn(), build: vi.fn() }));
+const mocks = vi.hoisted(() => ({ create: vi.fn(), createFromTriage: vi.fn(), read: vi.fn(), resolve: vi.fn(), build: vi.fn() }));
 vi.mock('@/lib/server/repositoryPlanGenerationJobs', () => ({
   createRepositoryPlanGenerationJob: mocks.create,
+  createRepositoryPlanGenerationJobFromTriage: mocks.createFromTriage,
   readRepositoryPlanGenerationJob: mocks.read,
 }));
 vi.mock('@/lib/workflowEffectiveReviewedSpecification', () => ({
@@ -11,6 +12,7 @@ vi.mock('@/lib/workflowEffectiveReviewedSpecification', () => ({
 vi.mock('@/lib/workflowImplementationPlan', () => ({ buildWorkflowImplementationPlan: mocks.build }));
 
 import { createWorkflowRepositoryPlanRun, readWorkflowRepositoryPlanRun } from '@/lib/server/workflowRepositoryPlanRuns';
+import { buildTriagedSignalImplementationPlan } from '@/lib/triagedSignalImplementationPlan';
 
 const request = {
   assessmentId: '11111111-1111-4111-8111-111111111111', assessmentVersion: 1,
@@ -93,5 +95,56 @@ describe('workflow repository Plan run service', () => {
     } });
     await expect(readWorkflowRepositoryPlanRun('44444444-4444-4444-8444-444444444444', { admin: admin() }))
       .resolves.toMatchObject({ ok: true, job: { status: 'failed', failureCode: 'worker_failed' } });
+  });
+});
+
+describe('workflow repository Plan run service from a triaged signal (B8.3d)', () => {
+  const submission = { id: 'b8d00000-0000-4000-8000-0000000000b1', signal_kind: 'recurring_deterministic_failure',
+    signal_code: 'unrecognized_reason', payload: { schemaVersion: 'friction_signal_v1',
+      signalKind: 'recurring_deterministic_failure', code: 'unrecognized_reason', catalogueFingerprint: null,
+      counts: { occurrences: 5, documents: 4, projects: 2 }, recordRefs: [], rootCauseCategory: null, defectClass: null } };
+  const triage = { id: 'b8d00000-0000-4000-8000-0000000000c1', submission_id: submission.id,
+    signal_kind: 'recurring_deterministic_failure', triage_version: 3, disposition: 'route_to_engineering',
+    capability_scope: 'reusable_platform_capability', semantics_defect_class: null, plan_classification: 'EXTRACT' };
+  const signalRequest = { triageReviewId: triage.id, triageVersion: 3, classification: 'EXTRACT' as const };
+
+  function signalAdmin(triageRow: unknown = triage) {
+    const rows = new Map([
+      ['improvement_signal_triage_reviews', query({ data: triageRow, error: null })],
+      ['improvement_signal_submissions', query({ data: submission, error: null })],
+    ]);
+    return { client: { from: vi.fn((table: string) => rows.get(table)), rpc: vi.fn() } as never, rows };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.createFromTriage.mockResolvedValue({ ok: true,
+      jobId: '44444444-4444-4444-8444-444444444444', status: 'pending' });
+  });
+
+  it('builds the signal plan from allowlisted columns and queues it against the exact triage', async () => {
+    const { client, rows } = signalAdmin();
+    const result = await createWorkflowRepositoryPlanRun(signalRequest, actor, { admin: client });
+    expect(result).toMatchObject({ ok: true, job: { status: 'pending', classification: 'EXTRACT' } });
+    const expected = buildTriagedSignalImplementationPlan({ submissionRow: submission, triageRow: triage });
+    if (!expected.ok) throw new Error(expected.code);
+    expect(mocks.createFromTriage).toHaveBeenCalledWith({ ...signalRequest, requestedByActorId: actor.actorId,
+      implementationPlanV1DigestSha256: expected.artifact.digest.value }, { control: client });
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect(mocks.resolve).not.toHaveBeenCalled();
+    const triageColumns = rows.get('improvement_signal_triage_reviews')!.select.mock.calls[0][0] as string;
+    expect(triageColumns).not.toMatch(/rationale|reviewer|organization/u);
+    expect(rows.get('improvement_signal_submissions')!.select.mock.calls[0][0]).not.toMatch(/organization|submitted_by/u);
+  });
+
+  it('refuses a classification the human did not choose, and a triage that is not routed', async () => {
+    expect(await createWorkflowRepositoryPlanRun({ ...signalRequest, classification: 'RULE' }, actor,
+      { admin: signalAdmin().client })).toEqual({ ok: false, code: 'classification_not_present' });
+    expect(await createWorkflowRepositoryPlanRun(signalRequest, actor, { admin: signalAdmin({ ...triage,
+      disposition: 'defer', capability_scope: null, plan_classification: null }).client }))
+      .toEqual({ ok: false, code: 'invalid_pin' });
+    expect(await createWorkflowRepositoryPlanRun(signalRequest, actor, { admin: signalAdmin(null).client }))
+      .toEqual({ ok: false, code: 'invalid_pin' });
+    expect(mocks.createFromTriage).not.toHaveBeenCalled();
   });
 });

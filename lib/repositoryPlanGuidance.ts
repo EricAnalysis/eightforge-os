@@ -4,8 +4,9 @@ import { canonicalJson, hashCanonical, sha256Hex } from '@/lib/extraction/domain
 import { RepositoryPlanContentSchema, repositoryContentEvidenceId, type RepositoryPlanContentArtifact } from '@/lib/repositoryPlanContent';
 import { RepositoryPlanFoundationSchema, type RepositoryPlanFoundationArtifact } from '@/lib/repositoryPlanFoundation';
 import { RepositoryClassificationSchema, type RepositoryClassification } from '@/lib/repositoryPlanEvidence';
-import type { WorkflowImplementationPlanArtifact } from '@/lib/workflowImplementationPlan';
-import { BrowserSafeImplementationPlanSchema } from '@/lib/workflowImplementationPlanWire';
+import { TRIAGED_SIGNAL_STEP_ID, TriagedSignalSpecificationSchema, TrustedImplementationPlanSchema,
+  type TrustedImplementationPlanArtifact } from '@/lib/triagedSignalPlanSchema';
+import { PlanSourcePinSchema } from '@/lib/workflowImplementationPlanWire';
 
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/);
 const evidenceId = z.string().regex(/^ev_[a-f0-9]{64}$/);
@@ -106,8 +107,7 @@ const preparedEnvelopeSchema = z.object({
     implementationPlanV1DigestSha256: sha256, effectiveReviewedSpecificationDigestSha256: sha256,
     foundationDigestSha256: sha256, contentBundleDigestSha256: sha256,
     repositoryEvidenceCatalogDigestSha256: sha256.optional(),
-    reviewPin: z.object({ assessmentId: z.string().uuid(), assessmentVersion: z.number().int().positive(),
-      reviewId: z.string().uuid(), reviewVersion: z.number().int().positive() }).strict(),
+    reviewPin: PlanSourcePinSchema,
     repositorySnapshot: RepositoryPlanContentSchema.innerType().shape.repositorySnapshot,
   }).strict(),
   classification: RepositoryClassificationSchema,
@@ -129,6 +129,12 @@ export const RepositoryPlanGuidanceInputSchema = preparedEnvelopeSchema.extend({
 }).superRefine((artifact, ctx) => {
   const { digest, ...envelope } = artifact;
   if (hashCanonical(envelope) !== digest.value) ctx.addIssue({ code: 'custom', message: 'Guidance input digest mismatch' });
+  // B8.3d data policy at the provider boundary: a triaged-signal source sends one
+  // step whose specification is exactly the allowlisted signal context.
+  if ('sourceKind' in artifact.source.reviewPin && (artifact.steps.length !== 1
+    || artifact.steps.some((step) => step.stepId !== TRIAGED_SIGNAL_STEP_ID
+      || !TriagedSignalSpecificationSchema.safeParse(step.specification).success)))
+    ctx.addIssue({ code: 'custom', message: 'Triaged signal guidance input outside the allowlist' });
   const bytes = artifact.repositoryContent.files.reduce((total, file) => total + file.byteLength, 0);
   if (artifact.budget.selectedFiles !== artifact.repositoryContent.files.length
     || artifact.budget.selectedSteps !== artifact.steps.length || artifact.budget.selectedContentBytes !== bytes)
@@ -149,7 +155,7 @@ export const RepositoryPlanGuidanceInputSchema = preparedEnvelopeSchema.extend({
 export type RepositoryPlanGuidanceInputArtifact = z.infer<typeof RepositoryPlanGuidanceInputSchema>;
 
 export type PrepareRepositoryPlanGuidanceInput = Readonly<{
-  trustedPlanV1: WorkflowImplementationPlanArtifact;
+  trustedPlanV1: TrustedImplementationPlanArtifact;
   foundation: RepositoryPlanFoundationArtifact;
   content: RepositoryPlanContentArtifact;
 }>;
@@ -168,7 +174,7 @@ function freeze<T>(value: T): T {
 /** Pure B2a seam. It consumes only already-trusted B1/B1.5 artifacts and never reads a repository. */
 export function prepareRepositoryPlanGuidance(input: PrepareRepositoryPlanGuidanceInput): PrepareRepositoryPlanGuidanceResult {
   try {
-    const plan = BrowserSafeImplementationPlanSchema.safeParse(input.trustedPlanV1);
+    const plan = TrustedImplementationPlanSchema.safeParse(input.trustedPlanV1);
     const foundation = RepositoryPlanFoundationSchema.safeParse(input.foundation);
     const content = RepositoryPlanContentSchema.safeParse(input.content);
     if (!plan.success || !foundation.success || !content.success) return { ok: false, code: 'invalid_source' };

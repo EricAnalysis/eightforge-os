@@ -19,6 +19,7 @@ vi.mock('@/lib/repositoryPlanGuidance', async (importOriginal) => ({
 }));
 
 import { runOneRepositoryPlanGenerationJob } from '@/lib/server/repositoryPlanGenerationWorker';
+import { buildTriagedSignalImplementationPlan } from '@/lib/triagedSignalImplementationPlan';
 
 const job = {
   job_id: '11111111-1111-4111-8111-111111111111',
@@ -199,5 +200,69 @@ describe('runOneRepositoryPlanGenerationJob', () => {
     expect(runGuidance).toHaveBeenCalledOnce();
     expect(persist).toHaveBeenCalledOnce();
     expect(fail).toHaveBeenCalledOnce();
+  });
+});
+
+describe('runOneRepositoryPlanGenerationJob with a triaged-signal source (B8.3d)', () => {
+  const submissionRow = { id: 'b8d00000-0000-4000-8000-0000000000b1', signal_kind: 'forgewing_rejected',
+    signal_code: 'priced_value_reading', payload: { schemaVersion: 'friction_signal_v1', signalKind: 'forgewing_rejected',
+      code: 'priced_value_reading', catalogueFingerprint: null, counts: { occurrences: 3, documents: 2, projects: 1 },
+      recordRefs: [], rootCauseCategory: 'extraction_issue', defectClass: null } };
+  const triageRow = { id: 'b8d00000-0000-4000-8000-0000000000c1', submission_id: submissionRow.id,
+    signal_kind: 'forgewing_rejected', triage_version: 1, disposition: 'route_to_engineering',
+    capability_scope: 'workflow_specific', semantics_defect_class: null, plan_classification: 'RECOVER' };
+  const signalPlan = buildTriagedSignalImplementationPlan({ submissionRow, triageRow });
+  if (!signalPlan.ok) throw new Error(signalPlan.code);
+  const signalJob = { ...job, assessment_id: null, assessment_version: null, review_id: null, review_version: null,
+    classification: 'RECOVER' as const, implementation_plan_v1_digest_sha256: signalPlan.artifact.digest.value };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.foundation.mockReturnValue({ ok: true, artifact: { foundation: true } });
+    mocks.prepare.mockReturnValue({ ok: true, status: 'ready', artifact: { input: true } });
+  });
+
+  it('plans from the allowlisted signal source, never the assessment path', async () => {
+    const readSource = vi.fn();
+    const readSignalSource = vi.fn().mockResolvedValue({ ok: true, source: { submission_row: submissionRow, triage_row: triageRow } });
+    const result = await runOneRepositoryPlanGenerationJob('C:\\repo', dependencies({
+      claim: vi.fn().mockResolvedValue({ ok: true, job: signalJob }), readSource, readSignalSource,
+    }));
+    expect(result).toMatchObject({ status: 'succeeded' });
+    expect(readSource).not.toHaveBeenCalled();
+    expect(mocks.resolve).not.toHaveBeenCalled();
+    expect(mocks.buildPlan).not.toHaveBeenCalled();
+    expect(readSignalSource).toHaveBeenCalledExactlyOnceWith(expect.anything(), job.job_id, job.claim_token);
+    expect(mocks.foundation).toHaveBeenCalledWith(expect.objectContaining({ trustedPlanV1: signalPlan.artifact }));
+    expect(mocks.prepare).toHaveBeenCalledWith(expect.objectContaining({ trustedPlanV1: signalPlan.artifact }));
+  });
+
+  it.each([
+    ['a source row carrying the rationale', { submission_row: submissionRow, triage_row: { ...triageRow, rationale: 'local' } }],
+    ['a different human classification than the job', { submission_row: submissionRow,
+      triage_row: { ...triageRow, plan_classification: 'EXTRACT' } }],
+    ['a triage no longer routed to engineering', { submission_row: submissionRow,
+      triage_row: { ...triageRow, disposition: 'reject', capability_scope: null, plan_classification: null } }],
+  ])('fails closed before repository or provider access on %s', async (_name, source) => {
+    const verifySnapshot = vi.fn();
+    const runGuidance = vi.fn();
+    const fail = vi.fn().mockResolvedValue({ ok: true });
+    const result = await runOneRepositoryPlanGenerationJob('C:\\repo', dependencies({
+      claim: vi.fn().mockResolvedValue({ ok: true, job: signalJob }),
+      readSignalSource: vi.fn().mockResolvedValue({ ok: true, source }), verifySnapshot, runGuidance, fail,
+    }));
+    expect(result).toEqual({ status: 'failed', jobId: job.job_id, code: 'trusted_source_invalid' });
+    expect(verifySnapshot).not.toHaveBeenCalled();
+    expect(runGuidance).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when the database returns no current signal source (superseded triage)', async () => {
+    const runGuidance = vi.fn();
+    const result = await runOneRepositoryPlanGenerationJob('C:\\repo', dependencies({
+      claim: vi.fn().mockResolvedValue({ ok: true, job: signalJob }),
+      readSignalSource: vi.fn().mockResolvedValue({ ok: false, code: 'not_found' }), runGuidance,
+    }));
+    expect(result).toEqual({ status: 'failed', jobId: job.job_id, code: 'trusted_source_invalid' });
+    expect(runGuidance).not.toHaveBeenCalled();
   });
 });

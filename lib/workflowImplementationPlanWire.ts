@@ -8,6 +8,16 @@ const digest = z.string().regex(/^[a-f0-9]{64}$/);
 export const ImplementationPlanPinSchema = z.object({
   assessmentId: uuid, assessmentVersion: version, reviewId: uuid, reviewVersion: version,
 }).strict();
+/**
+ * B8.3d: the planning pin of a human-triaged improvement signal. Distinct key
+ * set from the assessment pin, which keeps its exact shape (and so its digests).
+ */
+export const TriagedSignalPlanPinSchema = z.object({
+  sourceKind: z.literal('triaged_improvement_signal'),
+  submissionId: uuid, triageReviewId: uuid, triageVersion: version,
+}).strict();
+/** The reviewed-specification source of a repository plan: one of the two. */
+export const PlanSourcePinSchema = z.union([ImplementationPlanPinSchema, TriagedSignalPlanPinSchema]);
 const classification = z.enum(['RULE', 'VERIFY', 'EXTRACT', 'RECOVER', 'HUMAN', 'ADVISORY']);
 const provenance = z.object({
   assessmentId: uuid, assessmentVersion: version, reviewId: uuid, reviewVersion: version,
@@ -100,6 +110,8 @@ export const ImplementationPlanResponseSchema = z.discriminatedUnion('ok', [
 export type BrowserSafeImplementationPlan = z.infer<typeof BrowserSafeImplementationPlanSchema>;
 export type ImplementationPlanResponse = z.infer<typeof ImplementationPlanResponseSchema>;
 export type ImplementationPlanPin = z.infer<typeof ImplementationPlanPinSchema>;
+export type TriagedSignalPlanPin = z.infer<typeof TriagedSignalPlanPinSchema>;
+export type PlanSourcePin = z.infer<typeof PlanSourcePinSchema>;
 export type ImplementationPlanFailureCode = z.infer<typeof ImplementationPlanFailureCodeSchema>;
 
 export function pinsEqual(requested: ImplementationPlanPin, returned: ImplementationPlanPin): boolean {

@@ -13,7 +13,10 @@ const RUN_WIRE = 'lib/repositoryPlanRunWire.ts';
 const SESSION = 'components/platform/PlatformSessionContext.tsx';
 const UI = [PAGE, CLIENT, VIEW];
 const CLOSURE_UI = [...UI, RUN_CONTROL];
-const WIRE_CONSUMERS = new Set([...UI, RUN_WIRE, 'lib/repositoryPlanFoundation.ts', 'lib/repositoryPlanGuidance.ts']);
+// B8.3d: the Plan V2 schema and the triaged-signal plan schema read the shared
+// source-pin union; both are pure schema modules like the foundation exception.
+const WIRE_CONSUMERS = new Set([...UI, RUN_WIRE, 'lib/repositoryPlanFoundation.ts', 'lib/repositoryPlanGuidance.ts',
+  'lib/repositoryAwareImplementationPlan.ts', 'lib/triagedSignalPlanSchema.ts']);
 const EXTENSION = /\.[cm]?[jt]sx?$/;
 const TEST = /\.(test|spec)\.[cm]?[jt]sx?$/;
 const withoutExtension = (file: string): string => file.replace(EXTENSION, '');
@@ -183,7 +186,8 @@ describe('implementation plan browser wire and display-only boundaries', () => {
   }, 30_000);
 
   it('does not expand the pure foundation exception to sibling or server consumers', () => {
-    expect([...WIRE_CONSUMERS]).toEqual([...UI, RUN_WIRE, 'lib/repositoryPlanFoundation.ts', 'lib/repositoryPlanGuidance.ts']);
+    expect([...WIRE_CONSUMERS]).toEqual([...UI, RUN_WIRE, 'lib/repositoryPlanFoundation.ts', 'lib/repositoryPlanGuidance.ts',
+      'lib/repositoryAwareImplementationPlan.ts', 'lib/triagedSignalPlanSchema.ts']);
     for (const file of ['lib/repositoryPlanFoundationOther.ts', 'lib/server/repositoryPlanFoundation.ts',
       'app/api/repository-plan/route.ts']) expect(WIRE_CONSUMERS.has(file)).toBe(false);
   });

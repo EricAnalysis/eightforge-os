@@ -1,7 +1,8 @@
 import { z } from 'zod';
-import type { WorkflowImplementationPlanArtifact } from '@/lib/workflowImplementationPlan';
 import type { VerifiedRepositorySnapshot } from '@/lib/server/repositoryPlanSnapshot';
-import { BrowserSafeImplementationPlanSchema, ImplementationPlanPinSchema } from '@/lib/workflowImplementationPlanWire';
+import { BrowserSafeImplementationPlanSchema, PlanSourcePinSchema } from '@/lib/workflowImplementationPlanWire';
+import { isTriagedSignalImplementationPlan, TRIAGED_SIGNAL_PLAN_DOMAIN, TriagedSignalImplementationPlanSchema,
+  TrustedImplementationPlanSchema, type TrustedImplementationPlanArtifact } from '@/lib/triagedSignalPlanSchema';
 import { REVIEWED_SPECIFICATION_SCHEMAS } from '@/lib/workflowReviewedSpecification';
 import { canonicalJson, hashCanonical } from '@/lib/extraction/domain/hash';
 import { RepositorySnapshotSchema } from '@/lib/repositoryPlanSnapshot';
@@ -9,9 +10,10 @@ import { RepositoryEvidenceBundleSchema, type InspectedRepositoryFile, type Repo
 
 const digestValue = z.string().regex(/^[a-f0-9]{64}$/);
 export const RepositoryPlanSourceSchema = z.object({
-  implementationPlanV1: z.object({ domain: z.literal('eightforge.implementation-plan'), schemaVersion: z.literal(1), digestSha256: digestValue }).strict(),
+  implementationPlanV1: z.object({ domain: z.enum(['eightforge.implementation-plan', TRIAGED_SIGNAL_PLAN_DOMAIN]),
+    schemaVersion: z.literal(1), digestSha256: digestValue }).strict(),
   effectiveReviewedSpecificationDigestSha256: digestValue,
-  reviewPin: ImplementationPlanPinSchema,
+  reviewPin: PlanSourcePinSchema,
   repositorySnapshot: RepositorySnapshotSchema,
   repositoryEvidenceCatalogDigestSha256: digestValue.optional(),
 }).strict();
@@ -24,7 +26,7 @@ const envelopeSchema = z.object({
   repositoryEvidence: RepositoryEvidenceBundleSchema,
 }).strict();
 export const RepositoryPlanFoundationInputSchema = z.object({
-  trustedPlanV1: BrowserSafeImplementationPlanSchema,
+  trustedPlanV1: TrustedImplementationPlanSchema,
   repositorySnapshot: RepositorySnapshotSchema,
   manifest: RepositoryEvidenceBundleSchema.innerType().shape.manifest,
   evidence: RepositoryEvidenceBundleSchema.innerType().shape.evidence,
@@ -44,7 +46,8 @@ export type RepositoryPlanFoundationArtifact = z.infer<typeof RepositoryPlanFoun
 export type RepositoryPlanFoundationInput = Readonly<{
   // Internal-only trust precondition, identical to V1: direct trusted output,
   // never browser/request JSON. Digests validate identity, not authorization.
-  trustedPlanV1: WorkflowImplementationPlanArtifact;
+  // B8.3d: or a triaged-signal plan, equally built server-side from trusted rows.
+  trustedPlanV1: TrustedImplementationPlanArtifact;
   repositorySnapshot: VerifiedRepositorySnapshot;
   manifest: readonly InspectedRepositoryFile[];
   evidence: readonly RepositoryEvidenceRecord[];
@@ -90,13 +93,19 @@ function freeze<T>(value: T): T {
 /** Builds no recommendations. Production callers are prohibited in B1. */
 export function buildRepositoryPlanFoundation(input: RepositoryPlanFoundationInput): RepositoryPlanFoundationResult {
   try {
-    if (!plainJson(input) || !BrowserSafeImplementationPlanSchema.safeParse(input.trustedPlanV1).success)
+    if (!plainJson(input)) return { ok: false, code: 'invalid_plan_v1' };
+    if (isTriagedSignalImplementationPlan(input.trustedPlanV1)) {
+      // Its schema binds digest, specification digest, classification and readiness.
+      if (!TriagedSignalImplementationPlanSchema.safeParse(input.trustedPlanV1).success)
+        return { ok: false, code: 'invalid_plan_v1' };
+    } else if (!BrowserSafeImplementationPlanSchema.safeParse(input.trustedPlanV1).success) {
       return { ok: false, code: 'invalid_plan_v1' };
+    }
     const { digest, ...plan } = input.trustedPlanV1;
     if (hashCanonical(plan) !== digest.value) return { ok: false, code: 'invalid_plan_v1_digest' };
     // A valid hash cannot make an incoherent V1 projection valid. Preserve V1's
     // fixed readiness and disposition semantics without rereading its evidence.
-    for (const step of plan.plannedSteps) {
+    if (plan.domain === 'eightforge.implementation-plan') for (const step of plan.plannedSteps) {
       const kind = step.effectiveClassification;
       const expectedReadiness = kind === 'RULE' || kind === 'VERIFY'
         ? { state: 'blocked_structural', blocker: 'rule_definition_is_code' }

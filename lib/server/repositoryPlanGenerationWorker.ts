@@ -7,11 +7,14 @@ import {
   beginRepositoryPlanProviderCall,
   claimRepositoryPlanGenerationJob,
   failRepositoryPlanGenerationJob,
+  readRepositoryPlanGenerationSignalSource,
   readRepositoryPlanGenerationSource,
   succeedRepositoryPlanGenerationJob,
 } from '@/lib/server/repositoryPlanGenerationJobs';
 import { verifyCurrentRepositorySnapshot } from '@/lib/server/repositoryPlanCurrentSnapshot';
 import { recordWorkflowRepositoryPlanV2 } from '@/lib/server/workflowRepositoryPlanPersistence';
+import { buildTriagedSignalImplementationPlan } from '@/lib/triagedSignalImplementationPlan';
+import type { TrustedImplementationPlanArtifact } from '@/lib/triagedSignalPlanSchema';
 import { resolveEffectiveReviewedSpecification } from '@/lib/workflowEffectiveReviewedSpecification';
 import { buildWorkflowImplementationPlan } from '@/lib/workflowImplementationPlan';
 import { runForgewingRepositoryPlanGuidance } from '@/lib/forgewing/tasks/repositoryPlanGuidance';
@@ -30,6 +33,7 @@ export type RepositoryPlanGenerationWorkerDependencies = Readonly<{
   client?: WorkerClient | null;
   claim?: typeof claimRepositoryPlanGenerationJob;
   readSource?: typeof readRepositoryPlanGenerationSource;
+  readSignalSource?: typeof readRepositoryPlanGenerationSignalSource;
   beginProvider?: typeof beginRepositoryPlanProviderCall;
   succeed?: typeof succeedRepositoryPlanGenerationJob;
   fail?: typeof failRepositoryPlanGenerationJob;
@@ -70,16 +74,28 @@ export async function runOneRepositoryPlanGenerationJob(
   };
 
   try {
-    const source = await (dependencies.readSource ?? readRepositoryPlanGenerationSource)(
-      client, job.job_id, job.claim_token);
-    if (!source.ok) return fail('trusted_source_invalid');
-    const pin = { assessmentId: job.assessment_id, assessmentVersion: job.assessment_version,
-      reviewId: job.review_id, reviewVersion: job.review_version };
-    const resolved = resolveEffectiveReviewedSpecification({ pin,
-      assessmentRow: source.source.assessment_row, reviewRow: source.source.review_row,
-      stepReviewRows: source.source.step_review_rows });
-    if (!resolved.ok) return fail('trusted_source_invalid');
-    const planned = buildWorkflowImplementationPlan(resolved.artifact);
+    let planned: Readonly<{ ok: true; artifact: TrustedImplementationPlanArtifact }> | Readonly<{ ok: false }>;
+    if (job.assessment_id === null || job.assessment_version === null
+      || job.review_id === null || job.review_version === null) {
+      // B8.3d: a triaged signal. The database returns only the allowlisted
+      // payload and the human triage classification for this exact claim.
+      const source = await (dependencies.readSignalSource ?? readRepositoryPlanGenerationSignalSource)(
+        client, job.job_id, job.claim_token);
+      if (!source.ok) return fail('trusted_source_invalid');
+      planned = buildTriagedSignalImplementationPlan({
+        submissionRow: source.source.submission_row, triageRow: source.source.triage_row });
+    } else {
+      const source = await (dependencies.readSource ?? readRepositoryPlanGenerationSource)(
+        client, job.job_id, job.claim_token);
+      if (!source.ok) return fail('trusted_source_invalid');
+      const pin = { assessmentId: job.assessment_id, assessmentVersion: job.assessment_version,
+        reviewId: job.review_id, reviewVersion: job.review_version };
+      const resolved = resolveEffectiveReviewedSpecification({ pin,
+        assessmentRow: source.source.assessment_row, reviewRow: source.source.review_row,
+        stepReviewRows: source.source.step_review_rows });
+      if (!resolved.ok) return fail('trusted_source_invalid');
+      planned = buildWorkflowImplementationPlan(resolved.artifact);
+    }
     if (!planned.ok || planned.artifact.digest.value !== job.implementation_plan_v1_digest_sha256
       || !planned.artifact.plannedSteps.some((step) => step.effectiveClassification === job.classification)) {
       return fail('trusted_source_invalid');

@@ -6,19 +6,25 @@
 // a form to record the next one. Authority is the existing platform-review
 // allowlist, decided by the server on every request; this page only reflects
 // it. Recording a triage executes nothing: routing to engineering makes a
-// signal eligible for the existing Plan V2 path, nothing more.
+// signal eligible for the existing Plan V2 path, nothing more. Routing records
+// the Plan V2 classification the reviewer chooses; nothing derives it (B8.3d).
+// The analysis control is the existing one; it never approves or projects.
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
+import RepositoryPlanRunControl from '@/components/platform/RepositoryPlanRunControl';
 import {
   TRIAGE_CAPABILITY_SCOPES,
   TRIAGE_DISPOSITIONS,
+  TRIAGE_PLAN_CLASSIFICATIONS,
   TRIAGE_SEMANTICS_DEFECT_CLASSES,
   triageRequiresDefectClass,
+  triageRequiresPlanClassification,
   triageRequiresScope,
   triageShapeError,
   type TriageDisposition,
+  type TriagePlanClassification,
 } from '@/lib/improvementSignalTriageContract';
 import { redirectIfUnauthorized } from '@/lib/redirectIfUnauthorized';
 import { supabase } from '@/lib/supabaseClient';
@@ -37,10 +43,12 @@ type QueueRow = {
   readBounds: { projectsTruncated?: boolean; overridesTruncated?: boolean };
   submittedAt: string;
   latestTriage: {
+    triageReviewId: string;
     triageVersion: number;
     disposition: TriageDisposition;
     capabilityScope: string | null;
     semanticsDefectClass: string | null;
+    planClassification: TriagePlanClassification | null;
     rationale: string;
     reviewedAt: string;
   } | null;
@@ -51,7 +59,7 @@ type LoadState =
   | { kind: 'loading' }
   | { kind: 'forbidden' }
   | { kind: 'error'; message: string }
-  | { kind: 'ready'; rows: QueueRow[] };
+  | { kind: 'ready'; rows: QueueRow[]; token: string };
 
 const LABEL: Record<string, string> = {
   route_to_engineering: 'Route to engineering',
@@ -75,17 +83,21 @@ function TriageForm({ row, onRecorded }: { row: QueueRow; onRecorded: () => void
   const [disposition, setDisposition] = useState<TriageDisposition>('route_to_engineering');
   const [scope, setScope] = useState('');
   const [defectClass, setDefectClass] = useState('');
+  const [planClassification, setPlanClassification] = useState('');
   const [rationale, setRationale] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const needsScope = triageRequiresScope(disposition);
   const needsClass = triageRequiresDefectClass(row.signalKind, disposition);
+  const needsPlan = triageRequiresPlanClassification(disposition);
 
   async function submit() {
     const capabilityScope = needsScope ? scope || null : null;
     const semanticsDefectClass = needsClass ? defectClass || null : null;
-    const shape = triageShapeError({ signalKind: row.signalKind, disposition, capabilityScope, semanticsDefectClass });
+    const plan = needsPlan ? planClassification || null : null;
+    const shape = triageShapeError({ signalKind: row.signalKind, disposition, capabilityScope, semanticsDefectClass,
+      planClassification: plan });
     if (shape) { setError(shape.replaceAll('_', ' ')); return; }
     if (!rationale.trim()) { setError('rationale required'); return; }
     setSaving(true);
@@ -99,7 +111,7 @@ function TriageForm({ row, onRecorded }: { row: QueueRow; onRecorded: () => void
         body: JSON.stringify({
           submissionId: row.submissionId,
           expectedTriageVersion: row.latestTriage?.triageVersion ?? 0,
-          disposition, capabilityScope, semanticsDefectClass, rationale,
+          disposition, capabilityScope, semanticsDefectClass, planClassification: plan, rationale,
         }),
       });
       if (redirectIfUnauthorized(response, router.replace)) return;
@@ -133,6 +145,13 @@ function TriageForm({ row, onRecorded }: { row: QueueRow; onRecorded: () => void
           {TRIAGE_SEMANTICS_DEFECT_CLASSES.map((value) => <option key={value} value={value}>{LABEL[value]}</option>)}
         </select>
       ) : <span />}
+      {needsPlan ? (
+        <select aria-label="plan classification" className={select} value={planClassification}
+          onChange={(event) => setPlanClassification(event.target.value)}>
+          <option value="">Plan classification (required)</option>
+          {TRIAGE_PLAN_CLASSIFICATIONS.map((value) => <option key={value} value={value}>{value}</option>)}
+        </select>
+      ) : null}
       <textarea aria-label="rationale" rows={2} maxLength={4000} value={rationale}
         onChange={(event) => setRationale(event.target.value)}
         placeholder="Rationale (required; immutable, stays platform-local)"
@@ -164,7 +183,7 @@ export default function ImprovementSignalTriagePage() {
       if (response.status === 403) { setState({ kind: 'forbidden' }); return; }
       if (!response.ok) { setState({ kind: 'error', message: `Queue unavailable (${response.status}).` }); return; }
       const body = await response.json() as { rows?: QueueRow[] };
-      setState({ kind: 'ready', rows: body.rows ?? [] });
+      setState({ kind: 'ready', rows: body.rows ?? [], token });
     } catch {
       setState({ kind: 'error', message: 'Queue unavailable.' });
     }
@@ -233,10 +252,21 @@ export default function ImprovementSignalTriagePage() {
               {row.latestTriage ? (
                 <p className="mt-2 text-xs text-[var(--ef-text-secondary)]">
                   {[row.latestTriage.capabilityScope, row.latestTriage.semanticsDefectClass]
-                    .filter(Boolean).map((value) => LABEL[value as string]).join(' · ')}
+                    .filter(Boolean).map((value) => LABEL[value as string])
+                    .concat(row.latestTriage.planClassification ? [`Plan ${row.latestTriage.planClassification}`] : [])
+                    .join(' · ')}
                   {row.latestTriage.capabilityScope || row.latestTriage.semanticsDefectClass ? ' — ' : ''}
                   {row.latestTriage.rationale}
                 </p>
+              ) : null}
+              {row.latestTriage?.disposition === 'route_to_engineering' && row.latestTriage.planClassification ? (
+                <div className="mt-3">
+                  <RepositoryPlanRunControl accessToken={state.token} request={{
+                    triageReviewId: row.latestTriage.triageReviewId,
+                    triageVersion: row.latestTriage.triageVersion,
+                    classification: row.latestTriage.planClassification,
+                  }} />
+                </div>
               ) : null}
               <TriageForm row={row} onRecorded={() => void load()} />
             </li>

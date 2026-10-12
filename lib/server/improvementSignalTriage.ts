@@ -5,6 +5,7 @@ import { z } from 'zod';
 import {
   TRIAGE_CAPABILITY_SCOPES,
   TRIAGE_DISPOSITIONS,
+  TRIAGE_PLAN_CLASSIFICATIONS,
   TRIAGE_SEMANTICS_DEFECT_CLASSES,
   triageShapeError,
   type TriageDisposition,
@@ -31,6 +32,10 @@ import { resolveWorkflowPlatformReviewAccess } from '@/lib/server/workflowPlatfo
  * A routed signal names its capability scope. A routed rule semantics review
  * carries the human defect classification, which replaces the development-only
  * Orchestrator form as its permanent home. The rationale stays platform-local.
+ *
+ * B8.3d: routing to engineering also records the Plan V2 classification the
+ * reviewer chose (`planClassification`); nothing derives it. That triage row
+ * is then the planning pin for the existing repository-plan path.
  */
 
 export const IMPROVEMENT_SIGNAL_TRIAGE_TABLE = 'improvement_signal_triage_reviews' as const;
@@ -44,6 +49,7 @@ export const improvementSignalTriageInputSchema = z.object({
   disposition: z.enum(TRIAGE_DISPOSITIONS),
   capabilityScope: z.enum(TRIAGE_CAPABILITY_SCOPES).nullable().default(null),
   semanticsDefectClass: z.enum(TRIAGE_SEMANTICS_DEFECT_CLASSES).nullable().default(null),
+  planClassification: z.enum(TRIAGE_PLAN_CLASSIFICATIONS).nullable().default(null),
   rationale: z.string().trim().min(1).max(4_000),
 }).strict();
 export type ImprovementSignalTriageInput = z.input<typeof improvementSignalTriageInputSchema>;
@@ -111,7 +117,8 @@ export async function recordImprovementSignalTriage(
   }
 
   const shapeError = triageShapeError({ signalKind: submission.signal_kind, disposition: triage.disposition,
-    capabilityScope: triage.capabilityScope, semanticsDefectClass: triage.semanticsDefectClass });
+    capabilityScope: triage.capabilityScope, semanticsDefectClass: triage.semanticsDefectClass,
+    planClassification: triage.planClassification });
   if (shapeError) return { status: 'input_invalid', reason: shapeError };
 
   const current = await latestTriageVersion(admin, triage.submissionId);
@@ -129,6 +136,7 @@ export async function recordImprovementSignalTriage(
     disposition: triage.disposition,
     capability_scope: triage.capabilityScope,
     semantics_defect_class: triage.semanticsDefectClass,
+    plan_classification: triage.planClassification,
     rationale: triage.rationale,
     reviewer_actor_id: reviewer.actorId,
   });
@@ -153,10 +161,12 @@ export type TriageQueueRow = Readonly<{
   readBounds: unknown;
   submittedAt: string;
   latestTriage: Readonly<{
+    triageReviewId: string;
     triageVersion: number;
     disposition: TriageDisposition;
     capabilityScope: string | null;
     semanticsDefectClass: string | null;
+    planClassification: string | null;
     rationale: string;
     reviewerActorId: string;
     reviewedAt: string;
@@ -186,7 +196,7 @@ export async function readImprovementSignalTriageQueue(
   const latestBySubmission = new Map<string, Record<string, unknown>>();
   if (ids.length > 0) {
     const triages = await admin.from(IMPROVEMENT_SIGNAL_TRIAGE_TABLE)
-      .select('submission_id, triage_version, disposition, capability_scope, semantics_defect_class, rationale, reviewer_actor_id, reviewed_at')
+      .select('id, submission_id, triage_version, disposition, capability_scope, semantics_defect_class, plan_classification, rationale, reviewer_actor_id, reviewed_at')
       .in('submission_id', ids);
     if (triages.error) return { status: 'read_failed', reason: 'triage_read_failed' };
     for (const row of (Array.isArray(triages.data) ? triages.data : []) as Array<Record<string, unknown>>) {
@@ -202,10 +212,12 @@ export async function readImprovementSignalTriageQueue(
       if (typeof row.id !== 'string') return [];
       const latest = latestBySubmission.get(row.id);
       const latestTriage = latest ? {
+        triageReviewId: latest.id as string,
         triageVersion: latest.triage_version as number,
         disposition: latest.disposition as TriageDisposition,
         capabilityScope: (latest.capability_scope as string | null) ?? null,
         semanticsDefectClass: (latest.semantics_defect_class as string | null) ?? null,
+        planClassification: (latest.plan_classification as string | null) ?? null,
         rationale: latest.rationale as string,
         reviewerActorId: latest.reviewer_actor_id as string,
         reviewedAt: latest.reviewed_at as string,

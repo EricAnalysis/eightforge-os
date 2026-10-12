@@ -408,7 +408,15 @@ export type ProjectValidatorInput = {
    */
   projectTruthAuthority?: CanonicalProjectTruthExecutionContext;
   humanReviewDiagnostics?: HumanReviewDiagnostics;
+  /**
+   * Page text per document, from the extraction this execution already loaded
+   * (B7.1). Read only by the document-reference pack; absent when no page text
+   * was persisted.
+   */
+  documentPageText?: ReadonlyMap<string, readonly ValidatorDocumentPageText[]>;
 };
+
+export type ValidatorDocumentPageText = Readonly<{ page: number; text: string }>;
 
 export type FindingEvidenceInput = {
   evidence_type: string;

@@ -91,6 +91,13 @@ export const VALIDATOR_RULE_EXPLANATIONS: Readonly<Record<string, ValidatorRuleE
     requiredAction: 'Load the canonical ticket or transaction dataset for this project before approving billed work.',
     actions: ['upload_document', 'open_linked_documents'],
   },
+  SOURCES_REFERENCED_AMENDMENT_MISSING: {
+    title: 'Referenced amendment is not in the project',
+    category: SOURCE_DOCUMENTS,
+    explanation: 'A contract or invoice in this project explicitly references a numbered amendment, but no amendment document identified with that number is in the project. The missing amendment may change rates, scope or terms.',
+    requiredAction: 'Upload the referenced amendment and identify it by its number, or confirm the reference does not require the document.',
+    actions: ['open_evidence_inspector', 'upload_document', 'open_linked_documents'],
+  },
 
   // Rate-based contract validation
   FINANCIAL_RATE_BASED_SCHEDULE_REQUIRED: {

@@ -30,6 +30,14 @@ const RULE_SEMANTIC_OVERRIDES: Readonly<Record<string, RuleSemanticOverride>> = 
   SOURCES_NO_TICKET_DATA: {
     source_family: 'transaction',
   },
+  // B7.1: advisory. A referenced-but-missing amendment never changes the approval gate.
+  SOURCES_REFERENCED_AMENDMENT_MISSING: {
+    business_severity: 'low',
+    source_family: 'contract',
+    approval_gate_effect: 'informational',
+    impact:
+      'Advisory: the referenced amendment may change rates, scope or terms, but its absence does not change approval status by itself.',
+  },
   FINANCIAL_RATE_BASED_SCHEDULE_REQUIRED: {
     source_family: 'contract',
   },

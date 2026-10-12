@@ -4,15 +4,17 @@ import {
   resolveCustomerHeaderMapping as resolve,
   ReviewedCustomerHeaderMappingRevisionSchema,
 } from './headerMapping';
+import { customerHeaderSchemaIdentity } from './headerEvidence';
 import { PRICED_SCHEDULE_ASSEMBLY_ROLES } from '@/lib/extraction/pdf/pricedScheduleRoles';
 
 const organizationId = '11111111-1111-4111-8111-111111111111';
 const scope = { interpretationBoundary: 'priced_schedule_assembly_header' as const,
-  documentType: 'rate_schedule', sourceSchemaIdentity: 'rate-export-v1' };
+  documentType: 'rate_schedule', sourceSchemaIdentity: customerHeaderSchemaIdentity({ sourceKind: 'pdf', sourceMethod: 'pdfjs', interpretationFamily: 'priced_schedule_assembly_header', headerRows: 1, columns: [{ columnIndex: 0, label: 'Description', columnSpan: 1 }, { columnIndex: 1, label: 'Billing Rate', columnSpan: 1 }] }) };
+const evidence = () => ({ organizationId, projectId: '55555555-5555-4555-8555-555555555555', documentId: '66666666-6666-4666-8666-666666666666', extractionId: '77777777-7777-4777-8777-777777777777', sourceArtifactId: '88888888-8888-4888-8888-888888888888', sourceSha256: 'a'.repeat(64), physicalPageNumber: 1, pageRepresentationDigest: 'b'.repeat(64), headerIndex: 0, columnIndex: 1, documentType: scope.documentType, observedHeaderLabel: 'Billing Rate', orderedObservationIds: ['pdf:layout-token:v1:' + 'c'.repeat(64)], sourceSchemaIdentity: scope.sourceSchemaIdentity });
 const envelope = () => ({
-  domain: 'eightforge.reviewed-customer-header-mapping' as const, schemaVersion: 1 as const,
+  domain: 'eightforge.reviewed-customer-header-mapping' as const, schemaVersion: 2 as const,
   organizationId, revisionId: '22222222-2222-4222-8222-222222222222', scope: { ...scope },
-  mappings: [{ sourceLabel: 'Billing Rate', targetRole: 'rate' as const, supportingEvidenceRef: 'verified_field:header-1' }],
+  mappings: [{ sourceLabel: 'Billing Rate', targetRole: 'rate' as const, supportingEvidence: evidence() }],
   humanApproval: { actorId: '33333333-3333-4333-8333-333333333333', approvedAt: '2026-10-11T12:00:00Z' },
   supersedesRevisionId: null,
 });
@@ -20,6 +22,16 @@ const request = () => ({ organizationId, scope, mappingRevision: build(envelope(
   observedHeaderLabel: 'Billing Rate', existingRecognition: [] as (typeof PRICED_SCHEDULE_ASSEMBLY_ROLES)[number][] });
 
 describe('reviewed customer header mapping contract', () => {
+  it('rejects legacy arbitrary evidence and schema version 1', () => {
+    const legacy = { ...envelope(), schemaVersion: 1, mappings: [{ sourceLabel: 'Billing Rate', targetRole: 'rate', supportingEvidenceRef: 'unverified' }] };
+    expect(() => build(legacy as unknown as Parameters<typeof build>[0])).toThrow();
+  });
+  it.each(['organizationId', 'documentType', 'observedHeaderLabel', 'sourceSchemaIdentity'] as const)('rejects evidence inconsistent with revision %s', field => {
+    const supportingEvidence = { ...evidence(), [field]: field === 'organizationId'
+      ? '44444444-4444-4444-8444-444444444444' : field === 'sourceSchemaIdentity'
+        ? 'customer-header-schema-v1:' + 'd'.repeat(64) : 'Other' };
+    expect(() => build({ ...envelope(), mappings: [{ ...envelope().mappings[0]!, supportingEvidence }] })).toThrow();
+  });
   it('reuses every existing assembly role and validates constructed revisions', () => {
     for (const targetRole of PRICED_SCHEDULE_ASSEMBLY_ROLES) {
       const revision = build({ ...envelope(), mappings: [{ ...envelope().mappings[0]!, targetRole }] });
@@ -32,9 +44,9 @@ describe('reviewed customer header mapping contract', () => {
     expect(build({ ...original, scope: { sourceSchemaIdentity: scope.sourceSchemaIdentity,
       documentType: scope.documentType, interpretationBoundary: scope.interpretationBoundary } }).digest).toBe(build(original).digest);
     for (const changed of [
-      { ...original, mappings: [{ ...original.mappings[0]!, supportingEvidenceRef: 'verified_field:other' }] },
+      { ...original, mappings: [{ ...original.mappings[0]!, supportingEvidence: { ...evidence(), sourceSha256: 'f'.repeat(64) } }] },
       { ...original, humanApproval: { ...original.humanApproval, approvedAt: '2026-10-12T12:00:00Z' } },
-      { ...original, scope: { ...scope, sourceSchemaIdentity: 'v2' } },
+      { ...original, revisionId: '99999999-9999-4999-8999-999999999999' },
       { ...original, supersedesRevisionId: '44444444-4444-4444-8444-444444444444' },
     ]) expect(build(changed).digest).not.toBe(build(original).digest);
   });
@@ -42,7 +54,7 @@ describe('reviewed customer header mapping contract', () => {
     const input = request();
     expect(resolve(input)).toMatchObject({ status: 'mapped', role: 'rate', sourceLabel: 'Billing Rate',
       mappingRevisionId: input.mappingRevision.revisionId, mappingDigest: input.mappingRevision.digest,
-      supportingEvidenceRefs: ['verified_field:header-1'] });
+      supportingEvidence: [evidence()] });
   });
   it.each(['billing rate', 'Billing Rate ', ' Billing Rate', 'Billing  Rate', 'Billing Rat', 'Billing\nRate'])
     ('does not normalize or fuzzy-match %j', (observedHeaderLabel) => {
@@ -62,7 +74,7 @@ describe('reviewed customer header mapping contract', () => {
       .toMatchObject({ status: 'rejected', reason: 'tenant_mismatch', role: null, mappingRevisionId: null });
   });
   it('rejects mismatched scope and unknown scope properties', () => {
-    expect(resolve({ ...request(), scope: { ...scope, sourceSchemaIdentity: 'other' } }).reason).toBe('scope_mismatch');
+    expect(resolve({ ...request(), scope: { ...scope, sourceSchemaIdentity: 'customer-header-schema-v1:' + 'd'.repeat(64) } }).reason).toBe('scope_mismatch');
     expect(resolve({ ...request(), scope: { ...scope, documentType: 'invoice' } }).reason).toBe('scope_mismatch');
     expect(resolve({ ...request(), scope: { ...scope, extra: true } as typeof scope }).reason).toBe('invalid_input');
   });

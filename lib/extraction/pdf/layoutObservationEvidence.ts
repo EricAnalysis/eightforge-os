@@ -350,6 +350,42 @@ function refMatchesObservation(
     && bbox.y_max === located.ref.y_max;
 }
 
+/** Exact source-ref closure for non-pricing interpretation evidence (e.g. headers).
+ * This resolves persisted primitives only; it grants no row/pricing authority. */
+export function resolvePdfLayoutSourceRefEvidence(params: {
+  sourceRefs: readonly PricedScheduleCellSourceRef[];
+  physicalPageNumber: number;
+  persistedLayer: unknown;
+  context: PdfLayoutObservationBindingContext;
+}): readonly PdfLayoutTokenObservation[] | null {
+  const layer = params.persistedLayer;
+  if (!isRecord(layer) || layer.parser_version !== PDF_LAYOUT_OBSERVATIONS_LAYER_VERSION
+    || layer.observation_version !== PDF_LAYOUT_OBSERVATION_VERSION || layer.source_kind !== 'pdf'
+    || layer.materialization_scope !== 'priced_schedule_reconstruction_refs'
+    || layer.source_document_id !== params.context.sourceDocumentId
+    || layer.source_artifact_id !== params.context.sourceArtifactId
+    || layer.total_physical_pages !== params.context.totalPhysicalPages
+    || !Number.isSafeInteger(params.context.totalPhysicalPages) || params.context.totalPhysicalPages < 1
+    || !Array.isArray(layer.observations) || params.sourceRefs.length === 0) return null;
+  const resolved: PdfLayoutTokenObservation[] = [];
+  const seen = new Set<string>();
+  for (const ref of params.sourceRefs) {
+    if (!ref.observation_id || seen.has(ref.observation_id)
+      || ![ref.x_min, ref.x_max, ref.y_min, ref.y_max].every(Number.isFinite)
+      || ref.x_min >= ref.x_max || ref.y_min >= ref.y_max) return null;
+    const matches = layer.observations.filter((entry) => isRecord(entry) && entry.id === ref.observation_id);
+    const observation = matches[0];
+    if (matches.length !== 1 || !isPdfLayoutTokenObservation(observation)
+      || observation.source_document_id !== params.context.sourceDocumentId
+      || observation.source_artifact_id !== params.context.sourceArtifactId
+      || !refMatchesObservation({ page: params.physicalPageNumber, ref }, observation, params.context,
+        params.context.totalPhysicalPages)) return null;
+    seen.add(ref.observation_id);
+    resolved.push(observation);
+  }
+  return Object.freeze(resolved);
+}
+
 export function validatePdfLayoutObservationClosure(params: {
   reconstruction: PagePricedScheduleReconstruction;
   /** Persisted input is treated as untrusted JSON and closure is always recomputed. */

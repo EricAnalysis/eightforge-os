@@ -48,14 +48,17 @@ describe('readFrictionReport', () => {
   });
 });
 
+const E1 = '00000000-0000-4000-8000-0000000000e1';
+const E2 = '00000000-0000-4000-8000-0000000000e2';
+
 describe('readFrictionReport rule semantics review (B6.4)', () => {
   it('reads only this organization\'s overridden Validator execution items, never the override reason', async () => {
     const fake = fakeAdmin({
       projects: [{ id: 'p1' }],
       documents: [{ id: 'd1', document_type: 'invoice' }, { id: 'd2', document_type: 'invoice' }],
       execution_items: [
-        { id: 'e1', project_id: 'p1', source_id: 'f1', validator_rule_key: 'FINANCIAL_NTE_EXCEEDED' },
-        { id: 'e2', project_id: 'p1', source_id: 'f2', validator_rule_key: 'FINANCIAL_NTE_EXCEEDED' },
+        { id: E1, project_id: 'p1', source_id: 'f1', validator_rule_key: 'FINANCIAL_NTE_EXCEEDED' },
+        { id: E2, project_id: 'p1', source_id: 'f2', validator_rule_key: 'FINANCIAL_NTE_EXCEEDED' },
         // A project outside this organization's report is ignored.
         { id: 'e3', project_id: 'p-other', source_id: 'f3', validator_rule_key: 'FINANCIAL_NTE_EXCEEDED' },
       ],
@@ -79,7 +82,7 @@ describe('readFrictionReport rule semantics review (B6.4)', () => {
     const signal = result.report.signals.find((entry) => entry.kind === 'rule_semantics_review');
     expect(signal?.semanticsReview).toMatchObject({ ruleId: 'FINANCIAL_NTE_EXCEEDED', overrideCount: 2, distinctDocuments: 2,
       defectClass: 'undetermined' });
-    expect(signal?.orchestratorPrefill?.evidenceLinks).toBe('execution_item:e1\nexecution_item:e2');
+    expect(signal?.orchestratorPrefill?.evidenceLinks).toBe(`execution_item:${E1}\nexecution_item:${E2}`);
     expect(fake.writes).toEqual([]);
   });
 });

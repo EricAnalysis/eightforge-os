@@ -45,6 +45,7 @@ import type {
   TriggeredWorkflowTask,
 } from '@/lib/types/documentIntelligence';
 import type { ValidationFinding } from '@/types/validator';
+import { loadOpenProjectFindings } from '@/lib/validator/loadOpenProjectFindings';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -792,25 +793,20 @@ export default function DocumentDetailPage({
 
     const linkedProjectId = resolveProject(docData.projects)?.id ?? docData.project_id ?? null;
     if (linkedProjectId) {
-      const [projectValidationResult, projectValidationFindingsResult] = await Promise.all([
+      const [projectValidationResult, projectValidationFindings] = await Promise.all([
         supabase
           .from('projects')
           .select('validation_summary_json, validation_status')
           .eq('id', linkedProjectId)
           .maybeSingle(),
-        supabase
-          .from('project_validation_findings')
-          .select(
-            'id, rule_id, check_key, category, severity, status, subject_type, subject_id, field, expected, actual, variance, variance_unit, blocked_reason, finding_disposition, business_severity, problem, impact, required_action, evidence_refs, source_family, affected_amount, approval_gate_effect, exposure_type',
-          )
-          .eq('project_id', linkedProjectId)
-          .eq('status', 'open'),
+        loadOpenProjectFindings(supabase, linkedProjectId),
       ]);
 
+      if (projectValidationResult.error) {
+        throw new Error(`Failed to load project validation summary: ${projectValidationResult.error.message}`);
+      }
       setProjectValidation((projectValidationResult.data as ProjectValidationRow | null) ?? null);
-      setProjectValidationFindings(
-        (projectValidationFindingsResult.data as ValidationFinding[] | null) ?? [],
-      );
+      setProjectValidationFindings(projectValidationFindings);
     }
 
     const loadedDecisions = (decisionsResult.data ?? []) as DecisionRow[];
@@ -870,8 +866,8 @@ export default function DocumentDetailPage({
     } else {
       setFileError('No file attached to this document');
     }
-    } catch {
-      setError('Failed to load document');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to load document');
     } finally {
       setLoading(false);
       setExtractionsLoading(false);
@@ -1563,7 +1559,7 @@ export default function DocumentDetailPage({
         >
           ← Back
         </Link>
-        <p className="text-[11px] text-[var(--ef-critical)]">{error}</p>
+        <p role="alert" className="text-[11px] text-[var(--ef-critical)]">{error}</p>
       </div>
     );
   }

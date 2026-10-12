@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CustomerMappingEvidenceSchema } from '@/lib/customerAdaptation/headerMappingEvidence';
 
 import { RecoveryTypeV2Schema } from '@/lib/extraction/recovery/recoveryCandidateV2';
 
@@ -135,6 +136,7 @@ export const FailureDiagnosticSchema = z.object({
   sourceIdentity: z.object({
     extractionSnapshotId: identifier.nullable(),
     processingRunId: identifier.nullable(),
+    customerMappingEvidence: CustomerMappingEvidenceSchema.optional(),
   }).strict(),
   occurredAt: z.string().datetime({ offset: true }),
   explanation: z.object({

@@ -61,6 +61,7 @@ export type SourceRegion = Readonly<{ coordinate_space: string; boxes: readonly 
 
 /** The persisted row, as selected. Treated as untrusted until parsed. */
 export type HumanFactAssertionRow = Readonly<{
+  customer_mapping_evidence?: import('@/lib/customerAdaptation/headerMappingEvidence').CustomerMappingEvidence | null;
   id: string;
   organization_id: string;
   source_document_id: string | null;
@@ -89,6 +90,7 @@ export const HUMAN_FACT_ASSERTION_SELECT = [
   'supersedes_assertion_id', 'actor_id', 'reason', 'asserted_at', 'status', 'source_artifact_id',
   'physical_page_number', 'source_region', 'page_representation_digest', 'parser_version',
   'source_observation_ids', 'original_source_text', 'anchor_key', 'review_origin', 'forgewing_proposal_id',
+  'customer_mapping_evidence',
 ].join(', ');
 
 /** Everything a consumer needs to show the value as human-reviewed and trace it to source. */

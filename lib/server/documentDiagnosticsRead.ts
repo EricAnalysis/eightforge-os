@@ -3,6 +3,7 @@ import { DiagnosticCodeSchema, DiagnosticRecoveryTypeSchema, FailureDiagnosticSc
   type FailureDiagnostic }
   from '@/lib/diagnostics/failureDiagnostic';
 import { diagnosticId } from '@/lib/diagnostics/diagnosticIdentity';
+import { customerMappingEvidenceFromExtraction } from '@/lib/customerAdaptation/headerMappingEvidence';
 import { hashCanonical } from '@/lib/extraction/domain/hash';
 import { isSupportedPricedScheduleVersion } from '@/lib/extraction/pdf/pricedScheduleVersion';
 import { pricingAuthorityDiagnostics, type PricingAuthorityDiagnostic } from '@/lib/extraction/pdf/pricedScheduleAuthority';
@@ -327,7 +328,17 @@ function reconstructionDiagnostics(params: Readonly<{
       occurredAt: params.occurredAt, proposal: matchingProposal(parsedCode.data, page, refs, params.proposals) });
     if (diagnostic) output.push(diagnostic);
   }
-  return output;
+  return output.map(diagnostic => {
+    const page = diagnostic.scope.physicalPageNumber;
+    if (page == null) return diagnostic;
+    const customerMappingEvidence = customerMappingEvidenceFromExtraction({
+      extractionData: params.extraction, extractionSnapshotId: params.extractionSnapshotId,
+      organizationId: params.organizationId, physicalPageNumber: page,
+      pageRepresentationDigest: diagnostic.scope.pageRepresentationDigest,
+    });
+    return customerMappingEvidence ? { ...diagnostic,
+      sourceIdentity: { ...diagnostic.sourceIdentity, customerMappingEvidence } } : diagnostic;
+  });
 }
 
 const PAGE_COVERAGE_FINAL_STATES = new Set([

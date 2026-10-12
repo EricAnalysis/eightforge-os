@@ -2884,6 +2884,8 @@ B42_DATABASE_URL="${replay_database_url}" \
 WSLENV="${WSLENV:+${WSLENV}:}B42_DATABASE_URL" \
   npx --no-install vite-node --config vitest.config.ts \
     scripts/verify-value-reading-disposition-concurrency.ts
+"${psql[@]}" --file scripts/sql/verify-customer-header-mapping-lifecycle.sql
+echo "B8.2 CUSTOMER MAPPING LIFECYCLE / ACL / HISTORY / HISTORICAL PINS: PASS"
 echo "FRESH REPLAY: PASS (${#migrations[@]} migrations)"
 echo "PHASE 1B MIGRATION LEDGER / OBJECT REPLAY: PASS"
 echo "PHASE 1B PAGE / FRAGMENT PROVENANCE INSERT / UPDATE MATRIX: PASS"

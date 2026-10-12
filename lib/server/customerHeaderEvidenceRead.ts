@@ -4,7 +4,7 @@ import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 
 /** Read-only adapter. Organization is supplied by getActorContext at the route;
  * document, project, current extraction and artifact are read from storage. */
-export async function readCustomerHeaderEvidence(
+export async function loadCustomerHeaderEvidenceContext(
   query: { organizationId: string; documentId: string; headerIndex: number },
   admin = getSupabaseAdmin(),
 ) {
@@ -35,6 +35,14 @@ export async function readCustomerHeaderEvidence(
     .eq('organization_id', query.organizationId).eq('source_document_id', document.id).eq('id', sourceArtifactId).maybeSingle();
   if (artifactRead.error) return { status: 'read_failed' as const };
   if (!artifactRead.data) return { status: 'rejected' as const, reason: 'source_artifact_unproven' };
-  return produceCustomerHeaderEvidence({ actorOrganizationId: query.organizationId, document,
-    project: projectRead.data, extraction, artifact: artifactRead.data } as HeaderEvidenceContext, query.headerIndex);
+  return { status: 'loaded' as const, context: { actorOrganizationId: query.organizationId, document,
+    project: projectRead.data, extraction, artifact: artifactRead.data } as HeaderEvidenceContext };
+}
+
+export async function readCustomerHeaderEvidence(
+  query: { organizationId: string; documentId: string; headerIndex: number },
+  admin = getSupabaseAdmin(),
+) {
+  const loaded = await loadCustomerHeaderEvidenceContext(query, admin);
+  return loaded.status === 'loaded' ? produceCustomerHeaderEvidence(loaded.context, query.headerIndex) : loaded;
 }

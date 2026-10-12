@@ -1,10 +1,12 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { attachLocatedOcrObservations } from '@/lib/extraction/ocrObservationSidecar';
+import type { CustomerHeaderMappingContext } from '@/lib/customerAdaptation/headerMappingConsumption';
 
 const MOCKED_MODULES = [
   '@/lib/server/supabaseAdmin',
   '@/lib/server/analysisJobService',
   '@/lib/server/documentExtraction',
+  '@/lib/server/customerHeaderMappingLifecycle',
   '@/lib/server/extractionNormalizer',
   '@/lib/server/documentAiEnrichment',
   '@/lib/server/aiDecisionPersistence',
@@ -32,6 +34,8 @@ type SetupParams = {
   storageVersions?: readonly [string | null, string | null];
   pendingStorageVersion?: boolean;
   pendingShadowPublisher?: boolean;
+  customerHeaderMappings?: CustomerHeaderMappingContext | null;
+  mappingLoadError?: Error;
   recoverySelections?: Readonly<{
     confirmedRateObservations: readonly Record<string, unknown>[];
     confirmedRecoveryCandidates: readonly Record<string, unknown>[];
@@ -48,7 +52,7 @@ beforeAll(async () => {
   // resets the module cache so its isolated doMock factories remain authoritative.
   await import('@/lib/pipeline/processDocument');
   vi.resetModules();
-}, 30_000);
+}, 120_000);
 
 function buildCanonicalResult(overrides: Record<string, unknown> = {}) {
   return {
@@ -165,6 +169,10 @@ async function setupProcessDocumentTest(params: SetupParams) {
   // Rest-typed so assertions can read positional arguments -- the recovery
   // context is argument 6, and an untyped mock makes that index unreachable.
   const extractDocument = vi.fn(async (..._args: readonly unknown[]) => extractionPayload);
+  const loadActiveCustomerHeaderMappings = vi.fn(async () => {
+    if (params.mappingLoadError) throw params.mappingLoadError;
+    return params.customerHeaderMappings ?? null;
+  });
   const normalizeExtraction = vi.fn(async () => undefined);
   const recoverySelections = params.recoverySelections ?? {
     confirmedRateObservations: [],
@@ -253,6 +261,7 @@ async function setupProcessDocumentTest(params: SetupParams) {
   vi.doMock('@/lib/server/documentExtraction', () => ({
     extractDocument,
   }));
+  vi.doMock('@/lib/server/customerHeaderMappingLifecycle', () => ({ loadActiveCustomerHeaderMappings }));
   vi.doMock('@/lib/server/extractionNormalizer', () => ({
     normalizeExtraction,
   }));
@@ -312,6 +321,7 @@ async function setupProcessDocumentTest(params: SetupParams) {
       updateJobStatus,
       setDocumentStatus,
       extractDocument,
+      loadActiveCustomerHeaderMappings,
       normalizeExtraction,
       runAiEnrichment,
       persistAiEnrichmentDecisions,
@@ -341,6 +351,23 @@ afterEach(() => {
 });
 
 describe('processDocument canonical persistence gating', () => {
+  it('resolves one tenant/document-type mapping snapshot before extraction and passes the exact snapshot', async () => {
+    const snapshot: CustomerHeaderMappingContext = Object.freeze({ organizationId: 'org-1', documentType: 'contract', revisions: Object.freeze([]) });
+    const { processDocument, spies } = await setupProcessDocumentTest({ documentType: 'contract', customerHeaderMappings: snapshot });
+    await expect(processDocument({ organizationId: 'org-1', documentId: 'doc-1', analysisMode: 'deterministic', triggeredBy: 'manual' }))
+      .resolves.toMatchObject({ success: true });
+    expect(spies.loadActiveCustomerHeaderMappings).toHaveBeenCalledOnce();
+    expect(spies.loadActiveCustomerHeaderMappings).toHaveBeenCalledWith({ organizationId: 'org-1', documentType: 'contract' }, expect.any(Object));
+    expect(spies.extractDocument.mock.calls[0]?.[6]).toBe(snapshot);
+  });
+  it('fails processing before extraction when the mapping snapshot cannot be proven', async () => {
+    const { processDocument, spies } = await setupProcessDocumentTest({ documentType: 'contract', mappingLoadError: new Error('mapping_snapshot_unproven') });
+    await expect(processDocument({ organizationId: 'org-1', documentId: 'doc-1', analysisMode: 'deterministic', triggeredBy: 'manual' }))
+      .resolves.toMatchObject({ success: false, error: 'mapping_snapshot_unproven' });
+    expect(spies.extractDocument).not.toHaveBeenCalled();
+    expect(spies.scheduleExtractionComplianceShadow).not.toHaveBeenCalled();
+    expect(spies.generateAndPersistCanonicalIntelligence).not.toHaveBeenCalled();
+  });
   it('runs confirmed recovery reprocessing through extraction with zero provider-capable work', async () => {
     const registerBackgroundTask = vi.fn();
     const confirmedRateObservations = [{

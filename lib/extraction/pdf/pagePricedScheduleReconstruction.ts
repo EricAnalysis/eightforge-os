@@ -5,6 +5,8 @@ import type { RulingLineEvidence, RulingLineInput } from '@/lib/extraction/pdf/r
 import { initialRulingColumnOwnership, resolveRulingLineOwnership } from '@/lib/extraction/pdf/rulingLineOwnership';
 import { rulingRowBands } from '@/lib/extraction/pdf/rulingRowBands';
 import { pricedScheduleAssemblyRole } from '@/lib/extraction/pdf/pricedScheduleRoles';
+import { CustomerHeaderMappingPinSchema } from '@/lib/customerAdaptation/headerMappingPins';
+import type { CustomerHeaderMappingAssignment, CustomerHeaderMappingPin } from '@/lib/customerAdaptation/headerMappingPins';
 import { isPagePricedScheduleVersion, LEGACY_PRICED_SCHEDULE_RECONSTRUCTION_VERSION, PAGE_PRICED_SCHEDULE_RECONSTRUCTION_V2, PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION,
   type PricedScheduleReconstructionVersion } from '@/lib/extraction/pdf/pricedScheduleVersion';
 export { PAGE_PRICED_SCHEDULE_RECONSTRUCTION_VERSION } from '@/lib/extraction/pdf/pricedScheduleVersion';
@@ -486,6 +488,8 @@ export type PricedSchedulePage = {
    * token-by-token are byte-identical to before header interpretation existed.
    */
   readonly header_interpretation?: PricedScheduleHeaderInterpretation;
+  /** Exact revisions actually used on this directly observed header, never current defaults. */
+  readonly customer_header_mapping_pins?: readonly CustomerHeaderMappingPin[];
   /**
    * 'unresolved' when the table structure was reconstructed from deterministic
    * geometry but a required semantic role is not recognized (the header's
@@ -2022,6 +2026,7 @@ function reconstructPage(
   /** Scopes recovery row identities to one table segment of a multi-table page (v4). */
   rowIdentityScope?: string,
   rulingContext?: { layout: PdfLayoutPage; input: RulingLineInput },
+  customerHeaderMapping?: CustomerHeaderMappingAssignment,
 ): PricedSchedulePage | null {
   const rowIdentityPrefix = `page_priced_schedule:p${page.page_number}${rowIdentityScope ? `:${rowIdentityScope}` : ''}`;
   // Frozen 'spacing_only' fixtures keep the legacy vocabulary verbatim.
@@ -2031,6 +2036,7 @@ function reconstructPage(
   // Semantics resolved: every role admission needs is recognized. When false the
   // structure is reconstructed from geometry alone and published as structure only.
   let semanticsResolved = true;
+  let customerMappingPins: readonly CustomerHeaderMappingPin[] | undefined;
   if (headers.length === 0 && inheritedHeader) {
     // A proven header carried from the previous page. Its columns are used
     // exactly; the page's whole content sits below it.
@@ -2077,6 +2083,36 @@ function reconstructPage(
         && headerRolesQualify(selectedColumns.map(column => column!.role))) {
         header = { ...header, columns: selectedColumns as PricedScheduleColumnBand[] };
         semanticsResolved = true;
+      }
+    }
+    // Customer mappings recognize exact observed labels only. They cannot repair
+    // grouping, override human selections, change geometry or establish new roles.
+    if (!headerSelection && customerHeaderMapping && continuationEvidence !== 'spacing_only'
+      && !inheritedHeader && !rowIdentityScope && unresolved.interpretation.grouping_basis.clear
+      && unresolved.interpretation.reason !== 'ambiguous_label_grouping'
+      && customerHeaderMapping.physicalPageNumber === page.page_number
+      && customerHeaderMapping.columns.length === header.columns.length
+      && customerHeaderMapping.pins.length > 0
+      && customerHeaderMapping.pins.every(pin => CustomerHeaderMappingPinSchema.safeParse(pin).success)) {
+      const selected = header.columns.map((column, index) => {
+        const assignment = customerHeaderMapping.columns[index]!;
+        const ids = (column.header_source_refs ?? []).map(ref => ref.observation_id);
+        if (column.header_text !== assignment.text || hashCanonical(ids) !== hashCanonical(assignment.orderedObservationIds)
+          || (column.role !== null && column.role !== assignment.role)
+          || (column.role === null && assignment.role !== null && assemblyRole(assignment.role) === null)) return null;
+        return { ...column, role: assignment.role };
+      });
+      if (selected.every(column => column !== null) && headerRolesQualify(selected.map(column => column!.role))) {
+        const changed = selected.flatMap((column, index) => column!.role !== header.columns[index]!.role ? [index] : []);
+        if (changed.length === customerHeaderMapping.pins.length && changed.every(index => customerHeaderMapping.pins.filter(pin =>
+          pin.columnIndex === index && pin.physicalPageNumber === page.page_number
+          && pin.pageRepresentationDigest === customerHeaderMapping.pageRepresentationDigest
+          && pin.sourceLabel === header.columns[index]!.header_text
+          && hashCanonical(pin.orderedObservationIds) === hashCanonical(customerHeaderMapping.columns[index]!.orderedObservationIds)).length === 1)) {
+          header = { ...header, columns: selected as PricedScheduleColumnBand[] };
+          semanticsResolved = true;
+          customerMappingPins = customerHeaderMapping.pins;
+        }
       }
     }
     confirmed = new Map();
@@ -2361,6 +2397,7 @@ function reconstructPage(
     rejected_spines: rejectedSpines,
     unassigned_lines: unassignedLines,
     ...(header.interpretation ? { header_interpretation: header.interpretation } : {}),
+    ...(customerMappingPins ? { customer_header_mapping_pins: customerMappingPins } : {}),
     ...(semanticsResolved ? {} : { semantic_status: 'unresolved' as const }),
     ...(unattachedRoleLess.length > 0 ? { unattached_role_less_tokens: unattachedRoleLess } : {}),
   });
@@ -3129,6 +3166,8 @@ export function buildPagePricedScheduleReconstruction(params: {
   /** Exact persisted V2 candidates selected by a human; never browser-supplied. */
   confirmedRecoveryCandidates?: readonly RecoveryCandidateV2[];
   confirmedHeaderSelections?: readonly ConfirmedHeaderSelection[];
+  /** Closed, current-source assignments prepared from server-loaded active revisions. */
+  customerHeaderMappings?: readonly CustomerHeaderMappingAssignment[];
   /**
    * Current effective evidence per physical page. Consulted only for supplied
    * confirmations: a page absent here cannot prove its evidence is unchanged.
@@ -3291,7 +3330,7 @@ export function buildPagePricedScheduleReconstruction(params: {
     }
     // A segmented page offers the bottom segment's header: the table that can
     // continue onto the next page.
-    const offered: PricedScheduleHeaderSignature | null = reconstructed ? (reconstructed.inherited_header
+    let offered: PricedScheduleHeaderSignature | null = reconstructed ? (reconstructed.inherited_header
       ? (reconstructed.rows.length > 0 && carried ? carried.signature : null)
       : headerSignatureOf(reconstructed)) : segmented?.last ? headerSignatureOf(segmented.last) : null;
     const headerSelections = (params.confirmedHeaderSelections ?? []).filter(selection =>
@@ -3337,6 +3376,16 @@ export function buildPagePricedScheduleReconstruction(params: {
       if (reason) headerDiagnostics.push({ reason, ...(blocked_by ? { blocked_by } : {}),
         observation_id: candidate.orderedObservationIds[0] as NonNullable<PdfToken['observation_id']>,
         candidate_id: candidate.candidateId, physical_page_number: page.page_number, recovery_applied: false });
+    }
+    const customerMappings = (params.customerHeaderMappings ?? []).filter(mapping => mapping.physicalPageNumber === page.page_number);
+    if (reconstructed?.semantic_status === 'unresolved' && !segmented && headerSelections.length === 0
+      && !reconstructed.inherited_header && !reconstructed.header_semantics && !reconstructed.table_segment
+      && params.continuationEvidence !== 'spacing_only' && customerMappings.length === 1
+      && !evidenceGate(customerMappings[0]!.pageRepresentationDigest, page.page_number)) {
+      const mapped = reconstructPage(page, new Map(), [], appliedConfirmations, appliedCandidates,
+        undefined, [], params.continuationEvidence ?? 'row_start_anchors',
+        undefined, undefined, undefined, rulingContext, customerMappings[0]);
+      if (mapped?.customer_header_mapping_pins) { reconstructed = mapped; offered = null; }
     }
     // Ruling evidence covers the whole physical page; each entry moves only its own evidence.
     const withRulings = (entry: PricedSchedulePage) =>

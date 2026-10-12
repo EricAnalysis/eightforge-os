@@ -348,6 +348,7 @@ export type ResolutionCase = Readonly<{
     proposalId?: string;
     anchorKey?: string;
     diagnosticId?: string;
+    customerMappingEvidence?: import('@/lib/customerAdaptation/headerMappingEvidence').CustomerMappingEvidence;
   }>;
 }>;
 
@@ -383,6 +384,7 @@ export type DocumentReviewedValueState = Readonly<{
  * recoverability travel with it, and its evidence stays source-bound.
  */
 export type AttentionDiagnostic = Readonly<{
+  customerMappingEvidence?: import('@/lib/customerAdaptation/headerMappingEvidence').CustomerMappingEvidence;
   diagnosticId: string;
   code: DiagnosticCode;
   attention: DiagnosticAttention;
@@ -924,7 +926,8 @@ function evidenceAttentionCases(params: {
             openDocument,
           ] : [openDocument],
           diagnostic: diagnosticRef,
-          sourceRefs: { diagnosticId: diagnostic.diagnosticId, ...(target ? { anchorKey: target.anchorKey } : {}) },
+          sourceRefs: { diagnosticId: diagnostic.diagnosticId, ...(target ? { anchorKey: target.anchorKey } : {}),
+            ...(diagnostic.customerMappingEvidence ? { customerMappingEvidence: diagnostic.customerMappingEvidence } : {}) },
         });
         continue;
       }
@@ -955,7 +958,8 @@ function evidenceAttentionCases(params: {
         suggestions: [],
         actions: [openDocument],
         diagnostic: diagnosticRef,
-        sourceRefs: { diagnosticId: diagnostic.diagnosticId },
+        sourceRefs: { diagnosticId: diagnostic.diagnosticId,
+          ...(diagnostic.customerMappingEvidence ? { customerMappingEvidence: diagnostic.customerMappingEvidence } : {}) },
       });
     }
     // A row reconstruction trusted, whose amount was read from a scan: the

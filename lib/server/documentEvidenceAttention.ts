@@ -20,6 +20,8 @@ function attentionDiagnostic(diagnostic: DocumentDiagnostic): AttentionDiagnosti
     observationIds: diagnostic.evidenceRefs.flatMap((ref) => (ref.kind === 'observation' ? [ref.observationId] : [])),
     visual: diagnostic.visualEvidence,
     recoveryProposalId: diagnostic.recoveryProposalId,
+    ...(diagnostic.sourceIdentity.customerMappingEvidence
+      ? { customerMappingEvidence: diagnostic.sourceIdentity.customerMappingEvidence } : {}),
   };
 }
 

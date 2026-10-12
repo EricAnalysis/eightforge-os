@@ -89,7 +89,14 @@ const deployedB3 = deployed.slice(deployed.indexOf(b3Start));
 for (const disposition of ['rejected', 'deferred'] as const) {
   const p = proposal(`baseline-${disposition}`);
   db.runSql(`SET ROLE service_role; SET request.jwt.claim.role='service_role'; ${review(p, disposition)}`);
-  const result = db.runSql(`BEGIN; ${deployedB3}
+  // B8.2d adds a defaulted twentieth provenance argument. Installing the exact
+  // historical nineteen-argument function beside it makes the baseline call
+  // ambiguous. Remove only the current overload inside this rollback scope;
+  // rollback restores its body and ACL before all forward/concurrency checks.
+  const result = db.runSql(`BEGIN;
+    DROP FUNCTION IF EXISTS public.record_region_bound_human_fact_assertion(
+      uuid,uuid,uuid,text,jsonb,text,text,uuid,integer,jsonb,text,text,text[],text,text,text,text,uuid,text,jsonb);
+    ${deployedB3}
     SET LOCAL ROLE service_role; SET LOCAL request.jwt.claim.role='service_role';
     DO $$ DECLARE r record; BEGIN
       SELECT * INTO r FROM public.record_region_bound_human_fact_assertion(

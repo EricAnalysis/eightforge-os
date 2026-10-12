@@ -1,5 +1,7 @@
 import type { ProjectTruthAuthorityMetadata } from '@/lib/canonical/authority/canonicalExecutionContext';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
+import { observeDeploymentIdentity } from '@/lib/server/deploymentIdentity';
+import { validatorRuleCatalogueFingerprint } from '@/lib/validator/ruleCatalogueFingerprint';
 import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
 import { finalizeDecision } from '@/lib/server/decisionClosure';
 import { syncExecutionItems } from '@/lib/execution/syncExecutionItems';
@@ -215,23 +217,35 @@ async function insertRunRow(params: {
   inputsSnapshotHash?: string | null;
 }): Promise<string> {
   const admin = requireAdminClient();
-  const { data, error } = await admin
-    .from('project_validation_runs')
-    .insert({
-      project_id: params.projectId,
-      triggered_by: params.triggerSource,
-      triggered_by_user_id: params.triggeredByUserId ?? null,
-      rules_applied: params.rulesApplied,
-      rule_version: RULE_VERSION,
-      status: 'running',
-      findings_count: 0,
-      critical_count: 0,
-      warning_count: 0,
-      info_count: 0,
-      inputs_snapshot_hash: params.inputsSnapshotHash ?? null,
-    })
-    .select('id')
-    .single();
+  const row = {
+    project_id: params.projectId,
+    triggered_by: params.triggerSource,
+    triggered_by_user_id: params.triggeredByUserId ?? null,
+    rules_applied: params.rulesApplied,
+    rule_version: RULE_VERSION,
+    status: 'running',
+    findings_count: 0,
+    critical_count: 0,
+    warning_count: 0,
+    info_count: 0,
+    inputs_snapshot_hash: params.inputsSnapshotHash ?? null,
+  };
+  // B8.4b: the producer of this run, written once. Unreported values stay
+  // null ("producer not recorded"); nothing is inferred.
+  const deployment = observeDeploymentIdentity();
+  const stamped = {
+    ...row,
+    deployment_revision: deployment.deployment_revision,
+    deployment_environment: deployment.deployment_environment,
+    rule_catalogue_fingerprint: validatorRuleCatalogueFingerprint(),
+  };
+  let { data, error } = await admin.from('project_validation_runs').insert(stamped).select('id').single();
+  if (error && (error as { code?: unknown }).code === 'PGRST204') {
+    // The identity columns are not in this database yet (migration ordering):
+    // keep validating, unstamped, which reads as "producer not recorded".
+    console.warn('[persistValidationRun] run identity columns unavailable; run left unstamped');
+    ({ data, error } = await admin.from('project_validation_runs').insert(row).select('id').single());
+  }
 
   if (error || !data?.id) {
     throw new Error(`Failed to create validation run: ${error?.message ?? 'unknown error'}`);

@@ -3,6 +3,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { hashCanonical } from '@/lib/extraction/domain/hash';
+import { observeDeploymentIdentity } from '@/lib/server/deploymentIdentity';
 
 /** Runtime observation, not qualification proof or an extraction authority gate. */
 export type ExtractionRuntimeIdentity = ReturnType<typeof observeExtractionRuntimeIdentity>;
@@ -108,8 +109,7 @@ export function resetExtractionRuntimeFingerprintsForTests(): void {
 }
 
 export function observeExtractionRuntimeIdentity() {
-  const revision = process.env.VERCEL_GIT_COMMIT_SHA;
-  const environment = process.env.VERCEL_ENV;
+  const deployment = observeDeploymentIdentity();
   const identity = {
     schema: 'extraction_runtime_identity_v1' as const,
     node_version: process.version,
@@ -117,9 +117,8 @@ export function observeExtractionRuntimeIdentity() {
     v8_version: process.versions.v8 ?? null,
     platform: process.platform,
     architecture: process.arch,
-    deployment_revision: revision && /^[a-f0-9]{40}$/i.test(revision) ? revision.toLowerCase() : null,
-    deployment_environment: environment === 'production' || environment === 'preview' || environment === 'development'
-      ? environment : null,
+    deployment_revision: deployment.deployment_revision,
+    deployment_environment: deployment.deployment_environment,
     // Observed from this process (loaded addons, selected OCR core, language data), never inferred
     // from installed pins; 'not_observed' until primed or when observation failed.
     dependency_fingerprints: fingerprints,

@@ -75,7 +75,7 @@ describe('buildFrictionReport', () => {
 
   it('reports Forgewing use, rejection and blocked demand, and treats blocked demand as a qualification decision', () => {
     const event = (outcome: string, documentId: string) => ({ outcome, documentId, anchorKey: 'a', at: 't', assertionId: null,
-      proposalId: `prop-${documentId}`, reviewId: null }) as never;
+      proposalId: `00000000-0000-4000-8000-0000000000${documentId === 'd1' ? '01' : '02'}`, reviewId: null }) as never;
     const report = buildFrictionReport({ organizationId: ORG, documentTypeById: types, assertions: [], projects: [],
       telemetry: [event('forgewing_used_unchanged', 'd1'), event('forgewing_used_then_edited', 'd1'),
         event('forgewing_rejected', 'd1'), event('forgewing_rejected', 'd2'), event('suggestion_ignored', 'd2')],
@@ -85,7 +85,7 @@ describe('buildFrictionReport', () => {
       unreadable: 1, policyBlocked: 1, budgetBlocked: 1, failed: 1 });
     expect(report.signals.find((signal) => signal.kind === 'qualification_demand')!.orchestratorPrefill).toBeNull();
     expect(report.signals.find((signal) => signal.kind === 'forgewing_rejected')!.orchestratorPrefill!.evidenceLinks)
-      .toContain('forgewing_proposal:prop-d1');
+      .toContain('forgewing_proposal:00000000-0000-4000-8000-000000000001');
   });
 
   it('names a reason for every case kind', () => {
@@ -93,6 +93,8 @@ describe('buildFrictionReport', () => {
     expect(frictionReason({ ...resolutionCase('validator_finding', 'd1'), finding: { ruleId: 'R7' } as never })).toBe('validator_rule:R7');
   });
 });
+
+const EXEC = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
 describe('rule_semantics_review (B6.4)', () => {
   const override = (id: string, ruleId: string, documentIds: string[], extra: Record<string, unknown> = {}) => ({
@@ -123,8 +125,8 @@ describe('rule_semantics_review (B6.4)', () => {
 
   it('cites the rule, catalogue fingerprint, deficiency, counts and record ids, undetermined and advisory', () => {
     const before = JSON.stringify(VALIDATOR_RULE_EXPLANATIONS);
-    const [signal, ...rest] = semantics([override('e3', 'FINANCIAL_NTE_EXCEEDED', ['d2']),
-      override('e1', 'FINANCIAL_NTE_EXCEEDED', ['d1']), override('e2', 'FINANCIAL_NTE_EXCEEDED', ['d1'])]);
+    const [signal, ...rest] = semantics([override(EXEC(3), 'FINANCIAL_NTE_EXCEEDED', ['d2']),
+      override(EXEC(1), 'FINANCIAL_NTE_EXCEEDED', ['d1']), override(EXEC(2), 'FINANCIAL_NTE_EXCEEDED', ['d1'])]);
     expect(rest).toEqual([]);
     expect(signal).toMatchObject({
       signalId: 'rule_semantics_review:FINANCIAL_NTE_EXCEEDED', key: 'FINANCIAL_NTE_EXCEEDED', occurrences: 3, documents: 2, projects: 1,
@@ -133,7 +135,7 @@ describe('rule_semantics_review (B6.4)', () => {
         deficiency: 'recurring_override', overrideCount: 3, distinctDocuments: 2, defectClass: 'undetermined', authority: 'advisory',
       },
       orchestratorPrefill: { rootCauseCategory: 'validation_rule_issue', requiresDefectClassification: true,
-        evidenceLinks: 'execution_item:e1\nexecution_item:e2\nexecution_item:e3' },
+        evidenceLinks: [1, 2, 3].map((n) => `execution_item:${EXEC(n)}`).join('\n') },
     });
     expect(signal!.orchestratorPrefill!.question).toContain('Defect class: undetermined');
     expect(signal!.orchestratorPrefill!.question).toContain(ruleCatalogueFingerprint('FINANCIAL_NTE_EXCEEDED')!);

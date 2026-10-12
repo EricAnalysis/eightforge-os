@@ -10,9 +10,23 @@ import {
   SEMANTICS_DEFECT_CLASS_PARAM,
   SEMANTICS_DEFECT_CLASS_UNDETERMINED,
 } from '@/lib/resolution/semanticsReview';
+import {
+  allowlistDocumentType,
+  allowlistedFrictionSignal,
+  allowlistReasonCode,
+  allowlistRecordRef,
+  allowlistRuleId,
+  MAX_SIGNAL_RECORD_REFS,
+  renderFrictionSignalText,
+  UNRECOGNIZED_RULE,
+  VALUE_READING_SIGNAL_CODE,
+  type AllowlistedFrictionSignal,
+  type FrictionSignalKind,
+} from '@/lib/resolution/frictionSignalAllowlist';
 import type { OrchestratorRootCauseCategoryKey } from '@/lib/shared/orchestratorTaxonomy';
 import { ruleCatalogueFingerprint } from '@/lib/validator/ruleCatalogueFingerprint';
-import { validatorRuleExplanation } from '@/lib/validator/ruleExplanations';
+
+export type { FrictionSignalKind } from '@/lib/resolution/frictionSignalAllowlist';
 
 /**
  * Forgewing friction report (Forgewing generalization, phase 5): where one
@@ -32,13 +46,6 @@ import { validatorRuleExplanation } from '@/lib/validator/ruleExplanations';
  */
 
 export type FrictionCount = Readonly<{ key: string; cases: number; documents: number; projects: number }>;
-
-export type FrictionSignalKind =
-  | 'recurring_deterministic_failure'
-  | 'recurring_manual_correction'
-  | 'forgewing_rejected'
-  | 'qualification_demand'
-  | 'rule_semantics_review';
 
 export type OrchestratorPrefill = Readonly<{
   question: string;
@@ -83,6 +90,11 @@ export type ValidatorOverrideRecord = Readonly<{
 
 export type FrictionSignal = Readonly<{
   signalId: string;
+  /**
+   * The platform-facing signal (B8.3a): allowlisted parts only. `key`,
+   * `summary` and the prefill are rendered from it and carry nothing else.
+   */
+  payload: AllowlistedFrictionSignal;
   kind: FrictionSignalKind;
   key: string;
   summary: string;
@@ -137,7 +149,7 @@ export type FrictionReportInput = Readonly<{
 const POLICY_BLOCKED = new Set(['activation_not_allowed', 'entitlement_missing', 'data_policy_not_approved', 'recovery_disabled']);
 const FAILED = new Set(['provider_failed', 'structured_output_invalid', 'deterministic_validation_failed',
   'evidence_binding_failed', 'proposal_persist_failed', 'system_error']);
-const MAX_EVIDENCE_REFS = 10;
+const MAX_EVIDENCE_REFS = MAX_SIGNAL_RECORD_REFS;
 
 /** One reason per case: its diagnostic code, or what its kind itself says. */
 export function frictionReason(resolutionCase: ResolutionCase): string {
@@ -184,18 +196,42 @@ function counts(map: Map<string, Tally>): FrictionCount[] {
     .sort((left, right) => right.cases - left.cases || left.key.localeCompare(right.key, 'en-US'));
 }
 
-function prefill(kind: FrictionSignalKind, key: string, entry: Tally, rootCauseCategory: OrchestratorRootCauseCategoryKey | null,
-  detail: string): OrchestratorPrefill {
+/**
+ * One signal from its allowlisted payload (B8.3a). The payload is validated,
+ * and the key, summary and prefill are rendered from it alone, so no raw input
+ * value can reach a signal.
+ */
+function emitSignal(
+  payload: AllowlistedFrictionSignal,
+  semanticsReview?: RuleSemanticsReview,
+): FrictionSignal {
+  const validated = allowlistedFrictionSignal(payload);
+  const text = renderFrictionSignalText(validated);
   return {
-    question: [
-      `Forgewing friction signal (${kind}): ${key}.`,
-      detail,
-      `Seen ${entry.cases} times on ${entry.documents.size} documents across ${entry.projects.size} projects in one organization.`,
-      'Identify the code path, whether the fix is configuration, mapping, a deterministic rule or a product change, the blast radius,',
-      'and the smallest safe change with its regression tests. Do not propose document-, page- or customer-specific logic.',
-    ].join(' '),
-    rootCauseCategory,
-    evidenceLinks: entry.refs.join('\n'),
+    signalId: `${validated.signalKind}:${validated.code}`,
+    payload: validated,
+    kind: validated.signalKind,
+    key: validated.code,
+    summary: text.summary,
+    occurrences: validated.counts.occurrences,
+    documents: validated.counts.documents,
+    projects: validated.counts.projects,
+    orchestratorPrefill: text.question == null ? null : {
+      question: text.question,
+      rootCauseCategory: validated.rootCauseCategory,
+      evidenceLinks: text.evidenceLinks,
+      ...(validated.defectClass === 'undetermined' ? { requiresDefectClassification: true as const } : {}),
+    },
+    ...(semanticsReview ? { semanticsReview } : {}),
+  };
+}
+
+function payloadFor(kind: FrictionSignalKind, code: string, entry: Tally,
+  rootCauseCategory: OrchestratorRootCauseCategoryKey | null): AllowlistedFrictionSignal {
+  return {
+    schemaVersion: 'friction_signal_v1', signalKind: kind, code, catalogueFingerprint: null,
+    counts: { occurrences: entry.cases, documents: entry.documents.size, projects: entry.projects.size },
+    recordRefs: entry.refs.slice(0, MAX_EVIDENCE_REFS), rootCauseCategory, defectClass: null,
   };
 }
 
@@ -204,6 +240,9 @@ export function buildFrictionReport(input: FrictionReportInput): FrictionReport 
   const byKind = new Map<string, Tally>();
   const byReason = new Map<string, Tally>();
   const byType = new Map<string, Tally>();
+  // Signal tallies are keyed by allowlisted codes and carry allowlisted refs (B8.3a);
+  // the tenant-local breakdowns above keep their raw keys.
+  const signalReasons = new Map<string, Tally>();
   let openCases = 0;
   for (const project of input.projects) {
     for (const resolutionCase of project.cases) {
@@ -212,6 +251,8 @@ export function buildFrictionReport(input: FrictionReportInput): FrictionReport 
       tally(byKind, resolutionCase.kind, documentId, project.projectId, resolutionCase.caseId);
       tally(byReason, frictionReason(resolutionCase), documentId, project.projectId, resolutionCase.caseId);
       tally(byType, (documentId && input.documentTypeById.get(documentId)) || 'unknown', documentId, project.projectId, resolutionCase.caseId);
+      tally(signalReasons, allowlistReasonCode(frictionReason(resolutionCase)), documentId, project.projectId,
+        allowlistRecordRef('resolution_case', resolutionCase.caseId));
     }
   }
 
@@ -223,6 +264,7 @@ export function buildFrictionReport(input: FrictionReportInput): FrictionReport 
   const active = input.assertions.filter((row) => row.organization_id === input.organizationId
     && row.status === 'active' && row.source_binding === 'region_bound');
   const manual = new Map<string, Tally>();
+  const signalManual = new Map<string, Tally>();
   let reviewedValues = 0;
   let dispositions = 0;
   for (const row of active) {
@@ -231,8 +273,11 @@ export function buildFrictionReport(input: FrictionReportInput): FrictionReport 
     reviewedValues += 1;
     if (row.review_origin !== 'operator_entered') continue;
     const documentId = row.source_document_id;
-    tally(manual, (documentId && input.documentTypeById.get(documentId)) || 'unknown', documentId,
-      documentId ? projectByDocument.get(documentId) ?? null : null, `human_fact_assertion:${row.id}`);
+    const projectId = documentId ? projectByDocument.get(documentId) ?? null : null;
+    const documentType = documentId ? input.documentTypeById.get(documentId) : null;
+    tally(manual, documentType || 'unknown', documentId, projectId, `human_fact_assertion:${row.id}`);
+    tally(signalManual, allowlistDocumentType(documentType), documentId, projectId,
+      allowlistRecordRef('human_fact_assertion', row.id));
   }
 
   const telemetryCount = (outcome: ValueReadingTelemetryEvent['outcome']) =>
@@ -241,52 +286,30 @@ export function buildFrictionReport(input: FrictionReportInput): FrictionReport 
     input.outcomes.filter((row) => predicate(row.outcomeCode)).length;
 
   const signals: FrictionSignal[] = [];
-  for (const [key, entry] of byReason) {
+  for (const [code, entry] of signalReasons) {
     if (entry.documents.size < minimum) continue;
-    const root = rootCauseFor(key);
-    signals.push({
-      signalId: `recurring_deterministic_failure:${key}`, kind: 'recurring_deterministic_failure', key,
-      summary: `EightForge could not settle "${key}" on ${entry.documents.size} documents.`,
-      occurrences: entry.cases, documents: entry.documents.size, projects: entry.projects.size,
-      orchestratorPrefill: prefill('recurring_deterministic_failure', key, entry, root,
-        'The deterministic Core repeatedly could not settle this evidence and people had to.'),
-    });
+    signals.push(emitSignal(payloadFor('recurring_deterministic_failure', code, entry, rootCauseFor(code))));
   }
-  for (const [key, entry] of manual) {
+  for (const [code, entry] of signalManual) {
     if (entry.documents.size < minimum) continue;
-    signals.push({
-      signalId: `recurring_manual_correction:${key}`, kind: 'recurring_manual_correction', key,
-      summary: `Operators entered rate values by hand on ${entry.documents.size} ${key} documents.`,
-      occurrences: entry.cases, documents: entry.documents.size, projects: entry.projects.size,
-      orchestratorPrefill: prefill('recurring_manual_correction', key, entry, 'extraction_issue',
-        `Operators repeatedly typed reviewed rate values on ${key} documents that extraction did not publish.`),
-    });
+    signals.push(emitSignal(payloadFor('recurring_manual_correction', code, entry, 'extraction_issue')));
   }
   const rejected = input.telemetry.filter((event) => event.outcome === 'forgewing_rejected');
   const rejectedDocuments = new Set(rejected.map((event) => event.documentId));
   if (rejectedDocuments.size >= minimum) {
     const entry: Tally = { cases: rejected.length, documents: rejectedDocuments,
       projects: new Set(rejected.flatMap((event) => projectByDocument.get(event.documentId) ?? [])),
-      refs: rejected.slice(0, MAX_EVIDENCE_REFS).map((event) => `forgewing_proposal:${event.proposalId}`) };
-    signals.push({
-      signalId: 'forgewing_rejected:value_reading', kind: 'forgewing_rejected', key: 'priced_value_reading',
-      summary: `Operators rejected ${rejected.length} Forgewing readings on ${rejectedDocuments.size} documents.`,
-      occurrences: rejected.length, documents: rejectedDocuments.size, projects: entry.projects.size,
-      orchestratorPrefill: prefill('forgewing_rejected', 'priced_value_reading', entry, 'extraction_issue',
-        'Operators rejected Forgewing value readings; review the reading prompt, region and evidence binding.'),
-    });
+      refs: rejected.flatMap((event) => event.proposalId ? [allowlistRecordRef('forgewing_proposal', event.proposalId)] : [])
+        .slice(0, MAX_EVIDENCE_REFS) };
+    signals.push(emitSignal(payloadFor('forgewing_rejected', VALUE_READING_SIGNAL_CODE, entry, 'extraction_issue')));
   }
   const blocked = input.outcomes.filter((row) => POLICY_BLOCKED.has(row.outcomeCode));
   if (blocked.length > 0) {
     const documents = new Set(blocked.flatMap((row) => row.documentId ? [row.documentId] : []));
-    signals.push({
-      signalId: 'qualification_demand:priced_value_reading', kind: 'qualification_demand', key: 'priced_value_reading',
-      summary: `Operators asked for ${blocked.length} Forgewing readings that deployment policy did not allow.`,
-      occurrences: blocked.length, documents: documents.size,
-      projects: new Set([...documents].flatMap((id) => projectByDocument.get(id) ?? [])).size,
-      // A qualification decision (benchmark, policy), never a code change.
-      orchestratorPrefill: null,
-    });
+    const entry: Tally = { cases: blocked.length, documents,
+      projects: new Set([...documents].flatMap((id) => projectByDocument.get(id) ?? [])), refs: [] };
+    // A qualification decision (benchmark, policy), never a code change: rendered without a prefill.
+    signals.push(emitSignal(payloadFor('qualification_demand', VALUE_READING_SIGNAL_CODE, entry, null)));
   }
   signals.push(...ruleSemanticsReviewSignals(input.organizationId, input.overrides ?? [], minimum));
   signals.sort((left, right) => right.documents - left.documents || right.occurrences - left.occurrences
@@ -345,7 +368,9 @@ function ruleSemanticsReviewSignals(organizationId: string, overrides: readonly 
   const byRule = new Map<string, ValidatorOverrideRecord[]>();
   for (const record of overrides) {
     if (record.organizationId !== organizationId || !record.ruleId) continue;
-    byRule.set(record.ruleId, [...(byRule.get(record.ruleId) ?? []), record]);
+    // Grouped by the allowlisted rule ID: an ID outside the catalogue never leaves the tenant.
+    const ruleId = allowlistRuleId(record.ruleId);
+    byRule.set(ruleId, [...(byRule.get(ruleId) ?? []), record]);
   }
   const signals: FrictionSignal[] = [];
   for (const [ruleId, records] of byRule) {
@@ -356,32 +381,19 @@ function ruleSemanticsReviewSignals(organizationId: string, overrides: readonly 
     if (distinctDocuments < Math.max(2, minimum)) continue;
     const projects = new Set(ordered.map((record) => record.projectId)).size;
     const review: RuleSemanticsReview = {
-      ruleId, catalogueFingerprint: ruleCatalogueFingerprint(ruleId), deficiency: 'recurring_override',
+      ruleId,
+      catalogueFingerprint: ruleId === UNRECOGNIZED_RULE ? null : ruleCatalogueFingerprint(ruleId),
+      deficiency: 'recurring_override',
       overrideCount: ordered.length, distinctDocuments, defectClass: 'undetermined', authority: 'advisory',
     };
-    const title = validatorRuleExplanation(ruleId)?.title ?? 'not in the rule catalogue';
-    signals.push({
-      signalId: `rule_semantics_review:${ruleId}`, kind: 'rule_semantics_review', key: ruleId,
-      summary: `Operators overrode "${ruleId}" findings ${ordered.length} times on ${distinctDocuments} distinct documents.`,
-      occurrences: ordered.length, documents: distinctDocuments, projects,
-      semanticsReview: review,
-      orchestratorPrefill: {
-        question: [
-          `Forgewing semantics review (rule_semantics_review): Validator rule ${ruleId} ("${title}").`,
-          `Catalogue entry: ${review.catalogueFingerprint ?? 'none'}.`,
-          `Deficiency: recurring_override. Operators overrode ${ordered.length} findings of this rule on ${distinctDocuments}`,
-          `distinct documents across ${projects} projects in one organization.`,
-          'Defect class: undetermined. Classify it as a wording defect (the catalogue explanation or action is incomplete,',
-          'stale or misleading) or a rule-logic defect (the rule fires when it should not). Then identify the smallest safe',
-          'change and its regression tests. This signal is advisory: it changes no rule, catalogue entry, severity or action;',
-          'any change goes through code, tests, PR and CI. Known limitation: execution items do not record which catalogue',
-          'entry an operator saw, so overrides recorded before a catalogue change are still counted.',
-        ].join(' '),
-        rootCauseCategory: 'validation_rule_issue',
-        evidenceLinks: ordered.slice(0, MAX_EVIDENCE_REFS).map((record) => `execution_item:${record.executionItemId}`).join('\n'),
-        requiresDefectClassification: true,
-      },
-    });
+    signals.push(emitSignal({
+      schemaVersion: 'friction_signal_v1', signalKind: 'rule_semantics_review', code: ruleId,
+      catalogueFingerprint: review.catalogueFingerprint,
+      counts: { occurrences: ordered.length, documents: distinctDocuments, projects },
+      recordRefs: ordered.slice(0, MAX_EVIDENCE_REFS).map((record) => allowlistRecordRef('execution_item', record.executionItemId)),
+      rootCauseCategory: 'validation_rule_issue',
+      defectClass: 'undetermined',
+    }, review));
   }
   return signals;
 }

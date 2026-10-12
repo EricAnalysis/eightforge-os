@@ -13,6 +13,7 @@ import {
 import { redirectIfUnauthorized } from '@/lib/redirectIfUnauthorized';
 import { supabase } from '@/lib/supabaseClient';
 import { ManualRateLinkResolutionPanel } from '@/components/validator/ManualRateLinkResolutionPanel';
+import { resolveValidatorRuleActions, validatorPrimaryResolutionWorkflow } from '@/lib/validator/ruleActions';
 
 type ValidatorDecisionExecutionPanelProps = {
   issue: IssueObject | null;
@@ -44,15 +45,19 @@ export function ValidatorDecisionExecutionPanel({
   const [savingAction, setSavingAction] = useState<ProjectExecutionResolutionAction | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [rateLinkOpen, setRateLinkOpen] = useState(false);
 
   useEffect(() => {
     setJustification('');
     setMessage(null);
     setError(null);
     setSavingAction(null);
+    setRateLinkOpen(false);
   }, [issue?.issueId]);
 
-  if (issue?.finding.rule_id === 'FINANCIAL_RATE_CODE_MISSING') {
+  // Closure capability does not imply primary UX ownership: only rules whose primary
+  // workflow is the rate link replace this panel (see validatorPrimaryResolutionWorkflow).
+  if (issue && validatorPrimaryResolutionWorkflow(issue.finding.rule_id) === 'manual_rate_link') {
     return (
       <ManualRateLinkResolutionPanel
         issue={issue}
@@ -86,6 +91,16 @@ export function ValidatorDecisionExecutionPanel({
   const executionItem = issue.executionItem;
   const executionItemId = issue.executionItemId;
   const alreadyResolved = executionItem?.status === 'resolved';
+  // A valid manual rate link stays available as a secondary action, never the primary panel.
+  const secondaryRateLink = alreadyResolved
+    ? null
+    : resolveValidatorRuleActions({
+      ruleId: issue.finding.rule_id,
+      projectId: issue.projectId,
+      findingId: issue.finding.id,
+      subjectId: issue.finding.subject_id,
+      evidence: [],
+    }).flatMap((action) => (action.kind === 'open_manual_rate_link' ? [action] : []))[0] ?? null;
 
   async function runAction(action: ProjectExecutionResolutionAction) {
     if (!executionItemId) return;
@@ -189,6 +204,28 @@ export function ValidatorDecisionExecutionPanel({
           {error ? <p className="text-[11px] text-[var(--ef-critical-soft)]">{error}</p> : null}
         </div>
       )}
+
+      {secondaryRateLink ? (
+        <div className="mt-4 space-y-3 border-t border-[var(--ef-border-subtle)] pt-4" data-testid="secondary-rate-link">
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ef-text-muted)]">
+            Other Available Action
+          </p>
+          <button
+            type="button"
+            onClick={() => setRateLinkOpen((open) => !open)}
+            aria-expanded={rateLinkOpen}
+            className="rounded-sm border border-[var(--ef-border-subtle)] px-3 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-text-primary)] transition-colors hover:border-[var(--ef-text-primary)] hover:text-white"
+          >
+            {rateLinkOpen ? 'Hide Manual Rate Link' : 'Link Rate Manually'}
+          </button>
+          {rateLinkOpen ? (
+            <ManualRateLinkResolutionPanel
+              issue={{ projectId: issue.projectId, finding: { subject_id: secondaryRateLink.invoiceLineSubjectId } }}
+              onActionComplete={onActionComplete}
+            />
+          ) : null}
+        </div>
+      ) : null}
     </ForgeDetailPanel>
   );
 }

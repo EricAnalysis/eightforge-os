@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { MANUAL_RATE_LINK_RULE_IDS } from '@/lib/server/manualRateLinkRules';
-import { resolveValidatorRuleActions } from '@/lib/validator/ruleActions';
+import { resolveValidatorRuleActions, validatorPrimaryResolutionWorkflow } from '@/lib/validator/ruleActions';
 import { VALIDATOR_RULE_ACTION_KINDS, VALIDATOR_RULE_EXPLANATIONS } from '@/lib/validator/ruleExplanations';
 
 const base = { projectId: 'p1', findingId: 'f1', subjectId: 'line-1', evidence: [] };
@@ -61,5 +61,28 @@ describe('resolveValidatorRuleActions', () => {
 
   it('offers nothing for a rule the catalogue does not know', () => {
     expect(resolveValidatorRuleActions({ ...base, ruleId: 'NOT_A_RULE' })).toEqual([]);
+  });
+});
+
+describe('validatorPrimaryResolutionWorkflow', () => {
+  it('closure capability does not imply primary UX ownership', () => {
+    // Both rules can be closed by a manual rate link...
+    expect([...MANUAL_RATE_LINK_RULE_IDS].sort()).toEqual(
+      ['CROSS_DOCUMENT_CONTRACT_RATE_EXISTS', 'FINANCIAL_RATE_CODE_MISSING'],
+    );
+    // ...but only the linkage problem leads with it; the authority decision keeps Confirm/Correct/Override.
+    expect(validatorPrimaryResolutionWorkflow('FINANCIAL_RATE_CODE_MISSING')).toBe('manual_rate_link');
+    expect(validatorPrimaryResolutionWorkflow('CROSS_DOCUMENT_CONTRACT_RATE_EXISTS')).toBe('decision_execution');
+    expect(resolveValidatorRuleActions({ ...base, ruleId: 'CROSS_DOCUMENT_CONTRACT_RATE_EXISTS' })
+      .some((action) => action.kind === 'open_manual_rate_link')).toBe(true);
+  });
+
+  it('leads with the rate link only for rules a manual link can close', () => {
+    for (const ruleId of Object.keys(VALIDATOR_RULE_EXPLANATIONS)) {
+      if (validatorPrimaryResolutionWorkflow(ruleId) === 'manual_rate_link') {
+        expect((MANUAL_RATE_LINK_RULE_IDS as readonly string[]).includes(ruleId), ruleId).toBe(true);
+      }
+    }
+    expect(validatorPrimaryResolutionWorkflow('NOT_A_RULE')).toBe('decision_execution');
   });
 });

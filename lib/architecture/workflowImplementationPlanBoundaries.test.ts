@@ -11,7 +11,8 @@ const PLAN_CONSUMERS = new Set([
   'lib/server/workflowRepositoryPlanRuns.ts',
   'lib/server/repositoryPlanGenerationWorker.ts',
 ]);
-const PLAN_TYPE_CONSUMERS = new Set(['lib/repositoryPlanGuidance.ts']);
+// B8.3d: the trusted-plan union moved from the guidance module to the triaged-signal plan schema.
+const PLAN_TYPE_CONSUMERS = new Set(['lib/triagedSignalPlanSchema.ts']);
 const READ_CONSUMERS = new Set(['app/api/internal/workflow-assessments/[assessmentId]/implementation-plan/route.ts']);
 const RESOLVER = '@/lib/workflowEffectiveReviewedSpecification';
 const EXTENSION = /\.[cm]?[jt]sx?$/;
@@ -221,7 +222,7 @@ describe('workflow implementation plan has no runtime or authority integration',
       'lib/server/workflowRepositoryPlanRuns.ts',
       'lib/server/repositoryPlanGenerationWorker.ts',
     ]);
-    expect([...PLAN_TYPE_CONSUMERS]).toEqual(['lib/repositoryPlanGuidance.ts']);
+    expect([...PLAN_TYPE_CONSUMERS]).toEqual(['lib/triagedSignalPlanSchema.ts']);
     expect([...READ_CONSUMERS]).toEqual(['app/api/internal/workflow-assessments/[assessmentId]/implementation-plan/route.ts']);
     const violations: string[] = [];
     for (const absolute of ['app', 'components', 'lib', 'types', 'scripts']
@@ -258,7 +259,7 @@ describe('workflow implementation plan has no runtime or authority integration',
   });
 
   it('permits B2a erased Plan V1 access without allowing a runtime builder dependency', () => {
-    const guidance = 'lib/repositoryPlanGuidance.ts';
+    const guidance = 'lib/triagedSignalPlanSchema.ts';
     expect(consumerViolations(guidance,
       "import type { WorkflowImplementationPlanArtifact } from '@/lib/workflowImplementationPlan';")).toEqual([]);
     expect(consumerViolations(guidance,

@@ -1,10 +1,15 @@
-import type { RepositoryPlanRunRequest } from '@/lib/repositoryPlanRunWire';
+import type { RepositoryPlanRunRequest, TriagedSignalRepositoryPlanRunRequest } from '@/lib/repositoryPlanRunWire';
+import { IMPROVEMENT_SIGNAL_SUBMISSIONS_TABLE } from '@/lib/server/improvementSignalSubmissions';
+import { IMPROVEMENT_SIGNAL_TRIAGE_TABLE } from '@/lib/server/improvementSignalTriage';
 import {
   createRepositoryPlanGenerationJob,
+  createRepositoryPlanGenerationJobFromTriage,
   readRepositoryPlanGenerationJob,
 } from '@/lib/server/repositoryPlanGenerationJobs';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { resolveEffectiveReviewedSpecification } from '@/lib/workflowEffectiveReviewedSpecification';
+import { buildTriagedSignalImplementationPlan } from '@/lib/triagedSignalImplementationPlan';
+import type { TrustedImplementationPlanArtifact } from '@/lib/triagedSignalPlanSchema';
 import { buildWorkflowImplementationPlan } from '@/lib/workflowImplementationPlan';
 
 type QueryResult = PromiseLike<{ data: unknown; error: unknown }>;
@@ -33,7 +38,26 @@ const publicFailureCodes = new Set([
   'trusted_source_invalid', 'repository_mismatch', 'persistence_failed', 'worker_failed',
 ]);
 
-async function readTrustedPlan(pin: RepositoryPlanRunRequest, admin: AdminClient) {
+/**
+ * B8.3d: the plan of one exact triage review, from allowlisted columns only.
+ * The rationale and the reviewer are never selected. The job RPC re-checks that
+ * this triage is current, routed to engineering, and of this classification.
+ */
+async function readTriagedSignalPlan(pin: TriagedSignalRepositoryPlanRunRequest, admin: AdminClient) {
+  const triage = await admin.from(IMPROVEMENT_SIGNAL_TRIAGE_TABLE)
+    .select('id, submission_id, signal_kind, triage_version, disposition, capability_scope, semantics_defect_class, plan_classification')
+    .eq('id', pin.triageReviewId).eq('triage_version', pin.triageVersion).maybeSingle();
+  if (triage.error || triage.data === null || typeof triage.data !== 'object') return null;
+  const submissionId = (triage.data as { submission_id?: unknown }).submission_id;
+  const submission = await admin.from(IMPROVEMENT_SIGNAL_SUBMISSIONS_TABLE)
+    .select('id, signal_kind, signal_code, payload').eq('id', submissionId).maybeSingle();
+  if (submission.error || submission.data === null) return null;
+  const planned = buildTriagedSignalImplementationPlan({ submissionRow: submission.data, triageRow: triage.data });
+  return planned.ok ? planned.artifact : null;
+}
+
+async function readTrustedPlan(pin: RepositoryPlanRunRequest, admin: AdminClient): Promise<TrustedImplementationPlanArtifact | null> {
+  if ('triageReviewId' in pin) return readTriagedSignalPlan(pin, admin);
   const assessment = await admin.from('workflow_assessments')
     .select('id, assessment_version, source_submission_id, assessment, authority, requires_human_review, created_at')
     .eq('id', pin.assessmentId).eq('assessment_version', pin.assessmentVersion).maybeSingle();
@@ -70,11 +94,17 @@ export async function createWorkflowRepositoryPlanRun(
     if (!plan.plannedSteps.some((step) => step.effectiveClassification === request.classification)) {
       return { ok: false, code: 'classification_not_present' } as const;
     }
-    const created = await createRepositoryPlanGenerationJob({
-      ...request,
-      requestedByActorId: actor.actorId,
-      implementationPlanV1DigestSha256: plan.digest.value,
-    }, { control: admin });
+    const created = 'triageReviewId' in request
+      ? await createRepositoryPlanGenerationJobFromTriage({
+        ...request,
+        requestedByActorId: actor.actorId,
+        implementationPlanV1DigestSha256: plan.digest.value,
+      }, { control: admin })
+      : await createRepositoryPlanGenerationJob({
+        ...request,
+        requestedByActorId: actor.actorId,
+        implementationPlanV1DigestSha256: plan.digest.value,
+      }, { control: admin });
     if (!created.ok) return { ok: false,
       code: created.code === 'not_configured' ? 'not_configured' : 'create_failed' } as const;
     return { ok: true, job: { jobId: created.jobId, status: created.status,

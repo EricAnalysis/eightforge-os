@@ -8,6 +8,8 @@ import {
   createRepositoryPlanGenerationJob, failRepositoryPlanGenerationJob,
   readRepositoryPlanGenerationJob, readRepositoryPlanGenerationSource,
   succeedRepositoryPlanGenerationJob,
+  CREATE_REPOSITORY_PLAN_JOB_FROM_TRIAGE_RPC, READ_REPOSITORY_PLAN_SIGNAL_SOURCE_RPC,
+  createRepositoryPlanGenerationJobFromTriage, readRepositoryPlanGenerationSignalSource,
 } from '@/lib/server/repositoryPlanGenerationJobs';
 
 const ids = {
@@ -92,5 +94,45 @@ describe('repository plan generation job RPC adapter', () => {
     await expect(readRepositoryPlanGenerationJob(ids.jobId, { control: { rpc } }))
       .resolves.toEqual({ ok: false, code: 'invalid_receipt' });
     expect(rpc).toHaveBeenCalledWith(READ_REPOSITORY_PLAN_JOB_RPC, { p_job_id: ids.jobId });
+  });
+});
+
+describe('repository plan generation jobs from a triaged signal (B8.3d)', () => {
+  const triage = { triageReviewId: '77777777-7777-4777-8777-777777777777', triageVersion: 2,
+    classification: 'RECOVER' as const, implementationPlanV1DigestSha256: 'b'.repeat(64) };
+
+  it('creates through only the triage control RPC with the exact triage pin', async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: [{ job_id: ids.jobId, job_status: 'pending',
+      created_at: '2026-10-12T12:00:00Z' }], error: null });
+    await expect(createRepositoryPlanGenerationJobFromTriage({ ...triage, requestedByActorId: ids.actorId },
+      { control: { rpc } })).resolves.toMatchObject({ ok: true, jobId: ids.jobId });
+    expect(rpc).toHaveBeenCalledExactlyOnceWith(CREATE_REPOSITORY_PLAN_JOB_FROM_TRIAGE_RPC, {
+      p_triage_review_id: triage.triageReviewId, p_triage_version: 2, p_classification: 'RECOVER',
+      p_requested_by_actor_id: ids.actorId, p_implementation_plan_v1_digest_sha256: 'b'.repeat(64) });
+    const refused = vi.fn();
+    expect(await createRepositoryPlanGenerationJobFromTriage({ ...triage, requestedByActorId: ids.actorId,
+      rationale: 'local' }, { control: { rpc: refused } })).toEqual({ ok: false, code: 'invalid_input' });
+    expect(refused).not.toHaveBeenCalled();
+  });
+
+  it('claims a job with no assessment pin, but never a partial one', async () => {
+    const row = { job_id: ids.jobId, claim_token: ids.token, claim_status: 'acquired', assessment_id: null,
+      assessment_version: null, review_id: null, review_version: null, classification: 'RECOVER',
+      implementation_plan_v1_digest_sha256: 'b'.repeat(64) };
+    await expect(claimRepositoryPlanGenerationJob({ rpc: vi.fn().mockResolvedValue({ data: [row], error: null }) }))
+      .resolves.toMatchObject({ ok: true, job: { assessment_id: null } });
+    await expect(claimRepositoryPlanGenerationJob({ rpc: vi.fn().mockResolvedValue({ data: [{ ...row,
+      assessment_id: ids.assessmentId }], error: null }) })).resolves.toEqual({ ok: false, code: 'invalid_receipt' });
+  });
+
+  it('reads the signal source only through the token-bound worker RPC and reports none as not found', async () => {
+    const rows = { submission_row: { id: ids.runId }, triage_row: { id: triage.triageReviewId } };
+    const rpc = vi.fn().mockResolvedValue({ data: [rows], error: null });
+    await expect(readRepositoryPlanGenerationSignalSource({ rpc }, ids.jobId, ids.token))
+      .resolves.toEqual({ ok: true, source: rows });
+    expect(rpc).toHaveBeenCalledExactlyOnceWith(READ_REPOSITORY_PLAN_SIGNAL_SOURCE_RPC,
+      { p_job_id: ids.jobId, p_claim_token: ids.token });
+    await expect(readRepositoryPlanGenerationSignalSource({ rpc: vi.fn().mockResolvedValue({ data: [], error: null }) },
+      ids.jobId, ids.token)).resolves.toEqual({ ok: false, code: 'not_found' });
   });
 });

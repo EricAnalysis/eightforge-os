@@ -12,6 +12,14 @@ export type TriageCapabilityScope = (typeof TRIAGE_CAPABILITY_SCOPES)[number];
 export const TRIAGE_SEMANTICS_DEFECT_CLASSES = ['wording_defect', 'rule_logic_defect'] as const;
 export type TriageSemanticsDefectClass = (typeof TRIAGE_SEMANTICS_DEFECT_CLASSES)[number];
 
+/**
+ * The repository-plan classification a reviewer chooses for a signal routed to
+ * engineering (B8.3d). A human decision: never derived from the signal kind or
+ * its root-cause category. The Plan V2 vocabulary, unchanged.
+ */
+export const TRIAGE_PLAN_CLASSIFICATIONS = ['RULE', 'VERIFY', 'EXTRACT', 'RECOVER', 'HUMAN', 'ADVISORY'] as const;
+export type TriagePlanClassification = (typeof TRIAGE_PLAN_CLASSIFICATIONS)[number];
+
 const ROUTED: ReadonlySet<TriageDisposition> = new Set(['route_to_engineering', 'customer_config_or_mapping']);
 
 /** A routed signal names its scope. */
@@ -24,12 +32,18 @@ export function triageRequiresDefectClass(signalKind: string, disposition: Triag
   return ROUTED.has(disposition) && signalKind === 'rule_semantics_review';
 }
 
+/** Routed to engineering exactly when a reviewer chose the Plan V2 classification. */
+export function triageRequiresPlanClassification(disposition: TriageDisposition): boolean {
+  return disposition === 'route_to_engineering';
+}
+
 /** The first cross-field violation, or null. */
 export function triageShapeError(params: Readonly<{
   signalKind: string;
   disposition: TriageDisposition;
   capabilityScope: string | null;
   semanticsDefectClass: string | null;
+  planClassification: string | null;
 }>): string | null {
   const scopeRequired = triageRequiresScope(params.disposition);
   if (scopeRequired && params.capabilityScope == null) return 'capability_scope_required';
@@ -37,5 +51,8 @@ export function triageShapeError(params: Readonly<{
   const classRequired = triageRequiresDefectClass(params.signalKind, params.disposition);
   if (classRequired && params.semanticsDefectClass == null) return 'semantics_defect_class_required';
   if (!classRequired && params.semanticsDefectClass != null) return 'semantics_defect_class_not_allowed';
+  const planRequired = triageRequiresPlanClassification(params.disposition);
+  if (planRequired && params.planClassification == null) return 'plan_classification_required';
+  if (!planRequired && params.planClassification != null) return 'plan_classification_not_allowed';
   return null;
 }

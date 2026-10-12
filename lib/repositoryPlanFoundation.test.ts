@@ -9,7 +9,7 @@ type Mutable<T> = { -readonly [K in keyof T]: Mutable<T[K]> };
 const pin = { assessmentId: '11111111-1111-4111-8111-111111111111', assessmentVersion: 2,
   reviewId: '22222222-2222-4222-8222-222222222222', reviewVersion: 3 };
 // Explicit trusted-memory fixture; hashing a fixture does not authenticate a request.
-function fixture(): Mutable<RepositoryPlanFoundationInput> {
+function fixture(): Mutable<RepositoryPlanFoundationInput & { trustedPlanV1: WorkflowImplementationPlanArtifact }> {
   const plan = { domain: 'eightforge.implementation-plan', schemaVersion: 1,
     authority: 'non_authoritative', executable: false, grantsExecutionAuthority: false,
     source: { pin: { ...pin }, effectiveReviewedSpecificationDigestSha256: 'b'.repeat(64) },

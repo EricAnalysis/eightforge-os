@@ -7,10 +7,20 @@ export const RepositoryPlanRunClassificationSchema = z.enum([
   'RULE', 'VERIFY', 'EXTRACT', 'RECOVER', 'HUMAN', 'ADVISORY',
 ]);
 
-export const RepositoryPlanRunRequestSchema = ImplementationPlanPinSchema.extend({
+export const AssessmentRepositoryPlanRunRequestSchema = ImplementationPlanPinSchema.extend({
   classification: RepositoryPlanRunClassificationSchema,
 }).strict();
+/** B8.3d: plan from one exact human triage of an improvement signal. */
+export const TriagedSignalRepositoryPlanRunRequestSchema = z.object({
+  triageReviewId: z.string().uuid(),
+  triageVersion: z.number().int().positive().max(2147483647),
+  classification: RepositoryPlanRunClassificationSchema,
+}).strict();
+export const RepositoryPlanRunRequestSchema = z.union([
+  AssessmentRepositoryPlanRunRequestSchema, TriagedSignalRepositoryPlanRunRequestSchema,
+]);
 export type RepositoryPlanRunRequest = z.infer<typeof RepositoryPlanRunRequestSchema>;
+export type TriagedSignalRepositoryPlanRunRequest = z.infer<typeof TriagedSignalRepositoryPlanRunRequestSchema>;
 
 export const RepositoryPlanRunPublicFailureCodeSchema = z.enum([
   'provider_disabled',

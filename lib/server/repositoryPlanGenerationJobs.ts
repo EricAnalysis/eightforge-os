@@ -5,9 +5,12 @@ import { createForgewingEngineeringWorkerClient } from '@/lib/server/forgewingEn
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 
 export const CREATE_REPOSITORY_PLAN_JOB_RPC = 'create_workflow_repository_plan_generation_job' as const;
+export const CREATE_REPOSITORY_PLAN_JOB_FROM_TRIAGE_RPC =
+  'create_workflow_repository_plan_generation_job_from_triage' as const;
 export const READ_REPOSITORY_PLAN_JOB_RPC = 'read_workflow_repository_plan_generation_job' as const;
 export const CLAIM_REPOSITORY_PLAN_JOB_RPC = 'claim_workflow_repository_plan_generation_job' as const;
 export const READ_REPOSITORY_PLAN_SOURCE_RPC = 'read_workflow_repository_plan_generation_source' as const;
+export const READ_REPOSITORY_PLAN_SIGNAL_SOURCE_RPC = 'read_workflow_repository_plan_generation_signal_source' as const;
 export const BEGIN_REPOSITORY_PLAN_PROVIDER_RPC = 'begin_workflow_repository_plan_provider_call' as const;
 export const SUCCEED_REPOSITORY_PLAN_JOB_RPC = 'succeed_workflow_repository_plan_generation_job' as const;
 export const FAIL_REPOSITORY_PLAN_JOB_RPC = 'fail_workflow_repository_plan_generation_job' as const;
@@ -28,20 +31,37 @@ export const CreateRepositoryPlanGenerationJobSchema = exactIdentity.extend({
   requestedByActorId: z.string().uuid(),
 }).strict();
 
+/** B8.3d: a job pinned to one exact triage review instead of an assessment review. */
+export const CreateRepositoryPlanGenerationJobFromTriageSchema = z.object({
+  triageReviewId: z.string().uuid(), triageVersion: z.number().int().positive(),
+  classification: RepositoryClassificationSchema,
+  implementationPlanV1DigestSha256: digest,
+  requestedByActorId: z.string().uuid(),
+}).strict();
+
+// A job carries the assessment pin or, for a triaged signal, none of it.
+const nullableAssessmentPin = {
+  assessment_id: z.string().uuid().nullable(), assessment_version: z.number().int().positive().nullable(),
+  review_id: z.string().uuid().nullable(), review_version: z.number().int().positive().nullable(),
+};
+function wholePinOrNone(row: { assessment_id: unknown; assessment_version: unknown; review_id: unknown; review_version: unknown },
+  context: z.RefinementCtx): void {
+  const present = [row.assessment_id, row.assessment_version, row.review_id, row.review_version].filter((v) => v !== null).length;
+  if (present !== 0 && present !== 4) context.addIssue({ code: 'custom', message: 'partial assessment pin' });
+}
+
 const createReceipt = z.object({
   job_id: z.string().uuid(), job_status: z.literal('pending'), created_at: z.string(),
 }).strict();
 const claimReceipt = z.object({
   job_id: z.string().uuid(), claim_token: z.string().uuid(),
   claim_status: z.enum(['acquired', 'recovered_pre_provider']),
-  assessment_id: z.string().uuid(), assessment_version: z.number().int().positive(),
-  review_id: z.string().uuid(), review_version: z.number().int().positive(),
+  ...nullableAssessmentPin,
   classification: RepositoryClassificationSchema,
   implementation_plan_v1_digest_sha256: digest,
-}).strict();
+}).strict().superRefine(wholePinOrNone);
 const readReceipt = z.object({
-  job_id: z.string().uuid(), assessment_id: z.string().uuid(), assessment_version: z.number().int().positive(),
-  review_id: z.string().uuid(), review_version: z.number().int().positive(),
+  job_id: z.string().uuid(), ...nullableAssessmentPin,
   classification: RepositoryClassificationSchema,
   implementation_plan_v1_digest_sha256: digest,
   authority: z.literal('non_authoritative'), purpose: z.literal('repository_plan_generation'),
@@ -52,11 +72,16 @@ const readReceipt = z.object({
   repository_commit_sha: z.string().regex(/^[a-f0-9]{40}$/).nullable(),
   failure_code: z.string().regex(/^[a-z0-9_]{1,120}$/).nullable(),
   created_at: z.string(), updated_at: z.string(), completed_at: z.string().nullable(),
-}).strict();
+}).strict().superRefine(wholePinOrNone);
 const sourceReceipt = z.object({
   assessment_row: z.object({}).passthrough(),
   review_row: z.object({}).passthrough(),
   step_review_rows: z.array(z.object({}).passthrough()),
+}).strict();
+
+const signalSourceReceipt = z.object({
+  submission_row: z.object({}).passthrough(),
+  triage_row: z.object({}).passthrough(),
 }).strict();
 
 function one(data: unknown): unknown {
@@ -77,6 +102,26 @@ export async function createRepositoryPlanGenerationJob(input: unknown,
     const result = await control.rpc(CREATE_REPOSITORY_PLAN_JOB_RPC, {
       p_assessment_id: parsed.data.assessmentId, p_assessment_version: parsed.data.assessmentVersion,
       p_review_id: parsed.data.reviewId, p_review_version: parsed.data.reviewVersion,
+      p_classification: parsed.data.classification, p_requested_by_actor_id: parsed.data.requestedByActorId,
+      p_implementation_plan_v1_digest_sha256: parsed.data.implementationPlanV1DigestSha256,
+    });
+    if (result.error) return { ok: false, code: 'database_failed' } as const;
+    const receipt = createReceipt.safeParse(one(result.data));
+    return receipt.success ? { ok: true, jobId: receipt.data.job_id,
+      status: receipt.data.job_status, createdAt: receipt.data.created_at } as const
+      : { ok: false, code: 'invalid_receipt' } as const;
+  } catch { return { ok: false, code: 'database_failed' } as const; }
+}
+
+export async function createRepositoryPlanGenerationJobFromTriage(input: unknown,
+  dependencies: Readonly<{ control?: RpcClient }> = {}) {
+  const parsed = CreateRepositoryPlanGenerationJobFromTriageSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, code: 'invalid_input' } as const;
+  const control = dependencies.control ?? getSupabaseAdmin();
+  if (!control) return { ok: false, code: 'not_configured' } as const;
+  try {
+    const result = await control.rpc(CREATE_REPOSITORY_PLAN_JOB_FROM_TRIAGE_RPC, {
+      p_triage_review_id: parsed.data.triageReviewId, p_triage_version: parsed.data.triageVersion,
       p_classification: parsed.data.classification, p_requested_by_actor_id: parsed.data.requestedByActorId,
       p_implementation_plan_v1_digest_sha256: parsed.data.implementationPlanV1DigestSha256,
     });
@@ -140,6 +185,24 @@ export async function readRepositoryPlanGenerationSource(worker: RpcClient | nul
       { p_job_id: parsed.data.jobId, p_claim_token: parsed.data.claimToken });
     if (result.error) return { ok: false, code: 'database_failed' } as const;
     const receipt = sourceReceipt.safeParse(one(result.data));
+    return receipt.success ? { ok: true, source: receipt.data } as const
+      : { ok: false, code: 'invalid_receipt' } as const;
+  } catch { return { ok: false, code: 'database_failed' } as const; }
+}
+
+/** B8.3d: the allowlisted submission payload and triage classification of a claimed signal job. */
+export async function readRepositoryPlanGenerationSignalSource(worker: RpcClient | null,
+  jobId: unknown, claimToken: unknown) {
+  const parsed = claimMutation.safeParse({ jobId, claimToken });
+  if (!parsed.success) return { ok: false, code: 'invalid_input' } as const;
+  if (!worker) return { ok: false, code: 'not_configured' } as const;
+  try {
+    const result = await worker.rpc(READ_REPOSITORY_PLAN_SIGNAL_SOURCE_RPC,
+      { p_job_id: parsed.data.jobId, p_claim_token: parsed.data.claimToken });
+    if (result.error) return { ok: false, code: 'database_failed' } as const;
+    const row = one(result.data);
+    if (row === undefined || row === null) return { ok: false, code: 'not_found' } as const;
+    const receipt = signalSourceReceipt.safeParse(row);
     return receipt.success ? { ok: true, source: receipt.data } as const
       : { ok: false, code: 'invalid_receipt' } as const;
   } catch { return { ok: false, code: 'database_failed' } as const; }

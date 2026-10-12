@@ -183,6 +183,7 @@ WSLENV="${WSLENV:+${WSLENV}:}PHASE11E_B3_DATABASE_URL" \
 "${psql[@]}" --file scripts/sql/verify-linear-projection-delivery.sql
 "${psql[@]}" --file scripts/sql/verify-triaged-signal-plan-source.sql
 "${psql[@]}" --file scripts/sql/verify-improvement-lifecycle.sql
+"${psql[@]}" --file scripts/sql/verify-improvement-measurement.sql
 
 workflow_exclusions="ARRAY['93000000-0000-4000-8000-000000000010'::uuid,'93000000-0000-4000-8000-000000000011'::uuid,'93000000-0000-4000-8000-000000000012'::uuid,'93000000-0000-4000-8000-000000000013'::uuid,'93000000-0000-4000-8000-000000000014'::uuid,'93000000-0000-4000-8000-000000000015'::uuid,'93000000-0000-4000-8000-000000000020'::uuid,'93000000-0000-4000-8000-000000000021'::uuid,'93000000-0000-4000-8000-000000000023'::uuid,'93000000-0000-4000-8000-000000000030'::uuid,'93000000-0000-4000-8000-000000000031'::uuid]"
 

@@ -151,6 +151,12 @@ export const FrictionMeasurementInputSchema = z.object({
   fixDimensions: z.array(z.string().min(1).max(80)).max(20),
   /** True when the read that produced the units was cut short by a limit. */
   readTruncated: z.boolean(),
+  /**
+   * B8.4c: true when no exposure is defined for this problem's code (no
+   * opportunity can be counted), so the problem is unmeasurable rather than
+   * "zero friction". Omitted otherwise.
+   */
+  exposureUndefined: z.literal(true).optional(),
   units: z.array(MeasurementUnitSchema).max(100_000),
 }).strict();
 export type FrictionMeasurementInput = z.input<typeof FrictionMeasurementInputSchema>;
@@ -270,6 +276,7 @@ export function measureFriction(rawInput: FrictionMeasurementInput,
 
   // Reasons, in fixed groups. The first non-empty group decides the outcome.
   const unmeasurable: string[] = [];
+  if (input.exposureUndefined) unmeasurable.push('exposure_not_defined');
   if (input.readTruncated) unmeasurable.push('read_truncated');
   for (const [side, window] of [['baseline', windows.baseline], ['post', windows.post]] as const) {
     if (window.exposure === 0 && window.unattributed > 0) unmeasurable.push(`${side}_attribution_unavailable`);
@@ -316,5 +323,6 @@ export function measureFriction(rawInput: FrictionMeasurementInput,
   };
   return { ok: true, measurement: Object.freeze({ ...envelope, digest: hashCanonical({
     ...envelope, windows: input.windows, producerClassification: input.producerClassification,
-    fixDimensions: [...input.fixDimensions].sort(), readTruncated: input.readTruncated }) }) };
+    fixDimensions: [...input.fixDimensions].sort(), readTruncated: input.readTruncated,
+    ...(input.exposureUndefined ? { exposureUndefined: true } : {}) }) }) };
 }

@@ -24,8 +24,21 @@ export const FRICTION_REPORT_MAX_PROJECTS = 50;
 export const FRICTION_REPORT_MAX_OVERRIDES = 1000;
 const EVIDENCE_READ_CHUNK = 200;
 
+/**
+ * How much the report read, and whether a limit cut it short (B8.3b). A signal
+ * computed from a truncated read undercounts; a submission records this.
+ */
+export type FrictionReportReadBounds = Readonly<{
+  maxProjects: number;
+  projectsRead: number;
+  projectsTruncated: boolean;
+  maxOverrides: number;
+  overridesRead: number;
+  overridesTruncated: boolean;
+}>;
+
 export type FrictionReportReadResult =
-  | Readonly<{ status: 'ok'; report: FrictionReport }>
+  | Readonly<{ status: 'ok'; report: FrictionReport; readBounds: FrictionReportReadBounds }>
   | Readonly<{ status: 'not_configured' }>
   | Readonly<{ status: 'read_failed'; reason: string }>;
 
@@ -86,6 +99,7 @@ export async function readFrictionReport(
       .eq('organization_id', query.organizationId).eq('source_type', 'validator_finding').eq('outcome', 'overridden')
       .order('updated_at', { ascending: false }).limit(FRICTION_REPORT_MAX_OVERRIDES);
     if (overridesRead.error) return { status: 'read_failed', reason: 'overrides_read_failed' };
+    const overridesReadCount = Array.isArray(overridesRead.data) ? overridesRead.data.length : 0;
     const overrideRows = (Array.isArray(overridesRead.data) ? overridesRead.data as Record<string, unknown>[] : [])
       .flatMap((row) => typeof row.id === 'string' && typeof row.project_id === 'string' && typeof row.source_id === 'string'
         && typeof row.validator_rule_key === 'string' && projectIds.includes(row.project_id)
@@ -111,6 +125,14 @@ export async function readFrictionReport(
     }));
     return {
       status: 'ok',
+      readBounds: {
+        maxProjects: FRICTION_REPORT_MAX_PROJECTS,
+        projectsRead: projectIds.length,
+        projectsTruncated: projectIds.length >= FRICTION_REPORT_MAX_PROJECTS,
+        maxOverrides: FRICTION_REPORT_MAX_OVERRIDES,
+        overridesRead: overridesReadCount,
+        overridesTruncated: overridesReadCount >= FRICTION_REPORT_MAX_OVERRIDES,
+      },
       report: buildFrictionReport({
         organizationId: query.organizationId,
         projects,

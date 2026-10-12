@@ -9,10 +9,13 @@
 // signal eligible for the existing Plan V2 path, nothing more. Routing records
 // the Plan V2 classification the reviewer chooses; nothing derives it (B8.3d).
 // The analysis control is the existing one; it never approves or projects.
+// B8.4d: each submission also shows its recorded lifecycle and measurement
+// evidence, with the human actions B8.4 defines (attest, measure, decide).
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
+import ImprovementLifecyclePanel from '@/components/platform/ImprovementLifecyclePanel';
 import RepositoryPlanRunControl from '@/components/platform/RepositoryPlanRunControl';
 import {
   TRIAGE_CAPABILITY_SCOPES,
@@ -268,6 +271,7 @@ export default function ImprovementSignalTriagePage() {
                   }} />
                 </div>
               ) : null}
+              <ImprovementLifecyclePanel submissionId={row.submissionId} accessToken={state.token} />
               <TriageForm row={row} onRecorded={() => void load()} />
             </li>
           ))}

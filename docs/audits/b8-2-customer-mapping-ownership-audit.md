@@ -242,3 +242,17 @@ node node_modules/typescript/bin/tsc --noEmit --incremental false
 npm run build
 wsl.exe -d Ubuntu -u root -- bash -lc 'cd "/mnt/c/Users/ADMS Thompson/.codex/worktrees/b8-header-mapping/eightforge-os" && bash scripts/verify-customer-header-mapping-postgres.sh'
 ```
+
+## PR integration qualification
+
+The three phase patches rebased unchanged onto main `34d70f2` (B8.3c/d).
+PR #223's initial full Vitest checks passed: 530 files / 6,304 tests, with
+15 files / 92 tests skipped. Supabase and Vercel previews passed.
+The broader migration gate exposed a test-harness compatibility issue: the B4.4
+probe temporarily installs the exact hash-pinned historical nineteen-argument
+assertion function alongside B8.2d's defaulted twentieth-argument function,
+making historical calls ambiguous. The probe now removes only the current
+overload inside its rollback transaction before installing the historical
+function. Rollback restores the current function and ACL. Historical bytes,
+negative assertions and concurrency checks are unchanged; production migrations
+are unchanged. The normal PR checks must pass again on this remediation head.

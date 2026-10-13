@@ -53,6 +53,17 @@ describe('runOrchestrator', () => {
     assert.doesNotMatch(call.messages[0].content, /Freeform diagnostic:/);
   });
 
+  it('omits unsupported sampling parameters for Sonnet 5.5', async () => {
+    createMock.mockResolvedValue({ content: [{ type: 'text', text: 'Advisory answer' }] });
+    getClaudeClientMock.mockReturnValue({ messages: { create: createMock } });
+    getClaudeModelMock.mockReturnValue('claude-sonnet-5-5');
+
+    await runOrchestrator({ question: 'Explain this failure.' });
+
+    expect(createMock).toHaveBeenCalledWith(expect.objectContaining({ model: 'claude-sonnet-5-5' }));
+    expect(createMock.mock.calls[0][0]).not.toHaveProperty('temperature');
+  });
+
   it('labels structured context and freeform questions', () => {
     const content = buildOrchestratorUserContent({
       question: 'What doctrine applies when totals drift after validation?',
@@ -83,6 +94,9 @@ describe('runOrchestrator', () => {
   it('forbids unverifiable execution and deployment claims in the governing prompt', () => {
     assert.match(ORCHESTRATOR_SYSTEM_PROMPT, /never claim to write, execute, validate, approve, merge, deploy, or verify production code/i);
     assert.match(ORCHESTRATOR_SYSTEM_PROMPT, /Do not invent repo facts/i);
+    assert.match(ORCHESTRATOR_SYSTEM_PROMPT, /Follow explicit length and format limits/i);
+    assert.match(ORCHESTRATOR_SYSTEM_PROMPT, /at most two short paragraphs/i);
+    assert.match(ORCHESTRATOR_SYSTEM_PROMPT, /Do not mention example project names or values unless the current request supplies them/i);
   });
 
   it('keeps representative doctrine sections in the system prompt', () => {

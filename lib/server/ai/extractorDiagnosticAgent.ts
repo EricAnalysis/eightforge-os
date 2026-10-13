@@ -1,6 +1,10 @@
 // Server-only extractor diagnostic assistant. Generates diagnostic metadata and repair prompts only.
 
-import { getClaudeClient, getClaudeExtractorModel } from '@/lib/server/ai/claudeClient';
+import {
+  getClaudeClient,
+  getClaudeExtractorModel,
+} from '@/lib/server/ai/claudeClient';
+import { getClaudeSamplingParameters } from '@/lib/server/ai/claudeSampling';
 
 export const EXTRACTOR_FAILURE_CLASSIFICATIONS = [
   'OCR failure',
@@ -276,7 +280,7 @@ export async function generateExtractorDiagnostic(
 
   const message = await client.messages.create({
     model,
-    temperature: 0,
+    ...getClaudeSamplingParameters(model),
     max_tokens: 5000,
     system: EXTRACTOR_DIAGNOSTIC_SYSTEM_PROMPT,
     messages: [

@@ -1,7 +1,11 @@
 // Server-only Engineering Orchestrator adapter. Generates guidance text only.
 
 import { ORCHESTRATOR_SYSTEM_PROMPT } from '@/lib/server/ai/orchestratorSystemPrompt';
-import { getClaudeClient, getClaudeModel } from '@/lib/server/ai/claudeClient';
+import {
+  getClaudeClient,
+  getClaudeModel,
+} from '@/lib/server/ai/claudeClient';
+import { getClaudeSamplingParameters } from '@/lib/server/ai/claudeSampling';
 import {
   getOrchestratorRootCauseCategory,
   type OrchestratorRootCauseCategoryKey,
@@ -73,7 +77,7 @@ export async function runOrchestrator(input: RunOrchestratorInput): Promise<RunO
 
   const message = await client.messages.create({
     model,
-    temperature: 0,
+    ...getClaudeSamplingParameters(model),
     max_tokens: 6000,
     system: ORCHESTRATOR_SYSTEM_PROMPT,
     messages: [

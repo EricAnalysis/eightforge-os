@@ -109,6 +109,18 @@ describe('workflow review queue read', () => {
 });
 
 describe('workflow review packet read', () => {
+  it('hides new foreign-organization source evidence from a scoped reviewer', async () => {
+    client();
+    loadIntake.mockResolvedValue({ submissionId: SUBMISSION, submissionSchemaVersion: 'workflow_intake_v2',
+      organizationId: 'org-b', answers: { workflowDescription: 'Private workflow.' } });
+    expect(await readWorkflowReviewPacket(ASSESSMENT, 'org-a')).toEqual({ status: 'assessment_not_found' });
+  });
+  it('preserves legacy unassigned evidence for trusted platform review', async () => {
+    client();
+    loadIntake.mockResolvedValue({ submissionId: SUBMISSION, submissionSchemaVersion: 'workflow_intake_v1',
+      organizationId: null, answers: { workflowDescription: 'Historical workflow.' } });
+    expect((await readWorkflowReviewPacket(ASSESSMENT, 'org-a')).status).toBe('ok');
+  });
   const assessmentPayload = {
     summary: 'Freight ticket reconciliation.',
     workflowSteps: [{ stepId: 's1', classification: 'RULE' }],

@@ -1,6 +1,6 @@
 import {
   WORKFLOW_STEP_CLASSIFICATIONS,
-  WORKFLOW_INTAKE_QUESTIONS,
+  WORKFLOW_INTAKE_SOURCE_QUESTIONS,
   WORKFLOW_RULE_CONDITION_TYPES,
   WORKFLOW_DETERMINISM_CONDITIONS,
   WorkflowAssessmentModelOutputSchema,
@@ -71,7 +71,7 @@ export const WORKFLOW_ASSESSMENT_OUTPUT_JSON_SCHEMA = {
           stepId: { type: 'string' },
           sourceQuestions: {
             type: 'array', minItems: 1,
-            items: { type: 'string', enum: WORKFLOW_INTAKE_QUESTIONS },
+            items: { type: 'string', enum: WORKFLOW_INTAKE_SOURCE_QUESTIONS },
           },
           description: { type: 'string' },
           classification: { type: 'string', enum: WORKFLOW_STEP_CLASSIFICATIONS },
@@ -114,7 +114,7 @@ export const WORKFLOW_ASSESSMENT_OUTPUT_JSON_SCHEMA = {
               required: ['condition', 'sourceQuestion', 'sourceExcerpt', 'rationale'],
               properties: {
                 condition: { type: 'string', enum: WORKFLOW_DETERMINISM_CONDITIONS },
-                sourceQuestion: { type: 'string', enum: WORKFLOW_INTAKE_QUESTIONS },
+                sourceQuestion: { type: 'string', enum: WORKFLOW_INTAKE_SOURCE_QUESTIONS },
                 sourceExcerpt: { type: 'string' },
                 rationale: { type: 'string' },
               },

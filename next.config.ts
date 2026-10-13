@@ -67,9 +67,11 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: __dirname,
   },
-  outputFileTracingIncludes: Object.fromEntries(
-    EXTRACTION_ROUTES.map((route) => [route, EXTRACTION_WORKER_FILES]),
-  ),
+  outputFileTracingIncludes: {
+    ...Object.fromEntries(EXTRACTION_ROUTES.map((route) => [route, EXTRACTION_WORKER_FILES])),
+    // Assessment evidence uses native PDF text only, without OCR workers.
+    '/api/workflow-intake/drafts/*/attachments': ['node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs'],
+  },
   // Every deployment stores each function's traced files, and the Hobby plan
   // counts that storage across retained deployments. Leave out what no
   // deployed function can load (docs/decisions/VERCEL_FUNCTION_SIZE.md).

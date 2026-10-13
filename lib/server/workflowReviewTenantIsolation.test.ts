@@ -123,6 +123,8 @@ describe('workflow review is platform scoped, not tenant scoped', () => {
     expect((await detailGet(get(), {
       params: Promise.resolve({ assessmentId: ASSESSMENT }),
     })).status).toBe(200);
+    expect(queueRead).toHaveBeenCalledWith(50, 'org-tenant-a');
+    expect(packetRead).toHaveBeenCalledWith(ASSESSMENT, 'org-tenant-a');
     expect((await reviewPost(post())).status).toBe(201);
   });
 

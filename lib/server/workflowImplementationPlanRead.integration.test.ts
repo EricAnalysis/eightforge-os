@@ -68,7 +68,9 @@ function evidence() {
 }
 
 function client(input = evidence(), override: Partial<Record<number, unknown>> = {}) {
-  const payloads: unknown[] = [input.assessmentRow, input.reviewRow, input.stepReviewRows];
+  // Model the database's nullable ownership column separately from the strict
+  // evidence envelope. The authenticated reader removes it before resolution.
+  const payloads: unknown[] = [{ ...input.assessmentRow, organization_id: null }, input.reviewRow, input.stepReviewRows];
   const queries = payloads.map((payload, index) => {
     const response = { data: index in override ? override[index] : payload, error: null };
     const settled = Promise.resolve(response);

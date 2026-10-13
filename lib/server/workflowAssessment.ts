@@ -26,6 +26,7 @@ import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 export const WORKFLOW_ASSESSMENT_TABLE = 'workflow_assessments' as const;
 import { isForgewingWorkflowAssessmentEnabled } from '@/lib/forgewing/runtime/modelConfig';
 import { loadWorkflowIntakeSubmission } from '@/lib/server/workflowIntakeRead';
+import { loadAssessmentAttachmentContext } from '@/lib/server/workflowAssessmentEvidence';
 
 /**
  * Whether assessment is enabled, re-exported through this seam.
@@ -130,14 +131,23 @@ export async function runAndRecordWorkflowAssessment(
   const submission = await loadWorkflowIntakeSubmission(submissionId, admin);
   if (!submission) return { status: 'submission_not_found' };
 
+  let attachments;
+  try {
+    attachments = await loadAssessmentAttachmentContext(admin, submission.submissionId,
+      submission.organizationId, submission.attachmentManifest);
+  } catch {
+    return { status: 'assessment_not_produced', reason: 'attachment_identity_closure_failed' };
+  }
+
   const result = await runForgewingWorkflowAssessment({
     submissionId: submission.submissionId,
     submissionSchemaVersion: submission.submissionSchemaVersion,
     answers: submission.answers,
+    ...(attachments.length ? { attachments } : {}),
   });
 
   if (result.status !== 'requires_human_review') {
-    // Reason codes only. The six answers describe a visitor's business process
+    // Reason codes only. The source answers describe a visitor's business process
     // and are never logged from here.
     return { status: 'assessment_not_produced', reason: result.status };
   }

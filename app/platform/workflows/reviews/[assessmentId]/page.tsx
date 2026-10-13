@@ -22,6 +22,8 @@ import { useParams, useRouter } from 'next/navigation';
 
 import { redirectIfUnauthorized } from '@/lib/redirectIfUnauthorized';
 import { supabase } from '@/lib/supabaseClient';
+import { usePlatformSessionToken } from '@/components/platform/PlatformSessionContext';
+import { WorkflowAssessmentEvidenceFiles } from '@/components/workflows/WorkflowAssessmentAttachments';
 import { workflowQualificationLabel } from '@/lib/workflowAssessmentPresentation';
 import {
   buildStepReviewPayload,
@@ -71,7 +73,7 @@ function humanizeKey(key: string): string {
 }
 
 /** Renders a proposal or specification object without inventing structure. */
-function FieldList({ record }: { record: Record<string, unknown> }) {
+function FieldList({ record, generalized }: { record: Record<string, unknown>; generalized: boolean }) {
   const entries = Object.entries(record).filter(([key]) => !IDENTITY_KEYS.has(key));
   if (entries.length === 0) return null;
   return (
@@ -79,7 +81,7 @@ function FieldList({ record }: { record: Record<string, unknown> }) {
       {entries.map(([key, value]) => (
         <div key={key}>
           <dt className="text-[10px] uppercase tracking-wide text-[var(--ef-text-faint)]">
-            {humanizeKey(key)}
+            {generalized && key === 'sourceDocument' ? 'Source information or system' : humanizeKey(key)}
           </dt>
           <dd className="whitespace-pre-wrap text-[11px] text-[var(--ef-text-secondary)]">
             {Array.isArray(value)
@@ -95,6 +97,8 @@ function FieldList({ record }: { record: Record<string, unknown> }) {
 }
 
 type Packet = {
+  sourceSubmissionId: string;
+  attachmentCount: number;
   assessmentId: string;
   assessmentVersion: number;
   createdAt: string;
@@ -102,6 +106,8 @@ type Packet = {
   requiresHumanReview: boolean;
   intake: Record<string, string>;
   assessment: {
+    schemaVersion?: string;
+    sourceSubmissionSchemaVersion?: string;
     summary?: string;
     workflowSteps?: ProposedStep[];
     determinismQualifications?: Qualification[];
@@ -139,6 +145,8 @@ type PageState =
 const INTAKE_LABELS: Record<string, string> = {
   workflowDescription: 'Workflow description',
   documentsInvolved: 'Documents involved',
+  informationOrSystems: 'Information and systems',
+  successOutcome: 'Successful outcome',
   manualChecks: 'Manual checks',
   frequencyAndVolume: 'Frequency and volume',
   exceptions: 'Exceptions',
@@ -146,6 +154,7 @@ const INTAKE_LABELS: Record<string, string> = {
 };
 
 export default function WorkflowReviewDetailPage() {
+  const sessionToken = usePlatformSessionToken();
   const router = useRouter();
   const params = useParams<{ assessmentId: string }>();
   const assessmentId = params?.assessmentId ?? '';
@@ -319,6 +328,11 @@ export default function WorkflowReviewDetailPage() {
             <h2 className="text-sm font-semibold text-[var(--ef-text-primary)]">
               What the user described
             </h2>
+            {typeof state.packet.assessment.sourceSubmissionSchemaVersion === 'string' ? (
+              <p className="mt-1 text-xs text-[var(--ef-text-muted)]">
+                Source schema: {state.packet.assessment.sourceSubmissionSchemaVersion}
+              </p>
+            ) : null}
             <dl className="mt-3 grid gap-3 md:grid-cols-2">
               {Object.entries(state.packet.intake).map(([key, value]) => (
                 <div key={key}>
@@ -332,6 +346,10 @@ export default function WorkflowReviewDetailPage() {
               ))}
             </dl>
           </section>
+
+          {state.packet.attachmentCount > 0 && sessionToken && (
+            <WorkflowAssessmentEvidenceFiles accessToken={sessionToken} submissionId={state.packet.sourceSubmissionId} />
+          )}
 
           <div className="flex flex-wrap items-center gap-4 rounded-md border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] px-4 py-3">
             <span className="text-sm text-[var(--ef-text-primary)]">
@@ -367,7 +385,9 @@ export default function WorkflowReviewDetailPage() {
                 ? (a.extractionRequirements ?? []).find((e) => e.stepId === step.stepId)
                 : undefined;
               const reviewedClass = effectiveClassification(draft, step.classification);
-              const fields = REVIEWED_SPECIFICATION_FIELDS[reviewedClass];
+              const fields = REVIEWED_SPECIFICATION_FIELDS[reviewedClass].map((field) =>
+                a.schemaVersion === 'workflow_assessment_v2' && field.name === 'sourceDocument'
+                  ? { ...field, label: 'Source information or system' } : field);
 
               return (
                 <li
@@ -395,7 +415,7 @@ export default function WorkflowReviewDetailPage() {
                           <p className="text-[10px] uppercase tracking-wide text-[var(--ef-text-faint)]">
                             Proposed {step.classification} specification
                           </p>
-                          <FieldList record={proposalDetail} />
+                          <FieldList record={proposalDetail} generalized={state.packet.assessment.schemaVersion === 'workflow_assessment_v2'} />
                         </div>
                       )}
 
@@ -404,7 +424,7 @@ export default function WorkflowReviewDetailPage() {
                           <p className="text-[10px] uppercase tracking-wide text-[var(--ef-text-faint)]">
                             Extraction requirement
                           </p>
-                          <FieldList record={recoverExtraction} />
+                          <FieldList record={recoverExtraction} generalized={state.packet.assessment.schemaVersion === 'workflow_assessment_v2'} />
                         </div>
                       )}
 
@@ -515,7 +535,7 @@ export default function WorkflowReviewDetailPage() {
                               <p className="text-[10px] uppercase tracking-wide text-[var(--ef-text-faint)]">
                                 Recorded {recorded.reviewedClassification ?? ''} specification
                               </p>
-                              <FieldList record={recorded.acceptedSpecification} />
+                              <FieldList record={recorded.acceptedSpecification} generalized={state.packet.assessment.schemaVersion === 'workflow_assessment_v2'} />
                             </div>
                           )}
 

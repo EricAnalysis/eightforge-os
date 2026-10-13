@@ -21,8 +21,8 @@ export async function GET(request: Request): Promise<Response> {
     return Response.json({ ok: false, error: 'unauthorized' }, { status: actor.status });
   }
 
-  // Platform-wide, not organization-scoped: these assessments belong to no
-  // tenant, so a tenant administrator has no claim on them.
+  // Existing platform eligibility remains required. New tenant-owned rows are
+  // scoped to this verified organization; legacy unassigned evidence stays visible.
   const access = resolveWorkflowPlatformReviewAccess(actor.actor);
   if (!access.allowed) {
     // The reason is a stable code, not prose: it tells an operator whether the
@@ -33,7 +33,7 @@ export async function GET(request: Request): Promise<Response> {
     );
   }
 
-  const result = await readWorkflowReviewQueue();
+  const result = await readWorkflowReviewQueue(50, actor.actor.organizationId);
 
   switch (result.status) {
     case 'ok':

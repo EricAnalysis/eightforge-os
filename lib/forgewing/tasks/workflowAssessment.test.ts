@@ -5,6 +5,16 @@ import {
   type ForgewingWorkflowAssessmentInput,
 } from '@/lib/forgewing/tasks/workflowAssessment';
 import { WORKFLOW_DETERMINISM_CONDITIONS } from '@/lib/forgewing/runtime/workflowAssessmentStructuredOutput';
+import { hashCanonical } from '@/lib/extraction/domain/hash';
+import { parseAssessmentSupportingFileContext } from '@/lib/workflowAssessmentEvidenceContract';
+import {
+  WORKFLOW_INTAKE_V1_QUESTIONS as SOURCE_V1,
+  WORKFLOW_INTAKE_V2_QUESTIONS as SOURCE_V2,
+} from '@/lib/workflowAssessmentSchema';
+import {
+  WORKFLOW_INTAKE_V1_QUESTIONS as INTAKE_V1,
+  WORKFLOW_INTAKE_V2_QUESTIONS as INTAKE_V2,
+} from '@/lib/workflowIntakeContract';
 
 const config = {
   enabled: true,
@@ -13,6 +23,60 @@ const config = {
   maxCalls: 1,
   maxOutputTokens: 4_000,
 } as const;
+
+function supportingContext() {
+  const envelope = { attachmentId: '11111111-1111-4111-8111-111111111111',
+    originalFilename: 'workflow.json', mediaType: 'application/json', sizeBytes: 500,
+    sourceSha256: 'a'.repeat(64), parserVersion: 'assessment_supporting_file_v1' as const,
+    format: 'json' as const, truncated: true, limitations: ['Only selected values are represented.'],
+    sections: [{ kind: 'json' as const, label: 'System fields',
+      sourceRef: `sha256:${'a'.repeat(64)}:json:$`, content: '{"systems":["CRM","Scheduler"]}' }] };
+  return parseAssessmentSupportingFileContext({ ...envelope, representationDigestSha256: hashCanonical(envelope) });
+}
+
+describe('optional supporting context stays inside the assessment provider boundary', () => {
+  it('passes only bounded immutable representations and still requires human review', async () => {
+    const context = supportingContext();
+    const fake = vi.fn(async (_request: { inputJson: string }) => JSON.stringify(output()));
+    const result = await runForgewingWorkflowAssessment({ ...input(), attachments: [context] }, {
+      config, taskEnabled: true, provider: fake,
+    });
+    expect(result.status).toBe('requires_human_review');
+    const payload = JSON.parse(fake.mock.calls[0]![0].inputJson);
+    expect(payload.attachments).toEqual([context]);
+    expect(payload).not.toHaveProperty('organizationId');
+    expect(JSON.stringify(payload)).not.toContain('signedUrl');
+    expect(JSON.stringify(payload)).not.toContain('rawBytes');
+    if (result.status === 'requires_human_review') {
+      expect(result.assessment.authority).toBe('non_authoritative');
+      expect(result.assessment.requiresHumanReview).toBe(true);
+    }
+  });
+
+  it('rejects damaged, excessive and duplicate context before any provider call', async () => {
+    const context = supportingContext();
+    for (const attachments of [
+      [{ ...context, representationDigestSha256: 'b'.repeat(64) }], [context, context],
+      Array.from({ length: 6 }, () => context),
+      [{ ...context, originalFilename: 'x'.repeat(256) }],
+      [{ ...context, signedUrl: 'https://example.test/private-file' }],
+    ]) {
+      const fake = vi.fn(async (_request: { inputJson: string }) => JSON.stringify(output()));
+      const result = await runForgewingWorkflowAssessment({ ...input(), attachments } as ForgewingWorkflowAssessmentInput,
+        { config, taskEnabled: true, provider: fake });
+      expect(result.status).toBe('input_invalid');
+      expect(fake).not.toHaveBeenCalled();
+    }
+  });
+
+  it('preserves text-only historical request identity when attachments are absent or empty', async () => {
+    const fake = vi.fn(async (_request: { inputJson: string }) => JSON.stringify(output()));
+    const first = await runForgewingWorkflowAssessment(input(), { config, taskEnabled: true, provider: fake });
+    const second = await runForgewingWorkflowAssessment({ ...input(), attachments: [] }, { config, taskEnabled: true, provider: fake });
+    expect(fake.mock.calls[0]![0].inputJson).toBe(fake.mock.calls[1]![0].inputJson);
+    expect(first).toEqual(second);
+  });
+});
 
 function input(): ForgewingWorkflowAssessmentInput {
   return {
@@ -110,7 +174,99 @@ function output(overrides: Record<string, unknown> = {}): Record<string, unknown
 }
 
 const provider = (body: Record<string, unknown>) =>
-  vi.fn(async () => JSON.stringify(body));
+  vi.fn(async (_request: { inputJson: string }) => JSON.stringify(body));
+
+describe('versioned domain-neutral workflow assessment', () => {
+  const v2 = (documentWorkflow: boolean): ForgewingWorkflowAssessmentInput => ({
+    submissionId: 'submission-v2', submissionSchemaVersion: 'workflow_intake_v2',
+    answers: {
+      workflowDescription: documentWorkflow
+        ? 'Review disaster debris invoices against contracts, load tickets, disposal sites and approved rates.'
+        : 'Check CRM and scheduling customer statuses every morning.',
+      informationOrSystems: documentWorkflow ? 'Invoices, contracts and load tickets.' : 'CRM and scheduling APIs.',
+      manualChecks: 'Compare customer statuses and investigate mismatches.',
+      frequencyAndVolume: 'Every morning, about 200 customers.',
+      exceptions: 'Pause updates and contact the manager for unclear cases.',
+      humanDecisions: 'A manager resolves ambiguous customer statuses.',
+      successOutcome: 'Both systems have correct customer statuses before scheduling.',
+    },
+  });
+
+  function operationalOutput(source: ForgewingWorkflowAssessmentInput): Record<string, unknown> {
+    const entries = Object.entries(source.answers);
+    return output({
+      summary: source.answers.workflowDescription, documents: [],
+      workflowSteps: entries.map(([key, answer], index) => step({
+        stepId: `context-${index}`, sourceQuestions: [key], description: answer,
+        classification: key === 'humanDecisions' ? 'HUMAN' : 'ADVISORY',
+        rationale: 'Context described in the immutable source.',
+        requiredInputs: [], evidenceRequirements: [], dependencies: [],
+        proposedOutput: 'Reviewed operational interpretation.',
+        failureConsequence: 'The operational context could be misunderstood.',
+      })),
+      deterministicRuleProposals: [],
+      humanDecisionPoints: [{ decisionId: 'human-context', stepId: 'context-5',
+        description: source.answers.humanDecisions, whyHumanControlled: 'Human judgment is required.' }],
+      advisorySteps: entries.flatMap(([key, answer], index) => key === 'humanDecisions' ? []
+        : [{ advisoryId: `advisory-${index}`, stepId: `context-${index}`, description: answer }]),
+    });
+  }
+
+  it('keeps both provider source vocabularies identical to their immutable intake contracts', () => {
+    expect(SOURCE_V1).toEqual(INTAKE_V1);
+    expect(SOURCE_V2).toEqual(INTAKE_V2);
+    expect(SOURCE_V2).toHaveLength(7);
+  });
+
+  it.each([false, true])('accepts a v2 workflow (document workflow: %s) through the same task', async (documents) => {
+    const source = v2(documents);
+    const before = JSON.stringify(source);
+    const fake = provider(operationalOutput(source));
+    const result = await runForgewingWorkflowAssessment(source, { config, taskEnabled: true, provider: fake });
+    expect(result.status).toBe('requires_human_review');
+    if (result.status !== 'requires_human_review') throw new Error('expected assessment');
+    expect(result.assessment).toMatchObject({ schemaVersion: 'workflow_assessment_v2',
+      sourceSubmissionSchemaVersion: 'workflow_intake_v2', requiresHumanReview: true,
+      authority: 'non_authoritative', documents: [] });
+    expect(result.assessment.workflowSteps.map((s) => s.sourceQuestions[0])).toEqual(SOURCE_V2);
+    expect(result.assessment.advisorySteps.at(-1)?.description).toBe(
+      (source.answers as Record<string, string>).successOutcome);
+    expect(result.assessment.humanDecisionPoints[0].description).toBe(source.answers.humanDecisions);
+    expect(JSON.stringify(source)).toBe(before);
+    const sent = JSON.parse(fake.mock.calls[0]?.[0]?.inputJson ?? '{}');
+    expect(sent).toEqual({ task: 'workflow_assessment', ...source });
+    expect(result.metadata.promptTemplateVersion).toBe('v2');
+  });
+
+  it('preserves historical six-answer identity and never manufactures a seventh answer', async () => {
+    const source = input();
+    const before = JSON.stringify(source);
+    const fake = vi.fn(async (_request: { inputJson: string }) => JSON.stringify(output()));
+    const result = await runForgewingWorkflowAssessment(source, { config, taskEnabled: true, provider: fake });
+    expect(result.status).toBe('requires_human_review');
+    if (result.status !== 'requires_human_review') throw new Error('expected assessment');
+    expect(result.assessment.schemaVersion).toBe('workflow_assessment_v1');
+    expect(JSON.stringify(source)).toBe(before);
+    expect(result.assessment.sourceSubmissionSchemaVersion).toBe('workflow_intake_v1');
+    expect(JSON.parse(fake.mock.calls[0]?.[0]?.inputJson ?? '{}').answers).toEqual(source.answers);
+  });
+
+  it.each(['documentsInvolved', 'notAQuestion'])('rejects a foreign source key on a v2 ADVISORY step: %s', async (key) => {
+    const source = v2(false);
+    const body = operationalOutput(source);
+    (body.workflowSteps as Record<string, unknown>[])[0].sourceQuestions = [key];
+    const result = await runForgewingWorkflowAssessment(source, { config, taskEnabled: true, provider: provider(body) });
+    expect(['structured_output_invalid', 'deterministic_validation_failed']).toContain(result.status);
+  });
+
+  it('rejects a v2 answer set stamped as historical v1 before any provider access', async () => {
+    const fake = provider(output());
+    const result = await runForgewingWorkflowAssessment({ ...v2(false), submissionSchemaVersion: 'workflow_intake_v1' },
+      { config, taskEnabled: true, provider: fake });
+    expect(result.status).toBe('input_invalid');
+    expect(fake).not.toHaveBeenCalled();
+  });
+});
 
 describe('Forgewing workflow assessment V1', () => {
   it('stays default-off without touching the provider', async () => {

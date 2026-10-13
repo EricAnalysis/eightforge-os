@@ -95,6 +95,8 @@ const FORGEWING_ALLOWED_OUTBOUND_MODULES = new Set([
   '@/lib/workflowAssessmentProposalClosure',
   // Pure canonical schemas shared by new output and historical compatibility.
   '@/lib/workflowAssessmentSchema',
+  // B8.5 bounded attachment contract only; parsers and storage stay server-side.
+  '@/lib/workflowAssessmentEvidenceContract',
   // B2b consumes only the pure B2a prepared-input/validation contract. B1/B1.5
   // repository and Git modules remain outside this allowlist.
   '@/lib/repositoryPlanGuidance',
@@ -1003,6 +1005,14 @@ describe('production architecture import boundaries', () => {
       'lib/server/workflowAssessment.ts',
     ]);
   }, 30_000);
+
+  it('keeps the assessment attachment contract pure and the parser outside Forgewing', () => {
+    const contract = readFileSync(path.join(ROOT, 'lib/workflowAssessmentEvidenceContract.ts'), 'utf8');
+    expect([...contract.matchAll(/from ['"]([^'"]+)['"]/g)].map((match) => match[1]).sort())
+      .toEqual(['zod', '@/lib/extraction/domain/hash'].sort());
+    expect(contract).not.toMatch(/\bfetch\s*\(|\bprocess\s*\.|\bimport\s*\(|\brequire\s*\(|\.rpc\s*\(/);
+    expect(FORGEWING_ALLOWED_OUTBOUND_MODULES.has('@/lib/extraction/assessmentSupportingFile')).toBe(false);
+  });
 
   it('allows only the claim seam to consume the assessment seam', () => {
     expect(workflowAssessmentConsumerViolations()).toEqual([]);

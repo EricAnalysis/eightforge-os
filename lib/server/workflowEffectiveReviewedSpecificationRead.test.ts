@@ -31,7 +31,10 @@ function client(responses: Response[] = [
   { data: { id: pin.reviewId }, error: null },
   { data: [], error: null },
 ]) {
-  const queries = responses.map((response) => {
+  const queries = responses.map((response, index) => {
+    if (index === 0 && response.data && typeof response.data === 'object') {
+      response = { ...response, data: { organization_id: null, ...response.data } };
+    }
     const settled = Promise.resolve(response);
     const query = {
       select: vi.fn(), eq: vi.fn(), maybeSingle: vi.fn(async () => response),
@@ -49,6 +52,11 @@ function client(responses: Response[] = [
 }
 
 describe('effective reviewed specification read authorization and pinning', () => {
+  it('hides new foreign-organization evidence even from an eligible reviewer', async () => {
+    client([{ data: { id: pin.assessmentId, organization_id: 'foreign-org' }, error: null }]);
+    expect(await readEffectiveReviewedSpecification(request(), pin)).toEqual({ ok: false, code: 'assessment_not_found' });
+    expect(mocks.resolve).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     vi.resetAllMocks();
     vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS', actor.email);
@@ -78,7 +86,7 @@ describe('effective reviewed specification read authorization and pinning', () =
     expect(queries[1]!.maybeSingle).toHaveBeenCalledOnce();
     expect(queries[2]!.maybeSingle).not.toHaveBeenCalled();
     expect(queries.map((query) => query.select.mock.calls[0]![0])).toEqual([
-      'id, assessment_version, source_submission_id, assessment, authority, requires_human_review, created_at',
+      'id, assessment_version, source_submission_id, assessment, authority, requires_human_review, created_at, organization_id',
       'id, assessment_id, assessment_version, source_submission_id, review_version, reviewer_actor_id, overall_disposition, reviewer_summary, created_at',
       'id, review_id, assessment_step_id, proposed_classification, reviewed_classification, disposition, reviewer_notes, accepted_specification, created_at',
     ]);
@@ -156,7 +164,8 @@ describe('effective reviewed specification read authorization and pinning', () =
     expect(await readEffectiveReviewedSpecification(request(), pin)).toBe(failure);
     expect(mocks.resolve).toHaveBeenCalledWith({ pin, assessmentRow, reviewRow, stepReviewRows });
     const input = mocks.resolve.mock.calls[0]![0];
-    expect(input.assessmentRow).toBe(assessmentRow);
+    // Access-control metadata is projected out; evidence bytes/values stay exact.
+    expect(input.assessmentRow).toStrictEqual(assessmentRow);
     expect(input.reviewRow).toBe(reviewRow);
     expect(input.stepReviewRows).toBe(stepReviewRows);
   });

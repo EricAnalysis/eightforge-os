@@ -21,9 +21,17 @@ export interface InstructorClassificationSnapshot {
   model: string | null;
 }
 
+/**
+ * Non-authoritative evidence only. The assist's typed fields are recorded here
+ * and never merged into `fields.typed_fields`: a model reading outside the
+ * Forgewing gates must not become extraction truth. `merged_field_keys` is
+ * always empty for new runs (historical rows may list keys merged before this
+ * rule); `proposed_field_keys` names what the assist would have filled.
+ */
 export interface InstructorExtractionAssistSnapshot {
   parser_version: 'instructor_extraction_assist_v1';
-  status: InstructorAssistStatus;
+  status: InstructorAssistStatus | 'recorded';
+  authority?: 'non_authoritative';
   source: InstructorAssistSource;
   detected_document_type: SupportedDocumentType;
   confidence: number;
@@ -31,6 +39,7 @@ export interface InstructorExtractionAssistSnapshot {
   important_gaps: ExtractionGap[];
   typed_fields: TypedExtraction | null;
   merged_field_keys: string[];
+  proposed_field_keys?: string[];
   warnings: string[];
   attempts: number;
   model: string | null;

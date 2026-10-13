@@ -48,6 +48,13 @@ describe('Forgewing runtime configuration', () => {
     expect(getForgewingRuntimeConfig().model).toBe('claude-shared-test');
   });
 
+  it('keeps qualified Forgewing and Plan V2 on their dedicated model during a shared-model migration', () => {
+    vi.stubEnv('ANTHROPIC_MODEL', 'claude-sonnet-5-5');
+    vi.stubEnv('FORGEWING_MODEL', 'claude-sonnet-4-6');
+    expect(getForgewingRuntimeConfig().model).toBe('claude-sonnet-4-6');
+    expect(getForgewingRepositoryPlanRuntimeConfig().model).toBe('claude-sonnet-4-6');
+  });
+
   it('keeps table continuation default-off behind both the master and task gates', () => {
     vi.stubEnv('FORGEWING_SHADOW_ENABLED', '');
     vi.stubEnv('FORGEWING_TABLE_CONTINUATION_ENABLED', '1');

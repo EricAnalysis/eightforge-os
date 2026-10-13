@@ -3,11 +3,7 @@ import { readFileSync } from 'node:fs';
 
 import { sha256Hex } from '@/lib/extraction/domain/hash';
 import { ForgewingProviderOutputError, normalizeClaudeProviderError } from '@/lib/forgewing/runtime/client';
-import {
-  getClaudeClient,
-  getClaudeModel,
-} from '@/lib/server/ai/claudeClient';
-import { getClaudeSamplingParameters } from '@/lib/server/ai/claudeSampling';
+import { getClaudeClient, getClaudeModel } from '@/lib/server/ai/claudeClient';
 import {
   VALUE_READING_EXECUTION,
   VALUE_READING_OUTPUT_JSON_SCHEMA,
@@ -70,7 +66,7 @@ export function buildValueReadingMessagesRequest(request: ValueReadingProviderRe
   return {
     body: {
       model: request.model,
-      ...getClaudeSamplingParameters(request.model),
+      temperature: 0,
       max_tokens: request.maxOutputTokens,
       system: prompt,
       messages: [{

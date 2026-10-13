@@ -108,23 +108,6 @@ describe('bounded Forgewing repository-plan reasoning', () => {
       rawOutputSha256: 'f'.repeat(64) }).success).toBe(false);
   });
 
-  it('records omitted Sonnet 5.5 sampling truthfully in both provider evidence artifacts', async () => {
-    const prepared = input();
-    const result = await runForgewingRepositoryPlanGuidance(prepared, {
-      provider: vi.fn().mockResolvedValue(validOutput(prepared)),
-      config: { ...enabled, model: 'claude-sonnet-5-5' },
-    });
-
-    expect(result).toMatchObject({
-      status: 'completed',
-      rawProviderEvidence: { providerProvenance: { model: 'claude-sonnet-5-5', temperature: null } },
-      planV2: { providerProvenance: { model: 'claude-sonnet-5-5', temperature: null } },
-    });
-    if (result.status !== 'completed') throw new Error(result.reason);
-    expect(RepositoryAwareImplementationPlanV2Schema.safeParse(result.planV2).success).toBe(true);
-    expect(RepositoryPlanRawProviderEvidenceSchema.safeParse(result.rawProviderEvidence).success).toBe(true);
-  });
-
   it('does not retry malformed output and preserves it only as untrusted raw evidence', async () => {
     const provider = vi.fn().mockResolvedValue('not json');
     const result = await runForgewingRepositoryPlanGuidance(input(), { provider, config: enabled });

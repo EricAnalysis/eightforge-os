@@ -86,9 +86,7 @@ describe('Phase 17 behavioral contract pins', () => {
       const source = readFileSync(PHASE17_CONTRACT_FILES.requestBuilder, 'utf8');
       const accepted = requestBuilderSourceDigest(source);
       expect(accepted).toBe(PHASE17_ACCEPTED_CONTRACT_PINS.requestBuilderSourceSha256);
-      expect(requestBuilderSourceDigest(source.replace(
-        '...getClaudeSamplingParameters(request.model),', 'temperature: 0.2,',
-      )))
+      expect(requestBuilderSourceDigest(source.replace('temperature: 0,', 'temperature: 0.2,')))
         .not.toBe(accepted);
       expect(requestBuilderSourceDigest(source.replace('maxRetries: 0,', 'maxRetries: 2,')))
         .not.toBe(accepted);

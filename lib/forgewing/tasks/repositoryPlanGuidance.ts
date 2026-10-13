@@ -5,7 +5,6 @@ import { callClaudeForRepositoryPlanGuidance, ForgewingProviderOutputError,
   loadRepositoryPlanGuidancePrompt, type ForgewingProvider } from '@/lib/forgewing/runtime/client';
 import { getForgewingRepositoryPlanRuntimeConfig,
   type ForgewingRepositoryPlanRuntimeConfig } from '@/lib/forgewing/runtime/modelConfig';
-import { getClaudeSamplingParameters } from '@/lib/server/ai/claudeSampling';
 import { buildAdvisoryRepositoryPlanGuidance, buildInsufficientEvidenceRepositoryPlanGuidance,
   RepositoryPlanGuidanceInputSchema, validateRepositoryPlanGuidance,
   REPOSITORY_PLAN_GUIDANCE_LIMITS,
@@ -48,13 +47,12 @@ function freeze<T>(value: T): T {
 
 function provenance(input: RepositoryPlanGuidanceInputArtifact, config: ForgewingRepositoryPlanRuntimeConfig,
   callCount: 0 | 1, rawOutputSha256: string | null, validatedOutputSha256: string | null): RepositoryPlanProviderProvenance {
-  const sampling = getClaudeSamplingParameters(config.model);
   return { provider: PROVIDER, model: config.model,
     promptId: FORGEWING_REPOSITORY_PLAN_GUIDANCE_PROMPT_ID,
     promptVersion: FORGEWING_REPOSITORY_PLAN_GUIDANCE_PROMPT_VERSION,
     promptSha256: sha256Hex(loadRepositoryPlanGuidancePrompt()), schemaVersion: OUTPUT_SCHEMA_VERSION,
     timeoutMs: config.timeoutMs, maxOutputTokens: config.maxOutputTokens, callCount,
-    temperature: sampling.temperature ?? null, maxRetries: 0, repositoryCommitSha: input.source.repositorySnapshot.commitSha,
+    temperature: 0, maxRetries: 0, repositoryCommitSha: input.source.repositorySnapshot.commitSha,
     foundationDigestSha256: input.source.foundationDigestSha256,
     contentBundleDigestSha256: input.source.contentBundleDigestSha256,
     guidanceInputDigestSha256: input.digest.value, rawOutputSha256, validatedOutputSha256 };

@@ -158,7 +158,7 @@ describe('B4.2 value-reading authority boundaries', () => {
     expect(adapter).not.toMatch(/valueReadingEngine|valueReadingProposals|forgewingGates|supabase|getSupabaseAdmin|human_fact_assertions/i);
     // One image, one call: no SDK retries behind the engine's single reservation.
     expect(adapter).toMatch(/maxRetries: 0/);
-    expect(adapter).toMatch(/getClaudeSamplingParameters\(request\.model\)/);
+    expect(adapter).toMatch(/temperature: 0/);
     expect(adapter).toMatch(/if \(sha256Hex\(request\.image\.bytes\) !== request\.renderDigestSha256\) throw/);
   });
 

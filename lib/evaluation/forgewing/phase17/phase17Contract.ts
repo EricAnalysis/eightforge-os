@@ -94,7 +94,7 @@ export const PHASE17_KNOWN_LIMITATIONS = [
   'recovery_candidate_v2_cannot_abstain_requires_exactly_one_supplied_candidate',
   'rationale_code_is_free_text_not_enumerated',
   'candidate_raw_text_is_not_part_of_candidate_identity',
-  'phase17_live_qualification_remains_pinned_to_claude_sonnet_4_6',
+  'production_client_sends_temperature_so_claude_5_models_are_not_evaluable',
   'provider_failure_injection_is_covered_by_deterministic_tests_only',
 ] as const;
 

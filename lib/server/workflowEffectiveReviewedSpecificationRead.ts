@@ -40,12 +40,17 @@ export async function readEffectiveReviewedSpecification(
     if (!admin) return { ok: false, code: 'not_configured' };
 
     const assessment = await admin.from('workflow_assessments')
-      .select('id, assessment_version, source_submission_id, assessment, authority, requires_human_review, created_at')
+      .select('id, assessment_version, source_submission_id, assessment, authority, requires_human_review, created_at, organization_id')
       .eq('id', parsed.data.assessmentId)
       .eq('assessment_version', parsed.data.assessmentVersion)
       .maybeSingle();
     if (assessment.error) return { ok: false, code: 'read_failed' };
     if (assessment.data === null) return { ok: false, code: 'assessment_not_found' };
+    // Null ownership is historical platform evidence; owned sources remain tenant-bound.
+    if (assessment.data.organization_id !== null && assessment.data.organization_id !== context.actor.organizationId) {
+      return { ok: false, code: 'assessment_not_found' };
+    }
+    const { organization_id: _organizationId, ...assessmentEvidence } = assessment.data;
 
     const review = await admin.from('workflow_assessment_reviews')
       .select('id, assessment_id, assessment_version, source_submission_id, review_version, reviewer_actor_id, overall_disposition, reviewer_summary, created_at')
@@ -64,7 +69,7 @@ export async function readEffectiveReviewedSpecification(
 
     return resolveEffectiveReviewedSpecification({
       pin: parsed.data,
-      assessmentRow: assessment.data,
+      assessmentRow: assessmentEvidence,
       reviewRow: review.data,
       stepReviewRows: steps.data,
     });

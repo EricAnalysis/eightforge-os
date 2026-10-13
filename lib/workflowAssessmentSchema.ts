@@ -12,9 +12,21 @@ export const WORKFLOW_STEP_CLASSIFICATIONS = [
   'RULE', 'EXTRACT', 'RECOVER', 'VERIFY', 'HUMAN', 'ADVISORY',
 ] as const;
 
-export const WORKFLOW_INTAKE_QUESTIONS = [
+export const WORKFLOW_INTAKE_V1_QUESTIONS = [
   'workflowDescription', 'documentsInvolved', 'manualChecks',
   'frequencyAndVolume', 'exceptions', 'humanDecisions',
+] as const;
+
+export const WORKFLOW_INTAKE_V2_QUESTIONS = [
+  'workflowDescription', 'informationOrSystems', 'manualChecks',
+  'frequencyAndVolume', 'exceptions', 'humanDecisions', 'successOutcome',
+] as const;
+
+export const WORKFLOW_INTAKE_QUESTIONS = WORKFLOW_INTAKE_V2_QUESTIONS;
+
+/** Both source vocabularies are readable; the task validates the exact version. */
+export const WORKFLOW_INTAKE_SOURCE_QUESTIONS = [
+  ...WORKFLOW_INTAKE_V1_QUESTIONS, 'informationOrSystems', 'successOutcome',
 ] as const;
 
 export const WORKFLOW_RULE_CONDITION_TYPES = [
@@ -57,7 +69,7 @@ const determinismGapSchema = z.object({
 
 const determinismSupportSchema = z.object({
   condition: z.enum(WORKFLOW_DETERMINISM_CONDITIONS),
-  sourceQuestion: z.enum(WORKFLOW_INTAKE_QUESTIONS),
+  sourceQuestion: z.enum(WORKFLOW_INTAKE_SOURCE_QUESTIONS),
   sourceExcerpt: prose(500),
   rationale: prose(400),
 }).strict();
@@ -85,7 +97,7 @@ export const WorkflowAssessmentModelOutputSchema = z.object({
   }).strict()).max(24),
   workflowSteps: z.array(z.object({
     stepId: identifier,
-    sourceQuestions: z.array(z.enum(WORKFLOW_INTAKE_QUESTIONS)).min(1).max(6),
+    sourceQuestions: z.array(z.enum(WORKFLOW_INTAKE_SOURCE_QUESTIONS)).min(1).max(7),
     description: prose(600),
     classification: z.enum(WORKFLOW_STEP_CLASSIFICATIONS),
     rationale: prose(600),

@@ -1,24 +1,18 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ArrowLeft, ArrowRight, Check, WandSparkles, X } from 'lucide-react';
 import styles from './PublicLanding.module.css';
+import { WORKFLOW_INTAKE_V2_FIELDS, WORKFLOW_INTAKE_QUESTION_DESCRIPTORS } from '@/lib/workflowIntakeContract';
 
 export const WORKFLOW_INTAKE_ENDPOINT = '/api/workflow-intake';
 
 /**
- * The exact six fields the server accepts. The route rejects any unknown
+ * The exact seven fields the server accepts. The route rejects any unknown
  * property, so this list is also the reason the client cannot smuggle an
  * organization or a caller-chosen submission id: both are server-owned.
  */
-const REQUEST_FIELDS = [
-  'workflowDescription',
-  'documentsInvolved',
-  'manualChecks',
-  'frequencyAndVolume',
-  'exceptions',
-  'humanDecisions',
-] as const;
+const REQUEST_FIELDS = WORKFLOW_INTAKE_V2_FIELDS.map(([field]) => field);
 
 export type WorkflowIntakeRequestBody = Record<(typeof REQUEST_FIELDS)[number], string>;
 
@@ -52,35 +46,40 @@ export function endWorkflowIntakeSubmission(lock: { current: boolean }): void {
 }
 
 export type WorkflowIntakeSubmitResult =
-  | { status: 'submitted' }
+  | { status: 'submitted'; submissionId: string }
   | { status: 'rejected' }
   | { status: 'unavailable' };
 
 /**
- * Posts the six answers and reduces every outcome to a state the UI can show.
+ * Posts the seven answers and reduces every outcome to a state the UI can show.
  *
- * The response body is deliberately never read: server messages may describe
- * validation internals, and an anonymous visitor sees only the two safe
+ * Only the successful submission identity is read: server errors may describe
+ * validation internals, and the visitor sees only the two safe
  * outcomes below.
  */
 export async function submitWorkflowIntake(
   answers: readonly string[],
+  context: Readonly<{ accessToken: string; draftId: string }>,
   fetchImpl: typeof fetch = fetch,
 ): Promise<WorkflowIntakeSubmitResult> {
   let response: Response;
   try {
     response = await fetchImpl(WORKFLOW_INTAKE_ENDPOINT, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(buildWorkflowIntakeRequestBody(answers)),
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${context.accessToken}` },
+      body: JSON.stringify({ ...buildWorkflowIntakeRequestBody(answers), draftId: context.draftId }),
     });
   } catch {
     return { status: 'unavailable' };
   }
-  if (response.ok) return { status: 'submitted' };
+  if (response.ok) {
+    const body = await response.json().catch(() => null);
+    return typeof body?.submissionId === 'string'
+      ? { status: 'submitted', submissionId: body.submissionId } : { status: 'unavailable' };
+  }
   // 400 invalid answers and 403 bot denial are both "we cannot accept this".
   // Everything else (500, 503, gateway errors) is a service-side problem.
-  return response.status === 400 || response.status === 403
+  return response.status === 400 || response.status === 401 || response.status === 403 || response.status === 404 || response.status === 409
     ? { status: 'rejected' }
     : { status: 'unavailable' };
 }
@@ -91,38 +90,7 @@ const FAILURE_MESSAGE: Record<'rejected' | 'unavailable', string> = {
   unavailable: 'Submission is temporarily unavailable. Please try again in a moment.',
 };
 
-const QUESTIONS = [
-  {
-    label: 'Describe the workflow',
-    prompt: 'What document-review workflow costs your team the most time?',
-    placeholder: 'For example: reviewing contractor invoices against rate schedules and approved work…',
-  },
-  {
-    label: 'Documents involved',
-    prompt: 'What documents are involved?',
-    placeholder: 'List the documents, spreadsheets, reports, or source systems involved…',
-  },
-  {
-    label: 'Manual checks',
-    prompt: 'What does someone manually check?',
-    placeholder: 'Describe the evidence, fields, rules, or comparisons a reviewer checks…',
-  },
-  {
-    label: 'Frequency and volume',
-    prompt: 'How often is this performed, and at what approximate volume?',
-    placeholder: 'For example: 40 packages each week, averaging 12 documents each…',
-  },
-  {
-    label: 'Exceptions',
-    prompt: 'What happens when something is wrong?',
-    placeholder: 'Describe the exception path, escalation, rework, or operational risk…',
-  },
-  {
-    label: 'Human decisions',
-    prompt: 'What decisions require a human?',
-    placeholder: 'Describe the judgment calls, approvals, or accountability that must stay human…',
-  },
-] as const;
+const QUESTIONS = WORKFLOW_INTAKE_QUESTION_DESCRIPTORS;
 
 type SubmissionState =
   | { phase: 'editing' }
@@ -130,7 +98,9 @@ type SubmissionState =
   | { phase: 'submitted' }
   | { phase: 'failed'; kind: 'rejected' | 'unavailable' };
 
-export function WorkflowIntakeDialog() {
+export function WorkflowIntakeDialog({ accessToken, draftId, attachments, attachmentsBusy = false, onSubmitted }: {
+  accessToken: string; draftId: string; attachments?: ReactNode; attachmentsBusy?: boolean; onSubmitted?: (submissionId: string) => void;
+}) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const submissionLock = useRef(false);
   const [step, setStep] = useState(0);
@@ -155,16 +125,19 @@ export function WorkflowIntakeDialog() {
   const isSubmitting = submission.phase === 'submitting';
 
   function closeDialog() {
+    if (isSubmitting) return;
     dialogRef.current?.close();
   }
 
   async function handleSubmit() {
     // The ref guard, not the disabled attribute, is what makes a double click
     // safe: the second click is rejected before any request is started.
+    if (attachmentsBusy) return;
     if (!beginWorkflowIntakeSubmission(submissionLock)) return;
     setSubmission({ phase: 'submitting' });
     try {
-      const result = await submitWorkflowIntake(answers);
+      const result = await submitWorkflowIntake(answers, { accessToken, draftId });
+      if (result.status === 'submitted') onSubmitted?.(result.submissionId);
       setSubmission(result.status === 'submitted'
         ? { phase: 'submitted' }
         : { phase: 'failed', kind: result.status });
@@ -184,7 +157,8 @@ export function WorkflowIntakeDialog() {
         <span>Describe Your Workflow</span>
       </button>
 
-      <dialog className={styles.intakeDialog} ref={dialogRef} aria-labelledby="intake-title">
+      <dialog className={styles.intakeDialog} ref={dialogRef} aria-labelledby="intake-title"
+        onCancel={(event) => { if (isSubmitting) event.preventDefault(); }}>
         <div className={styles.intakeSurface}>
           <div className={styles.intakeHeader}>
             <div>
@@ -233,6 +207,8 @@ export function WorkflowIntakeDialog() {
             </div>
           )}
 
+          {submission.phase !== 'submitted' ? attachments : null}
+
           {submission.phase === 'failed' ? (
             <p className={styles.presentationNote} role="alert">
               {FAILURE_MESSAGE[submission.kind]}
@@ -262,7 +238,7 @@ export function WorkflowIntakeDialog() {
                   type="button"
                   className={styles.finishButton}
                   onClick={handleSubmit}
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || attachmentsBusy}
                   aria-busy={isSubmitting}
                 >
                   <Check aria-hidden="true" />

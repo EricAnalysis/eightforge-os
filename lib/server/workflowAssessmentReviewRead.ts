@@ -78,6 +78,7 @@ export type WorkflowExistingReview = Readonly<{
 
 /** Everything the review surface needs, and nothing it does not. */
 export type WorkflowReviewPacket = Readonly<{
+  attachmentCount: number;
   assessmentId: string;
   assessmentVersion: number;
   sourceSubmissionId: string;
@@ -116,12 +117,14 @@ function num(value: unknown): number {
  */
 export async function readWorkflowReviewQueue(
   limit = 50,
+  organizationId?: string,
 ): Promise<WorkflowReviewQueueResult> {
   const admin = getSupabaseAdmin();
   if (!admin) return { status: 'not_configured' };
 
   const { data, error } = await admin.rpc(WORKFLOW_REVIEW_QUEUE_FUNCTION, {
     p_limit: limit,
+    ...(organizationId === undefined ? {} : { p_organization_id: organizationId }),
   });
   if (error) return { status: 'read_failed', reason: error.message };
 
@@ -158,6 +161,7 @@ export async function readWorkflowReviewQueue(
  */
 export async function readWorkflowReviewPacket(
   assessmentId: string,
+  organizationId?: string,
 ): Promise<WorkflowReviewPacketResult> {
   const admin = getSupabaseAdmin();
   if (!admin) return { status: 'not_configured' };
@@ -181,7 +185,8 @@ export async function readWorkflowReviewPacket(
   // The intake is read through the same SECURITY DEFINER seam the assessment
   // itself used; the table grants INSERT only, so there is no other path.
   const submission = await loadWorkflowIntakeSubmission(sourceSubmissionId, admin);
-  if (!submission) return { status: 'assessment_not_found' };
+  if (!submission || (organizationId !== undefined && submission.organizationId !== null
+    && submission.organizationId !== organizationId)) return { status: 'assessment_not_found' };
 
   const assessmentVersion = num(row.assessment_version);
 
@@ -235,6 +240,7 @@ export async function readWorkflowReviewPacket(
   return {
     status: 'ok',
     packet: {
+      attachmentCount: Array.isArray(submission.attachmentManifest) ? submission.attachmentManifest.length : 0,
       assessmentId,
       assessmentVersion,
       sourceSubmissionId,

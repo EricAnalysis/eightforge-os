@@ -9,10 +9,12 @@ const READ = 'lib/server/workflowEffectiveReviewedSpecificationRead.ts';
 const PLAN = 'lib/workflowImplementationPlan.ts';
 const CORE_CONSUMERS = new Set([
   READ,
+  'lib/customerAdaptation/reviewedWorkflowContext.ts',
   'lib/server/repositoryPlanGenerationWorker.ts',
   'lib/server/workflowRepositoryPlanRuns.ts',
 ]);
-const READ_CONSUMERS = new Set(['lib/server/workflowImplementationPlanRead.ts']);
+const READ_CONSUMERS = new Set(['lib/server/workflowImplementationPlanRead.ts',
+  'lib/server/reviewedWorkflowAdaptationContextRead.ts']);
 const EXTENSION = /\.[cm]?[jt]sx?$/;
 const TEST = /\.(test|spec)\.[cm]?[jt]sx?$/;
 
@@ -104,10 +106,12 @@ describe('effective reviewed specification remains a read-only non-authority art
   it('has exactly the reviewed resolver consumers and the plan read seam as read consumer', () => {
     expect([...CORE_CONSUMERS].sort()).toEqual([
       READ,
+      'lib/customerAdaptation/reviewedWorkflowContext.ts',
       'lib/server/repositoryPlanGenerationWorker.ts',
       'lib/server/workflowRepositoryPlanRuns.ts',
     ].sort());
-    expect([...READ_CONSUMERS]).toEqual(['lib/server/workflowImplementationPlanRead.ts']);
+    expect([...READ_CONSUMERS]).toEqual(['lib/server/workflowImplementationPlanRead.ts',
+      'lib/server/reviewedWorkflowAdaptationContextRead.ts']);
     const violations: string[] = [];
     const coreConsumers: string[] = [];
     const readConsumers: string[] = [];
@@ -127,7 +131,7 @@ describe('effective reviewed specification remains a read-only non-authority art
     }
     expect(violations).toEqual([]);
     expect(coreConsumers.sort()).toEqual([...CORE_CONSUMERS].sort());
-    expect(readConsumers).toEqual(['lib/server/workflowImplementationPlanRead.ts']);
+    expect(readConsumers.sort()).toEqual([...READ_CONSUMERS].sort());
   }, 30_000);
 
   it('keeps hashing free of runtime state and preserves the narrow shared schema graph', () => {
@@ -136,6 +140,22 @@ describe('effective reviewed specification remains a read-only non-authority art
       .toEqual(['@/lib/workflowAssessmentSchema']);
     expect(imports(source('lib/workflowAssessmentSchema.ts'), 'schema.ts')).toEqual(['zod']);
     expect(imports(source('lib/extraction/domain/hash.ts'), 'hash.ts')).toEqual(['node:crypto']);
+  });
+
+  it('seals adaptation context to pure reviewed projection and the existing authenticated reader', () => {
+    const projection = 'lib/customerAdaptation/reviewedWorkflowContext.ts';
+    const reader = 'lib/server/reviewedWorkflowAdaptationContextRead.ts';
+    expect(imports(source(projection), projection).sort()).toEqual([
+      '@/lib/extraction/domain/hash', '@/lib/workflowEffectiveReviewedSpecification',
+    ].sort());
+    expect(imports(source(reader), reader).sort()).toEqual([
+      '@/lib/customerAdaptation/reviewedWorkflowContext',
+      '@/lib/server/workflowEffectiveReviewedSpecificationRead',
+    ].sort());
+    for (const file of [projection, reader]) {
+      expect(code(file)).not.toMatch(/\.(?:insert|upsert|update|delete|rpc)\s*\(|\bfetch\s*\(|\bprocess\s*\.|\bimport\s*\(|\brequire\s*\(/);
+      expect(code(file)).not.toMatch(/workflow_intake_submissions|customerHeaderMappingLifecycle|lib\/forgewing|lib\/canonical|lib\/validator|lib\/rules/);
+    }
   });
 
   it('requires platform authorization and reads no intake or writable/runtime surface', () => {

@@ -25,7 +25,8 @@ describe('PublicLanding', () => {
     expect(html).toContain('href="/platform/documents"');
     expect(html).toContain('href="/platform/decisions"');
     expect(html).toContain('Describe Your Workflow');
-    expect(html).toContain('What document-review workflow costs your team the most time?');
+    expect(html).toContain('href="/login?next=%2Fplatform%2Fworkflows%2Fassessment"');
+    expect(html).not.toContain('<dialog');
     expect(html).not.toContain('/evaluation/forgewing');
     expect(html).not.toContain('<form');
   });

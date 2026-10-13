@@ -31,7 +31,8 @@ export default function LoginPage() {
       return;
     }
 
-    router.push('/platform/dashboard');
+    const next = new URLSearchParams(window.location.search).get('next');
+    router.push(next === '/platform/workflows/assessment' ? next : '/platform/dashboard');
   };
 
   return (

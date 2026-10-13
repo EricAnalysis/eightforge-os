@@ -117,11 +117,16 @@ describe('function tracing excludes', () => {
     }
   });
 
-  it('limits worker asset inclusion to the four extraction routes', () => {
+  it('limits worker asset inclusion to extraction and the bounded assessment upload', () => {
     const matched = appRoutes().filter(route => Object.keys(includes)
       .some(key => picomatch(key, { contains: true })(route)));
     expect(matched.sort()).toEqual(['/api/documents/process', '/api/documents/upload',
-      '/api/documents/[id]/evaluate', '/api/jobs/process/[jobId]'].sort());
+      '/api/documents/[id]/evaluate', '/api/jobs/process/[jobId]',
+      '/api/workflow-intake/drafts/[draftId]/attachments',
+      '/api/workflow-intake/drafts/[draftId]/attachments/[attachmentId]',
+      '/api/workflow-intake/drafts/[draftId]/attachments/[attachmentId]/file'].sort());
+    expect(includes['/api/workflow-intake/drafts/*/attachments'])
+      .toEqual(['node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs']);
   });
 
   it('never drop a file production loads, matched the way Next matches them while tracing', () => {

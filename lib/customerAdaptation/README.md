@@ -4,6 +4,32 @@ This module contains the exact mapping contract, authenticated evidence retrieva
 immutable reviewed revision persistence, separate owner/admin lifecycle actions,
 explicit production interpretation and historical tenant-local friction evidence.
 
+## B8.5 reviewed operational context
+
+`reviewedWorkflowContext.ts` exposes a read-only proposal-context projection of
+the existing Phase 11 effective reviewed specification. It re-resolves the exact
+immutable evidence, compares the complete artifact, and retains only effective
+human-reviewed step specifications, reviewer provenance and source pins/digest.
+Modified or reclassified specifications replace original provider proposals;
+rejected-only assessments provide no reviewed context. The context is detached
+and frozen, non-authoritative and non-executable, and grants no mapping activation
+authority. Future adaptation proposals still require separate existing approval.
+
+`readReviewedWorkflowAdaptationContext` reuses the authenticated platform-only
+Phase 11 reader. New organization-owned assessments must match the authenticated
+reviewer's organization; historical unassigned assessments retain the existing
+platform reviewer allowlist. The seam does not assign historical public assessments
+to organizations or grant tenant administrators review access. Top-level AI
+summary and intake answers are not represented as human-approved context. Relevant
+operational context can be reviewed in existing ADVISORY specifications; checks,
+evidence, outcomes and human decisions use their existing reviewed classifications.
+The legacy `sourceDocument` persisted key remains unchanged for compatibility.
+
+This seam performs no persistence, provider call, mapping proposal generation,
+activation, rule/configuration change or canonical mutation. B8.2 source evidence,
+tenant scope, owner/admin approval and separate activation remain authoritative.
+The assessment and signal Plan V2 paths and B8.4 source measurability are unchanged.
+
 `ReviewedCustomerHeaderMappingRevision` binds organization/revision UUIDs,
 SHA-256 identity, exact document type and source-schema scope, exact source
 labels, existing target roles, typed supporting header-evidence bindings, declared

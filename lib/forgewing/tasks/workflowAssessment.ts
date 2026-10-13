@@ -1,4 +1,9 @@
 import { z } from 'zod';
+import {
+  AssessmentSupportingFileContextSchema,
+  ASSESSMENT_SUPPORTING_FILE_LIMITS,
+  type AssessmentSupportingFileContext,
+} from '@/lib/workflowAssessmentEvidenceContract';
 
 import { canonicalJson, hashCanonical } from '@/lib/extraction/domain/hash';
 import { ForgewingCallBudget } from '@/lib/forgewing/runtime/budget';
@@ -19,12 +24,15 @@ import {
   parseWorkflowAssessmentModelOutput,
   WORKFLOW_DETERMINISM_CONDITIONS,
   WORKFLOW_INTAKE_QUESTIONS,
+  WORKFLOW_INTAKE_SOURCE_QUESTIONS,
+  WORKFLOW_INTAKE_V1_QUESTIONS,
+  WORKFLOW_INTAKE_V2_QUESTIONS,
   WORKFLOW_STEP_CLASSIFICATIONS,
   type WorkflowAssessmentModelOutput,
 } from '@/lib/forgewing/runtime/workflowAssessmentStructuredOutput';
 
 export const FORGEWING_WORKFLOW_ASSESSMENT_SCHEMA_VERSION =
-  'workflow_assessment_v1' as const;
+  'workflow_assessment_v2' as const;
 
 /** Classes whose proposal asserts deterministic execution is plausible. */
 const DETERMINISTIC_CLASSIFICATIONS: ReadonlySet<string> = new Set(['RULE', 'VERIFY']);
@@ -75,7 +83,7 @@ export type WorkflowDeterminismQualification = Readonly<{
  * accepted shape in which it could.
  */
 export type ForgewingWorkflowAssessment = Readonly<{
-  schemaVersion: typeof FORGEWING_WORKFLOW_ASSESSMENT_SCHEMA_VERSION;
+  schemaVersion: 'workflow_assessment_v1' | typeof FORGEWING_WORKFLOW_ASSESSMENT_SCHEMA_VERSION;
   assessmentId: string;
   sourceSubmissionId: string;
   sourceSubmissionSchemaVersion: string;
@@ -125,16 +133,30 @@ export type WorkflowAutomationAssessment = Readonly<{
 export type ForgewingWorkflowAssessmentInput = Readonly<{
   submissionId: string;
   submissionSchemaVersion: string;
-  answers: Readonly<Record<(typeof WORKFLOW_INTAKE_QUESTIONS)[number], string>>;
+  answers: Readonly<Record<(typeof WORKFLOW_INTAKE_V1_QUESTIONS)[number], string>>
+    | Readonly<Record<(typeof WORKFLOW_INTAKE_V2_QUESTIONS)[number], string>>;
+  attachments?: readonly AssessmentSupportingFileContext[];
 }>;
 
-const inputSchema = z.object({
-  submissionId: identifier,
-  submissionSchemaVersion: z.literal('workflow_intake_v1'),
-  answers: z.object(Object.fromEntries(
-    WORKFLOW_INTAKE_QUESTIONS.map((key) => [key, z.string().min(1).max(5000)]),
-  ) as Record<(typeof WORKFLOW_INTAKE_QUESTIONS)[number], z.ZodString>).strict(),
-}).strict();
+const answerSchema = <T extends string>(questions: readonly T[]) => z.object(
+  Object.fromEntries(questions.map((key) => [key, z.string().min(1).max(5000)])) as Record<T, z.ZodString>,
+).strict();
+
+const inputSchema = z.discriminatedUnion('submissionSchemaVersion', [
+  z.object({ submissionId: identifier, submissionSchemaVersion: z.literal('workflow_intake_v1'),
+    answers: answerSchema(WORKFLOW_INTAKE_V1_QUESTIONS),
+    attachments: z.array(AssessmentSupportingFileContextSchema).max(ASSESSMENT_SUPPORTING_FILE_LIMITS.maxFiles).optional() }).strict(),
+  z.object({ submissionId: identifier, submissionSchemaVersion: z.literal('workflow_intake_v2'),
+    answers: answerSchema(WORKFLOW_INTAKE_V2_QUESTIONS),
+    attachments: z.array(AssessmentSupportingFileContextSchema).max(ASSESSMENT_SUPPORTING_FILE_LIMITS.maxFiles).optional() }).strict(),
+]).superRefine((input, ctx) => {
+  const attachments = input.attachments ?? [];
+  if (new Set(attachments.map((attachment) => attachment.attachmentId)).size !== attachments.length
+    || attachments.reduce((sum, attachment) => sum + attachment.sections.reduce((size, section) => size + section.content.length, 0), 0)
+      > ASSESSMENT_SUPPORTING_FILE_LIMITS.maxTotalContextCharacters) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['attachments'], message: 'Attachment context closure failed' });
+  }
+});
 
 export type ForgewingWorkflowAssessmentResult =
   | Readonly<{ status: 'assessment_disabled' }>
@@ -313,7 +335,9 @@ function determinismQualifications(
       if (!step.sourceQuestions.includes(support.sourceQuestion)) {
         reasons.push(`support_question_not_linked:${condition}`);
       }
-      if (!answers[support.sourceQuestion].includes(support.sourceExcerpt)) {
+      const sourceAnswer = (answers as Partial<Record<(typeof WORKFLOW_INTAKE_SOURCE_QUESTIONS)[number], string>>)
+        [support.sourceQuestion];
+      if (!sourceAnswer?.includes(support.sourceExcerpt)) {
         reasons.push(`support_excerpt_not_in_intake:${condition}`);
       }
     }
@@ -412,6 +436,7 @@ export async function runForgewingWorkflowAssessment(
     submissionId: parsed.data.submissionId,
     submissionSchemaVersion: parsed.data.submissionSchemaVersion,
     answers: parsed.data.answers,
+    ...(parsed.data.attachments?.length ? { attachments: parsed.data.attachments } : {}),
   });
   const sourceSubmissionDigestSha256 = hashCanonical(bounded);
 
@@ -447,7 +472,18 @@ export async function runForgewingWorkflowAssessment(
   // A second copy here would eventually disagree with it, and the disagreement
   // would surface as an operator approving something uncomposable.
   const closure = resolveWorkflowAssessmentProposalClosure(output);
+  // A legacy source key must never be silently reinterpreted as a new answer.
+  // Validate links even for non-deterministic steps; grounding alone only
+  // inspects RULE/VERIFY and would miss an invented ADVISORY source.
+  const sourceQuestions = new Set<string>(Object.keys(parsed.data.answers));
+  const invalidSources = output.workflowSteps.flatMap((step) => [
+    ...step.sourceQuestions, ...step.determinismSupport.map((support) => support.sourceQuestion),
+  ].filter((question) => !sourceQuestions.has(question))
+    .map((question) => `${step.stepId}:source_question_not_in_submission:${question}`));
   const violations = [
+    ...invalidSources,
+    ...output.workflowSteps.filter((step) => step.sourceQuestions.length > sourceQuestions.size)
+      .map((step) => `${step.stepId}:source_question_count_exceeds_submission`),
     ...determinismViolations(output.workflowSteps),
     ...(closure.compatible ? [] : closure.violations),
   ];
@@ -462,7 +498,8 @@ export async function runForgewingWorkflowAssessment(
 
   const assessment: ForgewingWorkflowAssessment = Object.freeze({
     ...output,
-    schemaVersion: FORGEWING_WORKFLOW_ASSESSMENT_SCHEMA_VERSION,
+    schemaVersion: parsed.data.submissionSchemaVersion === 'workflow_intake_v1'
+      ? 'workflow_assessment_v1' : FORGEWING_WORKFLOW_ASSESSMENT_SCHEMA_VERSION,
     assessmentId: `forgewing-workflow-assessment-${sourceSubmissionDigestSha256.slice(0, 32)}`,
     sourceSubmissionId: parsed.data.submissionId,
     sourceSubmissionSchemaVersion: parsed.data.submissionSchemaVersion,

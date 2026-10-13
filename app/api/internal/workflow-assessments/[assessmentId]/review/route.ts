@@ -42,7 +42,7 @@ export async function GET(
     return Response.json({ ok: false, error: 'invalid_assessment_id' }, { status: 400 });
   }
 
-  const result = await readWorkflowReviewPacket(assessmentId);
+  const result = await readWorkflowReviewPacket(assessmentId, actor.actor.organizationId);
 
   switch (result.status) {
     case 'ok':

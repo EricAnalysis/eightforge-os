@@ -1,8 +1,8 @@
 import type { CSSProperties } from 'react';
 import Link from 'next/link';
-import { ChartNoAxesCombined, CircleCheck, FileText, Grid2X2 } from 'lucide-react';
+import { ChartNoAxesCombined, CircleCheck, FileText, Grid2X2, WandSparkles } from 'lucide-react';
 import { EightForgeLogo } from '@/components/ui/EightForgeLogo';
-import { WorkflowIntakeDialog } from './WorkflowIntakeDialog';
+
 import styles from './PublicLanding.module.css';
 
 const STAGES = [
@@ -68,7 +68,8 @@ export function PublicLanding() {
             </h1>
             <p className={styles.supportingCopy}>
               EightForge structures the evidence, decisions, and workflows that power your
-              operations. Forgewing understands the work so your team can focus on what matters.
+              operations. Describe workflows involving documents, data, or systems for a
+              human-reviewed Forgewing assessment.
             </p>
 
             <nav className={styles.actions} aria-label="Platform entry points">
@@ -78,7 +79,7 @@ export function PublicLanding() {
                   <span>{label}</span>
                 </Link>
               ))}
-              <WorkflowIntakeDialog />
+              <Link className={styles.primaryAction} href="/login?next=%2Fplatform%2Fworkflows%2Fassessment"><WandSparkles aria-hidden="true" strokeWidth={1.7} /><span>Describe Your Workflow</span></Link>
             </nav>
           </div>
 

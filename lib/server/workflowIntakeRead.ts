@@ -7,6 +7,8 @@
 // duplicating the read would create a second interpretation of the same row.
 // A neutral module keeps one implementation without widening either boundary.
 
+import { WORKFLOW_INTAKE_V1_FIELDS, WORKFLOW_INTAKE_V2_FIELDS, type VersionedWorkflowIntake } from '@/lib/workflowIntakeContract';
+
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 
 type AdminClient = NonNullable<ReturnType<typeof getSupabaseAdmin>>;
@@ -17,20 +19,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export const WORKFLOW_INTAKE_READ_FUNCTION = 'read_workflow_intake_submission' as const;
 
-/** Request/column pairs, mirroring the intake contract exactly. */
-const ANSWER_COLUMNS = [
-  ['workflowDescription', 'workflow_description'],
-  ['documentsInvolved', 'documents_involved'],
-  ['manualChecks', 'manual_checks'],
-  ['frequencyAndVolume', 'frequency_and_volume'],
-  ['exceptions', 'exceptions'],
-  ['humanDecisions', 'human_decisions'],
-] as const;
-
-export type LoadedWorkflowIntakeSubmission = Readonly<{
-  submissionId: string;
-  submissionSchemaVersion: string;
-  answers: Readonly<Record<(typeof ANSWER_COLUMNS)[number][0], string>>;
+export type LoadedWorkflowIntakeSubmission = VersionedWorkflowIntake & Readonly<{
+  submissionId: string; organizationId: string | null; submittedByActorId: string | null;
+  attachmentManifest?: unknown;
 }>;
 
 /**
@@ -42,6 +33,7 @@ export type LoadedWorkflowIntakeSubmission = Readonly<{
 export async function loadWorkflowIntakeSubmission(
   submissionId: string,
   admin: AdminClient,
+  organizationId?: string,
 ): Promise<LoadedWorkflowIntakeSubmission | null> {
   const { data, error } = await admin.rpc(WORKFLOW_INTAKE_READ_FUNCTION, {
     submission_id: submissionId,
@@ -51,10 +43,13 @@ export async function loadWorkflowIntakeSubmission(
   const row = Array.isArray(data) ? data[0] : data;
   if (!isRecord(row)) return null;
   if (typeof row.id !== 'string' || row.id !== submissionId) return null;
-  if (typeof row.schema_version !== 'string') return null;
+  if (organizationId !== undefined && row.organization_id !== organizationId) return null;
+  if (row.schema_version !== 'workflow_intake_v1' && row.schema_version !== 'workflow_intake_v2') return null;
+  const answerColumns = row.schema_version === 'workflow_intake_v1'
+    ? WORKFLOW_INTAKE_V1_FIELDS : WORKFLOW_INTAKE_V2_FIELDS;
 
-  const answers: Partial<Record<(typeof ANSWER_COLUMNS)[number][0], string>> = {};
-  for (const [field, column] of ANSWER_COLUMNS) {
+  const answers: Record<string, string> = {};
+  for (const [field, column] of answerColumns) {
     const value = row[column];
     if (typeof value !== 'string' || value.trim().length === 0) return null;
     answers[field] = value;
@@ -62,7 +57,10 @@ export async function loadWorkflowIntakeSubmission(
 
   return Object.freeze({
     submissionId: row.id,
+    organizationId: typeof row.organization_id === 'string' ? row.organization_id : null,
+    submittedByActorId: typeof row.submitted_by_actor_id === 'string' ? row.submitted_by_actor_id : null,
+    ...(row.attachment_manifest === undefined ? {} : { attachmentManifest: row.attachment_manifest }),
     submissionSchemaVersion: row.schema_version,
-    answers: Object.freeze(answers as LoadedWorkflowIntakeSubmission['answers']),
-  });
+    answers: Object.freeze(answers),
+  }) as LoadedWorkflowIntakeSubmission;
 }

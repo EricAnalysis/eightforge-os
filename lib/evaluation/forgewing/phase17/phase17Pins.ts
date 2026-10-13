@@ -96,13 +96,18 @@ export type Phase17ContractPins = Readonly<{
  * 2026-10-03: the policy digest moved again when the header type was qualified
  * (corpus_qualified, controlled). The continuation entry and every other pin
  * are unchanged.
+ *
+ * 2026-10-13: the shared production request builder became model-aware because
+ * Claude 5 rejects sampling parameters. Phase 17 remains explicitly pinned to
+ * claude-sonnet-4-6; its derived request body is unchanged, including
+ * temperature 0, while the request-builder source digest records the branch.
  */
 export const PHASE17_ACCEPTED_CONTRACT_PINS: Phase17ContractPins = {
   promptTemplateId: 'forgewing-recovery-candidate-v2',
   promptTemplateVersion: 'v2',
   promptSha256: '55bb0262885388b2d96ce33075eac73df6ce25bc23a92a6ae204e5f3242214da',
   outputSchemaSha256: 'c480562d6cbac049adc4ad6e0c4937399514bac6f43336e418c20b88e61b5b18',
-  requestBuilderSourceSha256: 'e2b6cd67cf01fb196924a3a68a79abee19698d47a2bf323f6efacf1a674d2845',
+  requestBuilderSourceSha256: '94dabfa9e3df01463ba516e8541b9089f973847ceddb95851007523f91e19cae',
   requestContract: {
     temperature: 0,
     maxRetries: 0,
@@ -159,10 +164,11 @@ export function requestBuilderSourceDigest(source: string): string {
 
 /** Builds a probe request through production code and reads its contract back. */
 export function derivePhase17RequestContract(prompt: string): Phase17RequestContract {
-  const probe = { model: 'phase17-probe-model', timeoutMs: 2_468, maxOutputTokens: 357,
+  const probe = { model: 'claude-sonnet-4-6', timeoutMs: 2_468, maxOutputTokens: 357,
     inputJson: '{"phase17":"probe"}' };
   const { body, options } = buildForgewingStructuredOutputRequest(
     probe, prompt, RECOVERY_CANDIDATE_V2_OUTPUT_JSON_SCHEMA);
+  if (body.temperature !== 0) throw new Error('PHASE17_TEMPERATURE_PIN_MISMATCH');
   return {
     temperature: body.temperature,
     maxRetries: options.maxRetries,

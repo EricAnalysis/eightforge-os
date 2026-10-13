@@ -15,7 +15,7 @@ const sha1 = z.string().regex(/^[a-f0-9]{40}$/);
 export type RepositoryPlanProviderProvenance = Readonly<{
   provider: typeof PROVIDER; model: string; promptId: typeof PROMPT_ID; promptVersion: typeof PROMPT_VERSION;
   promptSha256: string; schemaVersion: typeof OUTPUT_SCHEMA_VERSION; timeoutMs: number; maxOutputTokens: number;
-  callCount: 0 | 1; temperature: 0; maxRetries: 0; repositoryCommitSha: string;
+  callCount: 0 | 1; temperature: 0 | null; maxRetries: 0; repositoryCommitSha: string;
   foundationDigestSha256: string; contentBundleDigestSha256: string; guidanceInputDigestSha256: string;
   rawOutputSha256: string | null; validatedOutputSha256: string | null;
 }>;
@@ -46,7 +46,7 @@ export const RepositoryPlanProviderProvenanceSchema = z.object({
   provider: z.literal(PROVIDER), model: z.string().min(1).max(200), promptId: z.literal(PROMPT_ID),
   promptVersion: z.literal(PROMPT_VERSION), promptSha256: sha256, schemaVersion: z.literal(OUTPUT_SCHEMA_VERSION),
   timeoutMs: z.number().int().min(1_000).max(120_000), maxOutputTokens: z.number().int().min(1_024).max(16_000),
-  callCount: z.union([z.literal(0), z.literal(1)]), temperature: z.literal(0), maxRetries: z.literal(0),
+  callCount: z.union([z.literal(0), z.literal(1)]), temperature: z.literal(0).nullable(), maxRetries: z.literal(0),
   repositoryCommitSha: sha1, foundationDigestSha256: sha256, contentBundleDigestSha256: sha256,
   guidanceInputDigestSha256: sha256, rawOutputSha256: sha256.nullable(), validatedOutputSha256: sha256.nullable(),
 }).strict();

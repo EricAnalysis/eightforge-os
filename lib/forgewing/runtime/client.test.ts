@@ -177,6 +177,18 @@ describe('Forgewing Claude adapter', () => {
     expect.objectContaining({ timeout: 60_000, maxRetries: 0, signal: expect.any(AbortSignal) }));
   });
 
+  it('keeps structured output while omitting rejected Sonnet 5.5 sampling parameters', () => {
+    const built = buildForgewingStructuredOutputRequest({
+      model: 'claude-sonnet-5-5', timeoutMs: 30_000, maxOutputTokens: 800, inputJson: '{}',
+    }, 'PROMPT', RECOVERY_CANDIDATE_V2_OUTPUT_JSON_SCHEMA);
+
+    expect(built.body).not.toHaveProperty('temperature');
+    expect(built.body.output_config.format).toMatchObject({
+      type: 'json_schema', schema: RECOVERY_CANDIDATE_V2_OUTPUT_JSON_SCHEMA,
+    });
+    expect(built.options).toEqual({ timeout: 30_000, maxRetries: 0 });
+  });
+
   it('sends the schema-adjacent pricing field rule in the actual provider prompt', async () => {
     messagesCreate.mockResolvedValue({
       content: [{ type: 'text', text: '{"rowInterpretationState":"insufficient_evidence"}' }],

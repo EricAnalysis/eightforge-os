@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 
 import { sha256Hex } from '@/lib/extraction/domain/hash';
 import { getClaudeClient } from '@/lib/server/ai/claudeClient';
+import { getClaudeSamplingParameters } from '@/lib/server/ai/claudeSampling';
 import {
   COLUMN_MAPPING_OUTPUT_JSON_SCHEMA,
   OBSERVATION_ARBITRATION_OUTPUT_JSON_SCHEMA,
@@ -181,7 +182,7 @@ export function buildForgewingStructuredOutputRequest(
   return {
     body: {
       model: request.model,
-      temperature: 0,
+      ...getClaudeSamplingParameters(request.model),
       max_tokens: request.maxOutputTokens,
       system: prompt,
       messages: [{ role: 'user' as const, content: request.inputJson }],

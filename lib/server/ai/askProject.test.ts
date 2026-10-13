@@ -92,4 +92,18 @@ describe('askProjectWithClaude', () => {
     assert.match(call.messages[0].content, /Contract ceiling/);
     assert.equal(ASK_PROJECT_CLAUDE_SYSTEM_PROMPT.includes('Surfaces read canonical truth'), true);
   });
+
+  it('omits unsupported sampling parameters for Sonnet 5.5', async () => {
+    createMock.mockResolvedValue({ content: [{ type: 'text', text: 'Read-only answer.' }] });
+    getClaudeClientMock.mockReturnValue({ messages: { create: createMock } });
+    getClaudeModelMock.mockReturnValue('claude-sonnet-5-5');
+
+    await askProjectWithClaude({
+      question: 'What is known?',
+      context: { contextSource: 'canonical_project_truth_retrieval' } as AskProjectClaudeContext,
+    });
+
+    expect(createMock).toHaveBeenCalledWith(expect.objectContaining({ model: 'claude-sonnet-5-5' }));
+    expect(createMock.mock.calls[0][0]).not.toHaveProperty('temperature');
+  });
 });

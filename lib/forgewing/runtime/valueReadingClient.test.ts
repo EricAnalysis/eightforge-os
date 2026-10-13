@@ -55,6 +55,13 @@ describe('value-reading provider request (B4.5)', () => {
       output_schema_version: VALUE_READING_EXECUTION.outputSchemaVersion });
   });
 
+  it('omits rejected sampling parameters for Sonnet 5.5 without changing the schema', () => {
+    const built = buildValueReadingMessagesRequest({ ...REQUEST, model: 'claude-sonnet-5-5' }, 'PROMPT');
+    expect(built.body).not.toHaveProperty('temperature');
+    expect(built.body.output_config.format.schema).toBe(VALUE_READING_OUTPUT_JSON_SCHEMA);
+    expect(built.options).toEqual({ timeout: VALUE_READING_EXECUTION.timeoutMs, maxRetries: 0 });
+  });
+
   it('carries text excerpts only when the engine included them', () => {
     const built = buildValueReadingMessagesRequest({ ...REQUEST,
       textExcerpts: { targetLineText: 'Debris CY sia 50', neighbouringLineTexts: ['Hauling TON $8.75'] } }, 'PROMPT');

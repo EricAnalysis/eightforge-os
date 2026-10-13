@@ -1,6 +1,10 @@
 // Server-only Claude "Ask This Project" adapter. Read-only explanations only.
 
-import { getClaudeClient, getClaudeModel } from '@/lib/server/ai/claudeClient';
+import {
+  getClaudeClient,
+  getClaudeModel,
+} from '@/lib/server/ai/claudeClient';
+import { getClaudeSamplingParameters } from '@/lib/server/ai/claudeSampling';
 import type { AskProjectClaudeContext } from '@/lib/server/ai/askProjectContext';
 
 export const ASK_PROJECT_CLAUDE_SYSTEM_PROMPT = [
@@ -30,7 +34,7 @@ export async function askProjectWithClaude(params: {
 
   const message = await client.messages.create({
     model,
-    temperature: 0,
+    ...getClaudeSamplingParameters(model),
     max_tokens: 1200,
     system: ASK_PROJECT_CLAUDE_SYSTEM_PROMPT,
     messages: [

@@ -100,6 +100,19 @@ describe('extractorDiagnosticAgent', () => {
     }));
   });
 
+  it('omits unsupported sampling parameters for a Sonnet 5.5 extractor override', async () => {
+    createMock.mockResolvedValue({ content: [{ type: 'text', text: 'Phase A - Audit' }] });
+    getClaudeClientMock.mockReturnValue({ messages: { create: createMock } });
+    getClaudeExtractorModelMock.mockReturnValue('claude-sonnet-5-5');
+
+    await generateExtractorDiagnostic({
+      expectedOutput: 'expected', actualOutput: 'actual', targetAgent: 'codex', requestedMode: 'phase-a-audit',
+    });
+
+    expect(createMock).toHaveBeenCalledWith(expect.objectContaining({ model: 'claude-sonnet-5-5' }));
+    expect(createMock.mock.calls[0][0]).not.toHaveProperty('temperature');
+  });
+
   it('preserves UTF-8 punctuation from raw Claude text', async () => {
     createMock.mockResolvedValue({
       content: [

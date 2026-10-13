@@ -54,6 +54,21 @@ GRANT USAGE ON SCHEMA auth TO authenticated, anon, service_role;
 GRANT EXECUTE ON FUNCTION auth.uid(), auth.role() TO authenticated, anon, service_role;
 SQL
 
+# The disposable default database models the managed Storage RLS surface so
+# the exact migration policy can be exercised against permissive browser access.
+# Never manufacture or modify a managed table in an externally supplied database.
+if [[ -n "${database_name}" ]]; then
+  "${psql[@]}" <<'SQL'
+CREATE SCHEMA storage;
+CREATE TABLE storage.objects (id uuid PRIMARY KEY, bucket_id text NOT NULL, name text NOT NULL);
+COMMENT ON TABLE storage.objects IS 'eightforge_disposable_storage_rls_fixture';
+ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
+GRANT USAGE ON SCHEMA storage TO anon, authenticated, service_role;
+GRANT SELECT,INSERT,UPDATE,DELETE ON storage.objects TO anon,authenticated,service_role;
+CREATE POLICY replay_permissive_storage ON storage.objects FOR ALL TO anon,authenticated USING (true) WITH CHECK (true);
+SQL
+fi
+
 mapfile -t migrations < <(find supabase/migrations -maxdepth 1 -type f -name '*.sql' | sort)
 if [[ "${#migrations[@]}" -eq 0 ]]; then
   echo "FRESH REPLAY: FAILED AT no migration files found"
@@ -121,6 +136,8 @@ SQL
 # ambiguity or a lifetime-cap race because those function bodies are analyzed
 # on execution and concurrency spans transactions.
 "${psql[@]}" --file scripts/sql/verify-workflow-database-authority.sql
+"${psql[@]}" --file scripts/sql/verify-workflow-intake-v2.sql
+"${psql[@]}" --file scripts/sql/verify-workflow-assessment-evidence.sql
 "${psql[@]}" --file scripts/sql/verify-repository-plan-v2-persistence.sql
 "${psql[@]}" --file scripts/sql/verify-repository-plan-engineering-review.sql
 "${psql[@]}" --file scripts/sql/verify-document-extraction-fact-status.sql

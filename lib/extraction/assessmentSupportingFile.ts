@@ -256,9 +256,10 @@ export async function parseAssessmentSupportingFile(input: Readonly<{
         const fullRange = sheet['!fullref'] ?? sheet['!ref'];
         const full = utils.decode_range(fullRange);
         if (full.e.r - range.s.r >= 12 || full.e.c - range.s.c >= 16) truncated = true;
-        const rows = [];
+        const rows: Array<{ row: number; cells: Array<{ address: string; type: string; value: unknown;
+          displayedValue?: string; formula?: string }> }> = [];
         for (let row = range.s.r; row <= Math.min(range.e.r, range.s.r + 11); row++) {
-          const cells = [];
+          const cells: (typeof rows)[number]['cells'] = [];
           for (let column = range.s.c; column <= Math.min(range.e.c, range.s.c + 15); column++) {
             const address = utils.encode_cell({ r: row, c: column });
             const cell = sheet[address];

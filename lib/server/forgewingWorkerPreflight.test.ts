@@ -10,7 +10,7 @@ const SCRIPT = 'scripts/workers/forgewing-worker-preflight.mjs';
 function run(env: Record<string, string>): { code: number; output: string } {
   try {
     const output = execFileSync(process.execPath, [SCRIPT, '--checkout', process.cwd()], {
-      encoding: 'utf8', env: { PATH: process.env.PATH ?? '', ...env },
+      encoding: 'utf8', env: { PATH: process.env.PATH ?? '', ...env } as unknown as NodeJS.ProcessEnv,
     });
     return { code: 0, output };
   } catch (error) {

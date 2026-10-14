@@ -333,8 +333,9 @@ async function main(): Promise<void> {
         throw new Error('confirmed --input-usd-per-mtok and --output-usd-per-mtok are required for a provider run');
       }
       const shared = getClaudeClient();
-      transport = createQualificationTransportObservation(shared.fetch as typeof fetch);
-      const real = shared.withOptions({ fetch: transport.fetch as typeof shared.fetch });
+      // getClaudeClient has no custom fetch; SDK 0.78 uses globalThis.fetch by default.
+      transport = createQualificationTransportObservation(globalThis.fetch);
+      const real = shared.withOptions({ fetch: transport.fetch });
       provider = createClaudeValueReadingProviderV3({ model, observe: event => envelopes.push(event), client: () => ({ messages: { create: async (body: unknown, options: unknown) => {
         const message = await transport!.run(body, (options as { signal: AbortSignal }).signal,
           () => real.messages.create(body as never, options as never)) as unknown as {

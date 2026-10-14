@@ -13,8 +13,8 @@ export const QUALIFICATION_CONTRACT_V4 = Object.freeze({
   sourceSha256: Object.freeze({ ...sources,
     'lib/evaluation/benchmark/qualificationContractV3.ts': '02bb559d3797e222ee9a82ea5fb2b00b2ac8bfc356ce9a22a224e5ee01d375a7',
     'lib/evaluation/benchmark/qualificationTransportObservation.ts': '4b108185e35d7fb2b31635beb2b87ee69ed6e9d56987526f33a7d829065d2f02',
-    'scripts/evaluation/b461/runQualificationV4.ts': 'a3971650b41ede1dd30b7340e65f080a90976b623c7501c8f55d8fb3c0c34137',
-  }),
+    'scripts/evaluation/b461/runQualificationV4.ts': '198aead87a299e1565529a400658f9534896ffca85680ba1fa361bdabca3fb1e',
+  } as Record<string, string>),
 });
 
 export function assertQualificationContractV4(observed: {

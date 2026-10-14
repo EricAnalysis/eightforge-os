@@ -63,7 +63,8 @@ async function callPhase17Sonnet55NoUpfrontThinking(
     loadRecoveryCandidateV2Prompt(),
   );
   try {
-    const message = await getClaudeClient().messages.create(built.body, {
+    // SDK 0.78 typings predate provider-supported between_tools, as in B4.6.1 v3.
+    const message = await getClaudeClient().messages.create(built.body as never, {
       signal: controller.signal,
       ...built.options,
     });

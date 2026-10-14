@@ -146,8 +146,8 @@ export const PHASE17_SONNET_55_NO_UPFRONT_THINKING_ACCEPTED_CONTRACT_PINS: Phase
   promptTemplateVersion: 'v2',
   promptSha256: '55bb0262885388b2d96ce33075eac73df6ce25bc23a92a6ae204e5f3242214da',
   outputSchemaSha256: 'e9bd736705d8b6e6c6109300e1c8ba6a77b242c4e79b6537cf5eca035ecc0864',
-  requestBuilderSourceSha256: 'b1b894f8c0f8a94d6a7d78736099967a3f2c67a1fd633fcb848c2b5bfa89f332',
-  clientSourceSha256: '7f9f5912412982f5140fb586b86e5c2ae743809d8df56e0b8d3bf93111df6b3d',
+  requestBuilderSourceSha256: '28381eeebae79d02b04085e5000197f05dcb8787c41adee7ce27baed9f2af43c',
+  clientSourceSha256: '1ba0cc20a698e0f2eaa159dc5badcacc1a035a4f5e7b6befadbdd8911d17bdf3',
   runnerSourceSha256: 'bf0ba12383df8517beb67f2992f8f5deb6323c577fd40b86ccc3a06e2cfe905d',
   requestContract: {
     sampling: { temperature: { state: 'omitted' } },

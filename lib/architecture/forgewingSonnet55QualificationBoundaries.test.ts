@@ -43,6 +43,7 @@ describe('additive Sonnet 5.5 qualification boundaries', () => {
     for (const file of [
       'scripts/evaluation/b461/runQualificationV2.ts',
       'scripts/evaluation/b461/runQualificationV3.ts',
+      'scripts/evaluation/b461/runQualificationV4.ts',
       'scripts/evaluation/phase17/runPhase17Sonnet55ContinuationEvaluation.ts',
       'lib/evaluation/forgewing/phase17/phase17Sonnet55Run.ts',
     ]) {
@@ -53,7 +54,7 @@ describe('additive Sonnet 5.5 qualification boundaries', () => {
   it('keeps paid qualification commands and credentials out of CI', () => {
     for (const workflow of readdirSync(path.join(ROOT, '.github/workflows'))) {
       const source = read(`.github/workflows/${workflow}`);
-      expect(source, workflow).not.toMatch(/eval:b461-sonnet-5-5|eval:phase17-sonnet-5-5|runQualificationV2|runQualificationV3|ANTHROPIC_API_KEY/);
+      expect(source, workflow).not.toMatch(/eval:b461-sonnet-5-5|eval:phase17-sonnet-5-5|runQualificationV2|runQualificationV3|runQualificationV4|ANTHROPIC_API_KEY/);
     }
   });
 });

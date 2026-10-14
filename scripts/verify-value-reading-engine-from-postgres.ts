@@ -3,10 +3,8 @@ import {
   verifyRegionEvidence,
 } from '@/lib/humanFactAssertions/regionBoundAssertions';
 import type { ValueReadingEligibility } from '@/lib/server/forgewingGates';
-import {
-  recordRegionBoundAssertion,
-  type RegionAssertionClient,
-} from '@/lib/server/regionBoundHumanAssertions';
+import { type RegionAssertionClient } from '@/lib/server/regionBoundHumanAssertions';
+import { recordRegionBoundAssertion } from '@/lib/server/regionBoundHumanAssertionWriter';
 import {
   runValueReading,
   type ValueReadingEngineClient,

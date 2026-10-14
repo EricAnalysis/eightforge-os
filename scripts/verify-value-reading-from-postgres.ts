@@ -6,12 +6,8 @@ import {
   deriveValueReadingLifecycle,
   deriveValueReadingTelemetry,
 } from '@/lib/resolution/valueReadingLifecycle';
-import {
-  loadRegionBoundAssertionRows,
-  recordRegionBoundAssertion,
-  type RecordRegionAssertionInput,
-  type RegionAssertionClient,
-} from '@/lib/server/regionBoundHumanAssertions';
+import { loadRegionBoundAssertionRows, type RegionAssertionClient } from '@/lib/server/regionBoundHumanAssertions';
+import { recordRegionBoundAssertion, type RecordRegionAssertionInput } from '@/lib/server/regionBoundHumanAssertionWriter';
 import {
   buildValueReadingProposal,
   loadValueReadingRecords,

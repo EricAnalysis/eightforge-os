@@ -27,17 +27,22 @@ describe('Forgewing qualified-model boundary (S2)', () => {
     const readers = ['lib', 'app', 'components'].flatMap(walk).map(posix)
       .filter((file) => code(file).includes('FORGEWING_MODEL'));
     // The value-reading clients are frozen by their qualification contracts
-    // (sourceSha256), so they keep their own read; their production caller,
-    // the value-reading route, applies the qualified-model check before
-    // constructing a provider. V2 is the separate Sonnet 5.5 qualification
-    // client (#232) and may not exist on every base.
-    const allowed = new Set([
-      'lib/forgewing/runtime/modelConfig.ts',
-      'lib/forgewing/runtime/valueReadingClient.ts',
-      'lib/forgewing/runtime/valueReadingClientV2.ts',
-    ]);
+    // (sourceSha256), so each keeps its own read. Only the original client has
+    // a production caller (the value-reading route, which applies the
+    // qualified-model check before constructing a provider); later versions
+    // (V2 #232, V3 #235, ...) are evaluation-only, checked below.
+    const frozenClient = /^lib\/forgewing\/runtime\/valueReadingClient(V\d+)?\.ts$/;
     expect(readers).toContain('lib/forgewing/runtime/modelConfig.ts');
-    expect(readers.filter((file) => !allowed.has(file))).toEqual([]);
+    expect(readers.filter((file) => file !== 'lib/forgewing/runtime/modelConfig.ts' && !frozenClient.test(file)))
+      .toEqual([]);
+  }, 60_000);
+
+  it('versioned qualification clients have no production caller', () => {
+    const importers = ['app', 'components', 'lib'].flatMap(walk).map(posix)
+      .filter((file) => !file.startsWith('lib/evaluation/'))
+      .filter((file) => /valueReadingClientV\d+/.test(code(file)));
+    expect(importers.filter((file) => !/^lib\/forgewing\/runtime\/valueReadingClientV\d+\.ts$/.test(file)))
+      .toEqual([]);
   }, 60_000);
 
   it('the value-reading route constructs a provider only for a qualified model', () => {

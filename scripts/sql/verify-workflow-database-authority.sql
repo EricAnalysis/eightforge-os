@@ -5,11 +5,21 @@ INSERT INTO auth.users (id, email) VALUES
   ('93000000-0000-4000-8000-000000000001', 'workflow-db-proof@example.invalid');
 INSERT INTO public.user_profiles (id, display_name, role) VALUES
   ('93000000-0000-4000-8000-000000000001', 'Workflow DB proof', 'owner');
+-- Forgewing S3: claims are narrowed to organizations the shared gates admit.
+-- a1 is the eligible fixture organization; a2 is never passed as eligible.
+INSERT INTO public.organizations (id, name) VALUES
+  ('93000000-0000-4000-8000-0000000000a1', 'Workflow DB proof eligible org'),
+  ('93000000-0000-4000-8000-0000000000a2', 'Workflow DB proof ineligible org');
 
 INSERT INTO public.workflow_intake_submissions (
   id, workflow_description, documents_involved, manual_checks,
-  frequency_and_volume, exceptions, human_decisions, submitted_at
-) VALUES
+  frequency_and_volume, exceptions, human_decisions, submitted_at, organization_id
+) SELECT fixture.id::uuid, fixture.workflow_description, fixture.documents_involved, fixture.manual_checks,
+  fixture.frequency_and_volume, fixture.exceptions, fixture.human_decisions, fixture.submitted_at,
+  -- The review fixture stays organization-less (historical public intake):
+  -- its reviewer has no organization, and it is never claimed.
+  CASE WHEN fixture.id = '93000000-0000-4000-8000-000000000030' THEN NULL
+    ELSE '93000000-0000-4000-8000-0000000000a1'::uuid END FROM (VALUES
   ('93000000-0000-4000-8000-000000000010','first claim','docs','checks','daily','none','review',now() - interval '10 minutes'),
   ('93000000-0000-4000-8000-000000000011','assessed','docs','checks','daily','none','review',now() - interval '9 minutes'),
   ('93000000-0000-4000-8000-000000000012','active','docs','checks','daily','none','review',now() - interval '8 minutes'),
@@ -20,15 +30,17 @@ INSERT INTO public.workflow_intake_submissions (
   ('93000000-0000-4000-8000-000000000021','first race','docs','checks','daily','none','review',now() - interval '3 minutes'),
   ('93000000-0000-4000-8000-000000000022','sweep race','docs','checks','daily','none','review',now() - interval '2 minutes'),
   ('93000000-0000-4000-8000-000000000023','mixed race','docs','checks','daily','none','review',now() - interval '1 minute'),
-  ('93000000-0000-4000-8000-000000000030','review source','docs','checks','daily','none','review',now());
+  ('93000000-0000-4000-8000-000000000030','review source','docs','checks','daily','none','review',now())
+) AS fixture(id, workflow_description, documents_involved, manual_checks,
+  frequency_and_volume, exceptions, human_decisions, submitted_at);
 
 -- Exact RPC executes and returns unambiguous committed columns.
+SET request.jwt.claim.role = 'service_role';
 SET ROLE service_role;
 DO $$
 DECLARE claimed record;
 BEGIN
-  SELECT * INTO claimed FROM public.claim_workflow_assessment_attempt(
-    2, '93000000-0000-4000-8000-000000000010', NULL);
+  SELECT * INTO claimed FROM public.claim_workflow_assessment_attempt(2, '93000000-0000-4000-8000-000000000010', NULL, ARRAY['93000000-0000-4000-8000-0000000000a1'::uuid], 100);
   IF claimed.source_submission_id <> '93000000-0000-4000-8000-000000000010'::uuid
     OR claimed.attempt_number <> 1 OR claimed.attempt_id IS NULL THEN
     RAISE EXCEPTION 'first claim returned incorrect values';
@@ -44,8 +56,7 @@ RESET ROLE;
 -- A caller cannot widen the database-owned cap.
 DO $$ BEGIN
   BEGIN
-    PERFORM * FROM public.claim_workflow_assessment_attempt(
-      3, '93000000-0000-4000-8000-000000000015', NULL);
+    PERFORM * FROM public.claim_workflow_assessment_attempt(3, '93000000-0000-4000-8000-000000000015', NULL, ARRAY['93000000-0000-4000-8000-0000000000a1'::uuid], 100);
     RAISE EXCEPTION 'caller-controlled cap unexpectedly accepted';
   EXCEPTION WHEN invalid_parameter_value THEN NULL;
   END;
@@ -63,10 +74,8 @@ DO $$ BEGIN
 END $$;
 SET ROLE service_role;
 DO $$ BEGIN
-  IF EXISTS (SELECT 1 FROM public.claim_workflow_assessment_attempt(
-      2,'93000000-0000-4000-8000-00000000eeee',NULL))
-    OR EXISTS (SELECT 1 FROM public.claim_workflow_assessment_attempt(
-      2,'93000000-0000-4000-8000-00000000ffff',NULL)) THEN
+  IF EXISTS (SELECT 1 FROM public.claim_workflow_assessment_attempt(2, '93000000-0000-4000-8000-00000000eeee', NULL, ARRAY['93000000-0000-4000-8000-0000000000a1'::uuid], 100))
+    OR EXISTS (SELECT 1 FROM public.claim_workflow_assessment_attempt(2, '93000000-0000-4000-8000-00000000ffff', NULL, ARRAY['93000000-0000-4000-8000-0000000000a1'::uuid], 100)) THEN
     RAISE EXCEPTION 'invalid or missing intake unexpectedly claimed';
   END IF;
 END $$;
@@ -103,11 +112,10 @@ END $$;
 DO $$
 DECLARE claimed record;
 BEGIN
-  SELECT * INTO claimed FROM public.claim_workflow_assessment_attempt(
-    2, NULL, ARRAY[
+  SELECT * INTO claimed FROM public.claim_workflow_assessment_attempt(2, NULL, ARRAY[
       '93000000-0000-4000-8000-000000000010'::uuid,
       '93000000-0000-4000-8000-000000000014'::uuid
-    ]);
+    ], ARRAY['93000000-0000-4000-8000-0000000000a1'::uuid], 100);
   IF claimed.source_submission_id <> '93000000-0000-4000-8000-000000000015'::uuid THEN
     RAISE EXCEPTION 'assessed/active/exhausted/excluded selection safety failed: %', claimed;
   END IF;
@@ -131,8 +139,7 @@ BEGIN
     RAISE EXCEPTION 'missing finalization unexpectedly succeeded';
   EXCEPTION WHEN no_data_found THEN NULL;
   END;
-  SELECT attempt_id INTO active_id FROM public.claim_workflow_assessment_attempt(
-    2, '93000000-0000-4000-8000-000000000020', NULL);
+  SELECT attempt_id INTO active_id FROM public.claim_workflow_assessment_attempt(2, '93000000-0000-4000-8000-000000000020', NULL, ARRAY['93000000-0000-4000-8000-0000000000a1'::uuid], 100);
   PERFORM public.finalize_workflow_assessment_attempt(active_id, 'failed', 'persist_failed');
   BEGIN
     PERFORM public.finalize_workflow_assessment_attempt(active_id, 'failed', 'again');

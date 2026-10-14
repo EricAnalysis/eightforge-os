@@ -4,6 +4,7 @@ import {
   FORGEWING_QUALIFIED_MODELS,
   getForgewingRuntimeConfig,
   getForgewingRepositoryPlanRuntimeConfig,
+  getForgewingWorkflowAssessmentRuntimeConfig,
   isForgewingColumnMappingEnabled,
   isForgewingObservationArbitrationEnabled,
   isForgewingPricingInterpretationEnabled,
@@ -84,6 +85,27 @@ describe('Forgewing runtime configuration', () => {
     expect(FORGEWING_QUALIFIED_MODELS).toEqual(['claude-sonnet-4-6']);
     expect(Object.isFrozen(FORGEWING_QUALIFIED_MODELS)).toBe(true);
     expect(isForgewingModelQualified(' claude-sonnet-4-6 ')).toBe(true);
+  });
+
+  it('gives Workflow Assessment its own bounded runtime, never the shadow-extraction limits (S3)', () => {
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    vi.stubEnv('FORGEWING_WORKFLOW_ASSESSMENT_ENABLED', '1');
+    vi.stubEnv('FORGEWING_MODEL', 'claude-sonnet-4-6');
+    expect(getForgewingWorkflowAssessmentRuntimeConfig()).toMatchObject({
+      enabled: true, disabledReason: null, model: 'claude-sonnet-4-6',
+      timeoutMs: 15_000, maxCalls: 1, maxOutputTokens: 4_000,
+    });
+    // A three-attempt sweep must fit its 60-second route budget.
+    vi.stubEnv('FORGEWING_WORKFLOW_ASSESSMENT_TIMEOUT_MS', '60000');
+    vi.stubEnv('FORGEWING_WORKFLOW_ASSESSMENT_MAX_OUTPUT_TOKENS', '64000');
+    expect(getForgewingWorkflowAssessmentRuntimeConfig()).toMatchObject({ timeoutMs: 15_000, maxOutputTokens: 4_000 });
+    vi.stubEnv('FORGEWING_WORKFLOW_ASSESSMENT_TIMEOUT_MS', '18000');
+    expect(getForgewingWorkflowAssessmentRuntimeConfig().timeoutMs).toBe(18_000);
+
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.stubEnv('FORGEWING_MODEL', 'claude-sonnet-5-5');
+    expect(getForgewingWorkflowAssessmentRuntimeConfig())
+      .toMatchObject({ enabled: false, disabledReason: 'model_unqualified' });
   });
 
   it('reports the master gate, not the model, when Forgewing is simply off', () => {

@@ -46,7 +46,7 @@ describe('runOrchestrator', () => {
       temperature: 0,
       max_tokens: 6000,
       system: ORCHESTRATOR_SYSTEM_PROMPT,
-    }));
+    }), { timeout: 90_000, maxRetries: 1 });
     const call = createMock.mock.calls[0][0];
     assert.match(call.messages[0].content, /Root cause category: Duplicate Derivation Issue \(duplicate_derivation_issue\)/);
     assert.match(call.messages[0].content, /Freeform question or request:/);
@@ -60,7 +60,7 @@ describe('runOrchestrator', () => {
 
     await runOrchestrator({ question: 'Explain this failure.' });
 
-    expect(createMock).toHaveBeenCalledWith(expect.objectContaining({ model: 'claude-sonnet-5-5' }));
+    expect(createMock).toHaveBeenCalledWith(expect.objectContaining({ model: 'claude-sonnet-5-5' }), { timeout: 90_000, maxRetries: 1 });
     expect(createMock.mock.calls[0][0]).not.toHaveProperty('temperature');
   });
 

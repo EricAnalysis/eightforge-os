@@ -21,7 +21,9 @@ export function getClaudeClient(): Anthropic {
   }
 
   if (!cachedClient) {
-    cachedClient = new Anthropic({ apiKey });
+    // Backstop only: every call passes its own bounds (Forgewing request
+    // contracts or CLAUDE_REQUEST_OPTIONS). Never the SDK's 10-minute default.
+    cachedClient = new Anthropic({ apiKey, timeout: 120_000, maxRetries: 0 });
   }
 
   return cachedClient;

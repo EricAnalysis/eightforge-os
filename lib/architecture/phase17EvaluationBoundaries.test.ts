@@ -19,6 +19,7 @@ const PHASE17_SCRIPTS = 'scripts/evaluation/phase17';
 /** The single audited module that references production seams for Phase 17. */
 const SEAMS = 'lib/evaluation/phase17LiveSeams.ts';
 const RUN = `${PHASE17_LIB}/phase17Run.ts`;
+const SONNET_55_RUN = `${PHASE17_LIB}/phase17Sonnet55Run.ts`;
 
 function walk(directory: string): string[] {
   const absolute = path.join(ROOT, directory);
@@ -69,8 +70,9 @@ describe('Phase 17 evaluation boundaries', () => {
     const seamConsumers = ['app', 'components', 'lib', 'scripts'].flatMap(walk)
       .filter((relative) => !TEST.test(relative) && relative !== SEAMS)
       .filter((relative) => read(relative).includes('phase17LiveSeams'));
-    expect(seamConsumers).toEqual([RUN]);
+    expect(seamConsumers.sort()).toEqual([RUN, SONNET_55_RUN].sort());
     expect(code(RUN)).toContain("await import('@/lib/evaluation/phase17LiveSeams')");
+    expect(code(SONNET_55_RUN)).toContain("await import('@/lib/evaluation/phase17LiveSeams')");
     expect(code(SEAMS)).toMatch(/export const PHASE17_TRUSTED_PROJECT_DURABLE_PROPOSAL = buildDurableRecoveryProposalV2;/);
     expect(code(SEAMS)).toMatch(/export const PHASE17_TRUSTED_SCHEDULE_RECOVERY = scheduleRecoveryCandidateV2Shadow;/);
     expect([...code(SEAMS).matchAll(/^export /gm)]).toHaveLength(2);
@@ -100,6 +102,7 @@ describe('Phase 17 evaluation boundaries', () => {
     const writers = phase17Sources().filter((relative) => /\bwriteFileSync\s*\(/.test(code(relative)));
     expect(writers.sort()).toEqual([
       `${PHASE17_LIB}/phase17Artifacts.ts`,
+      `${PHASE17_LIB}/phase17Sonnet55Artifacts.ts`,
       `${PHASE17_SCRIPTS}/preparePhase17DnLabels.ts`,
     ]);
     // Neither writes into policy or qualification source.
@@ -141,12 +144,17 @@ describe('Phase 17 evaluation boundaries', () => {
 
   it('never skips: a missing corpus fails the explicit command', () => {
     const cli = read(`${PHASE17_SCRIPTS}/runPhase17ContinuationEvaluation.ts`);
+    const sonnet55Cli = read(`${PHASE17_SCRIPTS}/runPhase17Sonnet55ContinuationEvaluation.ts`);
     expect(cli).not.toMatch(/skipIf|\.skip\(|process\.exit\(0\)/);
     expect(cli).toContain('DN_PRICED_SCHEDULE_SOURCE_PDF is required');
+    expect(sonnet55Cli).not.toMatch(/skipIf|\.skip\(|process\.exit\(0\)/);
+    expect(sonnet55Cli).toContain('DN_PRICED_SCHEDULE_SOURCE_PDF is required');
     expect(read(`${PHASE17_LIB}/phase17Run.ts`)).toContain("fail('corpus_missing'");
     const scripts = JSON.parse(read('package.json')).scripts as Record<string, string>;
     expect(scripts['eval:phase17-continuation'])
       .toContain('scripts/evaluation/phase17/runPhase17ContinuationEvaluation.ts');
+    expect(scripts['eval:phase17-sonnet-5-5-continuation'])
+      .toContain('scripts/evaluation/phase17/runPhase17Sonnet55ContinuationEvaluation.ts');
   });
 
   it('keeps live provider evaluation and provider credentials out of CI', () => {
@@ -184,12 +192,14 @@ describe('Phase 17 evaluation boundaries', () => {
       `${PHASE17_LIB}/phase17Execution.ts`,
       `${PHASE17_LIB}/phase17Qualification.ts`,
       RUN,
+      SONNET_55_RUN,
     ]);
     expect([...code(`${PHASE17_LIB}/phase17Execution.ts`).matchAll(/\? 'anthropic_live'/g)]).toHaveLength(1);
     expect(code(`${PHASE17_LIB}/phase17Qualification.ts`))
       .toMatch(/input\.providerExecution === 'anthropic_live' \? \[\] : \['provider_execution_not_anthropic_live'\]/);
     // The explicit command never injects a provider, so its runs are the real seam or nothing.
     expect(code(`${PHASE17_SCRIPTS}/runPhase17ContinuationEvaluation.ts`)).not.toMatch(/createProvider/);
+    expect(code(`${PHASE17_SCRIPTS}/runPhase17Sonnet55ContinuationEvaluation.ts`)).not.toMatch(/createProvider/);
   });
 
   describe('harness integrity (M4)', () => {
@@ -300,5 +310,6 @@ describe('Phase 17 evaluation boundaries', () => {
 
   it('ignores raw payloads and labeling workbooks', () => {
     expect(read('.gitignore')).toContain('scripts/evaluation/artifacts/phase17/**/local/');
+    expect(read('.gitignore')).toContain('scripts/evaluation/artifacts/phase17-sonnet-5-5/**/local/');
   });
 });

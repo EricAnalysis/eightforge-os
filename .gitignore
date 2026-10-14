@@ -18,6 +18,8 @@ scripts/ask/artifacts/*.json
 scripts/audit-golden-phase-a-output.json
 # Phase 17 raw provider payloads and labeling workbooks: source text, never commit.
 scripts/evaluation/artifacts/phase17/**/local/
+scripts/evaluation/artifacts/phase17-sonnet-5-5/**/local/
+scripts/evaluation/artifacts/b461-sonnet-5-5/local/
 
 # next.js
 /.next/

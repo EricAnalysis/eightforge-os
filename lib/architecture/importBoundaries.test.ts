@@ -163,6 +163,7 @@ const FORGEWING_EVALUATION_AUTHORIZED_CONSUMERS = new Set([
   // Pure B4.6.1 registration pins the adapter's source path as data only.
   // This permits that mention, not imports of Forgewing runtime modules.
   'lib/evaluation/benchmark/qualificationContract.ts',
+  'lib/evaluation/benchmark/qualificationContractV2.ts',
   'app/evaluation/forgewing/a3-linkage/page.tsx',
   'app/api/evaluation/forgewing/a3-linkage/source/route.ts',
   'app/api/evaluation/forgewing/a3-linkage/validate/route.ts',
@@ -1500,10 +1501,12 @@ describe('Forgewing proposal authority seal', () => {
     ]);
   });
 
-  it('permits only the exact pure qualification contract source pin while retaining runtime import boundaries', () => {
+  it('permits only the exact pure qualification contract source pins while retaining runtime import boundaries', () => {
     const root = fixtureRoot();
     const pin = "export const sourcePin = { 'lib/forgewing/runtime/valueReadingClient.ts': 'hash' };";
     source(root, 'lib/evaluation/benchmark/qualificationContract.ts', pin);
+    expect(forgewingBoundaryViolations(root)).toEqual([]);
+    source(root, 'lib/evaluation/benchmark/qualificationContractV2.ts', pin);
     expect(forgewingBoundaryViolations(root)).toEqual([]);
     source(root, 'lib/evaluation/benchmark/otherContract.ts', pin);
     expect(forgewingBoundaryViolations(root)).toEqual([

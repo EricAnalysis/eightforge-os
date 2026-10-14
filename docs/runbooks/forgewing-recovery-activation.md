@@ -44,7 +44,16 @@ If prior state cannot be read, recovery schedules zero provider calls and logs `
 
 ## Review and reprocess
 
-Forgewing recovery recommendations are non-authoritative proposals. A human remains the sole authority for accepting, modifying, rejecting, or deferring a proposal, and an accepted review still requires explicit reprocessing before it affects reconstructed output.
+Forgewing recovery recommendations are non-authoritative proposals. A human remains the sole authority for accepting, modifying, rejecting, or deferring a proposal.
+
+Recording a review never changes output by itself and never starts processing. An accepted or modified review affects reconstructed output only when the document is next processed:
+
+- **Which runs apply it.** Every processing run of the same evidence applies it: an operator's explicit `recovery_reprocess` or any later normal run, on both the `processDocument` and `jobs/process` paths. Both load confirmations through the one seam `loadConfirmedRecoverySelections`. This is deliberate: human-reviewed input is final and must survive reprocessing (invariant D0), so a normal re-run never silently drops a human confirmation.
+- **Binding.** A confirmation is bound to the exact source artifact and page-representation digest the human reviewed. If the evidence changes, it no longer applies and the target needs review again; it is never carried to new evidence.
+- **Conflicts.** More than one approving review for the same proposal yields nothing and a diagnostic.
+- **`recovery_reprocess`.** It applies only effective confirmations, fails without one, and suppresses all provider work. A normal run applies confirmations and still allows provider work for the page's remaining abstentions.
+
+Pinned by `lib/pipeline/processDocument.test.ts` (normal-run and `recovery_reprocess` cases) and `lib/server/effectiveRecoveryConfirmations.test.ts`.
 
 `processingPurpose='recovery_reprocess'` suppresses all Forgewing provider work. Phase 16 does not change Unstructured extraction, OpenAI Instructor extraction/classification, or OpenAI vision extraction; those providers belong to separate extraction-policy concerns.
 

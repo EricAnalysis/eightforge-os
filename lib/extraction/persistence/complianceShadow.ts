@@ -43,6 +43,13 @@ import {
   isForgewingTableContinuationEnabled,
 } from '@/lib/forgewing/runtime/modelConfig';
 import { ForgewingCallBudget } from '@/lib/forgewing/runtime/budget';
+import type { ForgewingProvider, ForgewingProviderObservation } from '@/lib/forgewing/runtime/client';
+import {
+  createObservedForgewingProvider,
+  type ObservedProviderTask,
+} from '@/lib/forgewing/runtime/observedProviders';
+import { recordForgewingProviderCallObservation } from '@/lib/server/forgewingProviderTelemetry';
+import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import {
   resolveForgewingEntitlement,
   type OrganizationForgewingEntitlementResolver,
@@ -992,7 +999,10 @@ export function scheduleForgewingPricingInterpretationShadow(
   if (!candidate) return;
   const task = async (): Promise<void> => {
     try {
-      const result = await (dependencies.run ?? runForgewingPricingInterpretation)(candidate);
+      const result = dependencies.run
+        ? await dependencies.run(candidate)
+        : await withShadowProviderTelemetry('pricing_interpretation', input.organizationId,
+          (provider) => runForgewingPricingInterpretation(candidate, { provider }));
       if (result.status === 'applied' || result.status === 'abstained') {
         const source = result.bundle.proposals[0] ?? result.bundle.abstentions[0];
         const persisted = await (dependencies.persist ?? persistReasoningShadowArtifact)({ input: {
@@ -1370,11 +1380,16 @@ export function scheduleRecoveryCandidateV2Shadow(
     const unitCandidates = unit.candidates;
     const representative = unitCandidates[0]!;
     try {
-      const recommendation = await (dependencies.run ?? runRecoveryCandidateV2Recommendation)({
+      const recoveryInput = {
         organizationId: input.organizationId,
         extractionSnapshotId: input.extractionSnapshotId,
         candidates: unitCandidates,
-      }, { env, budget: new ForgewingCallBudget(1) });
+      };
+      const recommendation = dependencies.run
+        ? await dependencies.run(recoveryInput, { env, budget: new ForgewingCallBudget(1) })
+        : await withShadowProviderTelemetry('recovery_candidate_v2', input.organizationId,
+          (provider) => runRecoveryCandidateV2Recommendation(recoveryInput,
+            { env, budget: new ForgewingCallBudget(1), provider }));
       if (recommendation.status !== 'requires_human_review') {
         const outcomeCode: RecoveryGenerationOutcomeCode =
           recommendation.status === 'eligible_not_executed'
@@ -1556,6 +1571,55 @@ export function step3BridgeForForgewingEntitlement(
     : deterministicBridge;
 }
 
+/**
+ * Runs one shadow / recovery task with an observed provider and records one
+ * content-free telemetry row per provider call (S7 pattern; no content, no
+ * prompt, no output). The request is identical to the task's default
+ * provider; recording is best effort and never changes the task's result.
+ */
+export async function withShadowProviderTelemetry<T>(
+  task: ObservedProviderTask,
+  organizationId: string,
+  run: (provider: ForgewingProvider) => Promise<T>,
+): Promise<T> {
+  let invokedModel: string | null = null;
+  let observation: ForgewingProviderObservation | null = null;
+  let failure: unknown;
+  const startedAt = performance.now();
+  const observed = createObservedForgewingProvider(task, (entry) => { observation = entry; });
+  const result = await run(async (request) => {
+    invokedModel = request.model;
+    try {
+      return await observed(request);
+    } catch (error) {
+      failure = error;
+      throw error;
+    }
+  });
+  if (invokedModel) {
+    const admin = getSupabaseAdmin();
+    if (admin) {
+      const observed = observation as ForgewingProviderObservation | null;
+      const message = failure instanceof Error ? failure.message : failure === undefined ? null : String(failure);
+      await recordForgewingProviderCallObservation(admin, {
+        workflow: task,
+        organizationId,
+        model: invokedModel,
+        returnedModel: observed?.returnedModel,
+        providerRequestId: observed?.requestId,
+        stopReason: observed?.stopReason,
+        inputTokens: observed?.inputTokens,
+        outputTokens: observed?.outputTokens,
+        latencyMs: observed?.latencyMs ?? performance.now() - startedAt,
+        outcome: message == null ? 'succeeded'
+          : message === 'provider_timeout' ? 'provider_timeout'
+            : message === 'provider_truncated_output' ? 'output_truncated' : 'provider_failed',
+      });
+    }
+  }
+  return result;
+}
+
 export function withForgewingRegionClassificationShadow(
   deterministicBridge: Step3InterpretationBridge | undefined,
   organizationId: string,
@@ -1572,9 +1636,9 @@ export function withForgewingRegionClassificationShadow(
     if (isForgewingObservationArbitrationEnabled()) {
       const task = async (): Promise<void> => {
         try {
-          const result = await runForgewingObservationArbitration(
-            forgewingObservationArbitrationInput(input, organizationId, sourceDocumentId),
-          );
+          const result = await withShadowProviderTelemetry('observation_arbitration', organizationId,
+            (provider) => runForgewingObservationArbitration(
+              forgewingObservationArbitrationInput(input, organizationId, sourceDocumentId), { provider }));
           if (result.status === 'applied' || result.status === 'abstained') {
             const source = result.bundle.proposals[0] ?? result.bundle.abstentions[0];
             const persist = persistence.persist ?? persistReasoningShadowArtifact;
@@ -1632,7 +1696,8 @@ export function withForgewingRegionClassificationShadow(
             sourceDocumentId,
           );
           if (!columnInput) return;
-          const result = await runForgewingColumnMapping(columnInput);
+          const result = await withShadowProviderTelemetry('column_mapping', organizationId,
+            (provider) => runForgewingColumnMapping(columnInput, { provider }));
           if (result.status === 'applied' || result.status === 'abstained') {
             const source = result.bundle.proposals[0] ?? result.bundle.abstentions[0];
             const persist = persistence.persist ?? persistReasoningShadowArtifact;
@@ -1687,9 +1752,9 @@ export function withForgewingRegionClassificationShadow(
     if (isForgewingTableContinuationEnabled()) {
       const task = async (): Promise<void> => {
         try {
-          const result = await runForgewingTableContinuation(
-            forgewingTableContinuationInput(input, organizationId, sourceDocumentId),
-          );
+          const result = await withShadowProviderTelemetry('table_continuation', organizationId,
+            (provider) => runForgewingTableContinuation(
+              forgewingTableContinuationInput(input, organizationId, sourceDocumentId), { provider }));
           if (result.status === 'applied' || result.status === 'abstained') {
             const source = result.bundle.proposals[0] ?? result.bundle.abstentions[0];
             const persist = persistence.persist ?? persistReasoningShadowArtifact;
@@ -1748,9 +1813,9 @@ export function withForgewingRegionClassificationShadow(
     }
     if (!isForgewingRegionClassificationEnabled()) return deterministicPayload;
     try {
-      const result = await runForgewingRegionClassification(
-        forgewingInput(input, organizationId, sourceDocumentId),
-      );
+      const result = await withShadowProviderTelemetry('region_classification', organizationId,
+        (provider) => runForgewingRegionClassification(
+          forgewingInput(input, organizationId, sourceDocumentId), { provider }));
       if (result.status === 'applied' || result.status === 'abstained') {
         const source = result.bundle.proposals[0] ?? result.bundle.abstentions[0];
         const persistenceInput: ReasoningShadowPersistenceInput = {

@@ -26,7 +26,8 @@ export type ProviderCallOutcome =
   | 'succeeded' | 'provider_failed' | 'provider_timeout' | 'output_truncated' | 'output_invalid';
 
 export type ProviderCallObservationInput = Readonly<{
-  workflow: ProviderTelemetryWorkflow;
+  /** A ledger workflow (CHECK-enforced); server seams use ProviderTelemetryWorkflow. */
+  workflow: ProviderTelemetryWorkflow | (string & Record<never, never>);
   organizationId: string | null;
   reservationId?: string | null;
   requestDigestSha256?: string | null;

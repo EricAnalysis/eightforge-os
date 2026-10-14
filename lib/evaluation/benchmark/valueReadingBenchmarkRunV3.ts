@@ -1,3 +1,4 @@
+import { VALUE_READING_EXECUTION as FROZEN_VALUE_READING_EXECUTION } from '@/lib/valueReadingContract';
 import { QUALIFICATION_CONTRACT_V3 } from '@/lib/evaluation/benchmark/qualificationContractV3';
 import { createHash } from 'node:crypto';
 
@@ -84,7 +85,7 @@ export function valueReadingBenchmarkCropSpec(
   target: ValueReadingBenchmarkTarget,
 ): ValueReadingCropSpec {
   return {
-    renderer: VALUE_READING_EXECUTION.cropRenderer,
+    renderer: FROZEN_VALUE_READING_EXECUTION.cropRenderer,
     organizationId: 'benchmark',
     sourceDocumentId: document.documentKey,
     sourceArtifactId: document.sourceSha256,

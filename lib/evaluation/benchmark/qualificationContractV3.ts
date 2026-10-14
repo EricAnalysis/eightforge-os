@@ -47,7 +47,7 @@ export const QUALIFICATION_CONTRACT_V3 = freeze({
     ...sharedSourceSha256,
     'lib/evaluation/benchmark/qualificationContract.ts': '74e3a1547aef8e8ddfbf0aa3bd6270732acc7d36f262855e015c6eda6c8be632',
     'lib/forgewing/runtime/valueReadingClientV3.ts': '84c3b97d262adc7e61f11b0453486a480e0065b404e3116d2e49477ff4bdb28b',
-    'lib/evaluation/benchmark/valueReadingBenchmarkRunV3.ts': '12db704bd92b9b9e9900ad2529c6dd85e1d28ef1a5897fb6d17ac9b6930e009d',
+    'lib/evaluation/benchmark/valueReadingBenchmarkRunV3.ts': '43486ca3c14303db64c23f42237f1c203f19303f026e7f26247df2da20871bbc',
     'lib/server/valueReadingQualificationRenderer.ts': 'e83ebe9c26b383bfab9387f3f71038d2ca0d7fb0d9145c7e7c50b6cf1a9a2c6b',
     'scripts/evaluation/b461/runQualificationV3.ts': '0f1a1fc695df31e956fc17ad1758ecfa7ef337c07bdccd33fbb9057dbaba2494',
   },

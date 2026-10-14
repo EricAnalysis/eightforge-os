@@ -281,6 +281,11 @@ persist deterministic `callCount: 0` Plan V2 artifacts.
 
 ## Deployment and operations
 
+The production host is the tracked `Dockerfile.worker` image run against a
+read-only checkout at the same commit; build, token minting, run, first safe
+check and rollback are in
+[forgewing-engineering-worker.md](../runbooks/forgewing-engineering-worker.md).
+
 Run the outbound worker with:
 
 ```text

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { ASK_PROJECT_CLAUDE_SYSTEM_PROMPT, askProjectWithClaude } from '@/lib/server/ai/askProject';
+import { recordForgewingProviderCallObservation } from '@/lib/server/forgewingProviderTelemetry';
 import { getClaudeModel } from '@/lib/server/ai/claudeClient';
 import { buildAskProjectContext } from '@/lib/server/ai/askProjectContext';
 import { getActorContext } from '@/lib/server/getActorContext';
@@ -151,9 +152,23 @@ export async function POST(
     }
 
     let answer: Awaited<ReturnType<typeof askProjectWithClaude>>;
+    const providerStartedAt = performance.now();
+    const telemetry = {
+      workflow: 'project_ask' as const,
+      organizationId: actor.actor.organizationId,
+      reservationId: reservation.reservationId,
+      requestDigestSha256,
+      model: getClaudeModel(),
+    };
     try {
       answer = await askProjectWithClaude({ question, context });
     } catch (providerError) {
+      await recordForgewingProviderCallObservation(admin, {
+        ...telemetry,
+        outcome: providerError instanceof Error && /timed? ?out|abort/i.test(providerError.name + providerError.message)
+          ? 'provider_timeout' : 'provider_failed',
+        latencyMs: performance.now() - providerStartedAt,
+      });
       // The reservation stays spent and auditable (append-only ledger). Record
       // which one failed and why, by class only: never the question, context
       // or provider text.
@@ -168,7 +183,13 @@ export async function POST(
         { status: 503 },
       );
     }
-    return NextResponse.json(answer);
+    await recordForgewingProviderCallObservation(admin, {
+      ...telemetry,
+      ...(answer.observation ?? { latencyMs: performance.now() - providerStartedAt }),
+      outcome: 'succeeded',
+    });
+    // The browser receives the answer and model only, never call metadata.
+    return NextResponse.json({ answer: answer.answer, model: answer.model });
   } catch (err) {
     if (isAiNotConfiguredError()) {
       return NextResponse.json(

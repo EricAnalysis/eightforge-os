@@ -21,6 +21,15 @@ import {
   type ForgewingWorkflowAssessment,
 } from '@/lib/forgewing/tasks/workflowAssessment';
 import { hashCanonical } from '@/lib/extraction/domain/hash';
+import {
+  createObservedWorkflowAssessmentProvider,
+  type ForgewingProviderObservation,
+} from '@/lib/forgewing/runtime/client';
+import {
+  providerFailureOutcome,
+  recordForgewingProviderCallObservation,
+  type ProviderCallOutcome,
+} from '@/lib/server/forgewingProviderTelemetry';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 
 export const WORKFLOW_ASSESSMENT_TABLE = 'workflow_assessments' as const;
@@ -116,6 +125,18 @@ async function appendAssessment(
   return { ok: true, version: assessmentVersion };
 }
 
+function workflowAssessmentCallOutcome(
+  result: Awaited<ReturnType<typeof runForgewingWorkflowAssessment>>,
+): ProviderCallOutcome {
+  if (result.status === 'requires_human_review') return 'succeeded';
+  if (result.status === 'provider_failed') return providerFailureOutcome(result.reason);
+  if (result.status === 'structured_output_invalid' && result.reason === 'provider_truncated_output') {
+    return 'output_truncated';
+  }
+  // The provider answered, but the answer failed parsing, closure or validation.
+  return 'output_invalid';
+}
+
 /**
  * Runs one bounded assessment for one persisted submission.
  *
@@ -139,12 +160,37 @@ export async function runAndRecordWorkflowAssessment(
     return { status: 'assessment_not_produced', reason: 'attachment_identity_closure_failed' };
   }
 
+  // S7: observe the one provider call (metadata only) for the telemetry ledger.
+  let invokedModel: string | null = null;
+  let observation: ForgewingProviderObservation | null = null;
+  const startedAt = performance.now();
+  const observedProvider = createObservedWorkflowAssessmentProvider((observed) => { observation = observed; });
   const result = await runForgewingWorkflowAssessment({
     submissionId: submission.submissionId,
     submissionSchemaVersion: submission.submissionSchemaVersion,
     answers: submission.answers,
     ...(attachments.length ? { attachments } : {}),
+  }, {
+    provider: async (request) => {
+      invokedModel = request.model;
+      return observedProvider(request);
+    },
   });
+  if (invokedModel) {
+    const observed = observation as ForgewingProviderObservation | null;
+    await recordForgewingProviderCallObservation(admin, {
+      workflow: 'workflow_assessment',
+      organizationId: submission.organizationId ?? null,
+      model: invokedModel,
+      returnedModel: observed?.returnedModel,
+      providerRequestId: observed?.requestId,
+      stopReason: observed?.stopReason,
+      inputTokens: observed?.inputTokens,
+      outputTokens: observed?.outputTokens,
+      latencyMs: observed?.latencyMs ?? performance.now() - startedAt,
+      outcome: workflowAssessmentCallOutcome(result),
+    });
+  }
 
   if (result.status !== 'requires_human_review') {
     // Reason codes only. The source answers describe a visitor's business process

@@ -325,6 +325,25 @@ export const callClaudeForWorkflowAssessment: ForgewingProvider = async (request
     true,
   );
 
+/**
+ * Production observed variant of callClaudeForWorkflowAssessment (S7). Same
+ * client, prompt bytes, schema, temperature, zero retries and truncation
+ * detection; the observer receives response metadata only (ids, model, stop
+ * reason, token counts, latency), never content, for the durable telemetry
+ * ledger.
+ */
+export function createObservedWorkflowAssessmentProvider(
+  observer: ForgewingProviderObserver,
+): ForgewingProvider {
+  return async (request) => callClaudeWithStructuredOutput(
+    request,
+    loadWorkflowAssessmentPrompt(),
+    WORKFLOW_ASSESSMENT_OUTPUT_JSON_SCHEMA,
+    true,
+    observer,
+  );
+}
+
 export const callClaudeForRepositoryPlanGuidance: ForgewingProvider = async (request) =>
   callClaudeWithStructuredOutput(
     request,

@@ -76,6 +76,7 @@ function mockAdmin(project = {
     select: vi.fn(() => query),
     eq: vi.fn(() => query),
     maybeSingle,
+    insert: vi.fn(async (_row: Record<string, unknown>) => ({ error: null })),
   };
   const admin = {
     from: vi.fn(() => query),
@@ -137,6 +138,32 @@ describe('POST /api/projects/[id]/ask', () => {
       answer: 'Read-only explanation.',
       model: 'claude-sonnet-4-6',
     });
+  });
+
+  it('records content-free call telemetry and returns only answer and model (S7)', async () => {
+    process.env.ANTHROPIC_API_KEY = 'sk-test';
+    mockActor();
+    const { admin, query } = mockAdmin();
+    buildAskProjectContextMock.mockResolvedValue({ project: { id: 'project-1' }, scope: { projectId: 'project-1' } });
+    askProjectWithClaudeMock.mockResolvedValue({
+      answer: 'Read-only explanation.', model: 'claude-sonnet-4-6',
+      observation: { returnedModel: 'claude-sonnet-4-6', providerRequestId: 'req_1', stopReason: 'end_turn',
+        inputTokens: 900, outputTokens: 120, latencyMs: 2100 },
+    });
+
+    const response = await POST(new Request('http://localhost/api/projects/project-1/ask', {
+      method: 'POST', body: JSON.stringify({ question: 'Explain the blockers' }),
+    }), { params: Promise.resolve({ id: 'project-1' }) });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { answer: 'Read-only explanation.', model: 'claude-sonnet-4-6' });
+    expect(admin.from).toHaveBeenCalledWith('forgewing_provider_call_observations');
+    const row = query.insert.mock.calls.at(-1)![0];
+    expect(row).toMatchObject({
+      workflow: 'project_ask', organization_id: 'org-1', reservation_id: 'r-1', outcome: 'succeeded',
+      provider_request_id: 'req_1', input_tokens: 900, output_tokens: 120, latency_ms: 2100,
+    });
+    expect(JSON.stringify(row)).not.toMatch(/Explain the blockers|Read-only explanation/);
   });
 
   it('does not expose ANTHROPIC_API_KEY in API errors', async () => {

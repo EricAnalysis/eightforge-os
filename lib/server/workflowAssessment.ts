@@ -21,10 +21,8 @@ import {
   type ForgewingWorkflowAssessment,
 } from '@/lib/forgewing/tasks/workflowAssessment';
 import { hashCanonical } from '@/lib/extraction/domain/hash';
-import {
-  createObservedWorkflowAssessmentProvider,
-  type ForgewingProviderObservation,
-} from '@/lib/forgewing/runtime/client';
+import type { ForgewingProviderObservation } from '@/lib/forgewing/runtime/client';
+import { createObservedWorkflowAssessmentProvider } from '@/lib/forgewing/runtime/observedWorkflowAssessmentClient';
 import {
   providerFailureOutcome,
   recordForgewingProviderCallObservation,

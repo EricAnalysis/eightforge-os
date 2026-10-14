@@ -16,7 +16,7 @@ vi.mock('@/lib/forgewing/tasks/workflowAssessment', () => ({
 }));
 
 // S7: the observed provider reports metadata only; content never leaves it.
-vi.mock('@/lib/forgewing/runtime/client', () => ({
+vi.mock('@/lib/forgewing/runtime/observedWorkflowAssessmentClient', () => ({
   createObservedWorkflowAssessmentProvider: (observer: (observation: Record<string, unknown>) => void) =>
     async () => {
       observer({ messageId: 'msg_1', requestId: 'req_1', returnedModel: 'claude-sonnet-4-6', stopReason: 'end_turn',

@@ -3,13 +3,14 @@ import type { NextRequest } from 'next/server';
 import { POST } from '@/app/api/documents/[id]/facts/region-assertions/route';
 import { getActorContext } from '@/lib/server/getActorContext';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
-import { recordRegionBoundAssertion } from '@/lib/server/regionBoundHumanAssertions';
+import { recordRegionBoundAssertion } from '@/lib/server/regionBoundHumanAssertionWriter';
 import { headerEvidenceFixture, headerEvidenceFixtureId as id } from '@/lib/customerAdaptation/headerEvidenceFixtures';
 import { produceCustomerHeaderEvidence } from '@/lib/customerAdaptation/headerEvidence';
 
 vi.mock('@/lib/server/getActorContext', () => ({ getActorContext: vi.fn() }));
 vi.mock('@/lib/server/supabaseAdmin', () => ({ getSupabaseAdmin: vi.fn() }));
-vi.mock('@/lib/server/regionBoundHumanAssertions', () => ({ recordRegionBoundAssertion: vi.fn(), loadRegionBoundAssertionRows: vi.fn() }));
+vi.mock('@/lib/server/regionBoundHumanAssertions', () => ({ loadRegionBoundAssertionRows: vi.fn() }));
+vi.mock('@/lib/server/regionBoundHumanAssertionWriter', () => ({ recordRegionBoundAssertion: vi.fn() }));
 vi.mock('@/lib/validator/revalidationRequests', () => ({ requestFactOverrideRevalidation: vi.fn() }));
 
 function fixture() {

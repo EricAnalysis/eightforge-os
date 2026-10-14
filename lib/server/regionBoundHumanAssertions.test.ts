@@ -1,12 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { loadRegionBoundAssertionRows, type RegionAssertionClient } from '@/lib/server/regionBoundHumanAssertions';
 import {
-  loadRegionBoundAssertionRows,
   recordRegionBoundAssertion,
   regionAssertionRequestDigest,
   type RecordRegionAssertionInput,
-  type RegionAssertionClient,
-} from '@/lib/server/regionBoundHumanAssertions';
+} from '@/lib/server/regionBoundHumanAssertionWriter';
 
 const INPUT: RecordRegionAssertionInput = {
   organizationId: 'org-1', actorId: 'actor-1', sourceDocumentId: 'doc-1', factKey: 'contract_rate_row',

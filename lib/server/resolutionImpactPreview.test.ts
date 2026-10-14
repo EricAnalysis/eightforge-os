@@ -13,7 +13,8 @@ vi.mock('@/lib/server/supabaseAdmin', () => ({
 import type { HumanFactAssertionRow } from '@/lib/humanFactAssertions/regionBoundAssertions';
 import type { ResolutionAction, ResolutionCase, ResolutionQueue } from '@/lib/resolution/resolutionCases';
 import { parseResolutionPreviewInput } from '@/lib/resolution/resolutionPreviewInput';
-import { recordRegionBoundAssertion, type RegionAssertionClient } from '@/lib/server/regionBoundHumanAssertions';
+import { type RegionAssertionClient } from '@/lib/server/regionBoundHumanAssertions';
+import { recordRegionBoundAssertion } from '@/lib/server/regionBoundHumanAssertionWriter';
 import { previewResolutionImpact, type ValidatorRun } from '@/lib/server/resolutionImpactPreview';
 import type { ValidatorSourceHypothesis, ValidatorSourceReads } from '@/lib/validator/projectValidator';
 import type { ValidationFinding, ValidatorResult } from '@/types/validator';

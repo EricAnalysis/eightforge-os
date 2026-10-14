@@ -14,7 +14,7 @@ import {
   type ForgewingProvider,
 } from '@/lib/forgewing/runtime/client';
 import {
-  getForgewingRuntimeConfig,
+  getForgewingWorkflowAssessmentRuntimeConfig,
   isForgewingWorkflowAssessmentEnabled,
   type ForgewingRuntimeConfig,
 } from '@/lib/forgewing/runtime/modelConfig';
@@ -421,7 +421,7 @@ export async function runForgewingWorkflowAssessment(
   rawInput: ForgewingWorkflowAssessmentInput,
   dependencies: ForgewingWorkflowAssessmentDependencies = {},
 ): Promise<ForgewingWorkflowAssessmentResult> {
-  const config = dependencies.config ?? getForgewingRuntimeConfig();
+  const config = dependencies.config ?? getForgewingWorkflowAssessmentRuntimeConfig();
   if (!config.enabled
     || !(dependencies.taskEnabled ?? isForgewingWorkflowAssessmentEnabled())) {
     return { status: 'assessment_disabled' };

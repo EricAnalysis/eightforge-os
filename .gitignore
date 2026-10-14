@@ -79,6 +79,7 @@ scripts/evaluation/artifacts/b46/local/
 scripts/evaluation/artifacts/b461/local/
 
 /scripts/evaluation/artifacts/b461-sonnet-5-5-v3/local/
+/scripts/evaluation/artifacts/b461-sonnet-5-5-v4/local/
 
 /scripts/evaluation/artifacts/phase17-sonnet-5-5-owner20261014/
 # Additive Phase 17 compatibility evidence contains local provider/source payloads.

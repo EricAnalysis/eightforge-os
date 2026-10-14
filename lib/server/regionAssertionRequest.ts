@@ -7,7 +7,7 @@ import {
   type HumanFactAssertionRow,
   type SourceRegion,
 } from '@/lib/humanFactAssertions/regionBoundAssertions';
-import type { RecordRegionAssertionInput } from '@/lib/server/regionBoundHumanAssertions';
+import type { RecordRegionAssertionInput } from '@/lib/server/regionBoundHumanAssertionWriter';
 import { VALUE_READING_PROPOSAL_ID_PATTERN } from '@/lib/server/valueReadingProposals';
 import { ALLOWED_RATE_CATEGORIES } from '@/lib/validator/rateTaxonomy';
 

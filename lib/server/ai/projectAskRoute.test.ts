@@ -76,6 +76,7 @@ function mockAdmin(project = {
     select: vi.fn(() => query),
     eq: vi.fn(() => query),
     maybeSingle,
+    insert: vi.fn(async (_row: Record<string, unknown>) => ({ error: null })),
   };
   const admin = {
     from: vi.fn(() => query),
@@ -139,7 +140,34 @@ describe('POST /api/projects/[id]/ask', () => {
     });
   });
 
+  it('records content-free call telemetry and returns only answer and model (S7)', async () => {
+    process.env.ANTHROPIC_API_KEY = 'sk-test';
+    mockActor();
+    const { admin, query } = mockAdmin();
+    buildAskProjectContextMock.mockResolvedValue({ project: { id: 'project-1' }, scope: { projectId: 'project-1' } });
+    askProjectWithClaudeMock.mockResolvedValue({
+      answer: 'Read-only explanation.', model: 'claude-sonnet-4-6',
+      observation: { returnedModel: 'claude-sonnet-4-6', providerRequestId: 'req_1', stopReason: 'end_turn',
+        inputTokens: 900, outputTokens: 120, latencyMs: 2100 },
+    });
+
+    const response = await POST(new Request('http://localhost/api/projects/project-1/ask', {
+      method: 'POST', body: JSON.stringify({ question: 'Explain the blockers' }),
+    }), { params: Promise.resolve({ id: 'project-1' }) });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { answer: 'Read-only explanation.', model: 'claude-sonnet-4-6' });
+    expect(admin.from).toHaveBeenCalledWith('forgewing_provider_call_observations');
+    const row = query.insert.mock.calls.at(-1)![0];
+    expect(row).toMatchObject({
+      workflow: 'project_ask', organization_id: 'org-1', reservation_id: 'r-1', outcome: 'succeeded',
+      provider_request_id: 'req_1', input_tokens: 900, output_tokens: 120, latency_ms: 2100,
+    });
+    expect(JSON.stringify(row)).not.toMatch(/Explain the blockers|Read-only explanation/);
+  });
+
   it('does not expose ANTHROPIC_API_KEY in API errors', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     process.env.ANTHROPIC_API_KEY = 'sk-ant-secret-test-key';
     mockActor();
     mockAdmin();
@@ -159,9 +187,17 @@ describe('POST /api/projects/[id]/ask', () => {
       { params: Promise.resolve({ id: 'project-1' }) },
     );
 
-    assert.equal(response.status, 500);
-    const bodyText = JSON.stringify(await response.json());
-    assert.equal(bodyText.includes('sk-ant-secret-test-key'), false);
+    // A provider failure after the reservation is a typed 503 (S6); the
+    // reservation stays spent and the log names it by class only.
+    assert.equal(response.status, 503);
+    const body = await response.json();
+    assert.deepEqual(body, { error: 'AI assistance is temporarily unavailable.', code: 'provider_failed' });
+    assert.equal(JSON.stringify(body).includes('sk-ant-secret-test-key'), false);
+    const logged = JSON.stringify(errorSpy.mock.calls);
+    assert.equal(logged.includes('provider_failed'), true);
+    assert.equal(logged.includes('sk-ant-secret-test-key'), false);
+    assert.equal(logged.includes('Explain the blockers'), false);
+    errorSpy.mockRestore();
   });
 
   it('returns a stable not-configured code with operator-safe copy when Claude is missing', async () => {

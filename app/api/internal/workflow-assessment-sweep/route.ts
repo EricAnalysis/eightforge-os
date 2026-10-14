@@ -46,6 +46,10 @@ async function sweep(request: Request): Promise<Response> {
   if (result.stoppedBecause === 'not_configured') {
     return Response.json({ ok: false, error: 'not_configured' }, { status: 503 });
   }
+  if (result.stoppedBecause === 'gate_lookup_failed') {
+    console.error('[workflowAssessmentSweep] organization gate lookup failed');
+    return Response.json({ ok: false, error: 'gate_lookup_failed' }, { status: 503 });
+  }
   if (result.stoppedBecause === 'claim_failed') {
     console.error('[workflowAssessmentSweep] claim failed');
     return Response.json({ ok: false, error: 'claim_failed' }, { status: 503 });

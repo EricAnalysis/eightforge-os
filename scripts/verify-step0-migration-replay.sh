@@ -138,6 +138,7 @@ SQL
 "${psql[@]}" --file scripts/sql/verify-workflow-database-authority.sql
 "${psql[@]}" --file scripts/sql/verify-workflow-intake-v2.sql
 "${psql[@]}" --file scripts/sql/verify-workflow-assessment-evidence.sql
+"${psql[@]}" --file scripts/sql/verify-workflow-assessment-gates.sql
 "${psql[@]}" --file scripts/sql/verify-repository-plan-v2-persistence.sql
 "${psql[@]}" --file scripts/sql/verify-repository-plan-engineering-review.sql
 "${psql[@]}" --file scripts/sql/verify-document-extraction-fact-status.sql
@@ -212,7 +213,7 @@ run_claim_race() {
   # Keep the first real PostgreSQL session's intake lock open until the second
   # session has executed. Observing PgSleep proves the overlap; starting two
   # short processes alone could accidentally test only serial execution.
-  "${psql[@]}" --command "SET application_name = 'workflow_claim_race_a'; SET ROLE service_role; BEGIN; CREATE TEMP TABLE workflow_race_result AS ${first_sql} SELECT 1 / CASE WHEN count(*) = 1 AND min(attempt_number) = ${expected_attempt} THEN 1 ELSE 0 END AS winning_claim_correct, count(*) AS returned_claims, min(attempt_number) AS returned_attempt FROM workflow_race_result; SELECT pg_sleep(3); COMMIT;" &
+  "${psql[@]}" --command "SET application_name = 'workflow_claim_race_a'; SET ROLE service_role; SET request.jwt.claim.role = 'service_role'; BEGIN; CREATE TEMP TABLE workflow_race_result AS ${first_sql} SELECT 1 / CASE WHEN count(*) = 1 AND min(attempt_number) = ${expected_attempt} THEN 1 ELSE 0 END AS winning_claim_correct, count(*) AS returned_claims, min(attempt_number) AS returned_attempt FROM workflow_race_result; SELECT pg_sleep(3); COMMIT;" &
   local first_pid=$!
   local overlap_seen=false
   for _ in {1..100}; do
@@ -227,7 +228,7 @@ run_claim_race() {
     wait "${first_pid}"
     return 1
   fi
-  "${psql[@]}" --command "SET ROLE service_role; CREATE TEMP TABLE workflow_race_result AS ${second_sql} SELECT 1 / CASE WHEN count(*) = 0 THEN 1 ELSE 0 END AS losing_claim_unavailable, count(*) AS returned_claims FROM workflow_race_result;" &
+  "${psql[@]}" --command "SET ROLE service_role; SET request.jwt.claim.role = 'service_role'; CREATE TEMP TABLE workflow_race_result AS ${second_sql} SELECT 1 / CASE WHEN count(*) = 0 THEN 1 ELSE 0 END AS losing_claim_unavailable, count(*) AS returned_claims FROM workflow_race_result;" &
   local second_pid=$!
   wait "${first_pid}"
   wait "${second_pid}"
@@ -235,24 +236,24 @@ run_claim_race() {
 
 # concurrent retry after attempt 1 failed: exactly one attempt 2, never 3
 run_claim_race \
-  "SELECT * FROM public.claim_workflow_assessment_attempt(2, '93000000-0000-4000-8000-000000000020'::uuid, NULL);" \
-  "SELECT * FROM public.claim_workflow_assessment_attempt(2, '93000000-0000-4000-8000-000000000020'::uuid, NULL);" 2
+  "SELECT * FROM public.claim_workflow_assessment_attempt(2, '93000000-0000-4000-8000-000000000020'::uuid, NULL, ARRAY['93000000-0000-4000-8000-0000000000a1'::uuid], 100);" \
+  "SELECT * FROM public.claim_workflow_assessment_attempt(2, '93000000-0000-4000-8000-000000000020'::uuid, NULL, ARRAY['93000000-0000-4000-8000-0000000000a1'::uuid], 100);" 2
 
 # manual/manual first-claim race
 run_claim_race \
-  "SELECT * FROM public.claim_workflow_assessment_attempt(2, '93000000-0000-4000-8000-000000000021'::uuid, NULL);" \
-  "SELECT * FROM public.claim_workflow_assessment_attempt(2, '93000000-0000-4000-8000-000000000021'::uuid, NULL);"
+  "SELECT * FROM public.claim_workflow_assessment_attempt(2, '93000000-0000-4000-8000-000000000021'::uuid, NULL, ARRAY['93000000-0000-4000-8000-0000000000a1'::uuid], 100);" \
+  "SELECT * FROM public.claim_workflow_assessment_attempt(2, '93000000-0000-4000-8000-000000000021'::uuid, NULL, ARRAY['93000000-0000-4000-8000-0000000000a1'::uuid], 100);"
 
 # sweep/sweep race, narrowed only by same-sweep exclusions
 run_claim_race \
-  "SELECT * FROM public.claim_workflow_assessment_attempt(2, NULL, ${workflow_exclusions});" \
-  "SELECT * FROM public.claim_workflow_assessment_attempt(2, NULL, ${workflow_exclusions});"
+  "SELECT * FROM public.claim_workflow_assessment_attempt(2, NULL, ${workflow_exclusions}, ARRAY['93000000-0000-4000-8000-0000000000a1'::uuid], 100);" \
+  "SELECT * FROM public.claim_workflow_assessment_attempt(2, NULL, ${workflow_exclusions}, ARRAY['93000000-0000-4000-8000-0000000000a1'::uuid], 100);"
 
 # sweep/manual race on a separate submission
 mixed_exclusions="ARRAY['93000000-0000-4000-8000-000000000010'::uuid,'93000000-0000-4000-8000-000000000011'::uuid,'93000000-0000-4000-8000-000000000012'::uuid,'93000000-0000-4000-8000-000000000013'::uuid,'93000000-0000-4000-8000-000000000014'::uuid,'93000000-0000-4000-8000-000000000015'::uuid,'93000000-0000-4000-8000-000000000020'::uuid,'93000000-0000-4000-8000-000000000021'::uuid,'93000000-0000-4000-8000-000000000022'::uuid,'93000000-0000-4000-8000-000000000030'::uuid,'93000000-0000-4000-8000-000000000031'::uuid]"
 run_claim_race \
-  "SELECT * FROM public.claim_workflow_assessment_attempt(2, NULL, ${mixed_exclusions});" \
-  "SELECT * FROM public.claim_workflow_assessment_attempt(2, '93000000-0000-4000-8000-000000000023'::uuid, NULL);"
+  "SELECT * FROM public.claim_workflow_assessment_attempt(2, NULL, ${mixed_exclusions}, ARRAY['93000000-0000-4000-8000-0000000000a1'::uuid], 100);" \
+  "SELECT * FROM public.claim_workflow_assessment_attempt(2, '93000000-0000-4000-8000-000000000023'::uuid, NULL, ARRAY['93000000-0000-4000-8000-0000000000a1'::uuid], 100);"
 
 "${psql[@]}" <<'SQL'
 DO $$
@@ -298,8 +299,7 @@ BEGIN
         AND attempt.completed_at IS NOT NULL) <> 2 THEN
     RAISE EXCEPTION 'both persistence failures must remain auditable';
   END IF;
-  IF EXISTS (SELECT 1 FROM public.claim_workflow_assessment_attempt(
-      2, '93000000-0000-4000-8000-000000000020', NULL)) THEN
+  IF EXISTS (SELECT 1 FROM public.claim_workflow_assessment_attempt(2, '93000000-0000-4000-8000-000000000020', NULL, ARRAY['93000000-0000-4000-8000-0000000000a1'::uuid], 100)) THEN
     RAISE EXCEPTION 'exhausted persistence failures incorrectly allowed attempt 3';
   END IF;
 END $$;
@@ -2882,6 +2882,7 @@ WSLENV="${WSLENV:+${WSLENV}:}B3_DATABASE_URL" \
 
 # B4.1 gates: default-deny data policy and the durable provider-call budget.
 "${psql[@]}" --file scripts/sql/verify-forgewing-gates.sql
+"${psql[@]}" --file scripts/sql/verify-forgewing-provider-telemetry.sql
 
 # B4.2 value-reading proposals: immutable, non-authoritative, promoted only by
 # a database-verified human fact assertion.

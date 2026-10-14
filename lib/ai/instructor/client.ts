@@ -32,8 +32,11 @@ export function isInstructorEnabled(): boolean {
 function createDefaultClient(): InstructorLikeClient | null {
   if (!isInstructorEnabled()) return null;
 
+  // Retries are the assist's own bounded attempt loop; the SDK never retries.
   const client = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
+    timeout: 30_000,
+    maxRetries: 0,
   });
 
   return createInstructor({

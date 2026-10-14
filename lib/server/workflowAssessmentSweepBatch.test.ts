@@ -11,7 +11,28 @@ const getAdmin = vi.hoisted(() => vi.fn());
 const runAssessment = vi.hoisted(() => vi.fn());
 const enabled = vi.hoisted(() => vi.fn());
 
-vi.mock('@/lib/server/supabaseAdmin', () => ({ getSupabaseAdmin: getAdmin }));
+// The organization gates (S3) are exercised in workflowAssessmentGates.test.ts.
+// Here every candidate organization is eligible, and the candidate listing is
+// answered beside each test's own claim/finalize database.
+const ORGANIZATION = vi.hoisted(() => '99999999-9999-4999-8999-999999999999');
+vi.mock('@/lib/server/supabaseAdmin', () => ({
+  getSupabaseAdmin: () => {
+    const admin = getAdmin() as { rpc: (name: string, args?: unknown) => Promise<unknown> } | null;
+    if (!admin) return admin;
+    return {
+      ...admin,
+      rpc: (name: string, args?: unknown) => (name === 'list_workflow_assessment_candidate_organizations'
+        ? Promise.resolve({ data: [{ organization_id: ORGANIZATION }], error: null })
+        : admin.rpc(name, args)),
+    };
+  },
+}));
+vi.mock('@/lib/server/forgewingGates', () => ({
+  resolveForgewingWorkflowEligibility: vi.fn(async () => ({
+    eligible: true, entitlementEventId: 'entitlement', dataPolicyEventIds: ['policy'], dailyCap: 5,
+  })),
+  readForgewingWorkflowDailyCap: vi.fn(() => 5),
+}));
 vi.mock('@/lib/server/workflowAssessment', () => ({
   runAndRecordWorkflowAssessment: runAssessment,
   isWorkflowAssessmentEnabled: enabled,

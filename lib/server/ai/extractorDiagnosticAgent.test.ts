@@ -97,7 +97,7 @@ describe('extractorDiagnosticAgent', () => {
       temperature: 0,
       max_tokens: 5000,
       system: EXTRACTOR_DIAGNOSTIC_SYSTEM_PROMPT,
-    }));
+    }), { timeout: 90_000, maxRetries: 1 });
   });
 
   it('omits unsupported sampling parameters for a Sonnet 5.5 extractor override', async () => {
@@ -109,7 +109,7 @@ describe('extractorDiagnosticAgent', () => {
       expectedOutput: 'expected', actualOutput: 'actual', targetAgent: 'codex', requestedMode: 'phase-a-audit',
     });
 
-    expect(createMock).toHaveBeenCalledWith(expect.objectContaining({ model: 'claude-sonnet-5-5' }));
+    expect(createMock).toHaveBeenCalledWith(expect.objectContaining({ model: 'claude-sonnet-5-5' }), { timeout: 90_000, maxRetries: 1 });
     expect(createMock.mock.calls[0][0]).not.toHaveProperty('temperature');
   });
 

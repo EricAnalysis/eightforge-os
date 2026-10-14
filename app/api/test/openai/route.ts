@@ -16,6 +16,9 @@ function getKeyDiagnostics(key: string) {
 }
 
 export async function GET(req: Request) {
+  // Smoke tests outside every Forgewing gate that echo API-key diagnostics:
+  // development only, like the internal orchestrator route.
+  if (process.env.NODE_ENV === 'production') return new NextResponse(null, { status: 404 });
   const ctx = await getActorContext(req);
   if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 

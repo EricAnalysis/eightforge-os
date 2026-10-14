@@ -26,13 +26,18 @@ describe('Forgewing qualified-model boundary (S2)', () => {
   it('only the model seam reads FORGEWING_MODEL in production code', () => {
     const readers = ['lib', 'app', 'components'].flatMap(walk).map(posix)
       .filter((file) => code(file).includes('FORGEWING_MODEL'));
-    // valueReadingClient.ts is frozen by the B4.6.1 qualification contract
-    // (sourceSha256); its one caller, the value-reading route, applies the
-    // qualified-model check before constructing a provider.
-    expect(readers.sort()).toEqual([
+    // The value-reading clients are frozen by their qualification contracts
+    // (sourceSha256), so they keep their own read; their production caller,
+    // the value-reading route, applies the qualified-model check before
+    // constructing a provider. V2 is the separate Sonnet 5.5 qualification
+    // client (#232) and may not exist on every base.
+    const allowed = new Set([
       'lib/forgewing/runtime/modelConfig.ts',
       'lib/forgewing/runtime/valueReadingClient.ts',
+      'lib/forgewing/runtime/valueReadingClientV2.ts',
     ]);
+    expect(readers).toContain('lib/forgewing/runtime/modelConfig.ts');
+    expect(readers.filter((file) => !allowed.has(file))).toEqual([]);
   }, 60_000);
 
   it('the value-reading route constructs a provider only for a qualified model', () => {

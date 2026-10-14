@@ -71,6 +71,13 @@ export async function POST(request: Request): Promise<Response> {
       return Response.json({ ok: false, error: 'nothing_claimable' }, { status: 409 });
     case 'assessment_disabled':
       return Response.json({ ok: false, error: 'assessment_disabled' }, { status: 503 });
+    case 'no_eligible_organization':
+      // No organization with a claimable submission passes entitlement, data
+      // policy and budget configuration. Nothing claimed; no attempt spent.
+      return Response.json({ ok: false, error: 'no_eligible_organization' }, { status: 409 });
+    case 'gate_lookup_failed':
+      console.error('[workflowAssessment] organization gate lookup failed');
+      return Response.json({ ok: false, error: 'gate_lookup_failed' }, { status: 503 });
     case 'not_configured':
       return Response.json({ ok: false, error: 'assessment_not_configured' }, { status: 503 });
     case 'claim_failed':

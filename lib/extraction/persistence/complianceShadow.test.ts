@@ -825,7 +825,7 @@ describe('compliance shadow dual-write isolation', () => {
         expect.objectContaining({ candidateId: 'candidate-b', rawText: '125.00' }),
       ]),
       arbitrationDecisions: [expect.objectContaining({ targetId: 'decision-1', deterministicState: 'conflict' })],
-    }));
+    }), expect.objectContaining({ provider: expect.any(Function) }));
     expect(persist).toHaveBeenCalledOnce();
   });
 
@@ -880,7 +880,7 @@ describe('compliance shadow dual-write isolation', () => {
     await expect(tasks[0]!()).resolves.toBeUndefined();
     expect(runForgewingColumnMapping).toHaveBeenCalledWith(expect.objectContaining({
       mappingSignals: [expect.objectContaining({ mappingId: 'mapping-1', columnIndex: 0 })],
-    }));
+    }), expect.objectContaining({ provider: expect.any(Function) }));
     const columnTaskCalls = (runForgewingColumnMapping as unknown as {
       mock: { calls: Array<[unknown]> };
     }).mock.calls;

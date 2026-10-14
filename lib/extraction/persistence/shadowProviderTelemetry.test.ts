@@ -1,0 +1,56 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+const mocks = vi.hoisted(() => ({
+  record: vi.fn(async () => true),
+  admin: { from: vi.fn() } as unknown,
+  behaviour: 'ok' as 'ok' | 'timeout' | 'truncated' | 'error',
+}));
+
+vi.mock('@/lib/server/supabaseAdmin', () => ({ getSupabaseAdmin: () => mocks.admin }));
+vi.mock('@/lib/server/forgewingProviderTelemetry', () => ({ recordForgewingProviderCallObservation: mocks.record }));
+vi.mock('@/lib/forgewing/runtime/observedProviders', () => ({
+  createObservedForgewingProvider: (_task: string, observer: (entry: Record<string, unknown>) => void) => async () => {
+    if (mocks.behaviour === 'timeout') throw new Error('provider_timeout');
+    if (mocks.behaviour === 'error') throw new Error('boom');
+    observer({ requestId: 'req_1', returnedModel: 'claude-sonnet-4-6', stopReason: 'end_turn', inputTokens: 7,
+      outputTokens: 3, latencyMs: 900, messageId: 'm', systemPromptSha256: 'x' });
+    if (mocks.behaviour === 'truncated') throw new Error('provider_truncated_output');
+    return '{"secret":"never recorded"}';
+  },
+}));
+
+import { withShadowProviderTelemetry } from '@/lib/extraction/persistence/complianceShadow';
+
+const REQUEST = { model: 'claude-sonnet-4-6', timeoutMs: 3000, maxOutputTokens: 800, inputJson: '{}' };
+
+afterEach(() => { mocks.record.mockClear(); mocks.behaviour = 'ok'; });
+
+describe('shadow / recovery provider telemetry', () => {
+  it('records one content-free row per provider call and returns the task result unchanged', async () => {
+    const result = await withShadowProviderTelemetry('table_continuation', 'org-1', async (provider) => {
+      await provider(REQUEST);
+      return { status: 'applied' };
+    });
+    expect(result).toEqual({ status: 'applied' });
+    expect(mocks.record).toHaveBeenCalledOnce();
+    expect(mocks.record).toHaveBeenCalledWith(mocks.admin, expect.objectContaining({
+      workflow: 'table_continuation', organizationId: 'org-1', model: 'claude-sonnet-4-6', outcome: 'succeeded',
+      providerRequestId: 'req_1', inputTokens: 7, outputTokens: 3, latencyMs: 900 }));
+    expect(JSON.stringify(mocks.record.mock.calls[0])).not.toContain('never recorded');
+  });
+
+  it('records nothing when the task never calls the provider (gate closed, nothing to send)', async () => {
+    await withShadowProviderTelemetry('region_classification', 'org-1', async () => ({ status: 'skipped' }));
+    expect(mocks.record).not.toHaveBeenCalled();
+  });
+
+  it.each([['timeout', 'provider_timeout'], ['truncated', 'output_truncated'], ['error', 'provider_failed']] as const)(
+    'maps a %s to %s and lets the task handle the failure as before', async (behaviour, outcome) => {
+      mocks.behaviour = behaviour;
+      const result = await withShadowProviderTelemetry('recovery_candidate_v2', 'org-1', async (provider) => {
+        try { await provider(REQUEST); return 'ok'; } catch { return 'task_handled_failure'; }
+      });
+      expect(result).toBe('task_handled_failure');
+      expect(mocks.record).toHaveBeenCalledWith(mocks.admin, expect.objectContaining({ outcome }));
+    });
+});

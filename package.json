@@ -23,6 +23,7 @@
     "qualify:mixed-mode-coverage": "vite-node --config vitest.config.ts scripts/qualify-mixed-mode-extraction-coverage.ts",
     "eval:phase17-continuation": "vite-node --config vitest.config.ts scripts/evaluation/phase17/runPhase17ContinuationEvaluation.ts --",
     "eval:phase17-sonnet-5-5-continuation": "vite-node --config vitest.config.ts scripts/evaluation/phase17/runPhase17Sonnet55ContinuationEvaluation.ts --",
+    "eval:phase17-sonnet-5-5-owner-labels": "vite-node --config vitest.config.ts scripts/evaluation/phase17/runPhase17Sonnet55OwnerLabelEvaluation.ts",
     "eval:b461-sonnet-5-5": "vite-node --config vitest.config.ts scripts/evaluation/b461/runQualificationV2.ts --",
     "eval:b461-sonnet-5-5-v3": "vite-node --config vitest.config.ts scripts/evaluation/b461/runQualificationV3.ts --",
     "eval:phase17-labels": "vite-node --config vitest.config.ts scripts/evaluation/phase17/preparePhase17DnLabels.ts --"

@@ -140,6 +140,7 @@ describe('POST /api/projects/[id]/ask', () => {
   });
 
   it('does not expose ANTHROPIC_API_KEY in API errors', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     process.env.ANTHROPIC_API_KEY = 'sk-ant-secret-test-key';
     mockActor();
     mockAdmin();
@@ -159,9 +160,17 @@ describe('POST /api/projects/[id]/ask', () => {
       { params: Promise.resolve({ id: 'project-1' }) },
     );
 
-    assert.equal(response.status, 500);
-    const bodyText = JSON.stringify(await response.json());
-    assert.equal(bodyText.includes('sk-ant-secret-test-key'), false);
+    // A provider failure after the reservation is a typed 503 (S6); the
+    // reservation stays spent and the log names it by class only.
+    assert.equal(response.status, 503);
+    const body = await response.json();
+    assert.deepEqual(body, { error: 'AI assistance is temporarily unavailable.', code: 'provider_failed' });
+    assert.equal(JSON.stringify(body).includes('sk-ant-secret-test-key'), false);
+    const logged = JSON.stringify(errorSpy.mock.calls);
+    assert.equal(logged.includes('provider_failed'), true);
+    assert.equal(logged.includes('sk-ant-secret-test-key'), false);
+    assert.equal(logged.includes('Explain the blockers'), false);
+    errorSpy.mockRestore();
   });
 
   it('returns a stable not-configured code with operator-safe copy when Claude is missing', async () => {

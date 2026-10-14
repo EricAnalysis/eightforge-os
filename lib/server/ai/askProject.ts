@@ -4,6 +4,7 @@ import {
   getClaudeClient,
   getClaudeModel,
 } from '@/lib/server/ai/claudeClient';
+import { CLAUDE_REQUEST_OPTIONS } from '@/lib/server/ai/claudeRequestOptions';
 import { getClaudeSamplingParameters } from '@/lib/server/ai/claudeSampling';
 import type { AskProjectClaudeContext } from '@/lib/server/ai/askProjectContext';
 
@@ -48,7 +49,7 @@ export async function askProjectWithClaude(params: {
         ].join('\n'),
       },
     ],
-  });
+  }, { ...CLAUDE_REQUEST_OPTIONS.budgeted });
 
   return {
     answer: extractTextContent(message.content),

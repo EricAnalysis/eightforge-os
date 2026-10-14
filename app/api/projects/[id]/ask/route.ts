@@ -150,7 +150,24 @@ export async function POST(
       return NextResponse.json({ error: 'AI assistance is temporarily unavailable.' }, { status: 503 });
     }
 
-    const answer = await askProjectWithClaude({ question, context });
+    let answer: Awaited<ReturnType<typeof askProjectWithClaude>>;
+    try {
+      answer = await askProjectWithClaude({ question, context });
+    } catch (providerError) {
+      // The reservation stays spent and auditable (append-only ledger). Record
+      // which one failed and why, by class only: never the question, context
+      // or provider text.
+      console.error('[projectAsk] provider_failed', {
+        reservationId: reservation.reservationId,
+        organizationId: actor.actor.organizationId,
+        errorClass: providerError instanceof Error ? providerError.name : typeof providerError,
+      });
+      if (isAiNotConfiguredError()) throw providerError;
+      return NextResponse.json(
+        { error: 'AI assistance is temporarily unavailable.', code: 'provider_failed' },
+        { status: 503 },
+      );
+    }
     return NextResponse.json(answer);
   } catch (err) {
     if (isAiNotConfiguredError()) {

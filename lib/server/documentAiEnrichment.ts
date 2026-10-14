@@ -156,7 +156,8 @@ async function runClaudeEnrichment(params: EnrichmentInput): Promise<AiEnrichmen
       return { ...base, confidence_note: 'AI enrichment skipped: ANTHROPIC_API_KEY is not set.' };
     }
 
-    const client = new Anthropic({ apiKey: key });
+    // Explicit bounds; never the SDK's 10-minute default.
+    const client = new Anthropic({ apiKey: key, timeout: 30_000, maxRetries: 1 });
     const prompt = buildPrompt(params);
 
     const res = await client.messages.create({
@@ -203,7 +204,7 @@ async function runOpenAiEnrichment(params: EnrichmentInput): Promise<AiEnrichmen
       return { ...base, confidence_note: 'AI enrichment skipped: OPENAI_API_KEY is not set.' };
     }
 
-    const client = new OpenAI({ apiKey: key });
+    const client = new OpenAI({ apiKey: key, timeout: 30_000, maxRetries: 1 });
     const prompt = buildPrompt(params);
 
     const res = await client.chat.completions.create({
@@ -252,7 +253,7 @@ async function runOpenAiMiniEnrichment(params: EnrichmentInput): Promise<AiEnric
       return { ...base, confidence_note: 'AI enrichment skipped: OPENAI_API_KEY is not set.' };
     }
 
-    const client = new OpenAI({ apiKey: key });
+    const client = new OpenAI({ apiKey: key, timeout: 30_000, maxRetries: 1 });
     const prompt = buildPrompt(params);
 
     const res = await client.chat.completions.create({

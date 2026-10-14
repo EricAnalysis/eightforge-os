@@ -5,11 +5,8 @@ import { customerMappingEvidenceFromExtraction } from '@/lib/customerAdaptation/
 import { documentReviewedValueState } from '@/lib/humanFactAssertions/regionBoundAssertions';
 import { getActorContext } from '@/lib/server/getActorContext';
 import { parseRegionAssertionRequest, prepareRegionAssertionRecord } from '@/lib/server/regionAssertionRequest';
-import {
-  loadRegionBoundAssertionRows,
-  recordRegionBoundAssertion,
-  type RegionAssertionClient,
-} from '@/lib/server/regionBoundHumanAssertions';
+import { loadRegionBoundAssertionRows, type RegionAssertionClient } from '@/lib/server/regionBoundHumanAssertions';
+import { recordRegionBoundAssertion } from '@/lib/server/regionBoundHumanAssertionWriter';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { requestFactOverrideRevalidation } from '@/lib/validator/revalidationRequests';
 

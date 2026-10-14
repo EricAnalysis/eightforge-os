@@ -2,7 +2,9 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
-import RepositoryPlanRunControl, { pollRepositoryPlanRun, readRepositoryPlanRun, requestRepositoryPlanRun } from './RepositoryPlanRunControl';
+import RepositoryPlanRunControl, {
+  pollRepositoryPlanRun, readRepositoryPlanRun, REPOSITORY_PLAN_UNCLAIMED_AFTER_MS, requestRepositoryPlanRun,
+} from './RepositoryPlanRunControl';
 
 const request = {
   assessmentId: '22222222-2222-4222-8222-222222222222', assessmentVersion: 3,
@@ -74,6 +76,19 @@ describe('repository Plan run operator control', () => {
     expect(states).toEqual(['queued', 'analyzing', 'complete']);
     expect(fetcher).toHaveBeenCalledTimes(3);
     expect(wait).toHaveBeenCalledTimes(3);
+  });
+
+  it('stops polling and says so when no worker claims the job within the window', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async () =>
+      response({ ok: true, job: { jobId, status: 'pending', classification: 'RULE' } }));
+    const states: string[] = [];
+    const wait = vi.fn().mockResolvedValue(undefined);
+    await pollRepositoryPlanRun(jobId, 'token', new AbortController().signal, 'RULE',
+      (state) => states.push(state.kind), { fetcher, wait });
+    const expectedPolls = Math.ceil(REPOSITORY_PLAN_UNCLAIMED_AFTER_MS / 2_500);
+    expect(wait).toHaveBeenCalledTimes(expectedPolls);
+    expect(states.at(-1)).toBe('unclaimed');
+    expect(states.filter((kind) => kind === 'queued')).toHaveLength(expectedPolls - 1);
   });
 
   it('stops at failure and does not retry or create another job', async () => {

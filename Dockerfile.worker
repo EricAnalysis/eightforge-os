@@ -1,0 +1,66 @@
+# syntax=docker/dockerfile:1
+# check=skip=FromPlatformFlagConstDisallowed
+#
+# Forgewing Engineering Worker: the production host for repository-aware
+# Plan V2 reasoning (B1-B3a). Vercel stays the control plane only: a function
+# bundle has no .git and no git binary, so this reasoning can never run there
+# (docs/architecture/repository-plan-foundation.md).
+#
+# The worker is advisory. It claims queued jobs with its own dedicated
+# database role (never the service role), writes only non-authoritative Plan V2
+# artifacts, and has no execution, review, Linear or canonical-mutation reach.
+#
+# Build it from one committed tree, never a working directory (no untracked
+# files, no .env, no CRLF drift):
+#
+#   git archive --format=tar <commit> | docker build -f Dockerfile.worker -t eightforge-forgewing-worker:<commit> -
+#
+# Run it against a real, clean, read-only EightForge checkout at the SAME
+# commit (the worker verifies the checkout itself; it never trusts this image's
+# copy of the source as repository evidence). See
+# docs/runbooks/forgewing-engineering-worker.md.
+
+# The production Node major (package.json engines, Vercel 24.x), pinned by
+# digest; the same image as Dockerfile.eval.
+ARG NODE_IMAGE=public.ecr.aws/docker/library/node:24.21.0-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20
+
+FROM --platform=linux/amd64 ${NODE_IMAGE}
+
+ENV LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    TZ=UTC \
+    NEXT_TELEMETRY_DISABLED=1 \
+    npm_config_audit=false \
+    npm_config_fund=false \
+    npm_config_update_notifier=false \
+    # The checkout is mounted read-only: never take optional index locks.
+    GIT_OPTIONAL_LOCKS=0 \
+    FORGEWING_REPOSITORY_ROOT=/repository
+
+# git is required: the worker reads HEAD, verifies a clean tree and collects
+# committed blobs from the mounted checkout.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ # The mounted checkout is owned by the host user, not the container user.
+ && git config --system --add safe.directory /repository
+
+WORKDIR /app
+
+# Exact lockfile install. The worker runs TypeScript through the pinned
+# vite-node (with the repository's path aliases from vitest.config.ts), so the
+# full locked dependency set is installed; nothing is resolved at runtime.
+COPY package.json package-lock.json ./
+RUN npm ci --ignore-scripts && npm cache clean --force
+
+COPY . .
+RUN chown -R node:node /app
+
+USER node
+
+# Fails closed at startup (exit 1) without the dedicated-role token, a Supabase
+# target or a real checkout at FORGEWING_REPOSITORY_ROOT. The provider gates
+# (FORGEWING_SHADOW_ENABLED, FORGEWING_REPOSITORY_PLAN_GUIDANCE_ENABLED, a
+# qualified FORGEWING_MODEL) stay off unless explicitly set; ADVISORY jobs
+# still complete with zero provider calls.
+ENTRYPOINT ["node", "node_modules/vite-node/vite-node.mjs", "--config", "vitest.config.ts", "scripts/workers/repository-plan-worker.ts"]

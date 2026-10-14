@@ -1,9 +1,20 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+
+import { createForgewingEngineeringWorkerClient } from '@/lib/server/forgewingEngineeringWorkerClient';
 import { runOneRepositoryPlanGenerationJob } from '@/lib/server/repositoryPlanGenerationWorker';
 import { readRepositoryPlanWorkerConfig } from '@/lib/server/repositoryPlanWorkerConfig';
 
+// Fail closed at startup, before any poll: a worker that can never claim a job
+// (no dedicated-role token, a service-role token, no Supabase target) or has no
+// real Git checkout exits non-zero instead of looping on failures.
 const configured = readRepositoryPlanWorkerConfig();
-if (!configured.ok) {
-  console.error(`[repository-plan-worker] configuration_failed code=${configured.code}`);
+const startupFailure = !configured.ok ? configured.code
+  : !createForgewingEngineeringWorkerClient() ? 'worker_client_unconfigured'
+  : !existsSync(join(configured.config.repositoryRoot, '.git')) ? 'repository_checkout_missing'
+  : null;
+if (!configured.ok || startupFailure) {
+  console.error(`[repository-plan-worker] configuration_failed code=${startupFailure}`);
   process.exitCode = 1;
 } else {
   const { repositoryRoot, pollingIntervalMs, oneShot } = configured.config;

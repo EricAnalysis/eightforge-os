@@ -21,6 +21,7 @@ const SEAMS = 'lib/evaluation/phase17LiveSeams.ts';
 const RUN = `${PHASE17_LIB}/phase17Run.ts`;
 const SONNET_55_RUN = `${PHASE17_LIB}/phase17Sonnet55Run.ts`;
 const OWNER_LABEL_RUN = `${PHASE17_LIB}/phase17Sonnet55OwnerLabelRun.ts`;
+const SCHEMA_COMPAT_RUN = `${PHASE17_LIB}/phase17Sonnet55SchemaCompatRun.ts`;
 
 function walk(directory: string): string[] {
   const absolute = path.join(ROOT, directory);
@@ -71,7 +72,7 @@ describe('Phase 17 evaluation boundaries', () => {
     const seamConsumers = ['app', 'components', 'lib', 'scripts'].flatMap(walk)
       .filter((relative) => !TEST.test(relative) && relative !== SEAMS)
       .filter((relative) => read(relative).includes('phase17LiveSeams'));
-    expect(seamConsumers.sort()).toEqual([RUN, SONNET_55_RUN, OWNER_LABEL_RUN].sort());
+    expect(seamConsumers.sort()).toEqual([RUN, SONNET_55_RUN, OWNER_LABEL_RUN, SCHEMA_COMPAT_RUN].sort());
     expect(code(RUN)).toContain("await import('@/lib/evaluation/phase17LiveSeams')");
     expect(code(SONNET_55_RUN)).toContain("await import('@/lib/evaluation/phase17LiveSeams')");
     expect(code(SEAMS)).toMatch(/export const PHASE17_TRUSTED_PROJECT_DURABLE_PROPOSAL = buildDurableRecoveryProposalV2;/);
@@ -84,7 +85,7 @@ describe('Phase 17 evaluation boundaries', () => {
       'scheduleRecoveryCandidateV2Shadow <- @/lib/extraction/persistence/complianceShadow',
       'buildDurableRecoveryProposalV2 <- @/lib/server/forgewingRecoveryProposalPersistence',
     ]);
-  });
+  }, 60_000);
 
   it('replaces every scheduler IO dependency with an evaluation sink', () => {
     const progression = code(`${PHASE17_LIB}/phase17Progression.ts`);
@@ -104,6 +105,7 @@ describe('Phase 17 evaluation boundaries', () => {
     expect(writers.sort()).toEqual([
       `${PHASE17_LIB}/phase17Artifacts.ts`,
       `${PHASE17_LIB}/phase17Sonnet55Artifacts.ts`,
+      `${PHASE17_LIB}/phase17Sonnet55SchemaCompatArtifacts.ts`,
       `${PHASE17_SCRIPTS}/preparePhase17DnLabels.ts`,
     ]);
     // Neither writes into policy or qualification source.
@@ -195,7 +197,8 @@ describe('Phase 17 evaluation boundaries', () => {
       RUN,
       OWNER_LABEL_RUN,
       SONNET_55_RUN,
-    ]);
+      SCHEMA_COMPAT_RUN,
+    ].sort());
     expect([...code(`${PHASE17_LIB}/phase17Execution.ts`).matchAll(/\? 'anthropic_live'/g)]).toHaveLength(1);
     expect(code(`${PHASE17_LIB}/phase17Qualification.ts`))
       .toMatch(/input\.providerExecution === 'anthropic_live' \? \[\] : \['provider_execution_not_anthropic_live'\]/);

@@ -20,6 +20,7 @@ const PHASE17_SCRIPTS = 'scripts/evaluation/phase17';
 const SEAMS = 'lib/evaluation/phase17LiveSeams.ts';
 const RUN = `${PHASE17_LIB}/phase17Run.ts`;
 const SONNET_55_RUN = `${PHASE17_LIB}/phase17Sonnet55Run.ts`;
+const OWNER_LABEL_RUN = `${PHASE17_LIB}/phase17Sonnet55OwnerLabelRun.ts`;
 
 function walk(directory: string): string[] {
   const absolute = path.join(ROOT, directory);
@@ -70,7 +71,7 @@ describe('Phase 17 evaluation boundaries', () => {
     const seamConsumers = ['app', 'components', 'lib', 'scripts'].flatMap(walk)
       .filter((relative) => !TEST.test(relative) && relative !== SEAMS)
       .filter((relative) => read(relative).includes('phase17LiveSeams'));
-    expect(seamConsumers.sort()).toEqual([RUN, SONNET_55_RUN].sort());
+    expect(seamConsumers.sort()).toEqual([RUN, SONNET_55_RUN, OWNER_LABEL_RUN].sort());
     expect(code(RUN)).toContain("await import('@/lib/evaluation/phase17LiveSeams')");
     expect(code(SONNET_55_RUN)).toContain("await import('@/lib/evaluation/phase17LiveSeams')");
     expect(code(SEAMS)).toMatch(/export const PHASE17_TRUSTED_PROJECT_DURABLE_PROPOSAL = buildDurableRecoveryProposalV2;/);
@@ -192,6 +193,7 @@ describe('Phase 17 evaluation boundaries', () => {
       `${PHASE17_LIB}/phase17Execution.ts`,
       `${PHASE17_LIB}/phase17Qualification.ts`,
       RUN,
+      OWNER_LABEL_RUN,
       SONNET_55_RUN,
     ]);
     expect([...code(`${PHASE17_LIB}/phase17Execution.ts`).matchAll(/\? 'anthropic_live'/g)]).toHaveLength(1);

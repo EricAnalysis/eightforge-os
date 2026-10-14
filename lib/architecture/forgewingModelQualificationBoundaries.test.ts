@@ -35,6 +35,7 @@ describe('Forgewing qualified-model boundary (S2)', () => {
       'lib/forgewing/runtime/modelConfig.ts',
       'lib/forgewing/runtime/valueReadingClient.ts',
       'lib/forgewing/runtime/valueReadingClientV2.ts',
+      'lib/forgewing/runtime/valueReadingClientV3.ts',
     ]);
     expect(readers).toContain('lib/forgewing/runtime/modelConfig.ts');
     expect(readers.filter((file) => !allowed.has(file))).toEqual([]);

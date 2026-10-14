@@ -158,6 +158,12 @@ const FORGEWING_AUTHORIZED_CONSUMERS = new Set([
   // the durable budget before the adapter can be called, and its output is an
   // immutable non-authoritative proposal; only a human assertion makes truth.
   'app/api/projects/[id]/resolution-cases/value-reading/route.ts',
+  // P3b. The authenticated, operator-invoked case-investigation route is the
+  // one place the case-investigation adapter is constructed (qualified model
+  // only) and injected into the runner, which applies the case-kind, data,
+  // entitlement, qualification and budget gates first. The answer is a
+  // non-authoritative explanation that is returned, never stored.
+  'app/api/projects/[id]/resolution-cases/investigation/route.ts',
 ]);
 const FORGEWING_EVALUATION_AUTHORIZED_CONSUMERS = new Set([
   // Pure B4.6.1 registration pins the adapter's source path as data only.
@@ -1001,6 +1007,7 @@ describe('production architecture import boundaries', () => {
     // to non-authoritative storage and nowhere else; a further entry appearing
     // here is a deliberate architectural decision, not an accident.
     expect(forgewingProductionConsumers()).toEqual([
+      'app/api/projects/[id]/resolution-cases/investigation/route.ts',
       'app/api/projects/[id]/resolution-cases/value-reading/route.ts',
       'lib/extraction/persistence/complianceShadow.ts',
       'lib/server/forgewingRecoveryProposalPersistence.ts',

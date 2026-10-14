@@ -4,6 +4,7 @@ import {
   getClaudeClient,
   getClaudeExtractorModel,
 } from '@/lib/server/ai/claudeClient';
+import { CLAUDE_REQUEST_OPTIONS } from '@/lib/server/ai/claudeRequestOptions';
 import { getClaudeSamplingParameters } from '@/lib/server/ai/claudeSampling';
 
 export const EXTRACTOR_FAILURE_CLASSIFICATIONS = [
@@ -289,7 +290,7 @@ export async function generateExtractorDiagnostic(
         content: buildExtractorDiagnosticUserContent(input),
       },
     ],
-  });
+  }, { ...CLAUDE_REQUEST_OPTIONS.internal });
 
   const text = extractTextContent(message.content);
   return normalizeDiagnosticResult(extractJsonObject(text), text, input.requestedMode);

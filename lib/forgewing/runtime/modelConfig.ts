@@ -160,6 +160,26 @@ export function getForgewingRepositoryPlanRuntimeConfig(): ForgewingRepositoryPl
   };
 }
 
+/**
+ * Workflow Assessment bounds (S3). An assessment reads seven answers and up to
+ * five bounded attachment excerpts and returns every workflow step, so the
+ * conservative shadow-extraction limits (3 s, 800 tokens) would truncate or
+ * time out. One call per attempt. The timeout ceiling keeps a three-attempt
+ * sweep inside its 60-second route budget.
+ */
+export function getForgewingWorkflowAssessmentRuntimeConfig(): ForgewingRuntimeConfig {
+  const resolution = resolveForgewingModel();
+  const enabled = isForgewingWorkflowAssessmentEnabled();
+  return {
+    enabled,
+    disabledReason: enabled ? null : resolution.qualified ? 'gate_off' : 'model_unqualified',
+    model: resolution.model,
+    timeoutMs: boundedInteger(process.env.FORGEWING_WORKFLOW_ASSESSMENT_TIMEOUT_MS, 15_000, 1_000, 18_000),
+    maxCalls: 1,
+    maxOutputTokens: boundedInteger(process.env.FORGEWING_WORKFLOW_ASSESSMENT_MAX_OUTPUT_TOKENS, 4_000, 800, 8_000),
+  };
+}
+
 export function getForgewingRuntimeConfig(): ForgewingRuntimeConfig {
   const operational = readRecoveryOperationalConfig(process.env, {
     emitWarnings: true, context: 'runtime_config',

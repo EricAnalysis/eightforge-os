@@ -15,6 +15,16 @@ vi.mock('@/lib/forgewing/tasks/workflowAssessment', () => ({
   runForgewingWorkflowAssessment: (...args: unknown[]) => dependencyMocks.run(...args),
 }));
 
+// S7: the observed provider reports metadata only; content never leaves it.
+vi.mock('@/lib/forgewing/runtime/observedWorkflowAssessmentClient', () => ({
+  createObservedWorkflowAssessmentProvider: (observer: (observation: Record<string, unknown>) => void) =>
+    async () => {
+      observer({ messageId: 'msg_1', requestId: 'req_1', returnedModel: 'claude-sonnet-4-6', stopReason: 'end_turn',
+        inputTokens: 3000, outputTokens: 900, latencyMs: 4200, systemPromptSha256: 'f'.repeat(64) });
+      return '{"secret":"provider output never recorded"}';
+    },
+}));
+
 import {
   loadWorkflowIntakeSubmission,
   runAndRecordWorkflowAssessment,
@@ -223,6 +233,45 @@ describe('workflow assessment recording', () => {
     expect(injectedRun).not.toHaveBeenCalled();
     expect(fake.rpc).toHaveBeenCalled();
     expect(dependencyMocks.run).toHaveBeenCalledOnce();
+  });
+});
+
+describe('workflow assessment provider telemetry (S7)', () => {
+  it('records one content-free observation when the provider is called', async () => {
+    const fake = fakeAdmin({ latestVersion: null });
+    dependencyMocks.admin = fake.admin;
+    dependencyMocks.run.mockImplementation(async (_input: unknown, deps: { provider: (request: unknown) => Promise<string> }) => {
+      await deps.provider({ model: 'claude-sonnet-4-6', timeoutMs: 15000, maxOutputTokens: 4000, inputJson: '{}' });
+      return { status: 'requires_human_review', assessment, metadata };
+    });
+
+    await expect(runAndRecordWorkflowAssessment(SUBMISSION_ID)).resolves.toMatchObject({ status: 'assessment_recorded' });
+
+    expect(fake.from).toHaveBeenCalledWith('forgewing_provider_call_observations');
+    const row = fake.insert.mock.calls.map(([inserted]) => inserted as Record<string, unknown>)
+      .find((inserted) => inserted.workflow === 'workflow_assessment');
+    expect(row).toMatchObject({
+      workflow: 'workflow_assessment', model: 'claude-sonnet-4-6', outcome: 'succeeded',
+      provider_request_id: 'req_1', input_tokens: 3000, output_tokens: 900, latency_ms: 4200,
+    });
+    expect(JSON.stringify(row)).not.toContain('provider output never recorded');
+  });
+
+  it('records the failure class when the provider fails, and nothing when it is never called', async () => {
+    const fake = fakeAdmin();
+    dependencyMocks.admin = fake.admin;
+    dependencyMocks.run.mockImplementationOnce(async (_input: unknown, deps: { provider: (request: unknown) => Promise<string> }) => {
+      await deps.provider({ model: 'claude-sonnet-4-6', timeoutMs: 15000, maxOutputTokens: 4000, inputJson: '{}' });
+      return { status: 'provider_failed', reason: 'provider_timeout' };
+    });
+    await runAndRecordWorkflowAssessment(SUBMISSION_ID);
+    expect(fake.insert.mock.calls.at(-1)![0]).toMatchObject({ workflow: 'workflow_assessment', outcome: 'provider_timeout' });
+
+    const quiet = fakeAdmin();
+    dependencyMocks.admin = quiet.admin;
+    dependencyMocks.run.mockResolvedValueOnce({ status: 'assessment_disabled' });
+    await runAndRecordWorkflowAssessment(SUBMISSION_ID);
+    expect(quiet.from).not.toHaveBeenCalledWith('forgewing_provider_call_observations');
   });
 });
 

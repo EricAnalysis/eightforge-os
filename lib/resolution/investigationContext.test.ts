@@ -96,6 +96,15 @@ describe('resolveInvestigationContext', () => {
     expect(provider(['text_excerpts']).transmittedDigest).toBe(text.transmittedDigest);
   });
 
+  it('treats the case evidence as customer text: an images-only policy never transmits it (P3a)', () => {
+    const imagesOnly = resolveInvestigationContext(scannedCase(), { extractionData: extraction },
+      { purpose: 'provider_investigation', contentPolicy: { approvedContentClasses: ['page_region_images'] },
+        budget: { maxTransmittedTextChars: 10_000 } });
+    const caseEvidence = imagesOnly.slices.find((slice) => slice.kind === 'case_evidence');
+    expect(caseEvidence).toMatchObject({ contentClass: 'text_excerpts', transmitted: false });
+    expect(imagesOnly.omissions).toEqual(expect.arrayContaining([{ kind: 'case_evidence', reason: 'content_class_not_approved' }]));
+  });
+
   it('gives every case kind a relevance list that starts from the case itself', () => {
     for (const kinds of Object.values(RELEVANT_SLICES)) expect(kinds[0]).toBe('case_evidence');
   });

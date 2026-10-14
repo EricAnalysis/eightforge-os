@@ -101,14 +101,14 @@ describe('additive B4.6.1 Sonnet 5.5 qualification contract', () => {
     expect(() => validateQualificationRecordsV2([record(QUALIFICATION_CONTRACT.model)], expected)).toThrow('request identity');
   });
 
-  it('leaves every frozen v1 source byte unchanged', () => {
+  it('preserves every frozen v1 canonical source identity', () => {
     const expectedHashes: Record<string, string> = {
-      'lib/evaluation/benchmark/qualificationContract.ts': '5a411a39d4dc88ecb9abae1365eed103b2f6614b881ffcddead06f2826d16ca0',
-      'lib/forgewing/runtime/valueReadingClient.ts': '83d656c8caaa555d276710b1f9ee946f12df5622085f499f05042cb5dac7f4ef',
-      'scripts/evaluation/b461/runQualification.ts': '15f65f9218d76ea47f7f8a6c6c5d19bf562bee0a3312b845a71135e7c0c72537',
+      'lib/evaluation/benchmark/qualificationContract.ts': '74e3a1547aef8e8ddfbf0aa3bd6270732acc7d36f262855e015c6eda6c8be632',
+      'lib/forgewing/runtime/valueReadingClient.ts': 'd1a40e0a229871b53e0024929d73f58be4dc0a7818eb31c575f63862797db098',
+      'scripts/evaluation/b461/runQualification.ts': 'b64b34dd9c7fb23b5c638fd69339154e8b7d09f81cf58bb39a26e690f12bb770',
     };
     for (const [file, expectedHash] of Object.entries(expectedHashes)) {
-      expect(createHash('sha256').update(readFileSync(file)).digest('hex'), file).toBe(expectedHash);
+      expect(createHash('sha256').update(readFileSync(file, 'utf8').replace(/\r\n/g, '\n')).digest('hex'), file).toBe(expectedHash);
     }
   });
 

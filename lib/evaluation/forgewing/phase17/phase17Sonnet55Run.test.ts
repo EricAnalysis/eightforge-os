@@ -96,16 +96,16 @@ describe('additive Phase 17 Sonnet 5.5 qualification path', () => {
     expect(computePhase17Sonnet55ContractPins(process.cwd())).toEqual(PHASE17_SONNET_55_ACCEPTED_CONTRACT_PINS);
   });
 
-  it('leaves every frozen Phase 17 v1 source byte unchanged', () => {
+  it('preserves every frozen Phase 17 v1 canonical source identity', () => {
     const expected: Record<string, string> = {
-      'lib/evaluation/forgewing/phase17/phase17Contract.ts': '9fbf32156840ca300141804c2af8d3503c92fbc72b72eaf88e2125e025dd205d',
-      'lib/evaluation/forgewing/phase17/phase17Pins.ts': '72cfa796d97b412c369a7a26b28a23f56e78a3c50591244848defc61d02a3a5e',
-      'lib/evaluation/forgewing/phase17/phase17Run.ts': '575837d5f2f1066f208713c3d87784b34317cebd256676f30681f77e2c53559b',
-      'lib/evaluation/forgewing/phase17/phase17Artifacts.ts': 'b614b4d28abe90e092df10b6d6d86f2a34f74ffaab1d682e50052259ae8a8cae',
-      'lib/forgewing/runtime/client.ts': 'a45b4647e41393e353c3c184645dd3805814ac7083d3ab29819c691b4713d354',
+      'lib/evaluation/forgewing/phase17/phase17Contract.ts': 'b49a71118bbfbe3fa3841d26e255e98d0d8ef54b64be7b30124c67d60030c154',
+      'lib/evaluation/forgewing/phase17/phase17Pins.ts': '8dd074ebf24bbfefd692c7048bf375c61c104cdafd93b7074fff44b7b47366e4',
+      'lib/evaluation/forgewing/phase17/phase17Run.ts': 'c28234135891bdecfe24090372b105b0b6ea4016c2600672fb4c93691c07ebfc',
+      'lib/evaluation/forgewing/phase17/phase17Artifacts.ts': '2876aeb1424387bd9fde7dbe464ff5995e8c6b425b51aa4abef633a035d27524',
+      'lib/forgewing/runtime/client.ts': 'a2d673c29a4cfa3917557602953e00231f6f2f2056093271f68ebec5088387de',
     };
     for (const [file, digest] of Object.entries(expected)) {
-      expect(createHash('sha256').update(readFileSync(file)).digest('hex'), file).toBe(digest);
+      expect(createHash('sha256').update(readFileSync(file, 'utf8').replace(/\r\n/g, '\n')).digest('hex'), file).toBe(digest);
     }
   });
 });

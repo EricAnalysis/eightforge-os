@@ -16,6 +16,7 @@ const CORE_REVIEW_FILES = [
   'lib/humanFactAssertions/regionBoundAssertions.ts',
   'lib/humanFactAssertions/humanReviewReceipt.ts',
   'lib/server/regionBoundHumanAssertions.ts',
+  'lib/server/regionBoundHumanAssertionWriter.ts',
   'app/api/documents/[id]/facts/region-assertions/route.ts',
   'components/documents/ReviewedValuesPanel.tsx',
 ];
@@ -40,7 +41,7 @@ describe('B3 region-bound human review boundaries', () => {
   });
 
   it('never chooses an AI origin: manual entry is operator_entered, a cited proposal only ai_proposed', () => {
-    const adapter = read('lib/server/regionBoundHumanAssertions.ts');
+    const adapter = read('lib/server/regionBoundHumanAssertionWriter.ts');
     expect(adapter).toMatch(/p_review_origin: input\.forgewingProposalId \? 'ai_proposed' : 'operator_entered'/);
     expect(adapter).toMatch(/p_forgewing_proposal_id: input\.forgewingProposalId \?\? null/);
     expect(adapter).not.toMatch(/ai_proposed_operator/);

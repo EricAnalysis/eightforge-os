@@ -40,7 +40,7 @@ const LEGACY_AI_MODULES = [
 const AUTHORITY_WRITERS = [
   '@/lib/canonical', '@/lib/validator', '@/lib/contracts', '@/lib/projectFacts',
   '@/lib/truthQuery', '@/lib/effectiveFacts', '@/lib/humanFactAssertions',
-  '@/lib/server/regionBoundHumanAssertions', '@/lib/server/decisionPersistence',
+  '@/lib/server/regionBoundHumanAssertionWriter', '@/lib/server/decisionPersistence',
   '@/lib/server/decisionClosure', '@/lib/server/workflowTasks', '@/lib/server/legacyWorkflowEngine',
   '@/lib/server/forgewingRecoveryReview', '@/lib/server/customerHeaderMappingLifecycle',
   '@/lib/server/manualRateLinkClosure',

@@ -4,12 +4,8 @@ import {
   resolveRegionBoundAssertions,
   type CurrentDocumentEvidence,
 } from '@/lib/humanFactAssertions/regionBoundAssertions';
-import {
-  loadRegionBoundAssertionRows,
-  recordRegionBoundAssertion,
-  type RecordRegionAssertionInput,
-  type RegionAssertionClient,
-} from '@/lib/server/regionBoundHumanAssertions';
+import { loadRegionBoundAssertionRows, type RegionAssertionClient } from '@/lib/server/regionBoundHumanAssertions';
+import { recordRegionBoundAssertion, type RecordRegionAssertionInput } from '@/lib/server/regionBoundHumanAssertionWriter';
 
 /**
  * B3 qualification through the real TypeScript adapter against a freshly

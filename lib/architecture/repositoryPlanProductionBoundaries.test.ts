@@ -43,7 +43,11 @@ function dependencies(file: string, text: string): string[] {
 }
 
 const expected = new Map<string, string[]>([
-  [ENTRY, ['lib/server/repositoryPlanGenerationWorker', 'lib/server/repositoryPlanWorkerConfig']],
+  // S8 fail-closed startup: the entry checks, before any poll, that the
+  // dedicated-role client can be built and that the root is a Git checkout
+  // (existsSync only: read-only).
+  [ENTRY, ['lib/server/forgewingEngineeringWorkerClient', 'lib/server/repositoryPlanGenerationWorker',
+    'lib/server/repositoryPlanWorkerConfig', 'node:fs', 'node:path']],
   [WORKER, [
     'lib/forgewing/tasks/repositoryPlanGuidance', 'lib/repositoryPlanFoundation', 'lib/repositoryPlanGuidance',
     'lib/server/forgewingEngineeringWorkerClient', 'lib/server/repositoryPlanContentCollector',
@@ -84,6 +88,10 @@ describe('production repository reasoning boundaries', () => {
     expect(text).not.toMatch(/\b(?:writeFile|appendFile|truncate|rename|unlink|mkdir|rm|rmdir)Sync?\b/);
     expect(text).not.toMatch(/\bgit\s+(?:add|commit|push|merge|checkout|reset|restore|clean|stash)\b/i);
     expect(text).not.toMatch(/from\s+['"](?:node:fs|fs)['"]/);
+    // The entry's startup check may only read the filesystem.
+    const entry = readFileSync(path.join(ROOT, ENTRY), 'utf8');
+    expect(entry).not.toMatch(/\b(?:writeFile|appendFile|truncate|rename|unlink|mkdir|rm|rmdir|copyFile|chmod)(?:Sync)?\b/);
+    expect(entry).toMatch(/import \{ existsSync \} from 'node:fs';/);
   });
 
   it('pins worker-owned HEAD derivation to one read-only no-shell Git invocation', () => {

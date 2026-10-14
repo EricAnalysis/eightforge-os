@@ -12,6 +12,8 @@ export type RepositoryPlanRunDisplayState =
   | Readonly<{ kind: 'ready' }>
   | Readonly<{ kind: 'queueing' }>
   | Readonly<{ kind: 'queued'; jobId: string }>
+  /** Still pending after the polling window: no worker has claimed it. */
+  | Readonly<{ kind: 'unclaimed'; jobId: string }>
   | Readonly<{ kind: 'analyzing'; jobId: string }>
   | Readonly<{ kind: 'complete'; jobId: string; planV2RunId: string; planV2DigestSha256: string }>
   | Readonly<{ kind: 'failed'; jobId: string | null }>
@@ -72,6 +74,15 @@ export async function readRepositoryPlanRun(
   } catch { return { kind: 'failed', jobId }; }
 }
 
+/**
+ * How long the browser waits for a worker to claim a queued job before it
+ * stops polling. Repository reasoning runs on the separately hosted Forgewing
+ * Engineering Worker; with no worker running a job stays pending, and the page
+ * must say so rather than show "Queued" forever. The job itself is untouched.
+ */
+export const REPOSITORY_PLAN_UNCLAIMED_AFTER_MS = 5 * 60_000;
+const REPOSITORY_PLAN_POLL_INTERVAL_MS = 2_500;
+
 export async function pollRepositoryPlanRun(
   jobId: string,
   token: string,
@@ -87,12 +98,18 @@ export async function pollRepositoryPlanRun(
   const wait = dependencies.wait ?? ((milliseconds: number) =>
     new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
   const shouldContinue = dependencies.shouldContinue ?? (() => true);
+  let queuedPolls = 0;
+  const maxQueuedPolls = Math.ceil(REPOSITORY_PLAN_UNCLAIMED_AFTER_MS / REPOSITORY_PLAN_POLL_INTERVAL_MS);
   while (!signal.aborted && shouldContinue()) {
-    await wait(2_500);
+    await wait(REPOSITORY_PLAN_POLL_INTERVAL_MS);
     if (signal.aborted || !shouldContinue()) return;
     const next = await readRepositoryPlanRun(jobId, token, signal,
       dependencies.fetcher ?? fetch, expectedClassification);
     if (signal.aborted || !shouldContinue()) return;
+    if (next.kind === 'queued') {
+      queuedPolls += 1;
+      if (queuedPolls >= maxQueuedPolls) { emit({ kind: 'unclaimed', jobId }); return; }
+    }
     emit(next);
     if (next.kind !== 'queued' && next.kind !== 'analyzing') return;
   }
@@ -100,6 +117,7 @@ export async function pollRepositoryPlanRun(
 
 const labels: Record<RepositoryPlanRunDisplayState['kind'], string> = {
   ready: 'Ready', queueing: 'Queuing…', queued: 'Queued', analyzing: 'Analyzing',
+  unclaimed: 'Queued — no Forgewing worker has picked this up yet. The job stays queued; check back later.',
   complete: 'Analysis complete', failed: 'Analysis failed', unavailable: 'Forgewing unavailable',
 };
 

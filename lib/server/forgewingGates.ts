@@ -52,7 +52,7 @@ export const VALUE_READING_POLICY: Readonly<{
  * gates in the same order (Forgewing generalization, phase 3). One gate
  * module for all AI surfaces: a surface that skips it does not exist.
  */
-export const FORGEWING_WORKFLOWS = ['priced_value_reading', 'project_ask', 'case_investigation'] as const;
+export const FORGEWING_WORKFLOWS = ['priced_value_reading', 'project_ask', 'case_investigation', 'workflow_assessment'] as const;
 export type GatedWorkflow = typeof FORGEWING_WORKFLOWS[number];
 
 export type GatedWorkflowPolicy = Readonly<{
@@ -90,6 +90,17 @@ export const FORGEWING_WORKFLOW_POLICIES: Readonly<Record<GatedWorkflow, GatedWo
     qualificationCeiling: 'disabled',
     activationEnv: 'FORGEWING_CASE_INVESTIGATION_ENABLED',
     dailyCapEnv: 'FORGEWING_CASE_INVESTIGATION_DAILY_CAP',
+    reviewRequired: true,
+  }),
+  // Workflow Assessment (S3): the pre-existing production surface, now under
+  // the shared gates. The ceiling equals its former env-only behaviour, so no
+  // activation is widened; it gains entitlement, data policy and the durable
+  // budget. Its output is a non-authoritative assessment a person must review.
+  workflow_assessment: Object.freeze({
+    qualification: 'production_qualified',
+    qualificationCeiling: 'enabled',
+    activationEnv: 'FORGEWING_WORKFLOW_ASSESSMENT_ENABLED',
+    dailyCapEnv: 'FORGEWING_WORKFLOW_ASSESSMENT_DAILY_CAP',
     reviewRequired: true,
   }),
 });

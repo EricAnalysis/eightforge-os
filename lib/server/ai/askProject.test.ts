@@ -83,7 +83,7 @@ describe('askProjectWithClaude', () => {
       temperature: 0,
       max_tokens: 1200,
       system: expect.stringContaining('Answer only from the provided EightForge project context.'),
-    }));
+    }), { timeout: 45_000, maxRetries: 0 });
     const call = createMock.mock.calls[0][0];
     assert.match(call.system, /Do not invent facts/);
     assert.match(call.system, /Do not mutate, approve, override, resolve/);
@@ -103,7 +103,7 @@ describe('askProjectWithClaude', () => {
       context: { contextSource: 'canonical_project_truth_retrieval' } as AskProjectClaudeContext,
     });
 
-    expect(createMock).toHaveBeenCalledWith(expect.objectContaining({ model: 'claude-sonnet-5-5' }));
+    expect(createMock).toHaveBeenCalledWith(expect.objectContaining({ model: 'claude-sonnet-5-5' }), { timeout: 45_000, maxRetries: 0 });
     expect(createMock.mock.calls[0][0]).not.toHaveProperty('temperature');
   });
 });

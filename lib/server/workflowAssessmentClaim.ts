@@ -14,6 +14,13 @@
 // truth, Validator state, Project Truth, decisions, actions, or any executable
 // rule, and an attempt row is never reviewed-specification authority.
 
+import type { SupabaseClient } from '@supabase/supabase-js';
+
+import {
+  readForgewingWorkflowDailyCap,
+  resolveForgewingWorkflowEligibility,
+  type AiProviderContentClass,
+} from '@/lib/server/forgewingGates';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import {
   isWorkflowAssessmentEnabled,
@@ -25,6 +32,14 @@ export const WORKFLOW_ASSESSMENT_CLAIM_FUNCTION =
   'claim_workflow_assessment_attempt' as const;
 export const WORKFLOW_ASSESSMENT_FINALIZE_FUNCTION =
   'finalize_workflow_assessment_attempt' as const;
+export const WORKFLOW_ASSESSMENT_CANDIDATE_ORGANIZATIONS_FUNCTION =
+  'list_workflow_assessment_candidate_organizations' as const;
+
+/**
+ * What an assessment sends to the provider: intake answers and bounded
+ * attachment excerpts, all text. Images are never sent.
+ */
+export const WORKFLOW_ASSESSMENT_CONTENT_CLASSES: readonly AiProviderContentClass[] = Object.freeze(['text_excerpts']);
 
 /**
  * Total attempts per submission: one execution plus one automatic retry.
@@ -58,9 +73,59 @@ export const WORKFLOW_ASSESSMENT_MAX_ATTEMPTS = 2;
  */
 export const WORKFLOW_ASSESSMENT_SWEEP_BATCH_SIZE = 3;
 
+/**
+ * Organizations whose submissions may be claimed, resolved through the shared
+ * Forgewing gates before any claim: kill switch, workflow activation,
+ * commercial entitlement, data-processing authorization for every content
+ * class, and a configured daily cap. A denied organization's submissions are
+ * never claimed, so a denial never spends a lifetime attempt. The budget slot
+ * itself is reserved atomically with the claim, in the database.
+ */
+export type WorkflowAssessmentOrganizationGate =
+  | Readonly<{ status: 'eligible'; organizationIds: readonly string[]; dailyCap: number; candidates: number }>
+  | Readonly<{ status: 'no_eligible_organization'; candidates: number }>
+  | Readonly<{ status: 'gate_lookup_failed' }>;
+
+export type WorkflowAssessmentGateDependencies = Readonly<{
+  resolveEligibility?: typeof resolveForgewingWorkflowEligibility;
+}>;
+
+export async function resolveWorkflowAssessmentOrganizationGate(
+  admin: SupabaseClient,
+  dependencies: WorkflowAssessmentGateDependencies = {},
+): Promise<WorkflowAssessmentOrganizationGate> {
+  let candidates: string[];
+  try {
+    const listed = await admin.rpc(WORKFLOW_ASSESSMENT_CANDIDATE_ORGANIZATIONS_FUNCTION);
+    if (listed.error || !Array.isArray(listed.data)) return { status: 'gate_lookup_failed' };
+    candidates = [...new Set((listed.data as Array<{ organization_id?: unknown }>)
+      .map((row) => row?.organization_id)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0))];
+  } catch {
+    return { status: 'gate_lookup_failed' };
+  }
+  const resolve = dependencies.resolveEligibility ?? resolveForgewingWorkflowEligibility;
+  const eligible: string[] = [];
+  for (const organizationId of candidates) {
+    const decision = await resolve(admin, {
+      organizationId, workflow: 'workflow_assessment', contentClasses: WORKFLOW_ASSESSMENT_CONTENT_CLASSES,
+    });
+    if (decision.eligible) eligible.push(organizationId);
+  }
+  if (eligible.length === 0) return { status: 'no_eligible_organization', candidates: candidates.length };
+  return {
+    status: 'eligible',
+    organizationIds: eligible,
+    dailyCap: readForgewingWorkflowDailyCap('workflow_assessment'),
+    candidates: candidates.length,
+  };
+}
+
 export type WorkflowAssessmentExecutionResult =
   | Readonly<{ status: 'not_configured' }>
   | Readonly<{ status: 'assessment_disabled' }>
+  | Readonly<{ status: 'no_eligible_organization'; candidates: number }>
+  | Readonly<{ status: 'gate_lookup_failed' }>
   | Readonly<{ status: 'nothing_claimable' }>
   | Readonly<{ status: 'claim_failed'; reason: string }>
   | Readonly<{
@@ -96,6 +161,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export async function executeClaimedWorkflowAssessment(
   submissionId?: string,
   excludeSubmissionIds: readonly string[] = [],
+  /** Resolved once per sweep; resolved here when absent. */
+  organizationGate?: WorkflowAssessmentOrganizationGate,
+  dependencies: WorkflowAssessmentGateDependencies = {},
 ): Promise<WorkflowAssessmentExecutionResult> {
   // Checked before the claim: a disabled deployment must not create attempt
   // rows, let alone approach the provider.
@@ -103,6 +171,11 @@ export async function executeClaimedWorkflowAssessment(
 
   const admin = getSupabaseAdmin();
   if (!admin) return { status: 'not_configured' };
+
+  // The organization gates, also before the claim: a denied organization's
+  // submission is never claimed, so it keeps both lifetime attempts.
+  const gate = organizationGate ?? await resolveWorkflowAssessmentOrganizationGate(admin, dependencies);
+  if (gate.status !== 'eligible') return gate;
 
   const claim = await admin.rpc(WORKFLOW_ASSESSMENT_CLAIM_FUNCTION, {
     p_max_attempts: WORKFLOW_ASSESSMENT_MAX_ATTEMPTS,
@@ -112,6 +185,10 @@ export async function executeClaimedWorkflowAssessment(
     // in the same invocation could immediately spend its second attempt.
     p_exclude_submission_ids: excludeSubmissionIds.length > 0
       ? [...excludeSubmissionIds] : null,
+    // Narrowing only: the claim selects within these organizations and spends
+    // the claimed organization's durable budget slot in the same transaction.
+    p_eligible_organization_ids: [...gate.organizationIds],
+    p_daily_cap: gate.dailyCap,
   });
   if (claim.error) return { status: 'claim_failed', reason: claim.error.message };
 
@@ -173,6 +250,7 @@ export type WorkflowAssessmentSweepResult = Readonly<{
   recorded: number;
   outcomes: readonly WorkflowAssessmentExecutionResult[];
   stoppedBecause: 'batch_full' | 'nothing_claimable' | 'disabled' | 'not_configured'
+    | 'no_eligible_organization' | 'gate_lookup_failed'
     | 'claim_failed' | 'attempt_finalization_failed';
 }>;
 
@@ -194,12 +272,24 @@ export type WorkflowAssessmentSweepResult = Readonly<{
  * cannot starve everything behind it. If finalization fails, the sweep stops
  * with the known assessment outcomes and leaves attempt state to the database.
  */
-export async function sweepWorkflowAssessments(): Promise<WorkflowAssessmentSweepResult> {
+export async function sweepWorkflowAssessments(
+  dependencies: WorkflowAssessmentGateDependencies = {},
+): Promise<WorkflowAssessmentSweepResult> {
   const outcomes: WorkflowAssessmentExecutionResult[] = [];
   const attemptedSubmissions: string[] = [];
+  if (!isWorkflowAssessmentEnabled()) {
+    return { attempted: 0, recorded: 0, outcomes, stoppedBecause: 'disabled' };
+  }
+  const admin = getSupabaseAdmin();
+  if (!admin) return { attempted: 0, recorded: 0, outcomes, stoppedBecause: 'not_configured' };
+  // One gate resolution per sweep. The claim still reserves each call's budget.
+  const gate = await resolveWorkflowAssessmentOrganizationGate(admin, dependencies);
+  if (gate.status !== 'eligible') {
+    return { attempted: 0, recorded: 0, outcomes, stoppedBecause: gate.status };
+  }
 
   for (let index = 0; index < WORKFLOW_ASSESSMENT_SWEEP_BATCH_SIZE; index += 1) {
-    const result = await executeClaimedWorkflowAssessment(undefined, attemptedSubmissions);
+    const result = await executeClaimedWorkflowAssessment(undefined, attemptedSubmissions, gate);
 
     if (result.status === 'attempt_finalization_failed') {
       outcomes.push(result);
@@ -221,6 +311,8 @@ export async function sweepWorkflowAssessments(): Promise<WorkflowAssessmentSwee
         stoppedBecause: result.status === 'nothing_claimable' ? 'nothing_claimable'
           : result.status === 'assessment_disabled' ? 'disabled'
           : result.status === 'not_configured' ? 'not_configured'
+          : result.status === 'no_eligible_organization' ? 'no_eligible_organization'
+          : result.status === 'gate_lookup_failed' ? 'gate_lookup_failed'
           : 'claim_failed',
       };
     }

@@ -5,6 +5,7 @@ import {
   getClaudeClient,
   getClaudeModel,
 } from '@/lib/server/ai/claudeClient';
+import { CLAUDE_REQUEST_OPTIONS } from '@/lib/server/ai/claudeRequestOptions';
 import { getClaudeSamplingParameters } from '@/lib/server/ai/claudeSampling';
 import {
   getOrchestratorRootCauseCategory,
@@ -89,7 +90,7 @@ export async function runOrchestrator(input: RunOrchestratorInput): Promise<RunO
         }),
       },
     ],
-  });
+  }, { ...CLAUDE_REQUEST_OPTIONS.internal });
 
   const answer = extractTextContent(message.content);
   return {

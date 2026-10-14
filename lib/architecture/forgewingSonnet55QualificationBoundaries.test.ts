@@ -20,7 +20,9 @@ describe('additive Sonnet 5.5 qualification boundaries', () => {
     const production = ['app', 'components', 'lib'].flatMap(walk)
       .filter((file) => /\.(?:ts|tsx)$/.test(file) && !/\.test\.tsx?$/.test(file))
       .filter((file) => !file.startsWith('lib/evaluation/'));
-    expect(production.filter((file) => read(file).includes('valueReadingClientV2'))).toEqual([]);
+    for (const client of ['valueReadingClientV2', 'valueReadingClientV3', 'valueReadingQualificationRenderer']) {
+      expect(production.filter(file => read(file).includes(client) && file !== 'lib/server/valueReadingQualificationRenderer.ts')).toEqual([]);
+    }
     expect(production.filter((file) => read(file).includes('phase17Sonnet55QualificationClient')))
       .toEqual([]);
   });
@@ -36,6 +38,7 @@ describe('additive Sonnet 5.5 qualification boundaries', () => {
       .toContain("scripts/evaluation/artifacts/phase17-sonnet-5-5");
     for (const file of [
       'scripts/evaluation/b461/runQualificationV2.ts',
+      'scripts/evaluation/b461/runQualificationV3.ts',
       'scripts/evaluation/phase17/runPhase17Sonnet55ContinuationEvaluation.ts',
       'lib/evaluation/forgewing/phase17/phase17Sonnet55Run.ts',
     ]) {
@@ -46,7 +49,7 @@ describe('additive Sonnet 5.5 qualification boundaries', () => {
   it('keeps paid qualification commands and credentials out of CI', () => {
     for (const workflow of readdirSync(path.join(ROOT, '.github/workflows'))) {
       const source = read(`.github/workflows/${workflow}`);
-      expect(source, workflow).not.toMatch(/eval:b461-sonnet-5-5|eval:phase17-sonnet-5-5|runQualificationV2|ANTHROPIC_API_KEY/);
+      expect(source, workflow).not.toMatch(/eval:b461-sonnet-5-5|eval:phase17-sonnet-5-5|runQualificationV2|runQualificationV3|ANTHROPIC_API_KEY/);
     }
   });
 });

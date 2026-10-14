@@ -17,6 +17,7 @@ import { loadConfirmedRecoverySelections } from '@/lib/server/effectiveRecoveryC
 import { runAiEnrichment } from '@/lib/server/documentAiEnrichment';
 import { persistAiEnrichmentDecisions } from '@/lib/server/aiDecisionPersistence';
 import { runDecisionEngine } from '@/lib/server/heuristicDecisionEngine';
+import { deterministicDecisionsOnly } from '@/lib/pipeline/decisionEngine';
 import { persistDecisions, documentDecisionsToPersisted } from '@/lib/server/decisionPersistence';
 import { runWorkflowEngine } from '@/lib/server/legacyWorkflowEngine';
 import { createWorkflowTasksFromDecisions } from '@/lib/server/workflowTasks';
@@ -260,7 +261,7 @@ export async function POST(
     }
 
     try {
-      const decisions = await runDecisionEngine({
+      const decisions = deterministicDecisionsOnly(await runDecisionEngine({
         documentId: job.document_id,
         organizationId: job.organization_id,
         extraction: payload as unknown as {
@@ -268,9 +269,9 @@ export async function POST(
           extraction?: { mode: string; text_preview: string | null };
           ai_enrichment?: Record<string, unknown>;
         },
-      });
+      }));
 
-      if (decisions?.length) {
+      if (decisions.length) {
         const toPersist = documentDecisionsToPersisted(decisions, {
           document_type: docRow.document_type ?? null,
         });
@@ -305,7 +306,7 @@ export async function POST(
         await runWorkflowEngine({
           documentId: job.document_id,
           organizationId: job.organization_id,
-          decisions: (decisions ?? []).map((d) => ({
+          decisions: decisions.map((d) => ({
             decision_type: d.decision_type,
             decision_value: d.decision_value,
           })),

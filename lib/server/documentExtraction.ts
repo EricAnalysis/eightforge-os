@@ -1776,9 +1776,6 @@ export async function extractDocument(
     if (extractionAssist.snapshot) {
       ensureAiAssist(payload).extraction_assist = extractionAssist.snapshot;
     }
-    if (extractionAssist.mergedTypedFields) {
-      payload.fields.typed_fields = extractionAssist.mergedTypedFields;
-    }
 
     const pageText: PageTextEvidence[] = fullDecoded
       ? [{ page_number: 1, text: fullDecoded, source_method: 'text' as EvidenceSourceMethod }]
@@ -2514,9 +2511,6 @@ export async function extractDocument(
       if (extractionAssist.snapshot) {
         ensureAiAssist(payload).extraction_assist = extractionAssist.snapshot;
       }
-      if (extractionAssist.mergedTypedFields) {
-        payload.fields.typed_fields = extractionAssist.mergedTypedFields;
-      }
       const fallbackPageText: PageTextEvidence[] =
         evidencePageText.length > 0
           ? evidencePageText
@@ -2639,9 +2633,6 @@ export async function extractDocument(
     });
     if (extractionAssist.snapshot) {
       ensureAiAssist(payload).extraction_assist = extractionAssist.snapshot;
-    }
-    if (extractionAssist.mergedTypedFields) {
-      payload.fields.typed_fields = extractionAssist.mergedTypedFields;
     }
     payload.extraction.evidence_v1 = buildEvidenceV1({
       pageText: evidencePageText,

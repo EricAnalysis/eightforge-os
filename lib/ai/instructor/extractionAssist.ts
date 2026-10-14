@@ -60,34 +60,19 @@ function importantGaps(gaps: ExtractionGap[]): ExtractionGap[] {
   );
 }
 
-function mergeTypedFields(
+/** Fields the assist read that deterministic extraction left empty. Recorded, never merged. */
+function proposedFieldKeys(
   existing: TypedExtraction | null,
   assisted: TypedExtraction,
-): { typedFields: TypedExtraction; mergedKeys: string[] } {
-  if (!existing || existing.schema_type !== assisted.schema_type) {
-    return {
-      typedFields: assisted,
-      mergedKeys: Object.keys(assisted).filter((key) => key !== 'schema_type'),
-    };
-  }
-
-  const existingRecord = existing as Record<string, unknown>;
+): string[] {
   const assistedRecord = assisted as Record<string, unknown>;
-  const mergedRecord: Record<string, unknown> = { ...existingRecord };
-  const mergedKeys: string[] = [];
-
-  for (const [key, value] of Object.entries(assistedRecord)) {
-    if (key === 'schema_type') continue;
-    if (hasMeaningfulValue(existingRecord[key])) continue;
-    if (!hasMeaningfulValue(value)) continue;
-    mergedRecord[key] = value;
-    mergedKeys.push(key);
-  }
-
-  return {
-    typedFields: mergedRecord as TypedExtraction,
-    mergedKeys,
-  };
+  const existingRecord = existing && existing.schema_type === assisted.schema_type
+    ? existing as Record<string, unknown>
+    : null;
+  return Object.entries(assistedRecord)
+    .filter(([key, value]) => key !== 'schema_type' && hasMeaningfulValue(value))
+    .filter(([key]) => !existingRecord || !hasMeaningfulValue(existingRecord[key]))
+    .map(([key]) => key);
 }
 
 function materializeTypedExtraction(value: typeof extractionAssistEnvelopeSchema['_output']['typed_fields']): TypedExtraction {
@@ -234,7 +219,7 @@ export async function maybeAssistTypedExtraction(params: {
   model?: string;
   client?: InstructorLikeClient | null;
   createClient?: () => InstructorLikeClient | null;
-}): Promise<{ snapshot: InstructorExtractionAssistSnapshot | null; mergedTypedFields: TypedExtraction | null }> {
+}): Promise<{ snapshot: InstructorExtractionAssistSnapshot | null }> {
   const decision = shouldRunExtractionAssist({
     detectedDocumentType: params.detectedDocumentType,
     currentTypedFields: params.currentTypedFields,
@@ -261,7 +246,6 @@ export async function maybeAssistTypedExtraction(params: {
             model: null,
           }
         : null,
-      mergedTypedFields: params.currentTypedFields,
     };
   }
 
@@ -301,7 +285,6 @@ export async function maybeAssistTypedExtraction(params: {
         attempts: result.attempts,
         model: result.model,
       },
-      mergedTypedFields: params.currentTypedFields,
     };
   }
 
@@ -325,26 +308,25 @@ export async function maybeAssistTypedExtraction(params: {
         attempts: result.attempts,
         model: result.model,
       },
-      mergedTypedFields: params.currentTypedFields,
     };
   }
 
-  const merged = mergeTypedFields(params.currentTypedFields, assistedFields);
   return {
     snapshot: {
       parser_version: 'instructor_extraction_assist_v1',
-      status: 'applied',
+      status: 'recorded',
+      authority: 'non_authoritative',
       source: 'instructor',
       detected_document_type: params.detectedDocumentType,
       confidence: result.data.confidence,
       trigger_reasons: decision.triggerReasons.length > 0 ? decision.triggerReasons : (result.data.reasons ?? []),
       important_gaps: decision.importantGaps,
       typed_fields: assistedFields,
-      merged_field_keys: merged.mergedKeys,
+      merged_field_keys: [],
+      proposed_field_keys: proposedFieldKeys(params.currentTypedFields, assistedFields),
       warnings: result.warnings,
       attempts: result.attempts,
       model: result.model,
     },
-    mergedTypedFields: merged.typedFields,
   };
 }

@@ -115,11 +115,10 @@ describe('Instructor extraction assist', () => {
     });
 
     expect(result.snapshot).toBeNull();
-    expect(result.mergedTypedFields?.schema_type).toBe('invoice');
     expect(create).not.toHaveBeenCalled();
   });
 
-  it('retries malformed extraction output and merges only missing fields', async () => {
+  it('retries malformed extraction output and records it as non-authoritative evidence, never merged', async () => {
     const importantGaps: ExtractionGap[] = [
       {
         id: 'gap:plain_text_missing:1',
@@ -154,16 +153,19 @@ describe('Instructor extraction assist', () => {
       client,
     });
 
-    expect(result.snapshot?.status).toBe('applied');
+    expect(result.snapshot?.status).toBe('recorded');
+    expect(result.snapshot?.authority).toBe('non_authoritative');
     expect(result.snapshot?.attempts).toBe(2);
-    expect(result.snapshot?.merged_field_keys).toContain('vendor_name');
-    expect(result.snapshot?.merged_field_keys).toContain('total_amount');
-    expect(result.mergedTypedFields).toMatchObject({
+    expect(result.snapshot?.merged_field_keys).toEqual([]);
+    // invoice_number is already present deterministically, so it is not proposed.
+    expect(result.snapshot?.proposed_field_keys).toEqual(['vendor_name', 'total_amount', 'current_amount_due']);
+    expect(result.snapshot?.typed_fields).toMatchObject({
       schema_type: 'invoice',
-      invoice_number: 'INV-KEEP',
+      invoice_number: 'INV-200',
       vendor_name: 'Acme Debris LLC',
       total_amount: 2450,
     });
+    expect(result).not.toHaveProperty('mergedTypedFields');
     expect(create).toHaveBeenCalledTimes(2);
   });
 
@@ -193,8 +195,30 @@ describe('Instructor extraction assist', () => {
 
     expect(result.snapshot?.status).toBe('failed');
     expect(result.snapshot?.typed_fields).toBeNull();
-    expect(result.mergedTypedFields).toBeNull();
     expect(result.snapshot?.warnings.length).toBeGreaterThan(0);
     expect(create).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('Instructor enablement', () => {
+  it('is explicit opt-in: an OpenAI key alone never enables the assist', async () => {
+    const { isInstructorEnabled } = await import('@/lib/ai/instructor/client');
+    const saved = { key: process.env.OPENAI_API_KEY, flag: process.env.EIGHTFORGE_INSTRUCTOR_ENABLED };
+    try {
+      process.env.OPENAI_API_KEY = 'sk-test-not-real';
+      for (const flag of [undefined, '', '0', 'true', 'yes', ' 1']) {
+        if (flag === undefined) delete process.env.EIGHTFORGE_INSTRUCTOR_ENABLED;
+        else process.env.EIGHTFORGE_INSTRUCTOR_ENABLED = flag;
+        expect(`${String(flag)}:${isInstructorEnabled()}`).toBe(`${String(flag)}:false`);
+      }
+      process.env.EIGHTFORGE_INSTRUCTOR_ENABLED = '1';
+      expect(isInstructorEnabled()).toBe(true);
+      delete process.env.OPENAI_API_KEY;
+      expect(isInstructorEnabled()).toBe(false);
+    } finally {
+      if (saved.key === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = saved.key;
+      if (saved.flag === undefined) delete process.env.EIGHTFORGE_INSTRUCTOR_ENABLED;
+      else process.env.EIGHTFORGE_INSTRUCTOR_ENABLED = saved.flag;
+    }
   });
 });

@@ -161,7 +161,6 @@ function mockCommonPdfPipeline(
   vi.doMock('@/lib/ai/instructor/extractionAssist', () => ({
     maybeAssistTypedExtraction: vi.fn(async () => ({
       snapshot: null,
-      mergedTypedFields: null,
     })),
   }));
 

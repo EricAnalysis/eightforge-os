@@ -18,8 +18,13 @@ export interface StructuredOutputResult<T> {
   warnings: string[];
 }
 
-function isInstructorEnabled(): boolean {
-  return process.env.EIGHTFORGE_INSTRUCTOR_ENABLED !== '0'
+/**
+ * Explicit opt-in only. An OPENAI_API_KEY on its own never enables the assist:
+ * it is a provider path outside the Forgewing gates, so it stays off unless
+ * EIGHTFORGE_INSTRUCTOR_ENABLED is exactly '1'.
+ */
+export function isInstructorEnabled(): boolean {
+  return process.env.EIGHTFORGE_INSTRUCTOR_ENABLED === '1'
     && typeof process.env.OPENAI_API_KEY === 'string'
     && process.env.OPENAI_API_KEY.trim().length > 0;
 }

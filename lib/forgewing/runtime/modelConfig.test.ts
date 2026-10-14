@@ -1,14 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  FORGEWING_QUALIFIED_MODELS,
   getForgewingRuntimeConfig,
   getForgewingRepositoryPlanRuntimeConfig,
   isForgewingColumnMappingEnabled,
   isForgewingObservationArbitrationEnabled,
   isForgewingPricingInterpretationEnabled,
   isForgewingPricingRateClusterRecoveryEnabled,
+  isForgewingModelQualified,
   isForgewingRepositoryPlanGuidanceEnabled,
   isForgewingTableContinuationEnabled,
+  isForgewingWorkflowAssessmentEnabled,
+  resolveForgewingModel,
 } from '@/lib/forgewing/runtime/modelConfig';
 
 describe('Forgewing runtime configuration', () => {
@@ -29,17 +33,63 @@ describe('Forgewing runtime configuration', () => {
 
   it('uses the Forgewing model override and rejects unsafe numeric configuration', () => {
     vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
-    vi.stubEnv('FORGEWING_MODEL', ' claude-forgewing ');
+    vi.stubEnv('FORGEWING_MODEL', ' claude-sonnet-4-6 ');
     vi.stubEnv('FORGEWING_TIMEOUT_MS', '999999');
     vi.stubEnv('FORGEWING_MAX_CALLS', '-1');
     vi.stubEnv('FORGEWING_MAX_OUTPUT_TOKENS', 'NaN');
     expect(getForgewingRuntimeConfig()).toMatchObject({
       enabled: true,
-      model: 'claude-forgewing',
+      disabledReason: null,
+      model: 'claude-sonnet-4-6',
       timeoutMs: 3_000,
       maxCalls: 1,
       maxOutputTokens: 800,
     });
+  });
+
+  it('fails closed with model_unqualified on any model outside the qualified list', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    vi.stubEnv('FORGEWING_WORKFLOW_ASSESSMENT_ENABLED', '1');
+    vi.stubEnv('FORGEWING_REPOSITORY_PLAN_GUIDANCE_ENABLED', '1');
+    for (const model of ['claude-forgewing', 'claude-sonnet-5-5', 'claude-opus-5-5', 'claude-sonnet-4-6-x']) {
+      vi.stubEnv('FORGEWING_MODEL', model);
+      expect(getForgewingRuntimeConfig()).toMatchObject({ enabled: false, disabledReason: 'model_unqualified', model });
+      expect(getForgewingRepositoryPlanRuntimeConfig())
+        .toMatchObject({ enabled: false, disabledReason: 'model_unqualified', model });
+      expect(isForgewingWorkflowAssessmentEnabled()).toBe(false);
+      expect(isForgewingRepositoryPlanGuidanceEnabled()).toBe(false);
+    }
+    expect(warn).toHaveBeenCalledWith(
+      '[forgewingModelConfig] model_unqualified: Forgewing stays disabled',
+      expect.objectContaining({ model: 'claude-sonnet-5-5' }),
+    );
+    warn.mockRestore();
+  });
+
+  it('never silently inherits an unqualified shared model when FORGEWING_MODEL is unset', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
+    vi.stubEnv('FORGEWING_MODEL', '');
+    vi.stubEnv('ANTHROPIC_MODEL', 'claude-sonnet-5-5');
+    expect(resolveForgewingModel()).toEqual({ model: 'claude-sonnet-5-5', source: 'shared_model', qualified: false });
+    expect(getForgewingRuntimeConfig()).toMatchObject({ enabled: false, disabledReason: 'model_unqualified' });
+
+    vi.stubEnv('ANTHROPIC_MODEL', '');
+    expect(resolveForgewingModel()).toEqual({ model: 'claude-sonnet-4-6', source: 'shared_model', qualified: true });
+    expect(getForgewingRuntimeConfig()).toMatchObject({ enabled: true, disabledReason: null });
+  });
+
+  it('qualification is code, not configuration: the list is frozen and names only the measured model', () => {
+    expect(FORGEWING_QUALIFIED_MODELS).toEqual(['claude-sonnet-4-6']);
+    expect(Object.isFrozen(FORGEWING_QUALIFIED_MODELS)).toBe(true);
+    expect(isForgewingModelQualified(' claude-sonnet-4-6 ')).toBe(true);
+  });
+
+  it('reports the master gate, not the model, when Forgewing is simply off', () => {
+    vi.stubEnv('FORGEWING_SHADOW_ENABLED', '');
+    vi.stubEnv('FORGEWING_MODEL', 'claude-sonnet-5-5');
+    expect(getForgewingRuntimeConfig()).toMatchObject({ enabled: false, disabledReason: 'gate_off' });
   });
 
   it('falls back to the shared Anthropic model override', () => {

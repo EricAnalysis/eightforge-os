@@ -1,6 +1,8 @@
 import { readAuthoredAmount } from '@/lib/contracts/rateAuthority';
 import type { InvestigationContext, InvestigationSliceKind } from '@/lib/resolution/investigationContext';
 import type { ResolutionAction, ResolutionCase } from '@/lib/resolution/resolutionCases';
+import { validatorPrimaryResolutionWorkflow } from '@/lib/validator/ruleActions';
+import { validatorRuleExplanation, type ValidatorRuleActionKind } from '@/lib/validator/ruleExplanations';
 
 /**
  * Deterministic investigation of one ResolutionCase (Forgewing
@@ -41,7 +43,9 @@ export type CaseInvestigationFinding = Readonly<{
     | 'reviewed_value_on_page'
     | 'review_held'
     | 'another_document_governs'
-    | 'pending_forgewing_proposal';
+    | 'pending_forgewing_proposal'
+    | 'rule_explanation'
+    | 'conflicting_evidence_unchosen';
   text: string;
   evidence: readonly InvestigationSliceKind[];
 }>;
@@ -76,6 +80,33 @@ function decimals(text: string): number | null {
   const match = /\.(\d+)\s*$/u.exec(text.trim());
   return match ? match[1]!.length : /\d/u.test(text) ? 0 : null;
 }
+
+/**
+ * B6.2 rule-action vocabulary -> the resolution case action that carries it.
+ * `enter_reviewed_value` is offered by region cases, never by a finding.
+ */
+const CASE_ACTION_FOR_RULE_ACTION: Readonly<Record<ValidatorRuleActionKind, ResolutionAction['kind'] | null>> = {
+  upload_document: 'upload_document',
+  open_linked_documents: 'open_linked_documents',
+  open_manual_rate_link: 'link_invoice_line_rate',
+  open_evidence_inspector: 'open_document',
+  enter_reviewed_value: null,
+};
+
+const RULE_ACTION_LABEL: Readonly<Record<ValidatorRuleActionKind, string>> = {
+  upload_document: 'Upload the missing document',
+  open_linked_documents: "Open the project's linked documents",
+  open_manual_rate_link: 'Link the invoice line to a contract rate',
+  open_evidence_inspector: 'Open the cited evidence',
+  enter_reviewed_value: 'Enter a reviewed value',
+};
+
+/** Rules whose finding is two authoritative-looking values that disagree. */
+const CONFLICT_RULE_IDS: ReadonlySet<string> = new Set([
+  'TRANSACTION_TICKET_GRAIN_CONFLICT',
+  'CANONICAL_INVOICE_IDENTITY_CONFLICT',
+  'CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING',
+]);
 
 function formatAmount(value: number): string {
   return value.toFixed(Math.max(2, (String(value).split('.')[1] ?? '').length));
@@ -173,8 +204,33 @@ export function investigateCase(resolutionCase: ResolutionCase, context: Investi
     options.push({ actionKind: 'review_recovery_proposal', label: 'Review the proposed reading',
       rationale: 'Confirm only a source-backed option the proposal offers.', prefill: null, evidence: ['prior_forgewing', 'case_evidence'] });
   } else if (resolutionCase.kind === 'validator_finding') {
-    options.push({ actionKind: 'resolve_execution_item', label: 'Resolve the finding through its execution item',
-      rationale: 'The finding is cleared only by its own workflow, never by an investigation.', prefill: null, evidence: ['validator_findings'] });
+    // B6: the rule catalogue is the authoritative explanation and the fixed
+    // action vocabulary is the only menu. This ranks the case's own actions in
+    // catalogue order behind the rule's primary workflow; it never names an
+    // outcome, never prefills, and never clears the finding.
+    const ruleId = resolutionCase.finding?.ruleId ?? null;
+    const explanation = validatorRuleExplanation(ruleId);
+    if (explanation) {
+      diagnosis = `${explanation.title}: ${explanation.explanation}`;
+      findings.push({ code: 'rule_explanation', evidence: ['validator_findings'], text: explanation.requiredAction });
+    }
+    if (ruleId && CONFLICT_RULE_IDS.has(ruleId)) {
+      findings.push({ code: 'conflicting_evidence_unchosen', evidence: ['case_evidence', 'validator_findings'],
+        text: 'The cited sources disagree. EightForge does not choose between them: a person decides which, if any, is authoritative, through the finding\'s own workflow.' });
+    }
+    const decisionOption: Omit<CaseInvestigationOption, 'rank'> = {
+      actionKind: 'resolve_execution_item', label: 'Resolve the finding through its execution item',
+      rationale: 'The finding is cleared only by its own workflow, never by an investigation.', prefill: null, evidence: ['validator_findings'] };
+    const catalogueOptions = (explanation?.actions ?? []).flatMap((ruleAction) => {
+      const actionKind = CASE_ACTION_FOR_RULE_ACTION[ruleAction];
+      return actionKind ? [{ actionKind, label: RULE_ACTION_LABEL[ruleAction],
+        rationale: explanation!.requiredAction, prefill: null, evidence: ['validator_findings', 'case_evidence'] as InvestigationSliceKind[] }] : [];
+    });
+    if (ruleId && validatorPrimaryResolutionWorkflow(ruleId) === 'manual_rate_link') {
+      options.push(...catalogueOptions, decisionOption);
+    } else {
+      options.push(decisionOption, ...catalogueOptions);
+    }
   }
 
   if (scannedNeighbours > 0) {
@@ -199,8 +255,10 @@ export function investigateCase(resolutionCase: ResolutionCase, context: Investi
       text: `Forgewing proposed ${pending.map((entry) => entry.proposedValue).filter(Boolean).join(', ') || 'a reading'}; it is a suggestion, not a value.` });
   }
 
-  options.push({ actionKind: 'open_document', label: 'Open the page', rationale: 'See the evidence in its document.',
-    prefill: null, evidence: ['case_evidence'] });
+  if (!options.some((option) => option.actionKind === 'open_document')) {
+    options.push({ actionKind: 'open_document', label: 'Open the page', rationale: 'See the evidence in its document.',
+      prefill: null, evidence: ['case_evidence'] });
+  }
   return {
     method: 'deterministic',
     contextDigest: context.readDigest,

@@ -78,3 +78,44 @@ describe('investigateCase', () => {
       .not.toBe(investigate(resolutionCase, extraction('$8.76')).contextDigest);
   });
 });
+
+describe('investigateCase: Validator findings (P3a, B6 catalogue)', () => {
+  const findingCase = (ruleId: string, kinds: ResolutionAction['kind'][]): ResolutionCase => ({
+    ...pricedCase('validator_finding', '', [], kinds),
+    caseId: `finding:${ruleId}`,
+    problem: 'Expected 2 values to match.',
+    finding: { checkKey: `check-${ruleId}`, ruleId, severity: 'critical', field: null, expected: 'a', actual: 'b',
+      recommendedAction: 'r' },
+  });
+
+  it('explains from the catalogue and ranks the decision first, then catalogue actions in order', () => {
+    const result = investigate(findingCase('SOURCES_REFERENCED_AMENDMENT_MISSING',
+      ['resolve_execution_item', 'open_document', 'upload_document', 'open_linked_documents', 'open_in_validator']), null);
+    expect(result.diagnosis.length).toBeGreaterThan(0);
+    expect(result.findings.map((entry) => entry.code)).toContain('rule_explanation');
+    expect(result.options.map((option) => option.actionKind)).toEqual(
+      ['resolve_execution_item', 'open_document', 'upload_document', 'open_linked_documents']);
+    expect(result.options.every((option) => option.prefill === null)).toBe(true);
+  });
+
+  it('leads with the rate link only for the rule whose primary workflow is the rate link', () => {
+    const result = investigate(findingCase('FINANCIAL_RATE_CODE_MISSING',
+      ['resolve_execution_item', 'link_invoice_line_rate', 'open_document']), null);
+    expect(result.options.map((option) => option.actionKind)).toEqual(
+      ['link_invoice_line_rate', 'open_document', 'resolve_execution_item']);
+  });
+
+  it('says conflicting evidence is unchosen and never offers a value', () => {
+    const result = investigate(findingCase('TRANSACTION_TICKET_GRAIN_CONFLICT',
+      ['resolve_execution_item', 'open_document', 'enter_reviewed_value']), null);
+    expect(result.findings.map((entry) => entry.code)).toContain('conflicting_evidence_unchosen');
+    expect(result.options.map((option) => option.actionKind)).not.toContain('enter_reviewed_value');
+    expect(result.options.every((option) => option.prefill === null)).toBe(true);
+  });
+
+  it('never proposes an action the finding does not list, and survives an unknown rule', () => {
+    const result = investigate(findingCase('NOT_IN_CATALOGUE', ['open_in_validator']), null);
+    expect(result.options).toEqual([]);
+    expect(result.findings.map((entry) => entry.code)).not.toContain('rule_explanation');
+  });
+});

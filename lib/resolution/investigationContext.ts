@@ -165,7 +165,10 @@ type Candidate = Omit<InvestigationSlice, 'transmitted'>;
 function caseEvidence(resolutionCase: ResolutionCase): Candidate {
   return {
     kind: 'case_evidence',
-    contentClass: 'metadata',
+    // Title, problem, "Expected X, found Y" and evidence labels quote the
+    // customer's documents: customer text, so it travels only under an
+    // approved text_excerpts policy, never as metadata (Forgewing P3a).
+    contentClass: 'text_excerpts',
     provenance: { source: 'resolution_case', documentId: resolutionCase.documentId,
       physicalPageNumber: resolutionCase.physicalPageNumber, recordIds: [resolutionCase.caseId] },
     payload: {

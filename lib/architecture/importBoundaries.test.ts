@@ -164,6 +164,7 @@ const FORGEWING_EVALUATION_AUTHORIZED_CONSUMERS = new Set([
   // This permits that mention, not imports of Forgewing runtime modules.
   'lib/evaluation/benchmark/qualificationContract.ts',
   'lib/evaluation/benchmark/qualificationContractV2.ts',
+  'lib/evaluation/benchmark/qualificationContractV3.ts',
   'app/evaluation/forgewing/a3-linkage/page.tsx',
   'app/api/evaluation/forgewing/a3-linkage/source/route.ts',
   'app/api/evaluation/forgewing/a3-linkage/validate/route.ts',

@@ -92,10 +92,17 @@ describe('B4.2 value-reading authority boundaries', () => {
     expect(files.filter((file) => /from '@\/lib\/server\/valueReadingEngine'/.test(read(file)))).toEqual([
       'app/api/projects/[id]/resolution-cases/value-reading/route.ts',
       'lib/evaluation/benchmark/valueReadingBenchmarkRun.ts',
+      'lib/evaluation/benchmark/valueReadingBenchmarkRunV3.ts',
+      'lib/server/valueReadingQualificationRenderer.ts',
       'lib/server/valueReadingRegionRenderer.ts',
     ]);
     expect(read('lib/evaluation/benchmark/valueReadingBenchmarkRun.ts'))
       .toMatch(/^import type \{ ValueReadingCropSpec \} from '@\/lib\/server\/valueReadingEngine';$/m);
+    for (const file of ['lib/evaluation/benchmark/valueReadingBenchmarkRunV3.ts',
+      'lib/server/valueReadingQualificationRenderer.ts']) {
+      expect(read(file)).toMatch(/^import type \{ ValueReadingCropSpec \} from '@\/lib\/server\/valueReadingEngine';$/m);
+      expect(read(file)).not.toMatch(/import\s+\{[^}]*runValueReading[^}]*\}/);
+    }
     expect(files.filter((file) => /resolveEligibility\s*:|\breserve\s*:/.test(read(file)))).toEqual([]);
   });
 

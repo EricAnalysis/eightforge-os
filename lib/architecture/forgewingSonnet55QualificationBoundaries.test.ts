@@ -25,7 +25,9 @@ describe('additive Sonnet 5.5 qualification boundaries', () => {
     }
     expect(production.filter((file) => read(file).includes('phase17Sonnet55QualificationClient')))
       .toEqual([]);
-  });
+    expect(production.filter((file) => read(file).includes('phase17Sonnet55SchemaCompatQualificationClient')))
+      .toEqual([]);
+  }, 60_000);
 
   it('registers manual commands with distinct artifact roots and no production model mutation', () => {
     const scripts = JSON.parse(read('package.json')).scripts as Record<string, string>;

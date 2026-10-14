@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { ASK_PROJECT_CLAUDE_SYSTEM_PROMPT, askProjectWithClaude } from '@/lib/server/ai/askProject';
+import { recordForgewingProviderCallObservation } from '@/lib/server/forgewingProviderTelemetry';
 import { getClaudeModel } from '@/lib/server/ai/claudeClient';
 import { buildAskProjectContext } from '@/lib/server/ai/askProjectContext';
 import { getActorContext } from '@/lib/server/getActorContext';
@@ -150,8 +151,45 @@ export async function POST(
       return NextResponse.json({ error: 'AI assistance is temporarily unavailable.' }, { status: 503 });
     }
 
-    const answer = await askProjectWithClaude({ question, context });
-    return NextResponse.json(answer);
+    let answer: Awaited<ReturnType<typeof askProjectWithClaude>>;
+    const providerStartedAt = performance.now();
+    const telemetry = {
+      workflow: 'project_ask' as const,
+      organizationId: actor.actor.organizationId,
+      reservationId: reservation.reservationId,
+      requestDigestSha256,
+      model: getClaudeModel(),
+    };
+    try {
+      answer = await askProjectWithClaude({ question, context });
+    } catch (providerError) {
+      await recordForgewingProviderCallObservation(admin, {
+        ...telemetry,
+        outcome: providerError instanceof Error && /timed? ?out|abort/i.test(providerError.name + providerError.message)
+          ? 'provider_timeout' : 'provider_failed',
+        latencyMs: performance.now() - providerStartedAt,
+      });
+      // The reservation stays spent and auditable (append-only ledger). Record
+      // which one failed and why, by class only: never the question, context
+      // or provider text.
+      console.error('[projectAsk] provider_failed', {
+        reservationId: reservation.reservationId,
+        organizationId: actor.actor.organizationId,
+        errorClass: providerError instanceof Error ? providerError.name : typeof providerError,
+      });
+      if (isAiNotConfiguredError()) throw providerError;
+      return NextResponse.json(
+        { error: 'AI assistance is temporarily unavailable.', code: 'provider_failed' },
+        { status: 503 },
+      );
+    }
+    await recordForgewingProviderCallObservation(admin, {
+      ...telemetry,
+      ...(answer.observation ?? { latencyMs: performance.now() - providerStartedAt }),
+      outcome: 'succeeded',
+    });
+    // The browser receives the answer and model only, never call metadata.
+    return NextResponse.json({ answer: answer.answer, model: answer.model });
   } catch (err) {
     if (isAiNotConfiguredError()) {
       return NextResponse.json(

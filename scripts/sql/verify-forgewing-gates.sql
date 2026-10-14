@@ -66,6 +66,40 @@ BEGIN
   END;
 END $$;
 
+-- Forgewing S5: a grant must name its human approver; a revocation need not.
+DO $$
+BEGIN
+  BEGIN
+    INSERT INTO public.organization_forgewing_entitlement_events (organization_id, enabled, reason)
+    VALUES ('b4100000-0000-4000-8000-000000000002', true, 'unattributed grant');
+    RAISE EXCEPTION 'S5: an entitlement grant without recorded_by was accepted';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  BEGIN
+    INSERT INTO public.organization_forgewing_data_policy_events
+      (organization_id, provider, content_class, approved, terms_reference, reason)
+    VALUES ('b4100000-0000-4000-8000-000000000002', 'anthropic', 'text_excerpts', true, 't', 'unattributed grant');
+    RAISE EXCEPTION 'S5: a data-policy grant without recorded_by was accepted';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  -- Attributed grants and unattributed revocations are both recorded.
+  INSERT INTO public.organization_forgewing_entitlement_events (organization_id, enabled, reason, recorded_by)
+  VALUES ('b4100000-0000-4000-8000-000000000002', true, 'attributed grant', 'b4100000-0000-4000-8000-0000000000a1');
+  INSERT INTO public.organization_forgewing_entitlement_events (organization_id, enabled, reason)
+  VALUES ('b4100000-0000-4000-8000-000000000002', false, 'emergency revocation');
+  IF (SELECT count(*) FROM public.organization_forgewing_entitlement_events
+      WHERE organization_id = 'b4100000-0000-4000-8000-000000000002') <> 2 THEN
+    RAISE EXCEPTION 'S5: attributed grant or unattributed revocation was not recorded';
+  END IF;
+  -- An actor that is not an auth user is refused by the existing foreign key.
+  BEGIN
+    INSERT INTO public.organization_forgewing_entitlement_events (organization_id, enabled, reason, recorded_by)
+    VALUES ('b4100000-0000-4000-8000-000000000002', true, 'phantom actor', 'b4100000-0000-4000-8000-0000000000ff');
+    RAISE EXCEPTION 'S5: a grant by a non-existent actor was accepted';
+  EXCEPTION WHEN foreign_key_violation THEN NULL;
+  END;
+END $$;
+
 -- Both ledgers are append-only, even for the owner.
 DO $$
 BEGIN

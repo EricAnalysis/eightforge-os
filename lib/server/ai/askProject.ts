@@ -4,6 +4,7 @@ import {
   getClaudeClient,
   getClaudeModel,
 } from '@/lib/server/ai/claudeClient';
+import { CLAUDE_REQUEST_OPTIONS } from '@/lib/server/ai/claudeRequestOptions';
 import { getClaudeSamplingParameters } from '@/lib/server/ai/claudeSampling';
 import type { AskProjectClaudeContext } from '@/lib/server/ai/askProjectContext';
 
@@ -28,9 +29,10 @@ function extractTextContent(content: Array<{ type: string; text?: string }>): st
 export async function askProjectWithClaude(params: {
   question: string;
   context: AskProjectClaudeContext;
-}): Promise<{ answer: string; model: string }> {
+}): Promise<{ answer: string; model: string; observation: AskProviderObservation }> {
   const client = getClaudeClient();
   const model = getClaudeModel();
+  const startedAt = performance.now();
 
   const message = await client.messages.create({
     model,
@@ -48,10 +50,29 @@ export async function askProjectWithClaude(params: {
         ].join('\n'),
       },
     ],
-  });
+  }, { ...CLAUDE_REQUEST_OPTIONS.budgeted });
 
   return {
     answer: extractTextContent(message.content),
     model,
+    // Metadata only, for the durable telemetry ledger (S7); never returned to the browser.
+    observation: {
+      returnedModel: typeof message.model === 'string' ? message.model : null,
+      providerRequestId: typeof (message as { _request_id?: unknown })._request_id === 'string'
+        ? (message as { _request_id: string })._request_id : null,
+      stopReason: typeof message.stop_reason === 'string' ? message.stop_reason : null,
+      inputTokens: typeof message.usage?.input_tokens === 'number' ? message.usage.input_tokens : null,
+      outputTokens: typeof message.usage?.output_tokens === 'number' ? message.usage.output_tokens : null,
+      latencyMs: performance.now() - startedAt,
+    },
   };
 }
+
+export type AskProviderObservation = Readonly<{
+  returnedModel: string | null;
+  providerRequestId: string | null;
+  stopReason: string | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  latencyMs: number;
+}>;

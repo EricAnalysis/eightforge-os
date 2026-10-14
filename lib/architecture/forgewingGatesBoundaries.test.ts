@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
  * Forgewing gate. Commercial entitlement and data policy stay separate.
  */
 
-const GATES = 'lib/server/forgewingGates.ts';
+const GATES = path.join('lib', 'server', 'forgewingGates.ts'); // platform separators, to match walk()
 const code = (relative: string) => readFileSync(relative, 'utf8')
   .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 

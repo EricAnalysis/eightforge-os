@@ -78,6 +78,12 @@ export type ProviderCaseInvestigation = Readonly<{
   rationale: string;
   evidenceRefs: readonly Readonly<{ sliceKind: string; recordId: string }>[];
   promptVersion: string;
+  /** Identity for the durable record (P3c): what was sent, and the slot it spent. */
+  caseKind: ResolutionCase['kind'];
+  findingCheckKey: string | null;
+  ruleId: string | null;
+  contextTransmittedDigest: string;
+  reservationId: string;
   providerModel: string;
   requestDigestSha256: string;
 }>;
@@ -181,6 +187,11 @@ export async function runProviderCaseInvestigation(
       rationale: parsed.rationale,
       evidenceRefs: parsed.evidenceRefs,
       promptVersion: CASE_INVESTIGATION_PROMPT_VERSION,
+      caseKind: read.resolutionCase.kind,
+      findingCheckKey: read.resolutionCase.finding?.checkKey ?? null,
+      ruleId: read.resolutionCase.finding?.ruleId ?? null,
+      contextTransmittedDigest: read.context.transmittedDigest,
+      reservationId: reservation.reservationId,
       providerModel: provider.providerModel,
       requestDigestSha256,
     },

@@ -63,7 +63,7 @@ import {
   isValueReadingProviderConfigured,
   loadValueReadingPrompt,
 } from '@/lib/forgewing/runtime/valueReadingClientV3';
-import { createQualificationTransportObservation } from '@/lib/evaluation/benchmark/qualificationTransportObservation';
+import { createQualificationTransportObservation, qualificationUsageForScoring } from '@/lib/evaluation/benchmark/qualificationTransportObservation';
 import { getClaudeClient } from '@/lib/server/ai/claudeClient';
 import { parseValueReadingOutput } from '@/lib/server/valueReadingEngine';
 import { createValueReadingQualificationRenderer } from '@/lib/server/valueReadingQualificationRenderer';
@@ -342,9 +342,8 @@ async function main(): Promise<void> {
           usage?: { input_tokens?: number; output_tokens?: number } };
         // A late envelope belongs only to its supplementary attempt evidence.
         // It cannot supply another case's frozen usage accumulator.
-        if (!(options as { signal: AbortSignal }).signal.aborted) {
-          usage = { inputTokens: message.usage?.input_tokens ?? 0, outputTokens: message.usage?.output_tokens ?? 0 };
-        }
+        const scoredUsage = qualificationUsageForScoring(message, (options as { signal: AbortSignal }).signal);
+        if (scoredUsage) usage = scoredUsage;
         return message;
       } } }) as never });
     }
@@ -378,7 +377,10 @@ async function main(): Promise<void> {
     // The frozen scorer has already recorded deadlines. This drains observation only.
     await transport?.drain();
     write('transport-events.json', transport?.events ?? []);
-    write('transport-accounting.json', transport?.accounting() ?? []);
+    write('transport-accounting.json', transport?.accounting(live ? {
+      inputUsdPerMillionTokens: numberFlag(args, '--input-usd-per-mtok')!,
+      outputUsdPerMillionTokens: numberFlag(args, '--output-usd-per-mtok')!,
+    } : undefined) ?? []);
     write('provider-envelopes.json', envelopes);
     write('render-profiles.json', renderProfiles);
     records = scoredValueReadingRecords(documents, result);

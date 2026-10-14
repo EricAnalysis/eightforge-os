@@ -12,8 +12,8 @@ export const QUALIFICATION_CONTRACT_V4 = Object.freeze({
   transportObservation: 'async-local-fetch-lifecycle-v1',
   sourceSha256: Object.freeze({ ...sources,
     'lib/evaluation/benchmark/qualificationContractV3.ts': '02bb559d3797e222ee9a82ea5fb2b00b2ac8bfc356ce9a22a224e5ee01d375a7',
-    'lib/evaluation/benchmark/qualificationTransportObservation.ts': 'a921313df2de125dd9641ba128a4d5e0e982898285ccc3eb8803ec58dc5c10c3',
-    'scripts/evaluation/b461/runQualificationV4.ts': '415359671d6820874140c33b5233af7098dd05b4f6adbe10d4757fcf5b59f10b',
+    'lib/evaluation/benchmark/qualificationTransportObservation.ts': '4b108185e35d7fb2b31635beb2b87ee69ed6e9d56987526f33a7d829065d2f02',
+    'scripts/evaluation/b461/runQualificationV4.ts': 'a3971650b41ede1dd30b7340e65f080a90976b623c7501c8f55d8fb3c0c34137',
   }),
 });
 

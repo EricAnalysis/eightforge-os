@@ -5,6 +5,7 @@ import {
   isValueReadingProviderConfigured,
   valueReadingProviderModel,
 } from '@/lib/forgewing/runtime/valueReadingClient';
+import { isForgewingModelQualified } from '@/lib/forgewing/runtime/modelConfig';
 import { offeredAction } from '@/lib/resolution/resolutionActionRequest';
 import { getActorContext } from '@/lib/server/getActorContext';
 import { readResolutionQueue } from '@/lib/server/resolutionQueueRead';
@@ -43,8 +44,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       requestedBy: ctx.actor.actorId, requestKey: body.requestKey, includeTextExcerpts: false,
     }, {
       // The engine gates first (activation, entitlement, data policy, budget);
-      // these run only for a request every gate has admitted (B4.5).
-      provider: isValueReadingProviderConfigured()
+      // these run only for a request every gate has admitted (B4.5). An
+      // unqualified model is no provider: the engine records it as not configured.
+      provider: isValueReadingProviderConfigured() && isForgewingModelQualified(valueReadingProviderModel())
         ? createClaudeValueReadingProvider({ model: valueReadingProviderModel() }) : null,
       renderRegionImage: createValueReadingRegionRenderer((spec) =>
         loadVerifiedValueReadingSource(admin as unknown as ValueReadingSourceClient, spec)),

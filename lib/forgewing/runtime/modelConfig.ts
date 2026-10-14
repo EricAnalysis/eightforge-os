@@ -14,8 +14,59 @@ function boundedInteger(
     : fallback;
 }
 
+/**
+ * The models every Forgewing request contract (structured output, hardcoded
+ * `temperature: 0`, zero retries) has been qualified on. Claude 5 rejects
+ * sampling parameters, so an unlisted model would fail every call; worse, a
+ * qualification result is bound to the model it measured. Widening this list
+ * is a qualification decision recorded in code, never an environment setting.
+ */
+export const FORGEWING_QUALIFIED_MODELS: readonly string[] = Object.freeze(['claude-sonnet-4-6']);
+
+export type ForgewingModelResolution = Readonly<{
+  model: string;
+  /** Where the model came from: the dedicated pin or the shared server default. */
+  source: 'forgewing_model' | 'shared_model';
+  qualified: boolean;
+}>;
+
+export function isForgewingModelQualified(model: string): boolean {
+  return FORGEWING_QUALIFIED_MODELS.includes(model.trim());
+}
+
+/**
+ * FORGEWING_MODEL, else the shared server model, then checked against the
+ * qualified list. A shared-model migration (for example to a Claude 5 model)
+ * therefore disables Forgewing explicitly instead of silently breaking it.
+ */
+export function resolveForgewingModel(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): ForgewingModelResolution {
+  const pinned = env.FORGEWING_MODEL?.trim();
+  const model = pinned || getClaudeModel();
+  return { model, source: pinned ? 'forgewing_model' : 'shared_model', qualified: isForgewingModelQualified(model) };
+}
+
+const warnedUnqualifiedModels = new Set<string>();
+
+/** Resolves the model; warns once per context when an otherwise-open gate is closed by it. */
+function qualifiedModelOrWarn(context: string, gateOpen = true): ForgewingModelResolution {
+  const resolution = resolveForgewingModel();
+  if (gateOpen && !resolution.qualified && !warnedUnqualifiedModels.has(`${context}:${resolution.model}`)) {
+    warnedUnqualifiedModels.add(`${context}:${resolution.model}`);
+    console.warn('[forgewingModelConfig] model_unqualified: Forgewing stays disabled', {
+      context, model: resolution.model, source: resolution.source, qualified: FORGEWING_QUALIFIED_MODELS,
+    });
+  }
+  return resolution;
+}
+
+export type ForgewingRuntimeDisabledReason = 'gate_off' | 'model_unqualified';
+
 export type ForgewingRuntimeConfig = Readonly<{
   enabled: boolean;
+  /** Why `enabled` is false; null when enabled. */
+  disabledReason?: ForgewingRuntimeDisabledReason | null;
   model: string;
   timeoutMs: number;
   maxCalls: number;
@@ -24,6 +75,7 @@ export type ForgewingRuntimeConfig = Readonly<{
 
 export type ForgewingRepositoryPlanRuntimeConfig = Readonly<{
   enabled: boolean;
+  disabledReason?: ForgewingRuntimeDisabledReason | null;
   model: string;
   timeoutMs: number;
   maxOutputTokens: number;
@@ -84,20 +136,25 @@ export function isForgewingRecoveryCandidateV2Enabled(): boolean {
 /** Workflow assessment is separately default-off beneath the shadow gate. */
 export function isForgewingWorkflowAssessmentEnabled(): boolean {
   return isForgewingShadowEnabled()
-    && process.env.FORGEWING_WORKFLOW_ASSESSMENT_ENABLED === '1';
+    && process.env.FORGEWING_WORKFLOW_ASSESSMENT_ENABLED === '1'
+    && qualifiedModelOrWarn('workflow_assessment').qualified;
 }
 
 /** Repository-plan reasoning is separately default-off beneath the master gate. */
 export function isForgewingRepositoryPlanGuidanceEnabled(): boolean {
   return isForgewingShadowEnabled()
-    && process.env.FORGEWING_REPOSITORY_PLAN_GUIDANCE_ENABLED === '1';
+    && process.env.FORGEWING_REPOSITORY_PLAN_GUIDANCE_ENABLED === '1'
+    && qualifiedModelOrWarn('repository_plan').qualified;
 }
 
 /** B2-specific bounds do not widen the conservative limits used by shadow extraction tasks. */
 export function getForgewingRepositoryPlanRuntimeConfig(): ForgewingRepositoryPlanRuntimeConfig {
+  const resolution = resolveForgewingModel();
+  const enabled = isForgewingRepositoryPlanGuidanceEnabled();
   return {
-    enabled: isForgewingRepositoryPlanGuidanceEnabled(),
-    model: process.env.FORGEWING_MODEL?.trim() || getClaudeModel(),
+    enabled,
+    disabledReason: enabled ? null : resolution.qualified ? 'gate_off' : 'model_unqualified',
+    model: resolution.model,
     timeoutMs: boundedInteger(process.env.FORGEWING_REPOSITORY_PLAN_TIMEOUT_MS, 60_000, 1_000, 120_000),
     maxOutputTokens: boundedInteger(process.env.FORGEWING_REPOSITORY_PLAN_MAX_OUTPUT_TOKENS, 8_000, 1_024, 16_000),
   };
@@ -107,9 +164,14 @@ export function getForgewingRuntimeConfig(): ForgewingRuntimeConfig {
   const operational = readRecoveryOperationalConfig(process.env, {
     emitWarnings: true, context: 'runtime_config',
   });
+  const resolution = qualifiedModelOrWarn('runtime_config', operational.masterEnabled);
+  // Fail closed: an unqualified model disables every task that reads this
+  // config, before any request is built.
+  const enabled = operational.masterEnabled && resolution.qualified;
   return {
-    enabled: operational.masterEnabled,
-    model: process.env.FORGEWING_MODEL?.trim() || getClaudeModel(),
+    enabled,
+    disabledReason: enabled ? null : !operational.masterEnabled ? 'gate_off' : 'model_unqualified',
+    model: resolution.model,
     timeoutMs: operational.timeoutMs,
     maxCalls: operational.maxCalls,
     maxOutputTokens: operational.maxOutputTokens,

@@ -72,13 +72,24 @@ describe('B4.4 request and review routes', () => {
 
   it('injects the Claude provider and the verified-source renderer only through the engine (B4.5)', async () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'test-key');
-    vi.stubEnv('FORGEWING_MODEL', 'forgewing-model');
+    vi.stubEnv('FORGEWING_MODEL', 'claude-sonnet-4-6');
     await requestReading(request({ caseId: CASE, requestKey: 'click2' }), params);
     const dependencies = vi.mocked(runValueReading).mock.calls.at(-1)![2]!;
-    expect(dependencies.provider?.providerModel).toBe('forgewing-model');
+    expect(dependencies.provider?.providerModel).toBe('claude-sonnet-4-6');
     expect(typeof dependencies.renderRegionImage).toBe('function');
     // The route never calls either itself; the engine gates first.
     expect(admin.rpc).not.toHaveBeenCalled();
+    vi.unstubAllEnvs();
+  });
+
+  it('constructs no provider for a model outside the Forgewing qualified list (S2)', async () => {
+    vi.stubEnv('ANTHROPIC_API_KEY', 'test-key');
+    for (const [forgewingModel, sharedModel] of [['claude-sonnet-5-5', ''], ['', 'claude-sonnet-5-5']]) {
+      vi.stubEnv('FORGEWING_MODEL', forgewingModel);
+      vi.stubEnv('ANTHROPIC_MODEL', sharedModel);
+      await requestReading(request({ caseId: CASE, requestKey: 'click3' }), params);
+      expect(vi.mocked(runValueReading).mock.calls.at(-1)![2]!.provider).toBeNull();
+    }
     vi.unstubAllEnvs();
   });
 

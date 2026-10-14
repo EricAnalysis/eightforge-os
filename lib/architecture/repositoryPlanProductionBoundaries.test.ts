@@ -90,7 +90,7 @@ describe('production repository reasoning boundaries', () => {
     expect(text).not.toMatch(/from\s+['"](?:node:fs|fs)['"]/);
     // The entry's startup check may only read the filesystem.
     const entry = readFileSync(path.join(ROOT, ENTRY), 'utf8');
-    expect(entry).not.toMatch(/(?:writeFile|appendFile|truncate|rename|unlink|mkdir|rm|rmdir|copyFile|chmod)Sync?/);
+    expect(entry).not.toMatch(/\b(?:writeFile|appendFile|truncate|rename|unlink|mkdir|rm|rmdir|copyFile|chmod)(?:Sync)?\b/);
     expect(entry).toMatch(/import \{ existsSync \} from 'node:fs';/);
   });
 

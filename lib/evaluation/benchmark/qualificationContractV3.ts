@@ -38,7 +38,7 @@ export const QUALIFICATION_CONTRACT_V3 = freeze({
   requestBodyIdentity: 'sha256-json-request-body-v1',
   rendererLifecycle: 'request-scoped-pdf-page-reuse-v1',
   promptSha256: QUALIFICATION_CONTRACT.promptSha256,
-  execution: { ...QUALIFICATION_CONTRACT.execution, maxOutputTokens: 500 },
+  execution: { ...QUALIFICATION_CONTRACT.execution, maxOutputTokens: 500 } as const,
   requestIdentity: QUALIFICATION_CONTRACT.requestIdentity,
   evidenceClasses: QUALIFICATION_CONTRACT.evidenceClasses,
   activationBar: QUALIFICATION_CONTRACT.activationBar,

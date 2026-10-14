@@ -1,3 +1,4 @@
+import { parseCorpusPins } from '@/lib/evaluation/pinnedEvaluationCapture';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import { sha256Hex } from '@/lib/extraction/domain/hash';
@@ -39,7 +40,7 @@ describe('B4.6.1 additive request efficiency contract', () => {
     expect(QUALIFICATION_CONTRACT_V3.execution).toEqual({ ...QUALIFICATION_CONTRACT_V2.execution, maxOutputTokens: 500 });
     expect(QUALIFICATION_CONTRACT_V3.thinking).toEqual({ type: 'between_tools' });
     expect(() => assertQualificationContractV3({ ...QUALIFICATION_CONTRACT_V3,
-      pins: QUALIFICATION_CONTRACT_V3.corpus,
+      pins: parseCorpusPins(QUALIFICATION_CONTRACT_V3.corpus),
       sourceSha256: Object.fromEntries(Object.keys(QUALIFICATION_CONTRACT_V3.sourceSha256)
         .map(file => [file, qualificationSourceDigest(readFileSync(file, 'utf8'))])),
     })).not.toThrow();
@@ -51,7 +52,7 @@ describe('B4.6.1 additive request efficiency contract', () => {
       usage: { input_tokens: 123, output_tokens: 300 } };
     const create = vi.fn(async () => message);
     const observe = vi.fn();
-    const provider = createClaudeValueReadingProviderV3({ model: request.model, prompt: 'PROMPT',
+    const provider = createClaudeValueReadingProviderV3({ model: 'claude-sonnet-5-5', prompt: 'PROMPT',
       client: () => ({ messages: { create } }), observe });
     await expect(provider.read(request, new AbortController().signal)).rejects.toThrow('provider_truncated_output');
     expect(create).toHaveBeenCalledTimes(1);

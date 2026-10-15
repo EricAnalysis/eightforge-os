@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { createClaudeCaseInvestigationProvider } from '@/lib/forgewing/runtime/caseInvestigationClient';
 import { isForgewingModelQualified, resolveForgewingModel } from '@/lib/forgewing/runtime/modelConfig';
+import { listCaseInvestigations, recordCaseInvestigation } from '@/lib/server/caseInvestigationRecords';
 import { runProviderCaseInvestigation } from '@/lib/server/caseInvestigationRunner';
 import { getActorContext } from '@/lib/server/getActorContext';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
@@ -15,9 +16,9 @@ import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
  * pre-registered qualification passes) and the durable budget. This route adds
  * only the qualified-model check and server-derived identity.
  *
- * The answer is returned to the operator and never stored: it is a
- * non-authoritative explanation that ranks the case's own navigation and
- * typed actions. It writes nothing, clears nothing and approves nothing; the
+ * The answer is returned to the operator and kept as immutable evidence
+ * history (P3c): a non-authoritative explanation that ranks the case's own
+ * navigation and typed actions. It writes nothing, clears nothing and approves nothing; the
  * operator still acts through the case's existing routes.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -41,8 +42,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       organizationId: ctx.actor.organizationId, projectId, caseId: body.caseId, requestedBy: ctx.actor.actorId,
     }, { admin, provider });
     switch (result.status) {
-      case 'proposed':
-        return NextResponse.json({ status: 'proposed', investigation: result.investigation });
+      case 'proposed': {
+        // P3c: kept as immutable evidence history. A recording failure never
+        // changes the investigation the operator receives.
+        const record = await recordCaseInvestigation(admin, {
+          organizationId: ctx.actor.organizationId, projectId, caseId: body.caseId,
+          requestedBy: ctx.actor.actorId, investigation: result.investigation,
+        });
+        return NextResponse.json({
+          status: 'proposed', investigation: result.investigation,
+          recorded: record.status === 'recorded', ...(record.status === 'recorded' ? { recordId: record.recordId } : {}),
+        });
+      }
       case 'not_found':
         return NextResponse.json({ error: 'Case not found' }, { status: 404 });
       case 'not_configured':
@@ -61,5 +72,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
   } catch {
     return NextResponse.json({ error: 'Investigation unavailable' }, { status: 503 });
+  }
+}
+
+/** The case's durable investigation history (P3c): evidence, never a decision. */
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const ctx = await getActorContext(req);
+  if (!ctx.ok) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
+  const { id: projectId } = await params;
+  const caseId = req.nextUrl.searchParams.get('caseId')?.trim();
+  if (!caseId || caseId.length > 500) return NextResponse.json({ error: 'caseId is required' }, { status: 400 });
+  const admin = getSupabaseAdmin();
+  if (!admin) return NextResponse.json({ error: 'Server not configured' }, { status: 503 });
+  try {
+    const investigations = await listCaseInvestigations(admin, { organizationId: ctx.actor.organizationId, projectId, caseId });
+    return NextResponse.json({ investigations });
+  } catch {
+    return NextResponse.json({ error: 'Investigation history unavailable' }, { status: 503 });
   }
 }

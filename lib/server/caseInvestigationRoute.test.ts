@@ -4,13 +4,18 @@ const mocks = vi.hoisted(() => ({
   actor: vi.fn(),
   run: vi.fn(),
   admin: { from: vi.fn() } as unknown,
+  record: vi.fn(async () => ({ status: 'recorded', recordId: 'record-1', inserted: true })),
+  list: vi.fn(async () => [{ id: 'record-1', diagnosis: 'd' }]),
 }));
 
 vi.mock('@/lib/server/getActorContext', () => ({ getActorContext: mocks.actor }));
 vi.mock('@/lib/server/supabaseAdmin', () => ({ getSupabaseAdmin: () => mocks.admin }));
 vi.mock('@/lib/server/caseInvestigationRunner', () => ({ runProviderCaseInvestigation: mocks.run }));
+vi.mock('@/lib/server/caseInvestigationRecords', () => ({
+  recordCaseInvestigation: mocks.record, listCaseInvestigations: mocks.list,
+}));
 
-import { POST } from '@/app/api/projects/[id]/resolution-cases/investigation/route';
+import { GET, POST } from '@/app/api/projects/[id]/resolution-cases/investigation/route';
 
 const call = (body: unknown) => POST(new Request('http://localhost/api/projects/p1/resolution-cases/investigation', {
   method: 'POST', body: JSON.stringify(body) }) as never, { params: Promise.resolve({ id: 'p1' }) });
@@ -54,7 +59,17 @@ describe('case investigation route (P3b)', () => {
     mocks.run.mockResolvedValueOnce({ status: 'proposed', investigation });
     const ok = await call({ caseId: 'finding:f1' });
     expect(ok.status).toBe(200);
-    expect(await ok.json()).toEqual({ status: 'proposed', investigation });
+    expect(await ok.json()).toEqual({ status: 'proposed', investigation, recorded: true, recordId: 'record-1' });
+    // P3c: kept as immutable evidence history, attributed to the requesting operator.
+    expect(mocks.record).toHaveBeenCalledWith(mocks.admin, {
+      organizationId: 'org-1', projectId: 'p1', caseId: 'finding:f1', requestedBy: 'user-1', investigation });
+
+    // A recording failure never changes the investigation the operator receives.
+    mocks.run.mockResolvedValueOnce({ status: 'proposed', investigation });
+    mocks.record.mockResolvedValueOnce({ status: 'not_recorded', reason: 'rpc_error' } as never);
+    const unrecorded = await call({ caseId: 'finding:f1' });
+    expect(unrecorded.status).toBe(200);
+    expect(await unrecorded.json()).toEqual({ status: 'proposed', investigation, recorded: false });
 
     mocks.run.mockResolvedValueOnce({ status: 'case_kind_not_supported' });
     expect((await call({ caseId: 'withheld:x' })).status).toBe(409);
@@ -66,5 +81,17 @@ describe('case investigation route (P3b)', () => {
     mocks.actor.mockResolvedValue({ ok: false, error: 'Unauthorized', status: 401 });
     expect((await call({ caseId: 'finding:f1' })).status).toBe(401);
     expect(mocks.run).not.toHaveBeenCalled();
+  });
+});
+
+describe('case investigation history (P3c)', () => {
+  it('lists the case history for the operator, scoped to the session organization', async () => {
+    mocks.actor.mockResolvedValue({ ok: true, actor: { organizationId: 'org-1', actorId: 'user-1' } });
+    const response = await GET(Object.assign(new Request('http://localhost/x'), {
+      nextUrl: new URL('http://localhost/api/projects/p1/resolution-cases/investigation?caseId=finding:f1') }) as never,
+      { params: Promise.resolve({ id: 'p1' }) });
+    expect(response.status).toBe(200);
+    expect(mocks.list).toHaveBeenCalledWith(mocks.admin, { organizationId: 'org-1', projectId: 'p1', caseId: 'finding:f1' });
+    expect(await response.json()).toEqual({ investigations: [{ id: 'record-1', diagnosis: 'd' }] });
   });
 });

@@ -80,7 +80,7 @@ function readEnvFile(file: string): { url: string; key: string } {
   return { url, key };
 }
 
-const approveTextExcerptsOnly = async (_admin: never, params: { contentClasses: readonly string[] }) =>
+const approveTextExcerptsOnly = async (_admin: unknown, params: { contentClasses: readonly string[] }) =>
   ({ approved: params.contentClasses.every((contentClass) => contentClass === 'text_excerpts') }) as never;
 
 type Source = Readonly<{

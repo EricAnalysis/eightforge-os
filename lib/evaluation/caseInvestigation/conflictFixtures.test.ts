@@ -10,7 +10,7 @@ import {
 } from './conflictFixtures';
 import { memoryReadClient, ReadOnlyViolation, readOnlyClient } from './readClients';
 
-const approveTextExcerpts = async (_admin: never, params: { contentClasses: readonly string[] }) =>
+const approveTextExcerpts = async (_admin: unknown, params: { contentClasses: readonly string[] }) =>
   ({ approved: params.contentClasses.every((contentClass) => contentClass === 'text_excerpts') }) as never;
 
 describe('Case Investigation conflict fixtures (contract v2)', () => {

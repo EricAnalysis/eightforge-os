@@ -85,3 +85,4 @@ scripts/evaluation/artifacts/b461/local/
 # Additive Phase 17 compatibility evidence contains local provider/source payloads.
 scripts/evaluation/artifacts/phase17-sonnet-5-5-schema-compat/**/local/
 scripts/evaluation/artifacts/phase17-sonnet-5-5-no-upfront-thinking/**/local/
+scripts/evaluation/artifacts/phase17-sonnet-5-5-adaptive-low/**/local/

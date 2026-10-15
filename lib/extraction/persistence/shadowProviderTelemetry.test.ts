@@ -19,7 +19,7 @@ vi.mock('@/lib/forgewing/runtime/observedProviders', () => ({
   },
 }));
 
-import { ShadowBudgetRefusal, withShadowProviderTelemetry } from '@/lib/extraction/persistence/complianceShadow';
+import { reservedShadowProvider, ShadowBudgetRefusal, withShadowProviderTelemetry } from '@/lib/extraction/persistence/complianceShadow';
 
 const REQUEST = { model: 'claude-sonnet-4-6', timeoutMs: 3000, maxOutputTokens: 800, inputJson: '{}' };
 const reserve = vi.fn(async () => ({ status: 'reserved' as const, reservationId: 'res-1', usedInWindow: 1 }));
@@ -92,5 +92,29 @@ describe('shadow / recovery provider telemetry', () => {
     await withShadowProviderTelemetry('pricing_interpretation', 'org-1', async (call) => call(REQUEST).catch(() => null),
       { reserve: reserve as never, env: {} });
     expect(reserve).toHaveBeenCalledWith(mocks.admin, expect.objectContaining({ dailyCap: 0 }));
+  });
+
+  it('the reserving provider spends a recovery slot, then calls its base request unchanged (V1 path)', async () => {
+    const base = vi.fn(async () => 'answer');
+    const provider = reservedShadowProvider('extraction_recovery', 'org-1', base as never, BUDGETED);
+    expect(await provider(REQUEST as never)).toBe('answer');
+    expect(reserve).toHaveBeenCalledWith(mocks.admin, expect.objectContaining({ workflow: 'extraction_recovery', dailyCap: 3, reservedBy: null }));
+    expect(base).toHaveBeenCalledWith(REQUEST);
+  });
+
+  it('a refused reservation never reaches the base provider and is signalled', async () => {
+    const base = vi.fn(async () => 'answer');
+    const onRefused = vi.fn();
+    reserve.mockResolvedValueOnce({ status: 'budget_exhausted', usedInWindow: 3 } as never);
+    const provider = reservedShadowProvider('extraction_recovery', 'org-1', base as never, { ...BUDGETED, onRefused });
+    await expect(provider(REQUEST as never)).rejects.toBeInstanceOf(ShadowBudgetRefusal);
+    expect(base).not.toHaveBeenCalled();
+    expect(onRefused).toHaveBeenCalledWith('budget_exhausted');
+    // The observed wrapper signals the same way, so an outcome records no provider call.
+    const wrapperRefused = vi.fn();
+    reserve.mockResolvedValueOnce({ status: 'failed' } as never);
+    await withShadowProviderTelemetry('recovery_candidate_v2', 'org-1', async (call) => call(REQUEST).catch(() => null),
+      { ...BUDGETED, onRefused: wrapperRefused });
+    expect(wrapperRefused).toHaveBeenCalledWith('reservation_failed');
   });
 });

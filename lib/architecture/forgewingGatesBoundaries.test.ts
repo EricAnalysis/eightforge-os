@@ -60,20 +60,29 @@ describe('Forgewing B4.1 gate boundaries', () => {
 
   it('every shadow / recovery provider call reserves a durable slot first (D2)', () => {
     const shadow = code(path.join('lib', 'extraction', 'persistence', 'complianceShadow.ts'));
-    // The six production provider tasks run only through the reserving wrapper.
+    const block = (start: string) => {
+      const from = shadow.slice(shadow.indexOf(start));
+      return from.slice(0, from.search(/\r?\n\}\r?\n/));
+    };
+    // The six observed provider tasks run only through the reserving wrapper.
     for (const task of ['region_classification', 'table_continuation', 'column_mapping', 'observation_arbitration',
       'pricing_interpretation', 'recovery_candidate_v2']) {
       expect(shadow).toContain(`withShadowProviderTelemetry('${task}'`);
     }
     expect(shadow.match(/createObservedForgewingProvider\)\(/g)).toHaveLength(1);
-    const wrapper = shadow.slice(shadow.indexOf('export async function withShadowProviderTelemetry'));
-    const body = wrapper.slice(0, wrapper.search(/\r?\n\}\r?\n/));
-    const reserveAt = body.indexOf('reserveForgewingProviderCall)(admin');
-    const refuseAt = body.indexOf("if (reservation.status !== 'reserved')");
-    const callAt = body.indexOf('return await observed(request)');
-    expect(reserveAt).toBeGreaterThan(-1);
-    expect(refuseAt).toBeGreaterThan(reserveAt);
-    expect(callAt).toBeGreaterThan(refuseAt);
+    // The one reservation helper refuses (throws) unless a slot was granted.
+    const helper = block('async function reserveShadowProviderSlot(');
+    expect(helper.indexOf('reserveForgewingProviderCall)(admin')).toBeGreaterThan(-1);
+    expect(helper.indexOf("if (reservation.status !== 'reserved')"))
+      .toBeGreaterThan(helper.indexOf('reserveForgewingProviderCall)(admin'));
+    // Both providers reserve before calling.
+    const wrapper = block('export async function withShadowProviderTelemetry');
+    expect(wrapper.indexOf('await reserveShadowProviderSlot(')).toBeGreaterThan(-1);
+    expect(wrapper.indexOf('return await observed(request)')).toBeGreaterThan(wrapper.indexOf('await reserveShadowProviderSlot('));
+    const reserving = block('export function reservedShadowProvider(');
+    expect(reserving.indexOf('return base(request)')).toBeGreaterThan(reserving.indexOf('await reserveShadowProviderSlot('));
+    // The deprecated V1 pricing rate-cluster recovery calls only through the reserving provider.
+    expect(shadow).toMatch(/runForgewingPricingRateClusterRecovery\)\(\s*candidate,\s*\{ env, provider: reservedShadowProvider\('extraction_recovery'/);
   });
 
   it('no Core path consults a Forgewing gate', () => {

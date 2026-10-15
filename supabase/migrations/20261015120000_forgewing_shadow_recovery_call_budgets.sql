@@ -3,7 +3,7 @@
 --
 -- The five extraction shadow tasks (region classification, table
 -- continuation, column mapping, observation arbitration, pricing
--- interpretation) and the recovery V2 recommendation send customer document
+-- interpretation) and the recovery tasks send customer document
 -- text to the provider. Until now they were bounded only by an in-request call
 -- budget. Each provider call now first spends one slot of its organization's
 -- durable daily budget in the EXISTING append-only reservation ledger, through
@@ -14,7 +14,8 @@
 -- types:
 --
 --   extraction_shadow     the five shadow tasks, one shared budget
---   extraction_recovery   the recovery V2 recommendation
+--   extraction_recovery   the recovery V2 recommendation, and the deprecated V1
+--                         pricing rate-cluster recovery (ceiling disabled)
 --
 -- No row is written or rewritten; no table, column, grant, trigger or
 -- function changes; the ledger stays append-only and service_role-only.

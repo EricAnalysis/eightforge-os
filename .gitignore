@@ -87,3 +87,4 @@ scripts/evaluation/artifacts/phase17-sonnet-5-5-schema-compat/**/local/
 scripts/evaluation/artifacts/phase17-sonnet-5-5-no-upfront-thinking/**/local/
 scripts/evaluation/artifacts/phase17-sonnet-5-5-adaptive-low/**/local/
 scripts/evaluation/artifacts/phase17-sonnet-5-5-rationale-compat/**/local/
+scripts/evaluation/artifacts/phase17-sonnet-5-5-prompt-clarification/**/local/

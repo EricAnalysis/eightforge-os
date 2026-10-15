@@ -70,7 +70,7 @@ A change to any pin after labelling invalidates the frozen corpus.
 
 | Class | Eligible | Minimum | Sources |
 |---|---|---|---|
-| `validator_failure` | **85** | 40 | Goodlettsville 46, TDOT 16, MVSU 7, Bentonville 6, B4.6 Golden 6, B4.6 Hillsdale 3, B4.6 DN 1 |
+| `validator_failure` | **85** (r1; **81** after correction r2) | 40 | Goodlettsville 46, TDOT 16, MVSU 7, Bentonville 6, B4.6 Golden 6, B4.6 Hillsdale 3, B4.6 DN 1 |
 | `conflict` | **30** | 20 | Ticket grain 11, invoice identity 7, governing relationship 12 (fixtures) |
 | Excluded | 54 | — | All Goodlettsville rate-schedule-dependent cases |
 
@@ -126,3 +126,27 @@ Two independent reviewers, AI on different models, labelled all 115 eligible cas
 - The adjudication sheet, which holds customer text and is kept outside the repository, groups the 78 cases into 37 project-and-rule groups.
 
 The label set is not frozen and no provider call may be made until the adjudication is complete.
+
+## Corpus correction r2 (2026-10-15, before any label was frozen)
+
+While preparing source-enriched packets, a corpus defect surfaced. The duplicate-price-sheet exclusion checked only a case's evidence rows. Decision-backed issues have no evidence rows: their cited source is the decision's own document. Four Goodlettsville decision-backed cases cite one of the two price-sheet uploads directly (contract ceiling ×2, contractor ×2), and the rule always required excluding them.
+
+- The builder now records every cited document as `citedDocumentIds`: evidence rows, the case document, and a decision's own and governing documents. Exclusion uses that list.
+- Corpus rebuilt as r2: **`validator_failure` 81, conflict 30, excluded 58.** Both minimums are still met.
+- The case set and every remaining case's `transmittedDigest` and `readDigest` are unchanged from r1. None of the four newly excluded cases had an agreed label.
+
+## Source-enriched relabelling (owner decision 2026-10-15)
+
+The 78 phase-1 escalations were not sent to Eric Martin. The cause was an evidence gap: the packets could not separate a value absent from the source from one EightForge failed to read.
+
+The 74 unresolved r2 cases (78 escalations minus the 4 excluded) were rebuilt with each case's exact cited source evidence (`enrichPacketsV2.ts`, zero provider calls, read-only):
+- document type and extraction coverage;
+- bounded excerpts around the rule's own terms in the cited document or on the cited page, at most 5 × 500 characters, with hit counts;
+- for transaction workbooks, the exact cited rows;
+- for fixtures, the fixture source rows.
+
+The action set and the six-category vocabulary are unchanged. The same two independent reviewers relabel the cases. Exact agreement is accepted automatically, and only residual disagreements go to Eric Martin, grouped by project, rule and source.
+
+`scripts/evaluation/artifacts/case-investigation-v2/enriched-packets.index.json` records, per case, the cited document ids, pages, hit counts and excerpt and row digests only. The excerpts themselves stay outside the repository.
+
+Note on the relabel packets: in the 5 conflict-fixture packets the reviewers labelled, each fixture source row named its document by its fixture key (for example `tickets`) rather than its title. A spread-order bug in `enrichPacketsV2.ts` caused this, and it has since been fixed. The labelled packets are identified by their recorded `packetSha256`, so the evidence the reviewers saw stays exactly reproducible. The rows' values were complete and correct.

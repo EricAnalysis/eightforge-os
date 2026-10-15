@@ -110,6 +110,22 @@ async function buildFromSource(source: Source, out: string, entries: CorpusManif
     const operator = await readInvestigationContext({ ...query, purpose: 'operator_review' }, dependencies);
     if (provider.status !== 'ok' || operator.status !== 'ok') throw new Error(`${resolutionCase.caseId}: context ${provider.status}`);
     const ruleId = resolutionCase.finding?.ruleId ?? 'unknown';
+    // A decision-backed issue carries no evidence rows: its cited source is
+    // the decision's own document (and governing document, when recorded).
+    const decisionId = /^finding:decision:([0-9a-f-]{36})$/u.exec(resolutionCase.caseId)?.[1] ?? null;
+    const decisionDocuments: string[] = [];
+    if (decisionId) {
+      const decision = await (source.admin as unknown as { from: (t: string) => { select: (c: string) => {
+        eq: (k: string, v: string) => { maybeSingle: () => Promise<{ data: { document_id?: string | null;
+          details?: { applied_governing_document_id?: string | null } | null } | null; error: unknown }> } } } })
+        .from('decisions').select('document_id, details').eq('id', decisionId).maybeSingle();
+      if (decision.error) throw new Error(`${resolutionCase.caseId}: decision read failed`);
+      for (const id of [decision.data?.document_id, decision.data?.details?.applied_governing_document_id]) {
+        if (typeof id === 'string' && id) decisionDocuments.push(id);
+      }
+    }
+    const citedDocumentIds = [...new Set([...resolutionCase.evidence.map((ref) => ref.documentId), resolutionCase.documentId,
+      ...decisionDocuments].filter((id): id is string => typeof id === 'string' && id.length > 0))].sort();
     const entry: CorpusManifestEntry = {
       caseId: resolutionCase.caseId,
       qualificationClass: classifyCase({ ruleId }),
@@ -120,11 +136,11 @@ async function buildFromSource(source: Source, out: string, entries: CorpusManif
       checkKey: resolutionCase.finding?.checkKey ?? '',
       rankableActionKinds: [...new Set(resolutionCase.actions.map((action) => action.kind))]
         .filter((kind) => PROVIDER_RANKABLE_ACTION_KINDS.has(kind)),
+      citedDocumentIds,
       transmittedDigest: provider.context.transmittedDigest,
       readDigest: operator.context.readDigest,
       excluded: source.source === 'production'
-        ? productionExclusion({ projectId: source.projectId, ruleId,
-          evidenceDocumentIds: resolutionCase.evidence.map((ref) => ref.documentId) })
+        ? productionExclusion({ projectId: source.projectId, ruleId, evidenceDocumentIds: citedDocumentIds })
         : null,
     };
     entries.push(entry);

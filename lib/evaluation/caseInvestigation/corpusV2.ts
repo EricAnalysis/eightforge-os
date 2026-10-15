@@ -94,6 +94,8 @@ export type CorpusManifestEntry = Readonly<{
   ruleId: string;
   checkKey: string;
   rankableActionKinds: readonly string[];
+  /** Every source document the case cites: evidence rows, or a decision's own document. */
+  citedDocumentIds: readonly string[];
   transmittedDigest: string;
   readDigest: string;
   excluded: CorpusExclusion;

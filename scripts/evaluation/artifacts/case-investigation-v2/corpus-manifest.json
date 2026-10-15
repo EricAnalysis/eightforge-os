@@ -1,6 +1,6 @@
 {
   "contract": "case_investigation_qualification_v2",
-  "builtAt": "2026-10-15T13:43:39.773Z",
+  "builtAt": "2026-10-15T14:54:34.037Z",
   "productionIncluded": true,
   "pins": {
     "conflictFixtureVersion": "case_investigation_conflict_fixtures_v1",
@@ -17,15 +17,15 @@
       "lib/server/investigationContextRead.ts": "7e579a377408095d2f76dcc8167bb47d436be786730c5165adcdf766bc156d1f",
       "lib/resolution/caseInvestigation.ts": "e91a99e774e9fe8b90d6989ef635e8cc4ef311e8715e2fe43d667a720cb4465f",
       "lib/evaluation/caseInvestigation/conflictFixtures.ts": "91d7324ba894d2a011ab2519d398ba28f536700b5674f6450793980bbb0de6c0",
-      "lib/evaluation/caseInvestigation/corpusV2.ts": "da4aa2a92dea79f58abd5863e96f01b7e65eac5568a43ec04e96f5c329031e34"
+      "lib/evaluation/caseInvestigation/corpusV2.ts": "a8bda0edf5d200b69442fe86bc593312a1c718b2aaeaa75f64537b03bfe7e28c"
     }
   },
   "census": {
     "eligible": {
-      "validator_failure": 85,
+      "validator_failure": 81,
       "conflict": 30
     },
-    "excluded": 54,
+    "excluded": 58,
     "minimumsMet": true
   },
   "entries": [
@@ -38,6 +38,9 @@
       "ruleId": "TRANSACTION_TICKET_GRAIN_CONFLICT",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "288331d2-b828-4d4c-8883-31d2b8286d4c"
       ],
       "transmittedDigest": "dbaded4b9b304834fe2c8762ae68da2fff687000ce49903b5b09cfcff7128a2f",
       "readDigest": "0aa38a13dd4cee4f3095ab7b19d86a46aa80ad60ad8a6f9b248ab37e6f93a959",
@@ -54,6 +57,9 @@
       "rankableActionKinds": [
         "open_document"
       ],
+      "citedDocumentIds": [
+        "288331d2-b828-4d4c-8883-31d2b8286d4c"
+      ],
       "transmittedDigest": "1a6e372522a85a195d43da6d06b7e59171e1c76bb0e0980cd5ccb6c8d4d5dbec",
       "readDigest": "67408db9af8b6ba0ac746dc8e7f5c7b10a0c0b998b1c1cd3bd59622478f715ab",
       "excluded": null,
@@ -68,6 +74,9 @@
       "ruleId": "TRANSACTION_TICKET_GRAIN_CONFLICT",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "288331d2-b828-4d4c-8883-31d2b8286d4c"
       ],
       "transmittedDigest": "fdb0fc2a11e6634a05e2304adafb81805dc359ce0033f8c46e20ab446fdbbe07",
       "readDigest": "4e3b33e9559543f51ae274d198a15c08803b67a0a90ef77162167ffd3fcda8e5",
@@ -84,6 +93,9 @@
       "rankableActionKinds": [
         "open_document"
       ],
+      "citedDocumentIds": [
+        "288331d2-b828-4d4c-8883-31d2b8286d4c"
+      ],
       "transmittedDigest": "9b513efb1c15a5ad8911374db5ff2b36559a35206bacb603b5658062796c9aff",
       "readDigest": "79f8aba7d0457c53b16ed31a7a94a2e5909177ee9a529313884326cbece263ba",
       "excluded": null,
@@ -98,6 +110,9 @@
       "ruleId": "TRANSACTION_TICKET_GRAIN_CONFLICT",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "288331d2-b828-4d4c-8883-31d2b8286d4c"
       ],
       "transmittedDigest": "e3a0b0268f4aacdf86c0b759c96907cc7bc317262e9b49e0b9d37d70f7af917a",
       "readDigest": "78a1d3671d20b9b12789f918a73d7cc4566c94c566897cf575297d2d1f1b980a",
@@ -114,6 +129,9 @@
       "rankableActionKinds": [
         "open_document"
       ],
+      "citedDocumentIds": [
+        "13c81cf3-adfa-4cdd-83c8-1cf3adfaecdd"
+      ],
       "transmittedDigest": "8ceb94dca71f2fb8208fa712606d1a831091424b8b558dd2e0591c6731469726",
       "readDigest": "d24785ccc91018f9eb290c3b3a5c029f447062d9fdeb37fec1e583e29a64ac15",
       "excluded": null,
@@ -128,6 +146,9 @@
       "ruleId": "TRANSACTION_TICKET_GRAIN_CONFLICT",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "13c81cf3-adfa-4cdd-83c8-1cf3adfaecdd"
       ],
       "transmittedDigest": "a2e808165c28447b0d4d49f8a43f5b7397d21f5633ea2f5a39fb736dee81f7fe",
       "readDigest": "4e48143f2fa6199641b26415205cee4e2127f36f3cb409a10911ea7ba7041105",
@@ -144,6 +165,9 @@
       "rankableActionKinds": [
         "open_document"
       ],
+      "citedDocumentIds": [
+        "13c81cf3-adfa-4cdd-83c8-1cf3adfaecdd"
+      ],
       "transmittedDigest": "d8401491b664f981d62e37e746edc701887470e08186aecb81ec486e76791dc0",
       "readDigest": "d76a1abbdb37f5f5f9e587056800d6257783d74f68d0bb53f8f68e0e5234ad3c",
       "excluded": null,
@@ -158,6 +182,9 @@
       "ruleId": "TRANSACTION_TICKET_GRAIN_CONFLICT",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "13c81cf3-adfa-4cdd-83c8-1cf3adfaecdd"
       ],
       "transmittedDigest": "7d6160e41c7924a1fd7b6fb1e3d7e0341781cb914908b2b5fb1d42e0892a9f1a",
       "readDigest": "a3ac91008b57a7ffb1a8cde25f165e176672713db8bcc00fbb7890e1403b9627",
@@ -174,6 +201,9 @@
       "rankableActionKinds": [
         "open_document"
       ],
+      "citedDocumentIds": [
+        "c579529e-70d6-4e84-8579-529e70d6ae84"
+      ],
       "transmittedDigest": "18f2dc962fc3190b7d94a7d3a62587e38968c259b6eba7b0f6c7936caec36424",
       "readDigest": "d73dd85c634ac4d679fcc3ffb173d7878c1e3fc039a5c61a3fdf092634c354cb",
       "excluded": null,
@@ -188,6 +218,10 @@
       "ruleId": "CANONICAL_INVOICE_IDENTITY_CONFLICT",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "1d9e44c8-cdd1-426a-8d9e-44c8cdd1726a",
+        "e93a6c0e-d11f-4028-893a-6c0ed11f4028"
       ],
       "transmittedDigest": "4aaee7b5e80db06a3e438700bb8527da5362778e243d806bc99a0373ade9e98e",
       "readDigest": "89bb4e67750f5ac90dfaf8073cf6ecf4db89405162488dc3c72288402d3f9ba1",
@@ -204,6 +238,10 @@
       "rankableActionKinds": [
         "open_document"
       ],
+      "citedDocumentIds": [
+        "209e4981-47e5-47f3-809e-498147e5a7f3",
+        "4b3370e0-5189-4452-8b33-70e051899452"
+      ],
       "transmittedDigest": "8dc7103efd42d83fe644dcc7801f84f0b434ebf901d61d20248e9d3f2beb814e",
       "readDigest": "59060b1173c648ff59e11cdb286d3033f38b8f80aa0fe8d5729198f1b3dfba06",
       "excluded": null,
@@ -218,6 +256,11 @@
       "ruleId": "CANONICAL_INVOICE_IDENTITY_CONFLICT",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "a22b1f54-005f-4b42-822b-1f54005f6b42",
+        "a32b20e7-864b-45b9-832b-20e7864b35b9",
+        "a52b240d-7a73-40cb-852b-240d7a73a0cb"
       ],
       "transmittedDigest": "a8d4429ffcc73a0ac850ebe4ee00dcb1efaf96abf8904372757cce11423f7c65",
       "readDigest": "807bd1d3bc77fbc31f205168c02e224a945d61ef1b1cedc391ed667e2817133b",
@@ -234,6 +277,10 @@
       "rankableActionKinds": [
         "open_document"
       ],
+      "citedDocumentIds": [
+        "794defdd-5736-4403-894d-efdd57365403",
+        "a862f9b1-bfb0-457f-8862-f9b1bfb0457f"
+      ],
       "transmittedDigest": "58aab66f18dd3dd53ccfcd7c0cefdef65734fd9b50db39ede8781e8a9555264b",
       "readDigest": "c62acd9b8e9cb4c544c60c72adecfcb84a75fe227245c675763494aeca6dbd6a",
       "excluded": null,
@@ -249,6 +296,10 @@
       "rankableActionKinds": [
         "open_document"
       ],
+      "citedDocumentIds": [
+        "15ab448b-a04f-42a5-85ab-448ba04f52a5",
+        "a562f4f8-459c-4ff6-8562-f4f8459c0ff6"
+      ],
       "transmittedDigest": "bdb68697bf8936cf7c4edf74916e44b7dedf3c2af10c8f1fc3e20855cb79beb2",
       "readDigest": "437c2fbb707539c8e87de1a99e3dcee3c5ac5b20bda972cd851855348769db15",
       "excluded": null,
@@ -263,6 +314,10 @@
       "ruleId": "CANONICAL_INVOICE_IDENTITY_CONFLICT",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "897462f8-9425-44ea-8974-62f8942534ea",
+        "a662f68b-cb87-4a6d-8662-f68bcb87da6d"
       ],
       "transmittedDigest": "d23d2054cc06b06e8bc94e669d50ae60bbd1740f22a40ac0e1603f70fb10a732",
       "readDigest": "0f2ff6848ac8d9dd713453804837067f701d4b1cddeb6277e7fd3a46013f25a9",
@@ -280,6 +335,9 @@
         "open_linked_documents",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "8c7d3213-e9b1-4ca5-8c7d-3213e9b1fca5"
+      ],
       "transmittedDigest": "8c5e41220645865cf6d34ce5cdb0c70d6a2ef8654855e5dffab4598c9986f31e",
       "readDigest": "aff575eede89aae4158812151b759869235e704c8b8f51eaf7608858621251d8",
       "excluded": null,
@@ -295,6 +353,9 @@
       "rankableActionKinds": [
         "open_linked_documents",
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "f5e8096b-45ef-4ed5-85e8-096b45efeed5"
       ],
       "transmittedDigest": "52a691d196afaae42adc45a158f3b99fd8b6e8277bc82abc98d0ceeac6708ee5",
       "readDigest": "58f16b199fcb46bfcb5bf700bcbbf0d791ead5335253f61ca5fc690c39fec129",
@@ -312,6 +373,9 @@
         "open_linked_documents",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "3202ee6e-9558-443c-8202-ee6e9558243c"
+      ],
       "transmittedDigest": "0c720e6aaca530a077b129e886b5640dd53ea0d3b358a81ffae874f1a058c175",
       "readDigest": "2026f74a4bd1ff2b683fda18a44e75ed3d6be343d071145c4d40babd4c64c29f",
       "excluded": null,
@@ -327,6 +391,9 @@
       "rankableActionKinds": [
         "open_linked_documents",
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "a36c1e1a-c542-4798-836c-1e1ac542c798"
       ],
       "transmittedDigest": "a58272bec37237a26e2053b0c329af24881e023c17c8b4867b2df21103151819",
       "readDigest": "fa705fd6007d34b9d0060ce25cb0472dfed63f16083f77afcb12eef53cebcec0",
@@ -344,6 +411,9 @@
         "open_linked_documents",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "da121058-6f0f-468e-8a12-10586f0f468e"
+      ],
       "transmittedDigest": "28b7c2a74cd7409fe575ff196be63125426c8963e7892dd5f81d1b7d2f707855",
       "readDigest": "5d259813d48a4088202e567648a0dd2f1bcc1bba908e39b296f7f6cd33036455",
       "excluded": null,
@@ -359,6 +429,9 @@
       "rankableActionKinds": [
         "open_linked_documents",
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "124977fa-8e88-4398-8249-77fa8e883398"
       ],
       "transmittedDigest": "7d7b67040d857f7ab9d01510409c0d875e58b3c9d6fa55090a5ddb06c1faa63d",
       "readDigest": "97043a11ebc9fc73754b0c00623e4f04299ad955400aa1fab798f86f5d41f4e8",
@@ -376,6 +449,9 @@
         "open_linked_documents",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "49f4aa06-f3ab-4300-89f4-aa06f3abd300"
+      ],
       "transmittedDigest": "ebbcd67d3a41881b577a4cfa634476be75f0efbf6d2d75af62d9f4673b77c42d",
       "readDigest": "04c7824ee1195388f79f0c0c83918d094048566231cacbcf7bce0d974dd9a415",
       "excluded": null,
@@ -390,6 +466,9 @@
       "ruleId": "TRANSACTION_TICKET_GRAIN_CONFLICT",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "dbf71553-a8f8-437d-8bf7-1553a8f8637d"
       ],
       "transmittedDigest": "514b27c877c00d975f2f32304e25f7bc3335ed62a6fe34cd422566382e2fd302",
       "readDigest": "ddf7ebd13388965092d4e274c96fb497f5d78f4b99848cf2c8faf70fdce4b23c",
@@ -407,6 +486,9 @@
         "open_linked_documents",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "73ee3f54-3208-46ba-83ee-3f54320836ba"
+      ],
       "transmittedDigest": "9dc90b1534b9f13624f21659c185a973de649963b1361e76e4402098407a15d4",
       "readDigest": "0140f5e1aba43165974f7ed9b5b60e20b77b048f2fda5add8de1be6e1df5ff6d",
       "excluded": null,
@@ -422,6 +504,9 @@
       "rankableActionKinds": [
         "open_linked_documents",
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "76ee440d-ac1c-4c43-86ee-440dac1c6c43"
       ],
       "transmittedDigest": "fe1690cb1dc14d9e91d6bbad81f3e633a033dfdf22cbed3decedbba6700d4023",
       "readDigest": "494a728baff7be172620f768bb8b2aab32c16ba8deed8d7978365d7b4d23d8bd",
@@ -439,6 +524,9 @@
         "open_linked_documents",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "18d46a31-445f-430b-88d4-6a31445ff30b"
+      ],
       "transmittedDigest": "ba90cc6ce2d3d1499e4af251bbb61d39aa48355521700e880d742d0de76a4e5f",
       "readDigest": "4d3b6c93387fad114a23e03dbd3a0248e94e9b80394a3fe4ca5db162d7b3a8bf",
       "excluded": null,
@@ -453,6 +541,10 @@
       "ruleId": "CANONICAL_INVOICE_IDENTITY_CONFLICT",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "73ee3f54-3208-46ba-83ee-3f54320836ba",
+        "76ee440d-ac1c-4c43-86ee-440dac1c6c43"
       ],
       "transmittedDigest": "93f6dc3d49a77dc4727086a1ece2b5302ceed95cc98382d975ecee50c7488edc",
       "readDigest": "ecd380e23488052849b80c39c51d82182ac142da13cfe6a0aca6a0b6e261050e",
@@ -470,6 +562,9 @@
         "open_linked_documents",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "18e5b11f-b876-4c3d-88e5-b11fb8761c3d"
+      ],
       "transmittedDigest": "809d9a5ea16d92bba843a223042dbcf6ceb57b9a1d06a2d00860e4cd2466fa3b",
       "readDigest": "68ace479c819b32bd949856cfc9c8dc3c797e9c471d3f3b9fda3491fafef9138",
       "excluded": null,
@@ -485,6 +580,9 @@
       "rankableActionKinds": [
         "open_linked_documents",
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "488ced8b-a1eb-4fd1-888c-ed8ba1ebbfd1"
       ],
       "transmittedDigest": "f3e703b29f97764d91d2cdd5b35b0cb5518a048a4fb376d18dc718f2ccf52099",
       "readDigest": "ffd717db20534c1318820a29220038a313468c9c4ef17768ae9de5f0706a13f3",
@@ -502,6 +600,9 @@
         "open_document",
         "open_linked_documents"
       ],
+      "citedDocumentIds": [
+        "c8b779f2-0084-4f5e-b587-c96fe44c7bd9"
+      ],
       "transmittedDigest": "fdd148eec84501d08dba2e0a38c93b4a93115804ffe507f82c2739adc87e460d",
       "readDigest": "64acf9fd9be5d64b5ec071f477f2854868732e84474f27c4ef59fc0536bcd57c",
       "excluded": null,
@@ -516,6 +617,9 @@
       "ruleId": "FINANCIAL_RATE_BASED_UNIT_COVERAGE_INCOMPLETE",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "c8b779f2-0084-4f5e-b587-c96fe44c7bd9"
       ],
       "transmittedDigest": "a37531c47be340782af1659c453331fef30db1ae67a2e859019e827ac99770d6",
       "readDigest": "bd83e95b23c31ee55f5463db686b57356b96996a004ecbec034b409a13cdddc2",
@@ -532,6 +636,9 @@
       "rankableActionKinds": [
         "open_document"
       ],
+      "citedDocumentIds": [
+        "c8b779f2-0084-4f5e-b587-c96fe44c7bd9"
+      ],
       "transmittedDigest": "ba8469723854b2bacc6a1b24c1bf9930d80d25777c3e3f737c2f1cfc9c248665",
       "readDigest": "20467efafa76f266e6feabef69f3ce8744a545469dedb57682ce501f62cd91a2",
       "excluded": null,
@@ -545,6 +652,9 @@
       "projectName": "B4.6 Golden source qualification",
       "ruleId": "contract_intelligence:derived_value_requires_confirmation",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "c8b779f2-0084-4f5e-b587-c96fe44c7bd9"
+      ],
       "transmittedDigest": "964f8328da19dbb889e28e7d6e16e1e251fd25fc6031608e310f521d83a1f01e",
       "readDigest": "636dfd3f69e1f529b4847a67d28431c76bf61755c37f67868f98fc20c2dfc063",
       "excluded": null,
@@ -558,6 +668,9 @@
       "projectName": "B4.6 Golden source qualification",
       "ruleId": "contract_intelligence:pricing_applicability_unclear",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "c8b779f2-0084-4f5e-b587-c96fe44c7bd9"
+      ],
       "transmittedDigest": "612e8fc0fccdf244ea717c3bfa4de89392fe77cb9df6476bb6752e4aef5f1120",
       "readDigest": "d726e99ead116684c373f6e02caab41eb3aa8979f05e93818258d73918d1e754",
       "excluded": null,
@@ -573,6 +686,9 @@
       "rankableActionKinds": [
         "open_document",
         "open_linked_documents"
+      ],
+      "citedDocumentIds": [
+        "c8b779f2-0084-4f5e-b587-c96fe44c7bd9"
       ],
       "transmittedDigest": "4c5b8c6bfbf4d7c96463812e7adaff33935b4dd4c60ca4494193352611b46990",
       "readDigest": "be8812adfd3b8d9af6d06964f832955bed47c84b704105ddc01652762330e67c",
@@ -590,6 +706,7 @@
         "upload_document",
         "open_linked_documents"
       ],
+      "citedDocumentIds": [],
       "transmittedDigest": "d764a052d91da4906f5e038825673113036d5df27de9efda34f427d762f3e179",
       "readDigest": "a7a2937877f2ee3db8857781f8b47ba0f56a2c88adab0caea6a90b62e5a82e56",
       "excluded": null,
@@ -603,6 +720,9 @@
       "projectName": "B4.6 Hillsdale source qualification",
       "ruleId": "contract_contractor_missing",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "f75b65b5-74f9-4f1e-a8af-4d0f36d81c4e"
+      ],
       "transmittedDigest": "d6a52824c50b3069ec80281f3d8eca628238691a9d05c0748228d1fed162791a",
       "readDigest": "eaf97e683179eab81f58d62571e0cf7862e63b8adfdda01f0e91ce3b9638bdf9",
       "excluded": null,
@@ -616,6 +736,9 @@
       "projectName": "B4.6 Hillsdale source qualification",
       "ruleId": "contract_ceiling_missing",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "f75b65b5-74f9-4f1e-a8af-4d0f36d81c4e"
+      ],
       "transmittedDigest": "d0cac7b27bd6fefc2749fea90369073c7c43afe534214ea565f09497d566dafa",
       "readDigest": "5c44525a3a18737d2f7f818316d31238f2779dda6a3598c3e24c08a72065e958",
       "excluded": null,
@@ -629,6 +752,9 @@
       "projectName": "B4.6 DN source qualification",
       "ruleId": "contract_intelligence:pricing_applicability_unclear",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "257883ae-9fbf-4920-8f15-8410c387ffa2"
+      ],
       "transmittedDigest": "70ac05b7cc07cece0654a8637627e1095e41af6c3e78646526847bb39258a6af",
       "readDigest": "93588ce938171acb4bc67c779226c7c5826019c50900a7337e3aae3a6175d05d",
       "excluded": null,
@@ -643,6 +769,10 @@
       "ruleId": "TRANSACTION_GROUP_EXISTS_FOR_INVOICE_LINE",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "35083bf5-d6d7-4c76-9c0b-31c3dba486a7",
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82"
       ],
       "transmittedDigest": "c98a378fbf3a08077a396d2f405e00fe01f1661ca9ef45d639b6f7dd476cd52e",
       "readDigest": "0b985ee946a92adeb354eb7ae91537514abfaae7fab250e1fd91f80a3dfcb70f",
@@ -659,6 +789,9 @@
       "rankableActionKinds": [
         "open_document"
       ],
+      "citedDocumentIds": [
+        "47f62106-38e9-400a-b7e6-bb6b1b2f269e"
+      ],
       "transmittedDigest": "8dbeb9249ab380c868b54219448fc1944b97bc3945f927f55144d0ea5fad1f99",
       "readDigest": "2ad7ae0a66634005faa79cb9ad46dc291b56df1a3bc3a2da6f4de8e9ff07a4ae",
       "excluded": "duplicate_price_sheet_rate_dependent",
@@ -674,6 +807,10 @@
       "rankableActionKinds": [
         "open_document"
       ],
+      "citedDocumentIds": [
+        "6bd2872e-1ed7-4720-a079-496427e6809f",
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82"
+      ],
       "transmittedDigest": "1b9691c9e01629bc4db7802629b8993747e965e1111859150c7a5eb7afdf2aaf",
       "readDigest": "072be8b7b3d32f015de135725ffd34a9e1f80876195b6e4119f1cc6e342f35f4",
       "excluded": null,
@@ -688,6 +825,9 @@
       "ruleId": "INVOICE_EXPOSURE_AT_RISK_AMOUNT_ZERO",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "7888c42d-2add-44a2-9e0c-2aec0f16ba6b"
       ],
       "transmittedDigest": "727816696d1a858abb2c95d5183235ca0fefa5488d976013e9bf7c959e4d9af3",
       "readDigest": "eec170fd753d9981374d7eecbb9ffe614527ba6415f1fdee50f8f7afeb3bc6e1",
@@ -705,6 +845,10 @@
         "link_invoice_line_rate",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "7888c42d-2add-44a2-9e0c-2aec0f16ba6b",
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82"
+      ],
       "transmittedDigest": "be1881d099c00a7d5f89bdfaadc337ab4b8b53f5c6b6999147e84c0f81807e19",
       "readDigest": "f7d302fa762fa6befa26c785fc7249d400a0cdc0ee726b409f88c8d0b25e5e4b",
       "excluded": "duplicate_price_sheet_rate_dependent",
@@ -719,6 +863,10 @@
       "ruleId": "TRANSACTION_GROUP_EXISTS_FOR_INVOICE_LINE",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "7888c42d-2add-44a2-9e0c-2aec0f16ba6b",
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82"
       ],
       "transmittedDigest": "d379bb9fa265b9d3e9a1547b1774c3e72c6cc91361efe0e99f7843ae2574efff",
       "readDigest": "ce74ed6c4a90aa91e29e5289c8787df0bba28aa58785024a2b5a9075f39ed524",
@@ -735,6 +883,9 @@
       "rankableActionKinds": [
         "open_document"
       ],
+      "citedDocumentIds": [
+        "bd15ed40-0b32-452b-8af4-75a27d120cae"
+      ],
       "transmittedDigest": "02dfad9365302e7a4632ef1f32f3fbd7515319fb7dbfa82c30611dbb6bdd2641",
       "readDigest": "bc51f28fa4e7a382c9004c4507a3279c73aa656477512e8fd4ad2e8ea9f52949",
       "excluded": "duplicate_price_sheet_rate_dependent",
@@ -750,6 +901,10 @@
       "rankableActionKinds": [
         "open_document"
       ],
+      "citedDocumentIds": [
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82",
+        "bd15ed40-0b32-452b-8af4-75a27d120cae"
+      ],
       "transmittedDigest": "5c59a8f0b0fea26e2c79399b54067d54684f261bb69b2df2ce2d2efa5b8ead3b",
       "readDigest": "276c76d158a52f9b2fd03e1f12c7c25ae0470ddfbf49859f8f273ded9c088a88",
       "excluded": null,
@@ -764,6 +919,10 @@
       "ruleId": "TRANSACTION_GROUP_EXISTS_FOR_INVOICE_LINE",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "7888c42d-2add-44a2-9e0c-2aec0f16ba6b",
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82"
       ],
       "transmittedDigest": "37b32148d552867d8ed62459d044c5670966187aeed11f3e806cf44d6d81659a",
       "readDigest": "8282de0ba8f64716bdd1143fa439b8f6ccf2b18687bb6f9afb79821abfef5e6c",
@@ -781,6 +940,10 @@
         "link_invoice_line_rate",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82",
+        "bd15ed40-0b32-452b-8af4-75a27d120cae"
+      ],
       "transmittedDigest": "d96147133d36ac709aa7ec0aac7f58f3d53df9a5f0adfcd69941cf69a3247a5e",
       "readDigest": "d24324f97035429c87b153df8a5caa6115bc1b60db177bd02418f60d4c463b0e",
       "excluded": "duplicate_price_sheet_rate_dependent",
@@ -795,6 +958,13 @@
       "ruleId": "PROJECT_EXPOSURE_SUPPORTED_AMOUNT_MATCHES_BILLED",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "35083bf5-d6d7-4c76-9c0b-31c3dba486a7",
+        "47f62106-38e9-400a-b7e6-bb6b1b2f269e",
+        "6bd2872e-1ed7-4720-a079-496427e6809f",
+        "7888c42d-2add-44a2-9e0c-2aec0f16ba6b",
+        "bd15ed40-0b32-452b-8af4-75a27d120cae"
       ],
       "transmittedDigest": "f4b75af76912236c520249d68f8269237a222b012a139f5a2b7bb74745caa70f",
       "readDigest": "aa0bbbab54c15527d9c5dcaff2c6e8e893821156478f914aa9d7cf056b8568bd",
@@ -811,6 +981,10 @@
       "rankableActionKinds": [
         "open_document"
       ],
+      "citedDocumentIds": [
+        "7888c42d-2add-44a2-9e0c-2aec0f16ba6b",
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82"
+      ],
       "transmittedDigest": "242a13d8fdb6d3e97aa04911950436de71c1e79d17bd8173dcfa617980208268",
       "readDigest": "a76673aae7d5c88f3a3bd7fbe2ad06a56e2c0e225c6357830d7d24979dc9d3c2",
       "excluded": null,
@@ -825,6 +999,10 @@
       "ruleId": "TRANSACTION_GROUP_EXISTS_FOR_INVOICE_LINE",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82",
+        "bd15ed40-0b32-452b-8af4-75a27d120cae"
       ],
       "transmittedDigest": "2ca7df873c9da5fe40fdab9cd0ee2f726fd85c51b2b0783f11ed64b2eae9b568",
       "readDigest": "198d68dbc7da1e5a70ecd1956ad40c90955d547a1d27edb3a183f486192fa2a7",
@@ -842,6 +1020,10 @@
         "link_invoice_line_rate",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "6bd2872e-1ed7-4720-a079-496427e6809f",
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82"
+      ],
       "transmittedDigest": "41660ce48e4deb31efce409c3bfc86faa464b92f1d3f43dacf85f5bb0400bca6",
       "readDigest": "fe7be0acae6dbcda9bf1b2e51023d783bbaa8b9bdb1269440b8e60e2a36b4edb",
       "excluded": "duplicate_price_sheet_rate_dependent",
@@ -856,6 +1038,9 @@
       "ruleId": "INVOICE_EXPOSURE_AT_RISK_AMOUNT_ZERO",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "6bd2872e-1ed7-4720-a079-496427e6809f"
       ],
       "transmittedDigest": "07a81b1b471c93c0a18d4a26a7def33c6db23f27fab41aae9a557b9b90e841d1",
       "readDigest": "e8abfee02d4b04ebd4080a44a2a42dc2a4da87f27a837f08f1e5d01b8ba1c11c",
@@ -873,6 +1058,10 @@
         "link_invoice_line_rate",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82",
+        "bd15ed40-0b32-452b-8af4-75a27d120cae"
+      ],
       "transmittedDigest": "86555633bebd2a05d041459a095907294b242106ed8d15a484bd949cb046d6bc",
       "readDigest": "f1b4be42cd6a1bf2cf8e732b7d769e28893fee4dcd12f7bcd28d11d153539840",
       "excluded": "duplicate_price_sheet_rate_dependent",
@@ -887,6 +1076,10 @@
       "ruleId": "FINANCIAL_INVOICE_VENDOR_MATCHES_CONTRACT_CONTRACTOR",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "35083bf5-d6d7-4c76-9c0b-31c3dba486a7",
+        "9fb9ca6f-c2c5-4c53-86f6-78ec47ee52de"
       ],
       "transmittedDigest": "b9700003918d06d221575b01020f08fc265c04b63935859c5ad75184498b42fb",
       "readDigest": "1de287fc400739ccb35f7071bc71c7c77405d4540442de9aefa1bd139c0da4f8",
@@ -904,6 +1097,10 @@
         "link_invoice_line_rate",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "6bd2872e-1ed7-4720-a079-496427e6809f",
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82"
+      ],
       "transmittedDigest": "c61e1dd1d2a29a078dacc2340f88677183b55ed6902328f4d3c4879adb5446b5",
       "readDigest": "908fa5eeec4b0bb35cfb17d0cf2f63f95279f5e21980dff90d7829d3d3dbcc6d",
       "excluded": "duplicate_price_sheet_rate_dependent",
@@ -918,6 +1115,10 @@
       "ruleId": "FINANCIAL_INVOICE_VENDOR_MATCHES_CONTRACT_CONTRACTOR",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "47f62106-38e9-400a-b7e6-bb6b1b2f269e",
+        "9fb9ca6f-c2c5-4c53-86f6-78ec47ee52de"
       ],
       "transmittedDigest": "77c1e7e108e3a7edcef3e2861f5a5a7af4a27fc6df25a508647ed1cdd108d77d",
       "readDigest": "6c1785ccc5118aac150ed1f2bdea264d433c67955fc8861cb2a466cbcedd862f",
@@ -934,6 +1135,10 @@
       "rankableActionKinds": [
         "open_document"
       ],
+      "citedDocumentIds": [
+        "6bd2872e-1ed7-4720-a079-496427e6809f",
+        "9fb9ca6f-c2c5-4c53-86f6-78ec47ee52de"
+      ],
       "transmittedDigest": "4445953cd4c92713d33f3447026c83400e4b09842c65a9b2c7f02c5538a6839d",
       "readDigest": "fcfa311b64b75aa4589ebbe152c7f880f3f31d885e0bd5c0804906c2a68d4c14",
       "excluded": null,
@@ -948,6 +1153,9 @@
       "ruleId": "INVOICE_LINE_REQUIRES_BILLING_KEY",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "6bd2872e-1ed7-4720-a079-496427e6809f"
       ],
       "transmittedDigest": "c3afd524c13a3936d2c10e23add9c284df0576d76a17a80d3b0ebe059ffddc84",
       "readDigest": "3969a1e6922967518b04c5f65b40280650d0cb117f2f872fbb85ae963bd55a6a",
@@ -964,6 +1172,13 @@
       "rankableActionKinds": [
         "open_document"
       ],
+      "citedDocumentIds": [
+        "35083bf5-d6d7-4c76-9c0b-31c3dba486a7",
+        "47f62106-38e9-400a-b7e6-bb6b1b2f269e",
+        "6bd2872e-1ed7-4720-a079-496427e6809f",
+        "7888c42d-2add-44a2-9e0c-2aec0f16ba6b",
+        "bd15ed40-0b32-452b-8af4-75a27d120cae"
+      ],
       "transmittedDigest": "459feeccd9ac4312301909d1f48c7054c4c3e15cf96cbef2f6248c9b0a108dba",
       "readDigest": "388611e1d9810ea02e3e2a3d1f666048627f1852ac1b7b1e1f39df5bcdbb4280",
       "excluded": "duplicate_price_sheet_rate_dependent",
@@ -979,6 +1194,10 @@
       "rankableActionKinds": [
         "open_document"
       ],
+      "citedDocumentIds": [
+        "35083bf5-d6d7-4c76-9c0b-31c3dba486a7",
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82"
+      ],
       "transmittedDigest": "cc5e65cc76ddc99d968888610ffa4ecc5ccced7b449ab9e334a1eec1fa724bc8",
       "readDigest": "787c97681a98756026786bdd4027c0d7210413fb23c70362b841503665680385",
       "excluded": null,
@@ -993,6 +1212,10 @@
       "ruleId": "TRANSACTION_GROUP_EXISTS_FOR_INVOICE_LINE",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "7888c42d-2add-44a2-9e0c-2aec0f16ba6b",
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82"
       ],
       "transmittedDigest": "dd36a574ef1ee6570628ec2597a227e2b897521cbdedeb1e98d1edc4620e7050",
       "readDigest": "aa8043fdea72752ac06c736f30b10a94889592dee4a025b8398a415b2fda3da1",
@@ -1010,6 +1233,10 @@
         "link_invoice_line_rate",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "6bd2872e-1ed7-4720-a079-496427e6809f",
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82"
+      ],
       "transmittedDigest": "4b74eb348336afd8ddc33437924160989fa254a17e2395fe7c5e63d4707c2aa3",
       "readDigest": "becee7ec9c9ce7594ff3e55c612867b73bde19923f9dc1e20a216e7836eb67d4",
       "excluded": "duplicate_price_sheet_rate_dependent",
@@ -1024,6 +1251,10 @@
       "ruleId": "TRANSACTION_GROUP_EXISTS_FOR_INVOICE_LINE",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "47f62106-38e9-400a-b7e6-bb6b1b2f269e",
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82"
       ],
       "transmittedDigest": "0a2d967237702f83bd143e2d66aa75dd2024677bda16e623214f5f7d936c6b86",
       "readDigest": "0957fcd6d39ccbea1c5d330a90d1960e7ecf410b9ebbbfdaa45267129055b381",
@@ -1041,6 +1272,10 @@
         "link_invoice_line_rate",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "35083bf5-d6d7-4c76-9c0b-31c3dba486a7",
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82"
+      ],
       "transmittedDigest": "69157e3d01a4271c985249639773590f82bbf7b4b1c3c3e9740443492e278085",
       "readDigest": "f72d040e9b76e9e5698dea296ad47f5c9d44328bef0f29018a25b301fe08598d",
       "excluded": "duplicate_price_sheet_rate_dependent",
@@ -1055,6 +1290,9 @@
       "ruleId": "FINANCIAL_INVOICE_TOTAL_RECONCILES_TO_LINE_ITEMS",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "6bd2872e-1ed7-4720-a079-496427e6809f"
       ],
       "transmittedDigest": "5ead51d4a917216e12d29d4480112f18f597ff24c7218f7e31500cd0f572ad41",
       "readDigest": "784ed9c981dcd23edb98b5c76875962f56401cac1839d94fe2dbecefe2e18ce4",
@@ -1072,6 +1310,10 @@
         "link_invoice_line_rate",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82",
+        "bd15ed40-0b32-452b-8af4-75a27d120cae"
+      ],
       "transmittedDigest": "9fd13f219e9afa821eab9d3f4f1c423374910092659ab2f5ff3aebdab9543713",
       "readDigest": "a03cea3487a2c3ea167d4a002c7f56e791e078e1a7bd1be4de633a2e863f5a1e",
       "excluded": "duplicate_price_sheet_rate_dependent",
@@ -1086,6 +1328,9 @@
       "ruleId": "FINANCIAL_INVOICE_TOTAL_RECONCILES_TO_LINE_ITEMS",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "7888c42d-2add-44a2-9e0c-2aec0f16ba6b"
       ],
       "transmittedDigest": "17ccb7ddf7b739cc36feb8618d298c31d028fa1e4daee4f376967d1229554733",
       "readDigest": "befa33ea82a2e2183052efeeec95d03dcc1933032745d43699c48039eef14ad5",
@@ -1102,6 +1347,10 @@
       "rankableActionKinds": [
         "open_document"
       ],
+      "citedDocumentIds": [
+        "9fb9ca6f-c2c5-4c53-86f6-78ec47ee52de",
+        "bd15ed40-0b32-452b-8af4-75a27d120cae"
+      ],
       "transmittedDigest": "e39ccc23140ef9b8885f28c20ca24ccc46ea05a4cec06dc0400b8fc95317bf50",
       "readDigest": "992d22fffd55eafa7df2dd3300840abefecce7ff5ddcbe2ec98ffcd96d7e4dd9",
       "excluded": null,
@@ -1117,6 +1366,10 @@
       "rankableActionKinds": [
         "open_document"
       ],
+      "citedDocumentIds": [
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82",
+        "bd15ed40-0b32-452b-8af4-75a27d120cae"
+      ],
       "transmittedDigest": "4d0de608e17cfbe6603f6e44f9e84bdf176119ee8a338831ecf8fe7c7776aa05",
       "readDigest": "f94e4a16dd053952fcf4da1256906327b3756ab370a1fc5dee95a1c599cd9bb4",
       "excluded": null,
@@ -1131,6 +1384,9 @@
       "ruleId": "INVOICE_EXPOSURE_AT_RISK_AMOUNT_ZERO",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "bd15ed40-0b32-452b-8af4-75a27d120cae"
       ],
       "transmittedDigest": "920d2dbd19e49c799ec19583a2112e21e2f8d599b1fc84cfd83bbaeccf66d7f2",
       "readDigest": "7d56680865b54cd3964514b0f7cd45907e1645d38fcc0e1a0c063bc0f989c1e7",
@@ -1148,6 +1404,10 @@
         "link_invoice_line_rate",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "7888c42d-2add-44a2-9e0c-2aec0f16ba6b",
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82"
+      ],
       "transmittedDigest": "e94fc57e53f3ecc5222b94680bcf191cdb7838f4ec70c04a69bbfbcd987aa076",
       "readDigest": "03c2783460f2f2854cc7145d1c227cf8ce90e4b594f346ede735a357f4c16f16",
       "excluded": "duplicate_price_sheet_rate_dependent",
@@ -1163,6 +1423,10 @@
       "rankableActionKinds": [
         "link_invoice_line_rate",
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "6bd2872e-1ed7-4720-a079-496427e6809f",
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82"
       ],
       "transmittedDigest": "a74ea02c5f08c68a849847fec483db7d86e92213701c1d8600f0b1f3de543428",
       "readDigest": "cf627d4d944c0c4baea5113134cc5f6288d87b129d140b52a040f53c58077140",
@@ -1180,6 +1444,10 @@
         "link_invoice_line_rate",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82",
+        "bd15ed40-0b32-452b-8af4-75a27d120cae"
+      ],
       "transmittedDigest": "584e0fc9487278a524748dbf1f650d56312b18e601551f748b57c25b9c091fa4",
       "readDigest": "5e9face633aeaf6a757af4c68f8f6685270b8fe269cc3eedc58f09a5f3517399",
       "excluded": "duplicate_price_sheet_rate_dependent",
@@ -1194,6 +1462,10 @@
       "ruleId": "FINANCIAL_INVOICE_VENDOR_MATCHES_CONTRACT_CONTRACTOR",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "7888c42d-2add-44a2-9e0c-2aec0f16ba6b",
+        "9fb9ca6f-c2c5-4c53-86f6-78ec47ee52de"
       ],
       "transmittedDigest": "ad18d8119fff411322b7679eaf7398b4e2c96cb2ef202e0ee3507e0082f74a48",
       "readDigest": "a9b5e254540e369367c9b7711081d6875f964ca0a7f5c55e2e8c00dfdc59372c",
@@ -1210,6 +1482,10 @@
       "rankableActionKinds": [
         "open_document"
       ],
+      "citedDocumentIds": [
+        "7888c42d-2add-44a2-9e0c-2aec0f16ba6b",
+        "9fb9ca6f-c2c5-4c53-86f6-78ec47ee52de"
+      ],
       "transmittedDigest": "007e179eb718fdb621c89a0a3ea50b8a37f796c616c23e6b94a5533ec3251046",
       "readDigest": "734903c18a55ea5f6cf09d3117b941d3163e5e6fe522d5a0f451f8235f0cad9f",
       "excluded": null,
@@ -1224,6 +1500,12 @@
       "ruleId": "FINANCIAL_INVOICE_LINE_CODE_EXISTS_IN_CONTRACT",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "40a7f15b-6351-41d3-b953-fda41f993df5",
+        "47f62106-38e9-400a-b7e6-bb6b1b2f269e",
+        "9fb9ca6f-c2c5-4c53-86f6-78ec47ee52de",
+        "e98315b8-2427-432a-ac9b-93be14eed366"
       ],
       "transmittedDigest": "4386f343489f0c33922e52d190e0f76c1486909a46ea07c5cdd71d8cee341da3",
       "readDigest": "7b7622c9acc88d66511e61b67ece94a86732ed08955644a7ed79ba42323bf3ee",
@@ -1241,6 +1523,10 @@
         "link_invoice_line_rate",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "7888c42d-2add-44a2-9e0c-2aec0f16ba6b",
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82"
+      ],
       "transmittedDigest": "4056f349e6471070bac4c26d449bf96fdaaade6543f92e9fd6df8ff61e060e8a",
       "readDigest": "0c9f3cf048653df89ff06f499fae6f22291f894877f1d76c024bd55bb33a03f0",
       "excluded": "duplicate_price_sheet_rate_dependent",
@@ -1256,6 +1542,9 @@
       "rankableActionKinds": [
         "open_document"
       ],
+      "citedDocumentIds": [
+        "47f62106-38e9-400a-b7e6-bb6b1b2f269e"
+      ],
       "transmittedDigest": "5b51e02dc2f933ee05d7cea9c79009a7176aa0a29aceee4cce952f0ff6dd9979",
       "readDigest": "739b75de55fbc2ab1971693a3bbf3e25c747537f8ec49a0229ff0102d33931d1",
       "excluded": "duplicate_price_sheet_rate_dependent",
@@ -1270,6 +1559,9 @@
       "ruleId": "INVOICE_EXPOSURE_AT_RISK_AMOUNT_ZERO",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "35083bf5-d6d7-4c76-9c0b-31c3dba486a7"
       ],
       "transmittedDigest": "868a59b2520ac5395a2904138e62f2790ec37c1ff968c742b09cda902be473cd",
       "readDigest": "8952088dafdeb991f3e05aa8bf84e4081595fcbf102afd74f5ae04bbd56b4a55",
@@ -1287,6 +1579,10 @@
         "link_invoice_line_rate",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "35083bf5-d6d7-4c76-9c0b-31c3dba486a7",
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82"
+      ],
       "transmittedDigest": "e1af94ee753a41f78341fe04b583827f89403cd549f96ec158e075a5428d8eb9",
       "readDigest": "45e0bd0afd9c0c29c80c4c2e9b07759fce1007064410beb0d4532b9ba4180316",
       "excluded": "duplicate_price_sheet_rate_dependent",
@@ -1301,6 +1597,9 @@
       "ruleId": "INVOICE_EXPOSURE_SUPPORTED_AMOUNT_MATCHES_BILLED",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "6bd2872e-1ed7-4720-a079-496427e6809f"
       ],
       "transmittedDigest": "a876277c4ceeba73a13cf5b24a3be99c7617b993c2303c5249e2f4a195b9aa93",
       "readDigest": "78278d60799197f5eaff8f6798e9ecf79bbf48e9fbb4e64c9bd3079eca39ed98",
@@ -1317,6 +1616,9 @@
       "rankableActionKinds": [
         "open_document"
       ],
+      "citedDocumentIds": [
+        "35083bf5-d6d7-4c76-9c0b-31c3dba486a7"
+      ],
       "transmittedDigest": "879a45eb00feb0eb130adcf1138e4c0c7a4aace9025494499ae1d8b2076a7353",
       "readDigest": "4327f6fdde020203b5086d105885334dc6f78b688c954ad906016fd59106c3e9",
       "excluded": null,
@@ -1331,6 +1633,9 @@
       "ruleId": "FINANCIAL_INVOICE_TOTAL_RECONCILES_TO_LINE_ITEMS",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "bd15ed40-0b32-452b-8af4-75a27d120cae"
       ],
       "transmittedDigest": "c412504e46c0b106baf477a8f5d244e89f25012e89c18c84210bc200a835d8ab",
       "readDigest": "db06910aa3a3ea7a705086a73b6a7ab2685953406787993fb7d8364455ecf8bf",
@@ -1347,6 +1652,10 @@
       "rankableActionKinds": [
         "open_document"
       ],
+      "citedDocumentIds": [
+        "35083bf5-d6d7-4c76-9c0b-31c3dba486a7",
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82"
+      ],
       "transmittedDigest": "1cbace2e5f01584c5e0b592f990fa69bdebc7491fb70acbdb5cd808375bc440e",
       "readDigest": "3fe69dbff375c867a546f86d98e4f038adbd74c6b29248c5021c5233bb03437f",
       "excluded": null,
@@ -1362,6 +1671,10 @@
       "rankableActionKinds": [
         "open_document"
       ],
+      "citedDocumentIds": [
+        "47f62106-38e9-400a-b7e6-bb6b1b2f269e",
+        "9fb9ca6f-c2c5-4c53-86f6-78ec47ee52de"
+      ],
       "transmittedDigest": "008f7c60c774d0b6849296d0b70383e84605a1310aaff3dcabd370b2337d586a",
       "readDigest": "df673393c753b6e470c18ba085ec61a879ee4200afc918b9f9bc733b7bc410e7",
       "excluded": null,
@@ -1376,6 +1689,9 @@
       "ruleId": "INVOICE_EXPOSURE_SUPPORTED_AMOUNT_MATCHES_BILLED",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "7888c42d-2add-44a2-9e0c-2aec0f16ba6b"
       ],
       "transmittedDigest": "97ecbf6637ac8ab3351fb3074fa10090b38abccac338b56868bc6a856568ca0f",
       "readDigest": "295cb69eee001d8193198b2f94f6590b222cde9a05b5891d8b57e0b7f97fdd3c",
@@ -1393,6 +1709,10 @@
         "link_invoice_line_rate",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "35083bf5-d6d7-4c76-9c0b-31c3dba486a7",
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82"
+      ],
       "transmittedDigest": "36b853ce5ce72eb2be1c86a04b3cba4bf73fd1f7d510202be8a955c18a864b54",
       "readDigest": "96f873f55d3d4994c42c0b2df2b0f81768b117ee5234f19ed5a73596d4a1fc84",
       "excluded": "duplicate_price_sheet_rate_dependent",
@@ -1407,6 +1727,10 @@
       "ruleId": "TRANSACTION_GROUP_EXISTS_FOR_INVOICE_LINE",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "6bd2872e-1ed7-4720-a079-496427e6809f",
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82"
       ],
       "transmittedDigest": "53382b891532f5747860ef5862d0fc55337dfba1a43919c6d8d1fc533d0bd80b",
       "readDigest": "f13c17f1d2ee234d547620834fa1126057911309e32828b5e1a20eb3c47e044f",
@@ -1424,6 +1748,10 @@
         "link_invoice_line_rate",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "35083bf5-d6d7-4c76-9c0b-31c3dba486a7",
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82"
+      ],
       "transmittedDigest": "99598a4cf5a35fdd3354ab1a01d3a7728cbce551a9159988db0b5b48a3ddeff5",
       "readDigest": "741dd0edddb510ecefb198e39276488e2238da82ca0990b2c2dfdbc129fd47f8",
       "excluded": "duplicate_price_sheet_rate_dependent",
@@ -1438,6 +1766,10 @@
       "ruleId": "TRANSACTION_GROUP_EXISTS_FOR_INVOICE_LINE",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "35083bf5-d6d7-4c76-9c0b-31c3dba486a7",
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82"
       ],
       "transmittedDigest": "f89fc11f916b52729492f40c26354a521075242e70bc92b44b978bf9494ebf8a",
       "readDigest": "f83a2b157730273ffe51d5b434a3842cc6fc7aa4a447f7772df961f768c605b7",
@@ -1455,6 +1787,10 @@
         "link_invoice_line_rate",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "7888c42d-2add-44a2-9e0c-2aec0f16ba6b",
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82"
+      ],
       "transmittedDigest": "8569a1fd4a79b3db23cbe6dbf6a6698c5b43cea2c97ba237a4c57d166154f98b",
       "readDigest": "3cdcf9418ee8181694d0fafeb00d236e7df83d9a8c13329604f05186061621e4",
       "excluded": "duplicate_price_sheet_rate_dependent",
@@ -1469,6 +1805,9 @@
       "ruleId": "INVOICE_EXPOSURE_SUPPORTED_AMOUNT_MATCHES_BILLED",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "35083bf5-d6d7-4c76-9c0b-31c3dba486a7"
       ],
       "transmittedDigest": "34c804750d62fc75a7303f85c62080312f8cba73459f773b9d99922660209383",
       "readDigest": "446698c217a92f5342ca708c2b85898a4b26893c87e7c98eb2e5aa118f588510",
@@ -1486,6 +1825,10 @@
         "link_invoice_line_rate",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "7888c42d-2add-44a2-9e0c-2aec0f16ba6b",
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82"
+      ],
       "transmittedDigest": "779f4249e942261a6ea344bc4b4d701c2e489ac4eac8e5cdc464b33b322fb8bd",
       "readDigest": "74596b746386a8d91ab465cdbd448af0e5fe432c58106128238327d977726f04",
       "excluded": "duplicate_price_sheet_rate_dependent",
@@ -1500,6 +1843,10 @@
       "ruleId": "TRANSACTION_GROUP_EXISTS_FOR_INVOICE_LINE",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "6bd2872e-1ed7-4720-a079-496427e6809f",
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82"
       ],
       "transmittedDigest": "46938f7972e886986cd7755d3742ca8d8ea528e29305b20a0d3d6190cd58e7d5",
       "readDigest": "b61d4333e0da75dda67a77a4c2d62eea2790fa026ad7fc371b2e9d5c266b6215",
@@ -1516,6 +1863,10 @@
       "rankableActionKinds": [
         "open_document"
       ],
+      "citedDocumentIds": [
+        "9fb9ca6f-c2c5-4c53-86f6-78ec47ee52de",
+        "bd15ed40-0b32-452b-8af4-75a27d120cae"
+      ],
       "transmittedDigest": "992ee1917e5589c32777058afb03ccc728ed6043301a053c702754205a4d0681",
       "readDigest": "4c2d230d05365502dfbc9b08488e7fbb83dc43e6516de0ec294b3e9373eaef9b",
       "excluded": null,
@@ -1530,6 +1881,10 @@
       "ruleId": "FINANCIAL_INVOICE_CLIENT_MATCHES_CONTRACT_CLIENT",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "35083bf5-d6d7-4c76-9c0b-31c3dba486a7",
+        "9fb9ca6f-c2c5-4c53-86f6-78ec47ee52de"
       ],
       "transmittedDigest": "6bacd7fd7388bab8c5215559972b452c239135b0a3df395340e9c398509a7495",
       "readDigest": "0abec424c61dc7b023446486c69c65b2059f8e9555caa9a1d0bae94f1a771607",
@@ -1546,6 +1901,10 @@
       "rankableActionKinds": [
         "open_document"
       ],
+      "citedDocumentIds": [
+        "6bd2872e-1ed7-4720-a079-496427e6809f",
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82"
+      ],
       "transmittedDigest": "39b178ecae3a605eb7a5e3eb2b1a059c3f28778d240bc67841b0d1464bace1ca",
       "readDigest": "f57daff4c75c57b96b864ad84d385cd971a3a3056750dd58d041cf60302181f6",
       "excluded": null,
@@ -1560,6 +1919,10 @@
       "ruleId": "FINANCIAL_INVOICE_CLIENT_MATCHES_CONTRACT_CLIENT",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "6bd2872e-1ed7-4720-a079-496427e6809f",
+        "9fb9ca6f-c2c5-4c53-86f6-78ec47ee52de"
       ],
       "transmittedDigest": "fa68b452189e158372120148065aea7833acb549d7e77efba51b0ca988f545a8",
       "readDigest": "9365d2e9de30e1b2dd8a0344ba55c078ead904f9712e445f1c18c4399957df04",
@@ -1576,6 +1939,10 @@
       "rankableActionKinds": [
         "open_document"
       ],
+      "citedDocumentIds": [
+        "7888c42d-2add-44a2-9e0c-2aec0f16ba6b",
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82"
+      ],
       "transmittedDigest": "16e8b3d6e1657cf0bfcd88df3dac67bd5d7535d6b317aee851a6907a0ed14a95",
       "readDigest": "26add8d01490f3db708f389bbe6b78c674211b1bcf33068e8922f4d1c1f13245",
       "excluded": null,
@@ -1590,6 +1957,9 @@
       "ruleId": "FINANCIAL_INVOICE_TOTAL_RECONCILES_TO_LINE_ITEMS",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "35083bf5-d6d7-4c76-9c0b-31c3dba486a7"
       ],
       "transmittedDigest": "3e233b7dea835b799b50e74c20b80a24c7f4670e25084b5056e01e31322a5b25",
       "readDigest": "f6e99a2a2dfb39632940f9e7601d2ec3445d4592cb950d1027ebe5d77b9e0bd1",
@@ -1607,6 +1977,10 @@
         "link_invoice_line_rate",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "35083bf5-d6d7-4c76-9c0b-31c3dba486a7",
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82"
+      ],
       "transmittedDigest": "cbf61cd9715acb98283ad7f569441932faaa563df94dff671c2101c63d970e2f",
       "readDigest": "ccd9fa24f2f1c758784aa412c96f532d70539e8239fd92c6e049e0a28707ad13",
       "excluded": "duplicate_price_sheet_rate_dependent",
@@ -1622,6 +1996,10 @@
       "rankableActionKinds": [
         "open_document"
       ],
+      "citedDocumentIds": [
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82",
+        "bd15ed40-0b32-452b-8af4-75a27d120cae"
+      ],
       "transmittedDigest": "1e2e5e22d9946a20eceaf2d0ddf88a950f3a515db783129c21a1271128ff299d",
       "readDigest": "4f6ced97929d59e75a9785ab23c57a19ad972e2bb0603c5824b90b4b4c2d9d51",
       "excluded": null,
@@ -1636,6 +2014,10 @@
       "ruleId": "TRANSACTION_GROUP_EXISTS_FOR_INVOICE_LINE",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "7b12515a-dbd3-4b68-bc21-1621fcf86d82",
+        "bd15ed40-0b32-452b-8af4-75a27d120cae"
       ],
       "transmittedDigest": "93b9fdffd3a45ec521d227aaec86b859df540b5aa45e938af86e4daf61ac2171",
       "readDigest": "cc4d70652ac099bbb43fefa60a9b2f32e8552982805613d9edb43ef9585802c3",
@@ -1653,6 +2035,9 @@
         "link_invoice_line_rate",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "35083bf5-d6d7-4c76-9c0b-31c3dba486a7"
+      ],
       "transmittedDigest": "8b776e433cdb86eae3001045a1e1922d2e700797a6d096a63844adb9c235bc74",
       "readDigest": "8e5fef99310c077456da91f21537ddbfd07fcd9a5e53d20f1d8d8fbc651f043c",
       "excluded": "duplicate_price_sheet_rate_dependent",
@@ -1669,6 +2054,9 @@
         "link_invoice_line_rate",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "7888c42d-2add-44a2-9e0c-2aec0f16ba6b"
+      ],
       "transmittedDigest": "f4f29ea7bf0cd13d394b8d78319dad52b383a41efc17a5dae8c6e06f3caa920c",
       "readDigest": "b9bef43b8dd26656b4f3a0377b73f62ca773df9e6c4e9535367b565dafd6ae8e",
       "excluded": "duplicate_price_sheet_rate_dependent",
@@ -1683,6 +2071,9 @@
       "ruleId": "CROSS_DOCUMENT_CATEGORY_NEEDS_REVIEW",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "7888c42d-2add-44a2-9e0c-2aec0f16ba6b"
       ],
       "transmittedDigest": "699510370f0601198edaea5f0028758595f1766ab9e59ea4a8f039ce9cb17f73",
       "readDigest": "281bd55830b4b10201438fd36e5921dc7318dc2c5baa78408130df383c093c87",
@@ -1700,6 +2091,9 @@
         "link_invoice_line_rate",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "35083bf5-d6d7-4c76-9c0b-31c3dba486a7"
+      ],
       "transmittedDigest": "8dae8d1262e283bdbc7dafc49cf6827ae200d0ed7e736b00259307b240296201",
       "readDigest": "0ec1cf09106b942f7072ef2db18fca9967f1e8a94e8a7e0493d9fc38c99aa913",
       "excluded": "duplicate_price_sheet_rate_dependent",
@@ -1715,6 +2109,9 @@
       "rankableActionKinds": [
         "link_invoice_line_rate",
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "bd15ed40-0b32-452b-8af4-75a27d120cae"
       ],
       "transmittedDigest": "77df9466af4cb34a2211670f18ade952366d345946107d69d807093bd241a170",
       "readDigest": "ac8a14ae0588c6104662900b5c5b97cec00e0eeea20bf03df9a443a295630feb",
@@ -1732,6 +2129,9 @@
         "link_invoice_line_rate",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "7888c42d-2add-44a2-9e0c-2aec0f16ba6b"
+      ],
       "transmittedDigest": "9f2e702a40065856531730b2608a4f941543bf3e8b89f13f91796e3907aeb01c",
       "readDigest": "b7db9b0b046d243ae728f1331f98c4bae01e11f5e5301f665cf1e17bf47b3e9a",
       "excluded": "duplicate_price_sheet_rate_dependent",
@@ -1747,6 +2147,9 @@
       "rankableActionKinds": [
         "link_invoice_line_rate",
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "bd15ed40-0b32-452b-8af4-75a27d120cae"
       ],
       "transmittedDigest": "8191e9205cd58d5065c96d4c56a6d14f8709dddf49adbf56fca996a73a197188",
       "readDigest": "d5b42668454d1bfced80f3c9bb19d4f747af594c9b528e76a20f3876ce4180ec",
@@ -1764,6 +2167,9 @@
         "link_invoice_line_rate",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "bd15ed40-0b32-452b-8af4-75a27d120cae"
+      ],
       "transmittedDigest": "d1b33f5a58298db5e232b610146cadfd6757ed76ecc1c06663859ff4232e5109",
       "readDigest": "364935a6fb14d381e6b9d8763a2d54b85b298d8a18b5f45dc8981e55b20abec8",
       "excluded": "duplicate_price_sheet_rate_dependent",
@@ -1780,6 +2186,9 @@
         "link_invoice_line_rate",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "6bd2872e-1ed7-4720-a079-496427e6809f"
+      ],
       "transmittedDigest": "9b74593f92a8b82275a10e27eccaa8e87e70d99e8bc09f1d07febd6db7055a2d",
       "readDigest": "3b057074f2d57f8aa37ffb18a3c33c97a8dc8b0af25526ed22b368567b2925a1",
       "excluded": "duplicate_price_sheet_rate_dependent",
@@ -1794,6 +2203,9 @@
       "ruleId": "CROSS_DOCUMENT_CATEGORY_NEEDS_REVIEW",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "47f62106-38e9-400a-b7e6-bb6b1b2f269e"
       ],
       "transmittedDigest": "777b8c0249d0a9e97d0064c93eaaed78479bb18eedee95e5590889cf163d3793",
       "readDigest": "1d876993a0d4f3167a4151925ef8ca8066278e81f60a578d98ce2b071ffc65bc",
@@ -1811,6 +2223,9 @@
         "link_invoice_line_rate",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "6bd2872e-1ed7-4720-a079-496427e6809f"
+      ],
       "transmittedDigest": "9ae1a6e8bb7aa3013cfa4b1901aced5a93fa9d19c8ce18781a459ac93ee15a10",
       "readDigest": "13916b2225abcd7258a4eb5478c0d999fb817ae4e5da5763b29d1fec786c64bb",
       "excluded": "duplicate_price_sheet_rate_dependent",
@@ -1826,6 +2241,9 @@
       "rankableActionKinds": [
         "link_invoice_line_rate",
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "bd15ed40-0b32-452b-8af4-75a27d120cae"
       ],
       "transmittedDigest": "0ed09c67fd698eb9eef80fb287bdd14095621bd2d7debc62509ba9063ae5615a",
       "readDigest": "fc2657d694e51996049400dd879b01dd95eff166178fa74558b6a6428d0f057e",
@@ -1843,6 +2261,9 @@
         "link_invoice_line_rate",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "6bd2872e-1ed7-4720-a079-496427e6809f"
+      ],
       "transmittedDigest": "ef8090920d6d8dde0a155ea9abf6f60574146cc444c4e17b236951f37c75bede",
       "readDigest": "3de5f140adf2b11adf50d8245033f3662dc4cb944a9416a4fbb413c7df3d0d6c",
       "excluded": "duplicate_price_sheet_rate_dependent",
@@ -1857,6 +2278,9 @@
       "ruleId": "CROSS_DOCUMENT_CATEGORY_NEEDS_REVIEW",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "35083bf5-d6d7-4c76-9c0b-31c3dba486a7"
       ],
       "transmittedDigest": "0947378ba22d8cef947790987988cfa7e282a6b32d0cba79eff4dfa2df9d62cd",
       "readDigest": "4998d65d793bb54bccec1e3511f3f627c711f44f80937efa6b4bc31cb4273d9d",
@@ -1874,6 +2298,9 @@
         "link_invoice_line_rate",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "7888c42d-2add-44a2-9e0c-2aec0f16ba6b"
+      ],
       "transmittedDigest": "6a854246270af45cb10696b2c68f34188200e9365669cc0588aa24901750b892",
       "readDigest": "80326df989f3ee75218cd14c3a1aa2da93aef5344a0706b4ee3cb86d373f0da8",
       "excluded": "duplicate_price_sheet_rate_dependent",
@@ -1889,6 +2316,9 @@
       "rankableActionKinds": [
         "link_invoice_line_rate",
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "7888c42d-2add-44a2-9e0c-2aec0f16ba6b"
       ],
       "transmittedDigest": "ad7abedd3f565ddacd3b5aea1b7547fc205ecd32295cca3aa3e3541e57fb4031",
       "readDigest": "408118be0a5b6277ff3cb833110593b546372ace6da438af93b017c97a0df634",
@@ -1906,6 +2336,9 @@
         "link_invoice_line_rate",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "35083bf5-d6d7-4c76-9c0b-31c3dba486a7"
+      ],
       "transmittedDigest": "fe07b717e68cd08a6474143727fea6303e2268cfe642d25202e169ab7df00d72",
       "readDigest": "0b0011faf6a0605e57c8804b829cb756c8138e3e73be103943a65450ff33956b",
       "excluded": "duplicate_price_sheet_rate_dependent",
@@ -1921,6 +2354,9 @@
       "rankableActionKinds": [
         "link_invoice_line_rate",
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "35083bf5-d6d7-4c76-9c0b-31c3dba486a7"
       ],
       "transmittedDigest": "ff83489822f0ebe54b8c2c4c19b9fb1d8ef8c6b90d53ab2b812163520a534cfd",
       "readDigest": "f4008012b414d85a63259d351b960b8d5afa9f848c52ebd56b6d07534c5301ce",
@@ -1938,6 +2374,9 @@
         "link_invoice_line_rate",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "35083bf5-d6d7-4c76-9c0b-31c3dba486a7"
+      ],
       "transmittedDigest": "3b9ba2bb59f729293aa57b992d8dd2b2bd47da92b59c85a1b21f2b5eb08de4ce",
       "readDigest": "68467f74d6a39bf59ff06a491b28f5190f188e0ffcc46bed0417b128490a7e4f",
       "excluded": "duplicate_price_sheet_rate_dependent",
@@ -1952,6 +2391,9 @@
       "ruleId": "CROSS_DOCUMENT_CATEGORY_NEEDS_REVIEW",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "bd15ed40-0b32-452b-8af4-75a27d120cae"
       ],
       "transmittedDigest": "a604bcdd52093c6bcbb4fffd5e00ca497b7e8ea7a9733af8172dc1e960385218",
       "readDigest": "003a23087a28a42699069e42668aa5b57420578d96fc30770a3aa10bfcfee076",
@@ -1969,6 +2411,9 @@
         "link_invoice_line_rate",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "6bd2872e-1ed7-4720-a079-496427e6809f"
+      ],
       "transmittedDigest": "bb2a609c887f31e58c8c35057ff1e0fbe082ba1cca3c87384fe9d3ea51307bc3",
       "readDigest": "0eb0a0930604506cd76fda54c52cb1e4975d2b2f88f17b955365423af643cd4c",
       "excluded": "duplicate_price_sheet_rate_dependent",
@@ -1982,6 +2427,9 @@
       "projectName": "Goodlettsville",
       "ruleId": "invoice_support_missing",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "35083bf5-d6d7-4c76-9c0b-31c3dba486a7"
+      ],
       "transmittedDigest": "879ed35ba6648fb93080325eb11495f8ca8cb2ef2630bd9fd80269b85529fd50",
       "readDigest": "2579118b08bd41fdfc7d8ae421350bf0cc1bb8f5e9782a35c6ee85308c9c3826",
       "excluded": null,
@@ -1995,6 +2443,9 @@
       "projectName": "Goodlettsville",
       "ruleId": "invoice_support_missing",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "bd15ed40-0b32-452b-8af4-75a27d120cae"
+      ],
       "transmittedDigest": "9c5bf4825faa9a2d91d69acc3688ba1d37b694e942387c4236d36869c483504e",
       "readDigest": "b2403d09f5631835aaa3ea4c7bbfc06923c0831da63c64f6d7134fd0213ac451",
       "excluded": null,
@@ -2008,6 +2459,9 @@
       "projectName": "Goodlettsville",
       "ruleId": "contract_ceiling_missing",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "9fb9ca6f-c2c5-4c53-86f6-78ec47ee52de"
+      ],
       "transmittedDigest": "8d516faf26f07090b59136d3d1de7362d11b3a2f48619261f18ccd4a90c4880b",
       "readDigest": "2d94ca9ef84486167765f81fa8dd77dd3bc5b3aacf5280c8183341733c9f900c",
       "excluded": null,
@@ -2021,9 +2475,12 @@
       "projectName": "Goodlettsville",
       "ruleId": "contract_ceiling_missing",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "40a7f15b-6351-41d3-b953-fda41f993df5"
+      ],
       "transmittedDigest": "2049abd5c096f7dbeed2f7d17fd926c0bb404b06c7763842941cbff459ec5769",
       "readDigest": "00bddfc55d4abcf6c48e8ba8eee367eb0b24665aae3bf22a3d8ecd3e627f9fc4",
-      "excluded": null,
+      "excluded": "duplicate_price_sheet_cited",
       "checkKeySha256": "fe693cc6bfb48a590095590ab5d01c39d5792964be66bf549ad7eae66efbe9b4"
     },
     {
@@ -2034,6 +2491,9 @@
       "projectName": "Goodlettsville",
       "ruleId": "invoice_support_missing",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "47f62106-38e9-400a-b7e6-bb6b1b2f269e"
+      ],
       "transmittedDigest": "3b46ce273bd0bc4043fb32f75e3ff653d7353df37041723b2813ea38067e467b",
       "readDigest": "fa44530fef1d70d8800e83f018f0ec520482aab00d4de683b1eafd91df7a9850",
       "excluded": null,
@@ -2047,6 +2507,9 @@
       "projectName": "Goodlettsville",
       "ruleId": "invoice_support_missing",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "7888c42d-2add-44a2-9e0c-2aec0f16ba6b"
+      ],
       "transmittedDigest": "72a3601ac99b54821293159519010ae81fd3b049d8f51e3d4e4b63e739d2ddbf",
       "readDigest": "ae19f07658224c177316385bfcbfdfb83e3b9bafd98bb955f2e2a1772ebef220",
       "excluded": null,
@@ -2060,9 +2523,12 @@
       "projectName": "Goodlettsville",
       "ruleId": "contract_ceiling_missing",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "e98315b8-2427-432a-ac9b-93be14eed366"
+      ],
       "transmittedDigest": "f98bcf7eff971631e0ccb8de020b18e82292d2fbcd1de642c869f4b714fdcef3",
       "readDigest": "9ed969a4f8dddbfe58b51210f3f1e2d4088062221dac9bcd5d9462330e4d22c9",
-      "excluded": null,
+      "excluded": "duplicate_price_sheet_cited",
       "checkKeySha256": "fe693cc6bfb48a590095590ab5d01c39d5792964be66bf549ad7eae66efbe9b4"
     },
     {
@@ -2073,9 +2539,12 @@
       "projectName": "Goodlettsville",
       "ruleId": "contract_contractor_missing",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "40a7f15b-6351-41d3-b953-fda41f993df5"
+      ],
       "transmittedDigest": "0d44721d2058216cd5bc8a398ea5bc7ac589005dc31ee5d14aa4304d84a06313",
       "readDigest": "608d125c258fd2bb149767528899e1b0ab94ac4adf44a99f0d21ace12643d16d",
-      "excluded": null,
+      "excluded": "duplicate_price_sheet_cited",
       "checkKeySha256": "a604abb6649395e6f4a2f95b1e7994e0f2fd766b4afdd6001bc37fdc1836368f"
     },
     {
@@ -2086,9 +2555,12 @@
       "projectName": "Goodlettsville",
       "ruleId": "contract_contractor_missing",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "e98315b8-2427-432a-ac9b-93be14eed366"
+      ],
       "transmittedDigest": "c0e25017ee1fb0e56304324fc94c421f96108e6bd5530b80e1fc906aa401e8c4",
       "readDigest": "283869bdafd156bc6b8c6886f43c8a6d7a32eab81fa02747ddc49188f79ad9bf",
-      "excluded": null,
+      "excluded": "duplicate_price_sheet_cited",
       "checkKeySha256": "a604abb6649395e6f4a2f95b1e7994e0f2fd766b4afdd6001bc37fdc1836368f"
     },
     {
@@ -2099,6 +2571,9 @@
       "projectName": "Goodlettsville",
       "ruleId": "invoice_support_missing",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "6bd2872e-1ed7-4720-a079-496427e6809f"
+      ],
       "transmittedDigest": "17d4ac1824d531c725e293392d0ecf97185e9ef744fd592341382b49a3cb0246",
       "readDigest": "5da55f2b6eaf13d2891e3fc49edead275cf0d1fe0a74697d31bd29d5b789910a",
       "excluded": null,
@@ -2113,6 +2588,9 @@
       "ruleId": "CROSS_DOCUMENT_CATEGORY_NEEDS_REVIEW",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "6bd2872e-1ed7-4720-a079-496427e6809f"
       ],
       "transmittedDigest": "cf89295488fbad498b7f3a6e51698aea0adf3b357062b04f20f4252bc679d07d",
       "readDigest": "0d8fb5026877552bcbaf844f274a435356530cda61f0192e3a85181105d451d0",
@@ -2130,6 +2608,9 @@
         "link_invoice_line_rate",
         "open_document"
       ],
+      "citedDocumentIds": [
+        "7888c42d-2add-44a2-9e0c-2aec0f16ba6b"
+      ],
       "transmittedDigest": "20fe191696f2b8521416e624cc93b6b4732d7816ee9b02c6820ff204e66ae30f",
       "readDigest": "41a67a9e000bef9e3a2f9d14dcb8ff8c1aa73b3ace72ea28ba2b96686d408ca8",
       "excluded": "duplicate_price_sheet_rate_dependent",
@@ -2145,6 +2626,9 @@
       "rankableActionKinds": [
         "open_document"
       ],
+      "citedDocumentIds": [
+        "9fb9ca6f-c2c5-4c53-86f6-78ec47ee52de"
+      ],
       "transmittedDigest": "a90a69dddb7a92280a029b9d62eb8628b14715f1bceb9035c9310405cfefc54a",
       "readDigest": "7efe2b3868d0cd7ceb8960f5a2465e77d6e7824bed55d53c2b6e6d25e3a051a1",
       "excluded": null,
@@ -2158,6 +2642,7 @@
       "projectName": "Bentonville",
       "ruleId": "FINANCIAL_RATE_BASED_PRICING_APPLICABILITY_UNCLEAR",
       "rankableActionKinds": [],
+      "citedDocumentIds": [],
       "transmittedDigest": "4d0f0d0598578136aacdcbf72a88d34ff545a7bb76c9dc46eab3d021853e173c",
       "readDigest": "c0570f13dc0b09db771e16fc2767aa0f2bfbce1b9b4ea07347a1437299367a12",
       "excluded": null,
@@ -2171,6 +2656,9 @@
       "projectName": "Bentonville",
       "ruleId": "contract_intelligence:documentation_prerequisite_unclear",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "c295be20-0a7c-4a98-92f6-783a1eb11c40"
+      ],
       "transmittedDigest": "246ec8a63d5a07beea2fbccd2eed6bd64d488cbc70b7e5ae052f680ec927b792",
       "readDigest": "b789ae283d51f2622322a8d64ac69a161b02bb4eb67179141ce826b6c842c41a",
       "excluded": null,
@@ -2184,6 +2672,9 @@
       "projectName": "Bentonville",
       "ruleId": "contract_intelligence:derived_value_requires_confirmation",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "c295be20-0a7c-4a98-92f6-783a1eb11c40"
+      ],
       "transmittedDigest": "d6b07446cf4ebaae0fd8ba76b96baec8d3e2b1afee0b5d573e837fa8206579cb",
       "readDigest": "5346c09f4848ec3e5d754f1f1042a0fe03d2949f24242fed34e76b78c4fa6b65",
       "excluded": null,
@@ -2197,6 +2688,9 @@
       "projectName": "Bentonville",
       "ruleId": "contract_intelligence:conditional_without_trigger_status",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "c295be20-0a7c-4a98-92f6-783a1eb11c40"
+      ],
       "transmittedDigest": "d9d8729eeafe9fde944d4397cba9b71f116f496db099e3159324704170555eb5",
       "readDigest": "9c482f509ba32514ead8ed1b9e96e062aac6fe15363d304c931072bed2576df6",
       "excluded": null,
@@ -2210,6 +2704,9 @@
       "projectName": "Bentonville",
       "ruleId": "contract_intelligence:pricing_applicability_unclear",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "c295be20-0a7c-4a98-92f6-783a1eb11c40"
+      ],
       "transmittedDigest": "0fa6ae8dbe9ea1410b8d31b838764de403ba000db508845cba9c3ff1afc6a623",
       "readDigest": "2606a4f8fab815fae4dc9a90cc0c0ed89687aacfa5fac3d2f8b84247f036ea40",
       "excluded": null,
@@ -2223,6 +2720,9 @@
       "projectName": "Bentonville",
       "ruleId": "contract_intelligence:fema_gate_ambiguous",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "c295be20-0a7c-4a98-92f6-783a1eb11c40"
+      ],
       "transmittedDigest": "9c868709b34e3b00fc58be3942a34f69ec063da181299c46ac5069ae8143bb2c",
       "readDigest": "a16a982df9f2ef6551791b207d65e94c021ad1fade76e31a081977b0f4f2815c",
       "excluded": null,
@@ -2236,6 +2736,9 @@
       "projectName": "MVSU",
       "ruleId": "contract_ceiling_missing",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "7e97e1bc-9fda-4d2d-a4f0-d57e46649f84"
+      ],
       "transmittedDigest": "1334187463f7966cb5ae8e9e2b71a84be449df365ae817c443f2b8d0e3d0cd2e",
       "readDigest": "34fcc2d1d1d9997956618e61b32999ee237d3bdc42897591cc17c67c91839432",
       "excluded": null,
@@ -2249,6 +2752,9 @@
       "projectName": "MVSU",
       "ruleId": "contract_ceiling_missing",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "c17d9278-f467-40f8-8c96-a645fd4aeb72"
+      ],
       "transmittedDigest": "46257caa68fa6d5507fc834eb7799ae29f346321c5a5a1a95f395c361b7fb33e",
       "readDigest": "d91d5c4f1db5f0324f788962282c5f7f8b19702fe294244c4cca82c4976e1709",
       "excluded": null,
@@ -2262,6 +2768,9 @@
       "projectName": "MVSU",
       "ruleId": "contract_ceiling_missing",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "fe2f4c4c-d2bd-496d-84e2-3d98f30742b3"
+      ],
       "transmittedDigest": "26e469da44a0f33b6c72c8a5af4f6037efefc418b7f3edbdb54414eac39e69b9",
       "readDigest": "f4748d0c5c775b28a64eab6d38d342441dd4a0cecbe7fe94d776e166325617ef",
       "excluded": null,
@@ -2275,6 +2784,9 @@
       "projectName": "MVSU",
       "ruleId": "contract_rate_schedule_inference_only",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "7e97e1bc-9fda-4d2d-a4f0-d57e46649f84"
+      ],
       "transmittedDigest": "5e1567b75e7f9dab46c9252e39761ec25184a990fd7514d660e1c55938313326",
       "readDigest": "9b4a0366b7672556c457f6ce3886bbe40af511e30a893018271ce2a714c8ea25",
       "excluded": null,
@@ -2288,6 +2800,9 @@
       "projectName": "MVSU",
       "ruleId": "contract_contractor_missing",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "c17d9278-f467-40f8-8c96-a645fd4aeb72"
+      ],
       "transmittedDigest": "1914b10b77427bab8e6093c5d13bfd0cbb16403879d6564b204e61dfc951752e",
       "readDigest": "df3ffdade29688305e8d1e2d2a0734a463b9f7aae8447f61bc2ae15f32aa4fec",
       "excluded": null,
@@ -2301,6 +2816,9 @@
       "projectName": "MVSU",
       "ruleId": "contract_rate_schedule_missing",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "fe2f4c4c-d2bd-496d-84e2-3d98f30742b3"
+      ],
       "transmittedDigest": "becb51eca3480a0c1191baedbb99a145b2660afebb2847c286ed03d416c3e279",
       "readDigest": "6ebfe197e3fa61ebff7dfb51055f76e671c16debfaf66869fcf8aaaab203a512",
       "excluded": null,
@@ -2316,6 +2834,9 @@
       "rankableActionKinds": [
         "open_document"
       ],
+      "citedDocumentIds": [
+        "7e97e1bc-9fda-4d2d-a4f0-d57e46649f84"
+      ],
       "transmittedDigest": "ede0721de22fc8e7607ca7af8dab25c19409fcd04d060aeae25db56d7a74a753",
       "readDigest": "60484f757c28f4d53dc2328e0849c5176ab9ca6bcb565265180939cee4a829f2",
       "excluded": null,
@@ -2329,6 +2850,9 @@
       "projectName": "TDOT",
       "ruleId": "contract_contractor_missing",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "05f6ab98-462d-4bb0-9f82-a5cbff49351e"
+      ],
       "transmittedDigest": "67df274b8b2041e610346a89ee9a22804f576a1084dc3cc089ef9372a5b24d74",
       "readDigest": "61d3e2a854def50b305ee1a84e85a26cf1b0acd607d4da7576b060e7d1072dda",
       "excluded": null,
@@ -2342,6 +2866,9 @@
       "projectName": "TDOT",
       "ruleId": "contract_ceiling_missing",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "582e57b2-0c75-4d05-89b2-520b0447f94f"
+      ],
       "transmittedDigest": "499c93b70c9fbea7ed8519c1995f4066fc58035329be97103200e0a1defde528",
       "readDigest": "843b2d23c3acadeb67cd5a797bbbc1db6889393ecb8bc618098e1cbaa0125904",
       "excluded": null,
@@ -2355,6 +2882,9 @@
       "projectName": "TDOT",
       "ruleId": "contract_rate_schedule_missing",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "2b260e04-5bcf-4c0d-b5b4-4f921ebc0367"
+      ],
       "transmittedDigest": "4b0ed5df2703c55628e2500ad82eb179b35a2a0a3a3ecf4626ca341301b9788b",
       "readDigest": "793cf2fc55bed5ba4c1e84f41953d68324c14a48fe52ebc3a205d1bbfbe95f5b",
       "excluded": null,
@@ -2368,6 +2898,9 @@
       "projectName": "TDOT",
       "ruleId": "contract_rate_schedule_missing",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "2be4d656-4e90-41e8-9950-9d7f89b462d7"
+      ],
       "transmittedDigest": "20ed4d73682381fc56fb6073a52518fa6b19a42e2ec371d02b01414d83bf17f6",
       "readDigest": "982d5b6b52bb12b10962b410889a818fe342bc321a5ebf3427d8bb0a14a69b73",
       "excluded": null,
@@ -2381,6 +2914,9 @@
       "projectName": "TDOT",
       "ruleId": "contract_rate_schedule_missing",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "05f6ab98-462d-4bb0-9f82-a5cbff49351e"
+      ],
       "transmittedDigest": "104a3fcbb1c7f3fb07d977dc39d55adf5dfd4b36ee955ab6819162cc5836e814",
       "readDigest": "55d7f9a0b2a8a9a32d76b3d8be234dbf89487727427c9333e151a09dfa127d47",
       "excluded": null,
@@ -2394,6 +2930,9 @@
       "projectName": "TDOT",
       "ruleId": "contract_ceiling_missing",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "2be4d656-4e90-41e8-9950-9d7f89b462d7"
+      ],
       "transmittedDigest": "b2d75b6a55668f16178bc28699804a9444c325aec55181a805b79ec152857331",
       "readDigest": "dc92e424727b32aeea378f3a0694d0981140a0946729967c47bec4c533bf74f4",
       "excluded": null,
@@ -2407,6 +2946,9 @@
       "projectName": "TDOT",
       "ruleId": "contract_contractor_missing",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "e2806f47-b91e-4831-ad3a-f6e1b28bde24"
+      ],
       "transmittedDigest": "dab0e46168968e136e07f40e10c106d2de830d56937cab5af5f84f8d89e41c84",
       "readDigest": "99e032ccfea3765dab038ef4e2858f13cc0329ab650255b4991a557e4397c22c",
       "excluded": null,
@@ -2420,6 +2962,9 @@
       "projectName": "TDOT",
       "ruleId": "contract_rate_schedule_missing",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "e2806f47-b91e-4831-ad3a-f6e1b28bde24"
+      ],
       "transmittedDigest": "d8c5c76790c2d479d53a8e823fd09791f97051d53e8a0966adf42c886fcb461a",
       "readDigest": "fda10c51cfbb8cad2a2a02f6c86592da75988e7a53abee6d7c70bf1293e5d47e",
       "excluded": null,
@@ -2433,6 +2978,9 @@
       "projectName": "TDOT",
       "ruleId": "contract_contractor_missing",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "2be4d656-4e90-41e8-9950-9d7f89b462d7"
+      ],
       "transmittedDigest": "44d0e353c61f65562c9b0cd95568d18e6c8b50addee3b60edbd5ba0b78440293",
       "readDigest": "ade04cc4b4f84c1c9c5ccf9e4f77b3ee2a0fc1478ce25495e415dcefb2b39086",
       "excluded": null,
@@ -2446,6 +2994,9 @@
       "projectName": "TDOT",
       "ruleId": "contract_ceiling_missing",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "2b260e04-5bcf-4c0d-b5b4-4f921ebc0367"
+      ],
       "transmittedDigest": "38fa5769c7ef1c0eccae646b5f060eada316e281757512d769c9ee512cac4a85",
       "readDigest": "7b3bd5b4c75850fbc3e8247099f4dd9cbe3f50a6d57272dada7cf14e7d55518b",
       "excluded": null,
@@ -2459,6 +3010,9 @@
       "projectName": "TDOT",
       "ruleId": "contract_ceiling_missing",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "05f6ab98-462d-4bb0-9f82-a5cbff49351e"
+      ],
       "transmittedDigest": "5b537e1fcce98d0a305015b9d04604cf577a493847b13913ba4bcea065bd6682",
       "readDigest": "9d3cdb51d69fc507a466cc2ec77dabacb12ad425e00e321169d63000bb541bb7",
       "excluded": null,
@@ -2472,6 +3026,9 @@
       "projectName": "TDOT",
       "ruleId": "contract_ceiling_missing",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "738dbd08-5527-4ba6-932f-dcc67db6c721"
+      ],
       "transmittedDigest": "abad06dd48c9937147251cda31688a4e2df69667621c0d6b082d69ec58f7b329",
       "readDigest": "24f5336337e71bc92e3fb33700eb61423b2e8d1f79e9eced205b6a0f721f031b",
       "excluded": null,
@@ -2485,6 +3042,9 @@
       "projectName": "TDOT",
       "ruleId": "contract_ceiling_missing",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "e2806f47-b91e-4831-ad3a-f6e1b28bde24"
+      ],
       "transmittedDigest": "e697c6045fea49d78de62f4726497e051a642e7277047b83a364dbed97b92d8b",
       "readDigest": "747abaa97c2113fed32655c16857709cbbb025ba91f56b85bdf2dffdd6dbcdda",
       "excluded": null,
@@ -2498,6 +3058,9 @@
       "projectName": "TDOT",
       "ruleId": "contract_intelligence:pricing_applicability_unclear",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "582e57b2-0c75-4d05-89b2-520b0447f94f"
+      ],
       "transmittedDigest": "52b43a963035a47809fa8166a17026f9dc8326b41cc81d980bca44cb9b19a0ec",
       "readDigest": "e5b4f3360ff588faafafd6331e8112c3f3c6c6f2e9b17585cbbca93dcee0c82b",
       "excluded": null,
@@ -2511,6 +3074,9 @@
       "projectName": "TDOT",
       "ruleId": "contract_ceiling_missing",
       "rankableActionKinds": [],
+      "citedDocumentIds": [
+        "b8e45397-b9d7-4720-9725-779e77863f2d"
+      ],
       "transmittedDigest": "17475e78d8eb40e672f1415115b3c5eb3fbb004c66a5171552176fba60b500e5",
       "readDigest": "38cb35090f60990a5b4a7b4f486b80d5fca9978039ef546f77cf9b2849c8516c",
       "excluded": null,
@@ -2525,6 +3091,16 @@
       "ruleId": "FINANCIAL_NTE_FACT_MISSING",
       "rankableActionKinds": [
         "open_document"
+      ],
+      "citedDocumentIds": [
+        "05f6ab98-462d-4bb0-9f82-a5cbff49351e",
+        "2b260e04-5bcf-4c0d-b5b4-4f921ebc0367",
+        "2be4d656-4e90-41e8-9950-9d7f89b462d7",
+        "582e57b2-0c75-4d05-89b2-520b0447f94f",
+        "738dbd08-5527-4ba6-932f-dcc67db6c721",
+        "87239f6e-525a-4da0-adf6-491b3ccb380e",
+        "b8e45397-b9d7-4720-9725-779e77863f2d",
+        "e2806f47-b91e-4831-ad3a-f6e1b28bde24"
       ],
       "transmittedDigest": "86465fb1d6f85581fd02cef877266b31d301226243fbe54e8f24e06ef4e0d969",
       "readDigest": "5c975e39c5e547bc123f9a08950e26b06c77ca715cd403d2c10b59fa3486735b",

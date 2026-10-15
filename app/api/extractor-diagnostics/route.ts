@@ -7,6 +7,7 @@ import {
   type ExtractorRequestedMode,
   type ExtractorTargetAgent,
 } from '@/lib/server/ai/extractorDiagnosticAgent';
+import { getActorContext } from '@/lib/server/getActorContext';
 
 export const runtime = 'nodejs';
 
@@ -63,6 +64,13 @@ function jsonResponse(body: unknown, init?: ResponseInit) {
 }
 
 export async function POST(request: Request) {
+  // A developer diagnostic that sends caller-supplied text to the provider
+  // outside every Forgewing gate: development only and authenticated, like
+  // the provider smoke routes (S6). No product surface calls it.
+  if (process.env.NODE_ENV === 'production') return new NextResponse(null, { status: 404 });
+  const ctx = await getActorContext(request);
+  if (!ctx.ok) return jsonResponse({ error: ctx.error }, { status: ctx.status });
+
   const rawBody = await request.text();
   if (rawBody.length > MAX_PAYLOAD_CHARACTERS) {
     return jsonResponse(

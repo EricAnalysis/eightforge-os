@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { generateExtractorDiagnosticMock } = vi.hoisted(() => ({
+const { generateExtractorDiagnosticMock, getActorContextMock } = vi.hoisted(() => ({
   generateExtractorDiagnosticMock: vi.fn(),
+  getActorContextMock: vi.fn(),
 }));
+
+vi.mock('@/lib/server/getActorContext', () => ({ getActorContext: getActorContextMock }));
 
 vi.mock('@/lib/server/ai/extractorDiagnosticAgent', async () => {
   const actual = await vi.importActual<typeof import('@/lib/server/ai/extractorDiagnosticAgent')>(
@@ -26,12 +29,36 @@ function request(body: unknown) {
   });
 }
 
+beforeEach(() => {
+  getActorContextMock.mockResolvedValue({ ok: true, actor: { actorId: 'user-1', organizationId: 'org-1' } });
+});
+
 afterEach(() => {
   process.env = { ...ORIGINAL_ENV };
   generateExtractorDiagnosticMock.mockReset();
+  getActorContextMock.mockReset();
 });
 
 describe('POST /api/extractor-diagnostics', () => {
+  it('is closed in production, before any read or provider call', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    try {
+      const response = await POST(request({ expectedOutput: 'e', actualOutput: 'a', targetAgent: 'codex', requestedMode: 'full-plan' }));
+      assert.equal(response.status, 404);
+      expect(getActorContextMock).not.toHaveBeenCalled();
+      expect(generateExtractorDiagnosticMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('requires an authenticated actor', async () => {
+    getActorContextMock.mockResolvedValue({ ok: false, error: 'Unauthorized', status: 401 });
+    const response = await POST(request({ expectedOutput: 'e', actualOutput: 'a', targetAgent: 'codex', requestedMode: 'full-plan' }));
+    assert.equal(response.status, 401);
+    expect(generateExtractorDiagnosticMock).not.toHaveBeenCalled();
+  });
+
   it('returns 400 when expectedOutput is missing', async () => {
     const response = await POST(request({
       actualOutput: 'actual',

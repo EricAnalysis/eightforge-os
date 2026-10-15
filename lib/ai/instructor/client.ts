@@ -1,5 +1,3 @@
-import createInstructor from '@instructor-ai/instructor';
-import OpenAI from 'openai';
 import { z } from 'zod';
 
 export interface InstructorLikeClient {
@@ -29,20 +27,19 @@ export function isInstructorEnabled(): boolean {
     && process.env.OPENAI_API_KEY.trim().length > 0;
 }
 
+/**
+ * No governed provider path exists (census D4, 2026-10-15). The assist sends
+ * customer document text to OpenAI, which is not an approvable data-policy
+ * provider (the ledger approves 'anthropic' only), and it has no entitlement,
+ * durable budget or qualified model. So even when opted in, no provider client
+ * is built and the assist is skipped, auditable in its warnings. The opt-in is
+ * kept; re-enabling is a governed project (data-policy provider, entitlement,
+ * text_excerpts, durable budget). Output was evidence only (S1).
+ */
+export const INSTRUCTOR_PROVIDER_GOVERNED = false;
+
 function createDefaultClient(): InstructorLikeClient | null {
-  if (!isInstructorEnabled()) return null;
-
-  // Retries are the assist's own bounded attempt loop; the SDK never retries.
-  const client = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-    timeout: 30_000,
-    maxRetries: 0,
-  });
-
-  return createInstructor({
-    client,
-    mode: 'TOOLS',
-  }) as unknown as InstructorLikeClient;
+  return null;
 }
 
 /** Retries are bounded in code: an env value can lower them, never raise them past the cap. */
@@ -83,7 +80,9 @@ export async function runStructuredOutput<T>(params: {
       data: null,
       attempts: 0,
       model: null,
-      warnings: ['Instructor assist skipped: OPENAI_API_KEY is not configured or instructor is disabled.'],
+      warnings: [isInstructorEnabled()
+        ? 'Instructor assist skipped: no governed provider path (not an approved data-policy provider).'
+        : 'Instructor assist skipped: OPENAI_API_KEY is not configured or instructor is disabled.'],
     };
   }
 

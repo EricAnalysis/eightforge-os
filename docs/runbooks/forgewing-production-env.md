@@ -112,8 +112,8 @@ Always record `recorded_by`.
 |---|---|---|
 | `CRON_SECRET` | Vercel | Internal routes return 503 without it. Crons: shadow cleanup `17 3 * * *`, Workflow Assessment sweep `41 4 * * *` (three attempts per sweep at most) |
 | Engineering Worker | Separate host (`Dockerfile.worker`) | `FORGEWING_ENGINEERING_WORKER_ACCESS_TOKEN` (dedicated-role JWT), `FORGEWING_REPOSITORY_ROOT=/repository`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `ANTHROPIC_API_KEY`, optionally `FORGEWING_REPOSITORY_PLAN_POLL_INTERVAL_MS` / `FORGEWING_REPOSITORY_PLAN_ONE_SHOT`. Never on Vercel |
-| Legacy OpenAI Instructor assist | Vercel | Off unless `EIGHTFORGE_INSTRUCTOR_ENABLED=1` **and** `OPENAI_API_KEY` (S1). Evidence-only: never writes typed fields |
-| Legacy document AI enrichment | Per org | `organizations.analysis_mode='ai_enriched'`. Evidence-only: never creates decisions or tasks (S1) |
+| Legacy OpenAI Instructor assist | Vercel | **Provider path disabled (D4).** The opt-in `EIGHTFORGE_INSTRUCTOR_ENABLED=1` is kept, but no provider client is built: OpenAI is not an approvable data-policy provider and the path has no entitlement, budget or qualified model. The assist is skipped with an auditable warning. Evidence-only (S1) |
+| Legacy document AI enrichment | Per org | **Provider path disabled (D4).** An org with `analysis_mode='ai_enriched'` gets a stored result with an auditable `disabled` note and no provider call (Claude used an unqualified legacy model; OpenAI is not an approvable data-policy provider). Evidence-only (S1). Re-enabling is a governed project |
 
 ## Intended production state (hardening complete, nothing newly enabled)
 

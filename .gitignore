@@ -90,3 +90,4 @@ scripts/evaluation/artifacts/phase17-sonnet-5-5-rationale-compat/**/local/
 scripts/evaluation/artifacts/phase17-sonnet-5-5-prompt-clarification/**/local/
 scripts/evaluation/artifacts/phase17-sonnet-5-5-bounded-rationale/**/local/
 scripts/evaluation/artifacts/phase17-sonnet-5-5-rationale-pattern-compat/**/local/
+scripts/evaluation/artifacts/phase17-sonnet-5-5-rationale-pattern-linear/**/local/

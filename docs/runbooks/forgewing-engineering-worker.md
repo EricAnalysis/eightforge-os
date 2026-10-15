@@ -149,18 +149,67 @@ To allow provider reasoning, add:
 3. Confirm with `GET /api/internal/repository-plan-runs/<jobId>` that the job
    succeeded with `providerCallCount: 0`.
 
+## Deployment target
+
+Any single Linux container host with Docker can run the worker: a small VM, or a container service that allows a read-only bind mount and a persistent host directory. It needs:
+
+- **Compute:** one instance, `linux/amd64`, about 1 vCPU and 1 GB RAM. Run exactly one worker per environment. Claims are atomic, so a second worker is harmless but adds nothing.
+- **Storage:** a persistent host directory for the checkout (`/srv/eightforge-checkout`). The container root is `--read-only` with a tmpfs `/tmp`.
+- **Network:** outbound HTTPS to the Supabase project and `api.anthropic.com`. No inbound port and no public address.
+- **Secrets:** the host's secret store injects `FORGEWING_ENGINEERING_WORKER_ACCESS_TOKEN` and, only when provider reasoning is approved, `ANTHROPIC_API_KEY`.
+- **Not Vercel.** A function bundle has no `.git` and no `git` binary. Vercel stays the control plane.
+
+The choice of host is an owner decision. Nothing in the code depends on a particular provider.
+
+## Health verification
+
+The worker has no inbound port, so health is read from three signals.
+
+1. **Process.** `docker ps --filter name=forgewing-worker` shows `Up`, and `docker inspect -f '{{.RestartCount}}' forgewing-worker` is stable.
+   - The worker exits with code 1 after 12 consecutive failed claims (`unhealthy code=claim_path_failing`). An expired or revoked token, or a Supabase outage, therefore shows up as a rising restart count, not as a container that looks healthy while doing nothing.
+2. **Logs.** `docker logs --since 1h forgewing-worker` contains only typed lines:
+   - `succeeded ...` and `failed jobId=<id> code=...` are normal job outcomes;
+   - `failed jobId=none code=worker_failed` means a claim failed, and repeats are a health problem;
+   - `configuration_failed` and `unhealthy` mean the worker is down.
+3. **Queue age** (read-only, run in the Supabase SQL editor). A healthy worker leaves no pending job older than a few poll intervals:
+   ```sql
+   SELECT status, count(*) AS jobs, min(created_at) AS oldest_created, min(claimed_at) AS oldest_claimed
+   FROM public.workflow_repository_plan_generation_jobs
+   WHERE status IN ('pending', 'claimed')
+   GROUP BY status;
+   ```
+   - A `pending` job older than 5 minutes means no worker is claiming.
+   - A `claimed` job older than 10 minutes means the worker stopped mid-job. The provider timeout is at most 120 s.
+
+**After every deployment, and after a token rotation:** queue one ADVISORY job and confirm it reaches `succeeded` within one poll interval plus the job time. This is step 7 of the deployment procedure.
+
+## Rollback
+
+The worker writes only non-authoritative, immutable Plan V2 runs, so rollback never touches data.
+
+1. **Stop:** `docker stop forgewing-worker`. SIGTERM ends the loop after the current job. Queued jobs stay `pending` and are claimed by the next worker.
+2. **Return to the previous release:**
+   - check the checkout out at the previous commit (`git -C /srv/eightforge-checkout checkout --detach <previous-commit>`);
+   - start the image tagged with that same commit;
+   - re-run the preflight with `--image-commit <previous-commit>`.
+
+   The image and the checkout must always name the same commit. Keep the previous image tag until the new release has passed its first ADVISORY job.
+3. **Disable provider reasoning only:** restart without `FORGEWING_REPOSITORY_PLAN_GUIDANCE_ENABLED` (or without `FORGEWING_SHADOW_ENABLED`). ADVISORY jobs keep working with zero provider calls.
+4. **Revoke access:** to cut the worker off entirely, rotate the role's JWT signing path or let the token expire. With no valid token the worker fails closed at the first claim and then exits.
+5. **Never** delete Plan V2 runs or job rows. They are immutable evidence, and the database rejects such changes.
+
 ## Operating signals
 
 - **Logs** carry job identity and typed codes only (`succeeded jobId=...
-  providerCallCount=...`, `failed jobId=... code=...`). They never include
-  prompts, repository contents, provider output or credentials.
+  providerCallCount=...`, `failed jobId=... code=...`, `unhealthy code=...`).
+  They never include prompts, repository contents, provider output or
+  credentials.
 - **No worker running:** a queued job stays `pending`. After five minutes the
   run control stops polling and says that no worker has picked the job up. The
   job is untouched and is claimed when a worker starts.
-- **Stop:** `docker stop forgewing-worker`. SIGTERM ends the poll loop after the
-  current job.
-- **Rollback:** stop the container. Queued jobs wait; persisted Plan V2 runs are
-  immutable evidence.
+- **Token rotation:** mint the new token at least 7 days before the old one
+  expires (the preflight prints the days remaining), restart, and re-run the
+  ADVISORY health job.
 
 ## Improvement deployment worker (B8.4)
 

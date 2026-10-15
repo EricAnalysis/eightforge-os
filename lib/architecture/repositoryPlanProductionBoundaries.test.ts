@@ -45,9 +45,9 @@ function dependencies(file: string, text: string): string[] {
 const expected = new Map<string, string[]>([
   // S8 fail-closed startup: the entry checks, before any poll, that the
   // dedicated-role client can be built and that the root is a Git checkout
-  // (existsSync only: read-only).
+  // (existsSync only: read-only). Liveness is a pure counter: no file or network.
   [ENTRY, ['lib/server/forgewingEngineeringWorkerClient', 'lib/server/repositoryPlanGenerationWorker',
-    'lib/server/repositoryPlanWorkerConfig', 'node:fs', 'node:path']],
+    'lib/server/repositoryPlanWorkerConfig', 'lib/server/repositoryPlanWorkerHealth', 'node:fs', 'node:path']],
   [WORKER, [
     'lib/forgewing/tasks/repositoryPlanGuidance', 'lib/repositoryPlanFoundation', 'lib/repositoryPlanGuidance',
     'lib/server/forgewingEngineeringWorkerClient', 'lib/server/repositoryPlanContentCollector',

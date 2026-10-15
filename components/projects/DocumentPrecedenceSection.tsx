@@ -16,7 +16,10 @@ import {
   getDocumentRelationshipLabel,
 } from '@/lib/documentPrecedence';
 import { redirectIfUnauthorized } from '@/lib/redirectIfUnauthorized';
+import { proposalIdForLink, type RelationshipProposalView } from '@/lib/relationshipProposalView';
 import { supabase } from '@/lib/supabaseClient';
+
+import { RelationshipProposalsPanel } from './RelationshipProposalsPanel';
 
 type DocumentPrecedenceSectionProps = {
   projectId: string;
@@ -26,6 +29,8 @@ type RelationshipFormState = {
   sourceDocumentId: string;
   targetDocumentId: string;
   relationshipType: CanonicalDocumentRelationshipType;
+  /** Set only by "Prefill link"; any edit to the form clears it (P3.2). */
+  forgewingProposalId?: string;
 };
 
 type SupportRelationshipFormState = {
@@ -697,6 +702,7 @@ function RelationshipFamilyCard({
   form,
   saving,
   suggestions,
+  proposals,
   setRelationshipForms,
   mutate,
 }: {
@@ -706,6 +712,7 @@ function RelationshipFamilyCard({
   form: RelationshipFormState;
   saving: boolean;
   suggestions: readonly RelationshipSuggestion[];
+  proposals: readonly RelationshipProposalView[];
   setRelationshipForms: Dispatch<
     SetStateAction<Partial<Record<GoverningDocumentFamily, RelationshipFormState>>>
   >;
@@ -736,6 +743,12 @@ function RelationshipFamilyCard({
   )
     ? form.targetDocumentId
     : fallbackTargetDocumentId;
+  const linkedProposalId = proposalIdForLink({
+    sourceDocumentId: selectedSourceDocumentId,
+    targetDocumentId: selectedTargetDocumentId,
+    relationshipType: selectedRelationshipType,
+    forgewingProposalId: form.forgewingProposalId,
+  }, proposals);
 
   return (
     <div className="rounded-sm border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-secondary)] p-4">
@@ -865,6 +878,7 @@ function RelationshipFamilyCard({
                 ...current,
                 [family.family]: {
                   ...form,
+                  forgewingProposalId: undefined,
                   sourceDocumentId: event.target.value,
                 },
               }))}
@@ -882,6 +896,7 @@ function RelationshipFamilyCard({
                 ...current,
                 [family.family]: {
                   ...form,
+                  forgewingProposalId: undefined,
                   relationshipType: event.target.value as RelationshipFormState['relationshipType'],
                 },
               }))}
@@ -899,6 +914,7 @@ function RelationshipFamilyCard({
                 ...current,
                 [family.family]: {
                   ...form,
+                  forgewingProposalId: undefined,
                   targetDocumentId: event.target.value,
                 },
               }))}
@@ -924,14 +940,20 @@ function RelationshipFamilyCard({
                   sourceDocumentId: selectedSourceDocumentId,
                   targetDocumentId: selectedTargetDocumentId,
                   relationshipType: selectedRelationshipType,
+                  ...(linkedProposalId ? { forgewingProposalId: linkedProposalId } : {}),
                 },
-                `Recorded ${(getDocumentRelationshipLabel(selectedRelationshipType) ?? selectedRelationshipType).toLowerCase()} relationship for ${family.label.toLowerCase()} documents.`,
+                `Recorded ${(getDocumentRelationshipLabel(selectedRelationshipType) ?? selectedRelationshipType).toLowerCase()} relationship for ${family.label.toLowerCase()} documents${linkedProposalId ? ' and confirmed the proposal' : ''}.`,
               )}
               className="rounded-sm border border-[var(--ef-purple-primary-a30)] bg-[var(--ef-purple-primary-a10)] px-3 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ef-purple-primary)] transition-colors hover:bg-[var(--ef-purple-primary-a20)] disabled:cursor-default disabled:opacity-50"
             >
               Save Link
             </button>
           </div>
+          {linkedProposalId ? (
+            <p className="mt-2 text-[11px] text-[var(--ef-text-muted)]">
+              Prefilled from a Forgewing proposal. Saving this link is your confirmation; editing any field makes it an ordinary link.
+            </p>
+          ) : null}
         </div>
       </div>
     </div>
@@ -1244,6 +1266,8 @@ export function DocumentPrecedenceSection({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [proposals, setProposals] = useState<readonly RelationshipProposalView[]>([]);
+  const [proposalRefresh, setProposalRefresh] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -1379,6 +1403,16 @@ export function DocumentPrecedenceSection({
 
         return sourceStillExists && targetStillExists ? current : nextDefault;
       });
+      setRelationshipForms((current) => {
+        // A saved prefilled link is spent; the proposal list reloads below.
+        const nextForms = { ...current };
+        for (const key of Object.keys(nextForms) as GoverningDocumentFamily[]) {
+          const form = nextForms[key];
+          if (form?.forgewingProposalId) nextForms[key] = { ...form, forgewingProposalId: undefined };
+        }
+        return nextForms;
+      });
+      setProposalRefresh((value) => value + 1);
       setSuccess(successMessage);
     } catch (mutationError) {
       setError(
@@ -1502,6 +1536,30 @@ export function DocumentPrecedenceSection({
           </p>
         </div>
 
+        {contractFamily ? (
+          <RelationshipProposalsPanel
+            projectId={projectId}
+            documentLabel={(documentId) => {
+              const candidate = relationshipCandidates.find((document) => document.id === documentId);
+              if (candidate) return relationshipCandidateLabel(candidate);
+              const document = allDocuments.find((entry) => entry.id === documentId);
+              return document?.title ?? document?.name ?? 'Document';
+            }}
+            refreshKey={proposalRefresh}
+            saving={saving}
+            onProposalsLoaded={setProposals}
+            onPrefill={(proposal) => setRelationshipForms((current) => ({
+              ...current,
+              contract: {
+                sourceDocumentId: proposal.source_document_id,
+                targetDocumentId: proposal.target_document_id,
+                relationshipType: proposal.relationship_type,
+                forgewingProposalId: proposal.id,
+              },
+            }))}
+          />
+        ) : null}
+
         {families.length === 0 ? (
           <div className="rounded-sm border border-[var(--ef-border-subtle-a70)] bg-[var(--ef-background-secondary)] p-4 text-sm text-[var(--ef-text-muted)]">
             Relationship controls will appear once there are comparable project documents to link.
@@ -1527,6 +1585,7 @@ export function DocumentPrecedenceSection({
               form={relationshipForms[family.family] ?? defaultRelationshipForm(family)}
               saving={saving}
               suggestions={family.family === 'contract' ? contractRelationshipSuggestions : []}
+              proposals={family.family === 'contract' ? proposals : []}
               setRelationshipForms={setRelationshipForms}
               mutate={mutate}
             />

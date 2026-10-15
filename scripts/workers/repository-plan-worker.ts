@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { createForgewingEngineeringWorkerClient } from '@/lib/server/forgewingEngineeringWorkerClient';
 import { runOneRepositoryPlanGenerationJob } from '@/lib/server/repositoryPlanGenerationWorker';
 import { readRepositoryPlanWorkerConfig } from '@/lib/server/repositoryPlanWorkerConfig';
+import { nextConsecutiveClaimFailures, workerClaimPathUnhealthy } from '@/lib/server/repositoryPlanWorkerHealth';
 
 // Fail closed at startup, before any poll: a worker that can never claim a job
 // (no dedicated-role token, a service-role token, no Supabase target) or has no
@@ -19,6 +20,7 @@ if (!configured.ok || startupFailure) {
 } else {
   const { repositoryRoot, pollingIntervalMs, oneShot } = configured.config;
   let stopping = false;
+  let consecutiveClaimFailures = 0;
   process.once('SIGINT', () => { stopping = true; });
   process.once('SIGTERM', () => { stopping = true; });
   do {
@@ -28,6 +30,14 @@ if (!configured.ok || startupFailure) {
     } else if (result.status === 'failed') {
       console.error(`[repository-plan-worker] failed jobId=${result.jobId ?? 'none'} code=${result.code}`);
       if (oneShot || result.jobId === undefined) process.exitCode = 1;
+    }
+    // Liveness: a claim path that keeps failing (expired or revoked token,
+    // Supabase outage) exits non-zero so the restart policy surfaces it.
+    consecutiveClaimFailures = nextConsecutiveClaimFailures(consecutiveClaimFailures, result);
+    if (workerClaimPathUnhealthy(consecutiveClaimFailures)) {
+      console.error(`[repository-plan-worker] unhealthy code=claim_path_failing consecutive=${consecutiveClaimFailures}`);
+      process.exitCode = 1;
+      stopping = true;
     }
     if (!oneShot && !stopping) await new Promise((resolve) => setTimeout(resolve, pollingIntervalMs));
   } while (!oneShot && !stopping);

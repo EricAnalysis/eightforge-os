@@ -282,4 +282,40 @@ describe('POST /api/projects/[id]/ask', () => {
     assert.equal((await ask()).status, 500);
     expect(reserveMock).not.toHaveBeenCalled();
   });
+
+  it('makes no provider call, reads no context and spends no budget on an unqualified Ask model (D3)', async () => {
+    process.env.ANTHROPIC_API_KEY = 'sk-test';
+    delete process.env.FORGEWING_PROJECT_ASK_MODEL;
+    process.env.ANTHROPIC_MODEL = 'claude-unqualified-9';
+    mockActor();
+    mockAdmin();
+    const response = await ask();
+    assert.equal(response.status, 503);
+    assert.equal((await response.json()).code, 'ai_model_unqualified');
+    expect(buildAskProjectContextMock).not.toHaveBeenCalled();
+    expect(reserveMock).not.toHaveBeenCalled();
+    expect(askProjectWithClaudeMock).not.toHaveBeenCalled();
+  });
+
+  it('an Ask-specific pin runs Ask on its qualified model without changing the shared model', async () => {
+    process.env.ANTHROPIC_API_KEY = 'sk-test';
+    process.env.ANTHROPIC_MODEL = 'claude-unqualified-9';
+    process.env.FORGEWING_PROJECT_ASK_MODEL = 'claude-sonnet-4-6';
+    mockActor();
+    mockAdmin();
+    buildAskProjectContextMock.mockResolvedValue({ project: { id: 'project-1' }, scope: { projectId: 'project-1' } });
+    askProjectWithClaudeMock.mockResolvedValue({ answer: 'ok', model: 'claude-sonnet-4-6', observation: {} });
+    assert.equal((await ask()).status, 200);
+    expect(askProjectWithClaudeMock).toHaveBeenCalledWith(expect.objectContaining({ model: 'claude-sonnet-4-6' }));
+  });
+
+  it('an Ask-specific pin to an unqualified model is refused, never replaced', async () => {
+    process.env.ANTHROPIC_API_KEY = 'sk-test';
+    process.env.ANTHROPIC_MODEL = 'claude-sonnet-4-6';
+    process.env.FORGEWING_PROJECT_ASK_MODEL = 'claude-unqualified-9';
+    mockActor();
+    mockAdmin();
+    assert.equal((await ask()).status, 503);
+    expect(askProjectWithClaudeMock).not.toHaveBeenCalled();
+  });
 });

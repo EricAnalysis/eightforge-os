@@ -1,6 +1,6 @@
 # Case Investigation qualification contract v2 (`case_investigation_qualification_v2`)
 
-**Status:** owner-directed 2026-10-15. Corpus constructed and census complete. Labels in progress. No provider call has been made.
+**Status:** owner-directed 2026-10-15. Corpus constructed and census complete. Phase-1 labels are proposed, and **78 cases await Eric Martin's adjudication**. No provider call has been made.
 
 v2 is additive. [v1](case-investigation-qualification.md) stays exactly as recorded, as historical evidence:
 - the production corpus was insufficient;
@@ -106,3 +106,23 @@ The run proceeds in this order:
 7. Paid run.
 
 Steps 1 and 2 are done. The run happens only if every minimum is still met.
+
+## Phase-1 label status (2026-10-15)
+
+Two independent reviewers, AI on different models, labelled all 115 eligible cases from the frozen packets. Their output is supporting evidence only.
+
+**Packets.** Each packet holds the operator-visible evidence: problem, expected-versus-found state, evidence labels, sibling findings, relationships, reviewed values and offered actions.
+- The deterministic Validator investigation was withheld, so that labels are not anchored on current Validator output.
+- Source-document text was not included.
+
+**Agreement.**
+- **Primary action:** the reviewers agreed on all 115 cases (1.000). In 42 cases no rankable action is offered, and in 58 exactly one is.
+- **Root cause:** the reviewers agreed on 0.765 of cases. **37 cases** are agreed and determinable.
+
+**Escalated to Eric Martin: 78 cases (73 `validator_failure`, 5 `conflict`).**
+- All 78 were marked not determinable from the packet by at least one reviewer.
+- 27 of them also have a root-cause disagreement.
+- The open question is almost always whether a value is absent from the source document (`source_missing`) or present but missed by extraction (`extraction_error`). The packets cannot answer that; the source document can.
+- The adjudication sheet, which holds customer text and is kept outside the repository, groups the 78 cases into 37 project-and-rule groups.
+
+The label set is not frozen and no provider call may be made until the adjudication is complete.

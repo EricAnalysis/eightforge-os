@@ -54,7 +54,12 @@ import {
   resolveForgewingEntitlement,
   type OrganizationForgewingEntitlementResolver,
 } from '@/lib/server/forgewingEntitlement';
-import { resolveForgewingDataPolicy } from '@/lib/server/forgewingGates';
+import {
+  readForgewingShadowDailyCap,
+  reserveForgewingProviderCall,
+  resolveForgewingDataPolicy,
+  type ShadowCallBudget,
+} from '@/lib/server/forgewingGates';
 import { buildRuntimeShadowParserManifest } from '@/lib/extraction/persistence/shadowRuntimeManifest';
 import { sniffExtractionMediaType } from '@/lib/extraction/persistence/shadowSourceIdentity';
 import { publishExtractionStep1ShadowNonBlocking } from '@/lib/extraction/persistence/step1Shadow';
@@ -1578,17 +1583,61 @@ export function step3BridgeForForgewingEntitlement(
  * prompt, no output). The request is identical to the task's default
  * provider; recording is best effort and never changes the task's result.
  */
+/** The durable daily budget each shadow / recovery task spends (census D2). */
+export function shadowTaskBudget(task: ObservedProviderTask): ShadowCallBudget {
+  return task === 'recovery_candidate_v2' ? 'extraction_recovery' : 'extraction_shadow';
+}
+
+/**
+ * Durable reservation before every shadow / recovery provider call (census
+ * D2): one slot of the organization's daily budget in the shared reservation
+ * ledger, bound to the exact request (digest only; no content is stored).
+ * Anything but a granted slot throws BEFORE the provider is called, so a
+ * provider call never happens without a durable reservation. The task treats
+ * the throw as a provider failure and the deterministic shadow is unaffected.
+ * The in-request call budget still applies on top of this.
+ */
+export class ShadowBudgetRefusal extends Error {
+  constructor(readonly code: 'budget_exhausted' | 'reservation_failed' | 'budget_unavailable') {
+    super(code);
+    this.name = 'ShadowBudgetRefusal';
+  }
+}
+
 export async function withShadowProviderTelemetry<T>(
   task: ObservedProviderTask,
   organizationId: string,
   run: (provider: ForgewingProvider) => Promise<T>,
+  dependencies: Readonly<{
+    admin?: SupabaseClient | null;
+    reserve?: typeof reserveForgewingProviderCall;
+    env?: Readonly<Record<string, string | undefined>>;
+    createProvider?: typeof createObservedForgewingProvider;
+  }> = {},
 ): Promise<T> {
   let invokedModel: string | null = null;
+  let reservationId: string | null = null;
+  let requestDigestSha256: string | null = null;
   let observation: ForgewingProviderObservation | null = null;
   let failure: unknown;
   const startedAt = performance.now();
-  const observed = createObservedForgewingProvider(task, (entry) => { observation = entry; });
+  const admin = dependencies.admin === undefined ? getSupabaseAdmin() : dependencies.admin;
+  const observed = (dependencies.createProvider ?? createObservedForgewingProvider)(task, (entry) => { observation = entry; });
   const result = await run(async (request) => {
+    if (!admin) throw new ShadowBudgetRefusal('budget_unavailable');
+    const budget = shadowTaskBudget(task);
+    requestDigestSha256 = hashCanonical({ task, request });
+    const reservation = await (dependencies.reserve ?? reserveForgewingProviderCall)(admin, {
+      organizationId,
+      requestDigestSha256,
+      reservedBy: null,
+      dailyCap: readForgewingShadowDailyCap(budget, dependencies.env ?? process.env),
+      workflow: budget,
+    });
+    if (reservation.status !== 'reserved') {
+      throw new ShadowBudgetRefusal(reservation.status === 'budget_exhausted' ? 'budget_exhausted' : 'reservation_failed');
+    }
+    reservationId = reservation.reservationId;
     invokedModel = request.model;
     try {
       return await observed(request);
@@ -1598,13 +1647,14 @@ export async function withShadowProviderTelemetry<T>(
     }
   });
   if (invokedModel) {
-    const admin = getSupabaseAdmin();
     if (admin) {
       const observed = observation as ForgewingProviderObservation | null;
       const message = failure instanceof Error ? failure.message : failure === undefined ? null : String(failure);
       await recordForgewingProviderCallObservation(admin, {
         workflow: task,
         organizationId,
+        reservationId,
+        requestDigestSha256,
         model: invokedModel,
         returnedModel: observed?.returnedModel,
         providerRequestId: observed?.requestId,

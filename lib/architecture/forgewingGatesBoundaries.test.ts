@@ -51,9 +51,29 @@ describe('Forgewing B4.1 gate boundaries', () => {
     // added here deliberately, behind the same gates.
     expect([...spenders].sort()).toEqual([
       path.join('app', 'api', 'projects', '[id]', 'ask', 'route.ts'),
+      // Census D2: the extraction shadow and recovery tasks' durable budgets.
+      path.join('lib', 'extraction', 'persistence', 'complianceShadow.ts'),
       path.join('lib', 'server', 'caseInvestigationRunner.ts'),
       path.join('lib', 'server', 'valueReadingEngine.ts'),
     ].sort());
+  });
+
+  it('every shadow / recovery provider call reserves a durable slot first (D2)', () => {
+    const shadow = code(path.join('lib', 'extraction', 'persistence', 'complianceShadow.ts'));
+    // The six production provider tasks run only through the reserving wrapper.
+    for (const task of ['region_classification', 'table_continuation', 'column_mapping', 'observation_arbitration',
+      'pricing_interpretation', 'recovery_candidate_v2']) {
+      expect(shadow).toContain(`withShadowProviderTelemetry('${task}'`);
+    }
+    expect(shadow.match(/createObservedForgewingProvider\)\(/g)).toHaveLength(1);
+    const wrapper = shadow.slice(shadow.indexOf('export async function withShadowProviderTelemetry'));
+    const body = wrapper.slice(0, wrapper.search(/\r?\n\}\r?\n/));
+    const reserveAt = body.indexOf('reserveForgewingProviderCall)(admin');
+    const refuseAt = body.indexOf("if (reservation.status !== 'reserved')");
+    const callAt = body.indexOf('return await observed(request)');
+    expect(reserveAt).toBeGreaterThan(-1);
+    expect(refuseAt).toBeGreaterThan(reserveAt);
+    expect(callAt).toBeGreaterThan(refuseAt);
   });
 
   it('no Core path consults a Forgewing gate', () => {

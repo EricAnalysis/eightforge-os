@@ -32,10 +32,12 @@ Every gate fails closed, and every switch is strict `=== '1'`. `true`, `yes`,
 Steps 5-7 apply to every customer-content workflow: Project Ask, value
 reading, case investigation and Workflow Assessment (S3). Extraction shadow and
 recovery tasks check the kill switch, their switch, entitlement and an approved
-`text_excerpts` data policy (steps 5-6). Their budget is still the in-request
-call budget (`FORGEWING_MAX_CALLS`), not a durable reservation: the
-reservation ledger's workflow list does not include them, and adding them is a
-migration.
+`text_excerpts` data policy (steps 5-6), then reserve one slot of a durable
+daily budget before every provider call (step 7, census D2):
+`FORGEWING_EXTRACTION_SHADOW_DAILY_CAP` (the five shadow tasks, one shared
+budget) and `FORGEWING_EXTRACTION_RECOVERY_DAILY_CAP` (recovery V2), each
+0-500, default `0` (no calls). The in-request call budget (`FORGEWING_MAX_CALLS`)
+still applies on top.
 
 ## Kill switch, model and provider
 

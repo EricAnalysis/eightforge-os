@@ -1212,14 +1212,16 @@ export function scheduleForgewingPricingRateClusterRecoveryShadow(
   }
   const task = async (): Promise<void> => {
     try {
+      let budgetRefused = false;
       const result = await (dependencies.run ?? runForgewingPricingRateClusterRecovery)(
         candidate,
         { env, provider: reservedShadowProvider('extraction_recovery', input.organizationId,
-          callClaudeForPricingRateClusterRecovery, { env }) },
+          callClaudeForPricingRateClusterRecovery, { env, onRefused: () => { budgetRefused = true; } }) },
       );
+      const providerInvoked = !budgetRefused && 'metadata' in result && result.metadata.providerInvoked;
       console.info('[forgewingRecovery] pricing recovery outcome', {
         mode: 'shadow', resultState: result.status, eligibilityReason: 'ambiguous_relationship',
-        providerInvoked: 'metadata' in result ? result.metadata.providerInvoked : false,
+        providerInvoked,
         deterministicValidationSuccessful: 'metadata' in result
           ? result.metadata.deterministicValidationSuccessful : false,
         humanReviewRequired: 'metadata' in result ? result.metadata.humanReviewRequired : false,
@@ -1240,7 +1242,7 @@ export function scheduleForgewingPricingRateClusterRecoveryShadow(
             recoveryType: 'pricing_rate_single_observation',
             outcomeCode,
             sanitizedReason: sanitizeRecoveryGenerationReason(outcomeCode, result.reason),
-            providerInvoked: 'metadata' in result ? result.metadata.providerInvoked : false,
+            providerInvoked,
             candidateIds: [],
           }, dependencies.persistOutcome ?? persistForgewingRecoveryGenerationOutcome);
         }
@@ -1606,7 +1608,7 @@ export function shadowTaskBudget(task: ObservedProviderTask): ShadowCallBudget {
  * The in-request call budget still applies on top of this.
  */
 export class ShadowBudgetRefusal extends Error {
-  constructor(readonly code: 'budget_exhausted' | 'reservation_failed' | 'budget_unavailable') {
+  constructor(readonly code: 'budget_exhausted' | 'reservation_failed' | 'budget_unavailable' | 'reservation_late') {
     super(code);
     this.name = 'ShadowBudgetRefusal';
   }
@@ -1627,6 +1629,8 @@ async function reserveShadowProviderSlot(
   requestDigestSha256: string,
   admin: SupabaseClient | null,
   dependencies: ShadowReservationDependencies,
+  /** performance.now() by which the task's own timeout has fired; never call a provider after it. */
+  deadline: number,
 ): Promise<string> {
   const refuse = (code: ShadowBudgetRefusal['code']): never => {
     dependencies.onRefused?.(code);
@@ -1643,6 +1647,10 @@ async function reserveShadowProviderSlot(
   if (reservation.status !== 'reserved') {
     return refuse(reservation.status === 'budget_exhausted' ? 'budget_exhausted' : 'reservation_failed');
   }
+  // The task's timeout started before the reservation. If the reservation
+  // outlived it, the task has already given up: never start a call nobody
+  // will read. The slot stays spent (append-only ledger; no refunds).
+  if (performance.now() >= deadline) return refuse('reservation_late');
   return reservation.reservationId;
 }
 
@@ -1659,9 +1667,10 @@ export function reservedShadowProvider(
   dependencies: ShadowReservationDependencies = {},
 ): ForgewingProvider {
   return async (request) => {
+    const deadline = performance.now() + request.timeoutMs;
     const admin = dependencies.admin === undefined ? getSupabaseAdmin() : dependencies.admin;
     await reserveShadowProviderSlot(budget, organizationId,
-      hashCanonical({ budget, request }), admin, dependencies);
+      hashCanonical({ budget, request }), admin, dependencies, deadline);
     return base(request);
   };
 }
@@ -1679,19 +1688,25 @@ export async function withShadowProviderTelemetry<T>(
   let requestDigestSha256: string | null = null;
   let observation: ForgewingProviderObservation | null = null;
   let failure: unknown;
+  // True only while a provider call is in flight.
+  let callPending = false;
   const startedAt = performance.now();
   const admin = dependencies.admin === undefined ? getSupabaseAdmin() : dependencies.admin;
   const observed = (dependencies.createProvider ?? createObservedForgewingProvider)(task, (entry) => { observation = entry; });
   const result = await run(async (request) => {
+    const deadline = performance.now() + request.timeoutMs;
     requestDigestSha256 = hashCanonical({ task, request });
     reservationId = await reserveShadowProviderSlot(shadowTaskBudget(task), organizationId, requestDigestSha256,
-      admin, dependencies);
+      admin, dependencies, deadline);
     invokedModel = request.model;
+    callPending = true;
     try {
       return await observed(request);
     } catch (error) {
       failure = error;
       throw error;
+    } finally {
+      callPending = false;
     }
   });
   if (invokedModel) {
@@ -1710,9 +1725,12 @@ export async function withShadowProviderTelemetry<T>(
         inputTokens: observed?.inputTokens,
         outputTokens: observed?.outputTokens,
         latencyMs: observed?.latencyMs ?? performance.now() - startedAt,
-        outcome: message == null ? 'succeeded'
-          : message === 'provider_timeout' ? 'provider_timeout'
-            : message === 'provider_truncated_output' ? 'output_truncated' : 'provider_failed',
+        // A call still in flight when the task returned means the task's own
+        // timeout ended it: a timeout, never a success.
+        outcome: callPending ? 'provider_timeout'
+          : message == null ? 'succeeded'
+            : message === 'provider_timeout' ? 'provider_timeout'
+              : message === 'provider_truncated_output' ? 'output_truncated' : 'provider_failed',
       });
     }
   }

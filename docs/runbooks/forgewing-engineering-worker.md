@@ -95,6 +95,42 @@ these cases:
 - the dedicated-role client cannot be built (`worker_client_unconfigured`);
 - `/repository` is not a Git checkout (`repository_checkout_missing`).
 
+## Deployment procedure and fail-closed verification
+
+Do these steps in order. Stop at the first failure. Nothing here enables provider reasoning.
+
+1. **Pick the commit.**
+   ```bash
+   COMMIT=$(git rev-parse origin/main)
+   ```
+   Use the commit that is deployed on Vercel. The worker and the control plane must agree on job and Plan V2 schemas.
+2. **Build the image** from `git archive "$COMMIT"` (see [Build](#build)) and tag it with the commit.
+3. **Prepare the checkout** at the same commit, read-only for the container user (see [Checkout](#checkout)).
+4. **Mint the token** (see [Mint the worker token](#mint-the-worker-token)) and store it in the host's secret store, not in shell history or files in the checkout.
+5. **Run the host preflight** with exactly the environment the container will get:
+   ```bash
+   node scripts/workers/forgewing-worker-preflight.mjs --checkout /srv/eightforge-checkout --image-commit "$COMMIT"
+   ```
+   It must print `PREFLIGHT: PASS`. It checks:
+   - the Supabase target is set;
+   - the service-role key is absent;
+   - the token role is exactly `forgewing_engineering_worker`, unexpired and at most 90 days;
+   - the checkout is a clean Git repository whose HEAD equals the image commit.
+
+   It never prints secrets or contacts Supabase or Anthropic. Provider gates are only reported.
+6. **Fail-closed proof (negative runs, expected to fail).** Each must exit 1 with the stated code before any poll:
+   - **No token:** `docker run --rm eightforge-forgewing-worker:"$COMMIT"` gives `configuration_failed code=worker_client_unconfigured`.
+   - **A `service_role` token:** gives `worker_client_unconfigured`.
+   - **The right token but no checkout mounted:** gives `repository_checkout_missing`.
+7. **First safe job, still with provider gates off.**
+   - Queue one ADVISORY job from a reviewed assessment.
+   - Run the container once with `-e FORGEWING_REPOSITORY_PLAN_ONE_SHOT=1`.
+   - Confirm `GET /api/internal/repository-plan-runs/<jobId>` reports `succeeded` with `providerCallCount: 0`.
+8. **Start the long-running worker** (see [Run](#run)) with `--restart unless-stopped`, still with provider gates off.
+9. **Record the deployment** in the engineering log: the commit, the image digest, the token expiry date (never the token), and the preflight and one-shot results.
+
+Provider reasoning is a separate, later decision (next section). Even with the gates set, a model outside `FORGEWING_QUALIFIED_MODELS` keeps it disabled.
+
 ## Turn on provider reasoning (separately, deliberately)
 
 With the gates off, the worker still completes ADVISORY and insufficient-evidence

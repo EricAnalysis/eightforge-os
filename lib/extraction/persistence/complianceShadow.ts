@@ -54,6 +54,7 @@ import {
   resolveForgewingEntitlement,
   type OrganizationForgewingEntitlementResolver,
 } from '@/lib/server/forgewingEntitlement';
+import { resolveForgewingDataPolicy } from '@/lib/server/forgewingGates';
 import { buildRuntimeShadowParserManifest } from '@/lib/extraction/persistence/shadowRuntimeManifest';
 import { sniffExtractionMediaType } from '@/lib/extraction/persistence/shadowSourceIdentity';
 import { publishExtractionStep1ShadowNonBlocking } from '@/lib/extraction/persistence/step1Shadow';
@@ -2056,7 +2057,10 @@ export async function publishExtractionComplianceShadowNonBlocking(
  */
 export function scheduleExtractionComplianceShadow(
   input: ScheduledShadowWriteInput,
-  dependencies: Readonly<{ resolveEntitlement?: OrganizationForgewingEntitlementResolver }> = {},
+  dependencies: Readonly<{
+    resolveEntitlement?: OrganizationForgewingEntitlementResolver;
+    resolveDataPolicy?: typeof resolveForgewingDataPolicy;
+  }> = {},
 ): Promise<void> {
   return (async () => {
     if (!input.storageVersionBeforeDownload) {
@@ -2123,7 +2127,12 @@ export function scheduleExtractionComplianceShadow(
             (await (dependencies.resolveEntitlement ?? resolveForgewingEntitlement)(
               input.admin,
               input.organizationId,
-            )).entitled,
+            )).entitled
+              // The shadow tasks send customer document text: only under an
+              // approved text_excerpts data policy (S3 chain; census D2).
+              && (await (dependencies.resolveDataPolicy ?? resolveForgewingDataPolicy)(input.admin, {
+                organizationId: input.organizationId, provider: 'anthropic', contentClasses: ['text_excerpts'],
+              })).approved,
             input.organizationId,
             input.sourceDocumentId,
           ),

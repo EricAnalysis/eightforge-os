@@ -28,6 +28,7 @@ import {
   resolveForgewingEntitlement,
   type OrganizationForgewingEntitlementResolver,
 } from '@/lib/server/forgewingEntitlement';
+import { resolveForgewingDataPolicy } from '@/lib/server/forgewingGates';
 import {
   resolvePdfLayoutDiagnosticEvidence,
   resolvePdfLayoutObservationEvidenceByRow,
@@ -1335,6 +1336,8 @@ export async function generateAndPersistCanonicalIntelligence(params: {
   providerWorkAllowed?: boolean;
   /** Test seam. Production always resolves the organization's entitlement server-side. */
   resolveForgewingEntitlement?: OrganizationForgewingEntitlementResolver;
+  /** Test seam. Production always resolves the organization's data policy server-side. */
+  resolveForgewingDataPolicy?: typeof resolveForgewingDataPolicy;
 }): Promise<PersistCanonicalIntelligenceResult> {
   const buildContext = await loadBuildParams(params.admin, {
     documentId: params.documentId,
@@ -1420,6 +1423,11 @@ export async function generateAndPersistCanonicalIntelligence(params: {
       params.admin,
       params.organizationId,
     )).entitled
+    // Pricing reasoning and recovery send customer document text: only under
+    // an approved text_excerpts data policy (S3 chain; census D2).
+    && (await (params.resolveForgewingDataPolicy ?? resolveForgewingDataPolicy)(params.admin, {
+      organizationId: params.organizationId, provider: 'anthropic', contentClasses: ['text_excerpts'],
+    })).approved
   ) {
     const pricingLayoutObservations = pricingLayoutSourceObservations(
       pipelineResult.primaryDocument,

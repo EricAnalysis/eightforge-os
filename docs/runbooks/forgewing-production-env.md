@@ -31,8 +31,11 @@ Every gate fails closed, and every switch is strict `=== '1'`. `true`, `yes`,
 
 Steps 5-7 apply to every customer-content workflow: Project Ask, value
 reading, case investigation and Workflow Assessment (S3). Extraction shadow and
-recovery tasks check the kill switch, their switch and entitlement, and use an
-in-request call budget (`FORGEWING_MAX_CALLS`).
+recovery tasks check the kill switch, their switch, entitlement and an approved
+`text_excerpts` data policy (steps 5-6). Their budget is still the in-request
+call budget (`FORGEWING_MAX_CALLS`), not a durable reservation: the
+reservation ledger's workflow list does not include them, and adding them is a
+migration.
 
 ## Kill switch, model and provider
 

@@ -117,4 +117,36 @@ describe('shadow / recovery provider telemetry', () => {
       { ...BUDGETED, onRefused: wrapperRefused });
     expect(wrapperRefused).toHaveBeenCalledWith('reservation_failed');
   });
+
+  it('records a call still in flight when the task times out as provider_timeout, not succeeded', async () => {
+    const hanging = vi.fn(() => new Promise<string>(() => undefined));
+    const result = await withShadowProviderTelemetry('column_mapping', 'org-1', async (call) => {
+      // The task's own timeout wins the race against the provider.
+      return Promise.race([call(REQUEST), new Promise((resolve) => setTimeout(() => resolve('task_timeout'), 20))]);
+    }, { ...BUDGETED, createProvider: (() => hanging) as never });
+    expect(result).toBe('task_timeout');
+    expect(hanging).toHaveBeenCalledOnce();
+    expect(mocks.record).toHaveBeenCalledWith(mocks.admin, expect.objectContaining({ outcome: 'provider_timeout' }));
+  });
+
+  it('never calls the provider when the reservation returns after the task deadline', async () => {
+    const provider = vi.fn();
+    const onRefused = vi.fn();
+    const slowReserve = vi.fn(() => new Promise((resolve) => setTimeout(() =>
+      resolve({ status: 'reserved', reservationId: 'res-late', usedInWindow: 1 }), 40)));
+    const outcome = await withShadowProviderTelemetry('table_continuation', 'org-1', async (call) => {
+      try { await call({ ...REQUEST, timeoutMs: 10 }); return 'called'; } catch (error) {
+        return error instanceof ShadowBudgetRefusal ? error.code : 'other';
+      }
+    }, { reserve: slowReserve as never, env: ENV, onRefused, createProvider: (() => provider) as never });
+    expect(outcome).toBe('reservation_late');
+    expect(provider).not.toHaveBeenCalled();
+    expect(onRefused).toHaveBeenCalledWith('reservation_late');
+    expect(mocks.record).not.toHaveBeenCalled();
+    // The same rule protects the reserving provider (V1 path).
+    const base = vi.fn(async () => 'answer');
+    const late = reservedShadowProvider('extraction_recovery', 'org-1', base as never, { reserve: slowReserve as never, env: ENV });
+    await expect(late({ ...REQUEST, timeoutMs: 10 } as never)).rejects.toBeInstanceOf(ShadowBudgetRefusal);
+    expect(base).not.toHaveBeenCalled();
+  });
 });

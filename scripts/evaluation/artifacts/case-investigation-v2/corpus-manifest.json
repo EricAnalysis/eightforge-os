@@ -1,0 +1,2535 @@
+{
+  "contract": "case_investigation_qualification_v2",
+  "builtAt": "2026-10-15T13:43:39.773Z",
+  "productionIncluded": true,
+  "pins": {
+    "conflictFixtureVersion": "case_investigation_conflict_fixtures_v1",
+    "promptVersion": "case_investigation_prompt_v2",
+    "contextVersion": "investigation_context_v1",
+    "validatorRuleCatalogueFingerprint": "rule-catalogue-v1:sha256:1299aefc9962f1ae99fe45f5a045cca402fa0763277dcbe1737baf20ecd7b6b6",
+    "approvedContentClasses": [
+      "text_excerpts"
+    ],
+    "sources": {
+      "lib/server/caseInvestigationRunner.ts": "a0f0f3738ab690028e1e44e76c659a6236a75c457f52a7e134b2adef841d2a50",
+      "lib/forgewing/runtime/caseInvestigationClient.ts": "62f83464f3a3de0f8f7de24d7cbaa16b49baa7e045b84275a3b72c5d7912fd63",
+      "lib/resolution/investigationContext.ts": "93e0c1974d5712c340f6ee9347947e48ca8f07fed01b85e7810734a225eb233c",
+      "lib/server/investigationContextRead.ts": "7e579a377408095d2f76dcc8167bb47d436be786730c5165adcdf766bc156d1f",
+      "lib/resolution/caseInvestigation.ts": "e91a99e774e9fe8b90d6989ef635e8cc4ef311e8715e2fe43d667a720cb4465f",
+      "lib/evaluation/caseInvestigation/conflictFixtures.ts": "91d7324ba894d2a011ab2519d398ba28f536700b5674f6450793980bbb0de6c0",
+      "lib/evaluation/caseInvestigation/corpusV2.ts": "da4aa2a92dea79f58abd5863e96f01b7e65eac5568a43ec04e96f5c329031e34"
+    }
+  },
+  "census": {
+    "eligible": {
+      "validator_failure": 85,
+      "conflict": 30
+    },
+    "excluded": 54,
+    "minimumsMet": true
+  },
+  "entries": [
+    {
+      "caseId": "finding:TRANSACTION_TICKET_GRAIN_CONFLICT:ticket:288331d2-b828-4d4c-8883-31d2b8286d4c:TKT-1001:quantity:transaction_quantity",
+      "qualificationClass": "conflict",
+      "source": "conflict_fixture",
+      "projectId": "6e7ab7c9-da7e-4d73-8e7a-b7c9da7ecd73",
+      "projectName": "Conflict fixture: Ridgeview Haul",
+      "ruleId": "TRANSACTION_TICKET_GRAIN_CONFLICT",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "dbaded4b9b304834fe2c8762ae68da2fff687000ce49903b5b09cfcff7128a2f",
+      "readDigest": "0aa38a13dd4cee4f3095ab7b19d86a46aa80ad60ad8a6f9b248ab37e6f93a959",
+      "excluded": null,
+      "checkKeySha256": "5aabd98cafaa4b18f00ba61c429ad3564010559a4bda0236dda75ae9154eab67"
+    },
+    {
+      "caseId": "finding:TRANSACTION_TICKET_GRAIN_CONFLICT:ticket:288331d2-b828-4d4c-8883-31d2b8286d4c:TKT-1002:extendedCost:extended_cost",
+      "qualificationClass": "conflict",
+      "source": "conflict_fixture",
+      "projectId": "6e7ab7c9-da7e-4d73-8e7a-b7c9da7ecd73",
+      "projectName": "Conflict fixture: Ridgeview Haul",
+      "ruleId": "TRANSACTION_TICKET_GRAIN_CONFLICT",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "1a6e372522a85a195d43da6d06b7e59171e1c76bb0e0980cd5ccb6c8d4d5dbec",
+      "readDigest": "67408db9af8b6ba0ac746dc8e7f5c7b10a0c0b998b1c1cd3bd59622478f715ab",
+      "excluded": null,
+      "checkKeySha256": "76a173ba1355b7ebcb5806c76a245adbfcd9f16a4069aa5e0c32ba03ca48be1a"
+    },
+    {
+      "caseId": "finding:TRANSACTION_TICKET_GRAIN_CONFLICT:ticket:288331d2-b828-4d4c-8883-31d2b8286d4c:TKT-1003:quantity:transaction_quantity",
+      "qualificationClass": "conflict",
+      "source": "conflict_fixture",
+      "projectId": "6e7ab7c9-da7e-4d73-8e7a-b7c9da7ecd73",
+      "projectName": "Conflict fixture: Ridgeview Haul",
+      "ruleId": "TRANSACTION_TICKET_GRAIN_CONFLICT",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "fdb0fc2a11e6634a05e2304adafb81805dc359ce0033f8c46e20ab446fdbbe07",
+      "readDigest": "4e3b33e9559543f51ae274d198a15c08803b67a0a90ef77162167ffd3fcda8e5",
+      "excluded": null,
+      "checkKeySha256": "e16f9e90bd5f0ad46d5c3213fdcfb0622a3f01bdee8835ab5574a2c8382358c2"
+    },
+    {
+      "caseId": "finding:TRANSACTION_TICKET_GRAIN_CONFLICT:ticket:288331d2-b828-4d4c-8883-31d2b8286d4c:TKT-1004:extendedCost:extended_cost",
+      "qualificationClass": "conflict",
+      "source": "conflict_fixture",
+      "projectId": "6e7ab7c9-da7e-4d73-8e7a-b7c9da7ecd73",
+      "projectName": "Conflict fixture: Ridgeview Haul",
+      "ruleId": "TRANSACTION_TICKET_GRAIN_CONFLICT",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "9b513efb1c15a5ad8911374db5ff2b36559a35206bacb603b5658062796c9aff",
+      "readDigest": "79f8aba7d0457c53b16ed31a7a94a2e5909177ee9a529313884326cbece263ba",
+      "excluded": null,
+      "checkKeySha256": "f4609053ed5e9ac45c2417a8709418b68f323b320a6302c1ab6d25753d51f095"
+    },
+    {
+      "caseId": "finding:TRANSACTION_TICKET_GRAIN_CONFLICT:ticket:288331d2-b828-4d4c-8883-31d2b8286d4c:TKT-1004:quantity:transaction_quantity",
+      "qualificationClass": "conflict",
+      "source": "conflict_fixture",
+      "projectId": "6e7ab7c9-da7e-4d73-8e7a-b7c9da7ecd73",
+      "projectName": "Conflict fixture: Ridgeview Haul",
+      "ruleId": "TRANSACTION_TICKET_GRAIN_CONFLICT",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "e3a0b0268f4aacdf86c0b759c96907cc7bc317262e9b49e0b9d37d70f7af917a",
+      "readDigest": "78a1d3671d20b9b12789f918a73d7cc4566c94c566897cf575297d2d1f1b980a",
+      "excluded": null,
+      "checkKeySha256": "01255df4dd02bb3c1e4ee3647c400174113aaef32cf295b14d0028bd3d60d01d"
+    },
+    {
+      "caseId": "finding:TRANSACTION_TICKET_GRAIN_CONFLICT:ticket:13c81cf3-adfa-4cdd-83c8-1cf3adfaecdd:CC-2001:extendedCost:extended_cost",
+      "qualificationClass": "conflict",
+      "source": "conflict_fixture",
+      "projectId": "b3dfbb24-fa54-4f56-83df-bb24fa545f56",
+      "projectName": "Conflict fixture: Cedar Creek Debris",
+      "ruleId": "TRANSACTION_TICKET_GRAIN_CONFLICT",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "8ceb94dca71f2fb8208fa712606d1a831091424b8b558dd2e0591c6731469726",
+      "readDigest": "d24785ccc91018f9eb290c3b3a5c029f447062d9fdeb37fec1e583e29a64ac15",
+      "excluded": null,
+      "checkKeySha256": "590f3fdf1974004d522161b4136f75e5d2abf60a966c5684474a6570870f8dbd"
+    },
+    {
+      "caseId": "finding:TRANSACTION_TICKET_GRAIN_CONFLICT:ticket:13c81cf3-adfa-4cdd-83c8-1cf3adfaecdd:CC-2001:quantity:transaction_quantity",
+      "qualificationClass": "conflict",
+      "source": "conflict_fixture",
+      "projectId": "b3dfbb24-fa54-4f56-83df-bb24fa545f56",
+      "projectName": "Conflict fixture: Cedar Creek Debris",
+      "ruleId": "TRANSACTION_TICKET_GRAIN_CONFLICT",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "a2e808165c28447b0d4d49f8a43f5b7397d21f5633ea2f5a39fb736dee81f7fe",
+      "readDigest": "4e48143f2fa6199641b26415205cee4e2127f36f3cb409a10911ea7ba7041105",
+      "excluded": null,
+      "checkKeySha256": "e21ff400335a5a120ea0f91439655681e3afc813756f034d9a6b92daf1661c2f"
+    },
+    {
+      "caseId": "finding:TRANSACTION_TICKET_GRAIN_CONFLICT:ticket:13c81cf3-adfa-4cdd-83c8-1cf3adfaecdd:CC-2002:extendedCost:extended_cost",
+      "qualificationClass": "conflict",
+      "source": "conflict_fixture",
+      "projectId": "b3dfbb24-fa54-4f56-83df-bb24fa545f56",
+      "projectName": "Conflict fixture: Cedar Creek Debris",
+      "ruleId": "TRANSACTION_TICKET_GRAIN_CONFLICT",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "d8401491b664f981d62e37e746edc701887470e08186aecb81ec486e76791dc0",
+      "readDigest": "d76a1abbdb37f5f5f9e587056800d6257783d74f68d0bb53f8f68e0e5234ad3c",
+      "excluded": null,
+      "checkKeySha256": "cf3f4d7fc1af47711ebcc582483e3202bbe99933d890bd67f04564434a0eb82c"
+    },
+    {
+      "caseId": "finding:TRANSACTION_TICKET_GRAIN_CONFLICT:ticket:13c81cf3-adfa-4cdd-83c8-1cf3adfaecdd:CC-2003:quantity:transaction_quantity",
+      "qualificationClass": "conflict",
+      "source": "conflict_fixture",
+      "projectId": "b3dfbb24-fa54-4f56-83df-bb24fa545f56",
+      "projectName": "Conflict fixture: Cedar Creek Debris",
+      "ruleId": "TRANSACTION_TICKET_GRAIN_CONFLICT",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "7d6160e41c7924a1fd7b6fb1e3d7e0341781cb914908b2b5fb1d42e0892a9f1a",
+      "readDigest": "a3ac91008b57a7ffb1a8cde25f165e176672713db8bcc00fbb7890e1403b9627",
+      "excluded": null,
+      "checkKeySha256": "100c0c079058d35da668226f14313fbf8c4d297883a394ec158a8ffaafbd70dd"
+    },
+    {
+      "caseId": "finding:TRANSACTION_TICKET_GRAIN_CONFLICT:ticket:c579529e-70d6-4e84-8579-529e70d6ae84:LK-3001:quantity:transaction_quantity",
+      "qualificationClass": "conflict",
+      "source": "conflict_fixture",
+      "projectId": "0c2312f5-9cf4-4a7b-8c23-12f59cf4aa7b",
+      "projectName": "Conflict fixture: Lakeside Storm Cleanup",
+      "ruleId": "TRANSACTION_TICKET_GRAIN_CONFLICT",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "18f2dc962fc3190b7d94a7d3a62587e38968c259b6eba7b0f6c7936caec36424",
+      "readDigest": "d73dd85c634ac4d679fcc3ffb173d7878c1e3fc039a5c61a3fdf092634c354cb",
+      "excluded": null,
+      "checkKeySha256": "17303a5d9e7a83fccaa4962fee06b04482e58c3a1834920544d7a4dca820e7b8"
+    },
+    {
+      "caseId": "finding:CANONICAL_INVOICE_IDENTITY_CONFLICT:invoice-number:inv-3001:invoice_number",
+      "qualificationClass": "conflict",
+      "source": "conflict_fixture",
+      "projectId": "e2fda1a3-44db-42ed-82fd-a1a344db52ed",
+      "projectName": "Conflict fixture: Harbor Point Invoices",
+      "ruleId": "CANONICAL_INVOICE_IDENTITY_CONFLICT",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "4aaee7b5e80db06a3e438700bb8527da5362778e243d806bc99a0373ade9e98e",
+      "readDigest": "89bb4e67750f5ac90dfaf8073cf6ecf4db89405162488dc3c72288402d3f9ba1",
+      "excluded": null,
+      "checkKeySha256": "5cb3a2aab93b2b04eea9aed484ae65a71770f65ef856d50828726a60d777bb58"
+    },
+    {
+      "caseId": "finding:CANONICAL_INVOICE_IDENTITY_CONFLICT:invoice-number:inv-3002:invoice_number",
+      "qualificationClass": "conflict",
+      "source": "conflict_fixture",
+      "projectId": "e2fda1a3-44db-42ed-82fd-a1a344db52ed",
+      "projectName": "Conflict fixture: Harbor Point Invoices",
+      "ruleId": "CANONICAL_INVOICE_IDENTITY_CONFLICT",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "8dc7103efd42d83fe644dcc7801f84f0b434ebf901d61d20248e9d3f2beb814e",
+      "readDigest": "59060b1173c648ff59e11cdb286d3033f38b8f80aa0fe8d5729198f1b3dfba06",
+      "excluded": null,
+      "checkKeySha256": "2800a2f7620345b16c14b701c94d16a5e3708bd9e7a1f75ebe294cb54948f3b5"
+    },
+    {
+      "caseId": "finding:CANONICAL_INVOICE_IDENTITY_CONFLICT:invoice-number:inv-3003:invoice_number",
+      "qualificationClass": "conflict",
+      "source": "conflict_fixture",
+      "projectId": "e2fda1a3-44db-42ed-82fd-a1a344db52ed",
+      "projectName": "Conflict fixture: Harbor Point Invoices",
+      "ruleId": "CANONICAL_INVOICE_IDENTITY_CONFLICT",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "a8d4429ffcc73a0ac850ebe4ee00dcb1efaf96abf8904372757cce11423f7c65",
+      "readDigest": "807bd1d3bc77fbc31f205168c02e224a945d61ef1b1cedc391ed667e2817133b",
+      "excluded": null,
+      "checkKeySha256": "61f99cbdd3ba02234c6ebca48020fd4e80a6d1b101b72bf01863c3b0d588ae06"
+    },
+    {
+      "caseId": "finding:CANONICAL_INVOICE_IDENTITY_CONFLICT:invoice-number:4410:invoice_number",
+      "qualificationClass": "conflict",
+      "source": "conflict_fixture",
+      "projectId": "1328dcf6-fc32-4f5c-8328-dcf6fc320f5c",
+      "projectName": "Conflict fixture: Millbrook Invoices",
+      "ruleId": "CANONICAL_INVOICE_IDENTITY_CONFLICT",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "58aab66f18dd3dd53ccfcd7c0cefdef65734fd9b50db39ede8781e8a9555264b",
+      "readDigest": "c62acd9b8e9cb4c544c60c72adecfcb84a75fe227245c675763494aeca6dbd6a",
+      "excluded": null,
+      "checkKeySha256": "bf45f19080e28503c490ee5b36797710e554bd1a3595f856edfe2c57769502fe"
+    },
+    {
+      "caseId": "finding:CANONICAL_INVOICE_IDENTITY_CONFLICT:invoice-number:4411:invoice_number",
+      "qualificationClass": "conflict",
+      "source": "conflict_fixture",
+      "projectId": "1328dcf6-fc32-4f5c-8328-dcf6fc320f5c",
+      "projectName": "Conflict fixture: Millbrook Invoices",
+      "ruleId": "CANONICAL_INVOICE_IDENTITY_CONFLICT",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "bdb68697bf8936cf7c4edf74916e44b7dedf3c2af10c8f1fc3e20855cb79beb2",
+      "readDigest": "437c2fbb707539c8e87de1a99e3dcee3c5ac5b20bda972cd851855348769db15",
+      "excluded": null,
+      "checkKeySha256": "b9f0565b790a83cdf549bb71ffb7cbebc61f25969c09940af1cb722bcced3e5c"
+    },
+    {
+      "caseId": "finding:CANONICAL_INVOICE_IDENTITY_CONFLICT:invoice-number:4412:invoice_number",
+      "qualificationClass": "conflict",
+      "source": "conflict_fixture",
+      "projectId": "1328dcf6-fc32-4f5c-8328-dcf6fc320f5c",
+      "projectName": "Conflict fixture: Millbrook Invoices",
+      "ruleId": "CANONICAL_INVOICE_IDENTITY_CONFLICT",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "d23d2054cc06b06e8bc94e669d50ae60bbd1740f22a40ac0e1603f70fb10a732",
+      "readDigest": "0f2ff6848ac8d9dd713453804837067f701d4b1cddeb6277e7fd3a46013f25a9",
+      "excluded": null,
+      "checkKeySha256": "0eb63bb32eaa4d3e8adbb4e6cda141ecbff95e9f0c61ab7fa344da4ea83c6b37"
+    },
+    {
+      "caseId": "finding:CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING:canonical-relationship:invoice_references_governing_contract:invoice:canonical-invoice-project-a1c47b96-4b3f-412c-81c4-7b964b3f112c-artifact-null-document-8c7d3213-e9b1-4ca5-8c7d-3213e9b1fca5-invoice-number-pc-501:unresolved:invoice_references_governing_contract",
+      "qualificationClass": "conflict",
+      "source": "conflict_fixture",
+      "projectId": "a1c47b96-4b3f-412c-81c4-7b964b3f112c",
+      "projectName": "Conflict fixture: Pinecrest Contracts",
+      "ruleId": "CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING",
+      "rankableActionKinds": [
+        "open_linked_documents",
+        "open_document"
+      ],
+      "transmittedDigest": "8c5e41220645865cf6d34ce5cdb0c70d6a2ef8654855e5dffab4598c9986f31e",
+      "readDigest": "aff575eede89aae4158812151b759869235e704c8b8f51eaf7608858621251d8",
+      "excluded": null,
+      "checkKeySha256": "3dbe4e677a71aac9d8c6ba7f3d4aeb63931deb72bc265ace2e32ddefc97678af"
+    },
+    {
+      "caseId": "finding:CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING:canonical-relationship:pricing_exhibit_belongs_to_contract_family:project:a1c47b96-4b3f-412c-81c4-7b964b3f112c:unresolved:pricing_exhibit_belongs_to_contract_family",
+      "qualificationClass": "conflict",
+      "source": "conflict_fixture",
+      "projectId": "a1c47b96-4b3f-412c-81c4-7b964b3f112c",
+      "projectName": "Conflict fixture: Pinecrest Contracts",
+      "ruleId": "CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING",
+      "rankableActionKinds": [
+        "open_linked_documents",
+        "open_document"
+      ],
+      "transmittedDigest": "52a691d196afaae42adc45a158f3b99fd8b6e8277bc82abc98d0ceeac6708ee5",
+      "readDigest": "58f16b199fcb46bfcb5bf700bcbbf0d791ead5335253f61ca5fc690c39fec129",
+      "excluded": null,
+      "checkKeySha256": "c29cd53520ae25f4632a4f361682c6a20bd35b87745330ba96d4e3148523a887"
+    },
+    {
+      "caseId": "finding:CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING:canonical-relationship:invoice_references_governing_contract:invoice:canonical-invoice-project-ab9bc31b-168b-416d-8b9b-c31b168b316d-artifact-null-document-3202ee6e-9558-443c-8202-ee6e9558243c-invoice-number-wb-77:unresolved:invoice_references_governing_contract",
+      "qualificationClass": "conflict",
+      "source": "conflict_fixture",
+      "projectId": "ab9bc31b-168b-416d-8b9b-c31b168b316d",
+      "projectName": "Conflict fixture: Willow Bend Contracts",
+      "ruleId": "CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING",
+      "rankableActionKinds": [
+        "open_linked_documents",
+        "open_document"
+      ],
+      "transmittedDigest": "0c720e6aaca530a077b129e886b5640dd53ea0d3b358a81ffae874f1a058c175",
+      "readDigest": "2026f74a4bd1ff2b683fda18a44e75ed3d6be343d071145c4d40babd4c64c29f",
+      "excluded": null,
+      "checkKeySha256": "a5ffc86d9be3dd6ca3b84e578ee808f44769ce257f305a7c92fa5f69740e38ea"
+    },
+    {
+      "caseId": "finding:CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING:canonical-relationship:pricing_exhibit_belongs_to_contract_family:project:ab9bc31b-168b-416d-8b9b-c31b168b316d:unresolved:pricing_exhibit_belongs_to_contract_family",
+      "qualificationClass": "conflict",
+      "source": "conflict_fixture",
+      "projectId": "ab9bc31b-168b-416d-8b9b-c31b168b316d",
+      "projectName": "Conflict fixture: Willow Bend Contracts",
+      "ruleId": "CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING",
+      "rankableActionKinds": [
+        "open_linked_documents",
+        "open_document"
+      ],
+      "transmittedDigest": "a58272bec37237a26e2053b0c329af24881e023c17c8b4867b2df21103151819",
+      "readDigest": "fa705fd6007d34b9d0060ce25cb0472dfed63f16083f77afcb12eef53cebcec0",
+      "excluded": null,
+      "checkKeySha256": "91ae4ccaf9e2b0943dfd53dce0f7d0fae90dbd8a1efdfab1af022d5378952911"
+    },
+    {
+      "caseId": "finding:CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING:canonical-relationship:invoice_references_governing_contract:invoice:canonical-invoice-project-9c5937d1-e049-4733-8c59-37d1e0495733-artifact-null-document-da121058-6f0f-468e-8a12-10586f0f468e-invoice-number-gf-12:unresolved:invoice_references_governing_contract",
+      "qualificationClass": "conflict",
+      "source": "conflict_fixture",
+      "projectId": "9c5937d1-e049-4733-8c59-37d1e0495733",
+      "projectName": "Conflict fixture: Granite Falls Contracts",
+      "ruleId": "CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING",
+      "rankableActionKinds": [
+        "open_linked_documents",
+        "open_document"
+      ],
+      "transmittedDigest": "28b7c2a74cd7409fe575ff196be63125426c8963e7892dd5f81d1b7d2f707855",
+      "readDigest": "5d259813d48a4088202e567648a0dd2f1bcc1bba908e39b296f7f6cd33036455",
+      "excluded": null,
+      "checkKeySha256": "72260f2ab633620ef5bc31240cc11eee5a9685317d9c3fd24450a3e2b0c432fb"
+    },
+    {
+      "caseId": "finding:CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING:canonical-relationship:pricing_exhibit_belongs_to_contract_family:project:9c5937d1-e049-4733-8c59-37d1e0495733:unresolved:pricing_exhibit_belongs_to_contract_family",
+      "qualificationClass": "conflict",
+      "source": "conflict_fixture",
+      "projectId": "9c5937d1-e049-4733-8c59-37d1e0495733",
+      "projectName": "Conflict fixture: Granite Falls Contracts",
+      "ruleId": "CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING",
+      "rankableActionKinds": [
+        "open_linked_documents",
+        "open_document"
+      ],
+      "transmittedDigest": "7d7b67040d857f7ab9d01510409c0d875e58b3c9d6fa55090a5ddb06c1faa63d",
+      "readDigest": "97043a11ebc9fc73754b0c00623e4f04299ad955400aa1fab798f86f5d41f4e8",
+      "excluded": null,
+      "checkKeySha256": "3e4eddcc503ed74ba4b80a7da33583769bb75b46101f72bb2570dea53c7066a8"
+    },
+    {
+      "caseId": "finding:CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING:canonical-relationship:pricing_exhibit_belongs_to_contract_family:project:f6717adc-639c-4746-8671-7adc639c0746:unresolved:pricing_exhibit_belongs_to_contract_family",
+      "qualificationClass": "conflict",
+      "source": "conflict_fixture",
+      "projectId": "f6717adc-639c-4746-8671-7adc639c0746",
+      "projectName": "Conflict fixture: Oakmont Rebid",
+      "ruleId": "CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING",
+      "rankableActionKinds": [
+        "open_linked_documents",
+        "open_document"
+      ],
+      "transmittedDigest": "ebbcd67d3a41881b577a4cfa634476be75f0efbf6d2d75af62d9f4673b77c42d",
+      "readDigest": "04c7824ee1195388f79f0c0c83918d094048566231cacbcf7bce0d974dd9a415",
+      "excluded": null,
+      "checkKeySha256": "c112b80ef8cc6cb4451d69097632e44dd8768fb92e71c116d11510b51a19e5fd"
+    },
+    {
+      "caseId": "finding:TRANSACTION_TICKET_GRAIN_CONFLICT:ticket:dbf71553-a8f8-437d-8bf7-1553a8f8637d:OK-5001:extendedCost:extended_cost",
+      "qualificationClass": "conflict",
+      "source": "conflict_fixture",
+      "projectId": "f6717adc-639c-4746-8671-7adc639c0746",
+      "projectName": "Conflict fixture: Oakmont Rebid",
+      "ruleId": "TRANSACTION_TICKET_GRAIN_CONFLICT",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "514b27c877c00d975f2f32304e25f7bc3335ed62a6fe34cd422566382e2fd302",
+      "readDigest": "ddf7ebd13388965092d4e274c96fb497f5d78f4b99848cf2c8faf70fdce4b23c",
+      "excluded": null,
+      "checkKeySha256": "7b2aa16b4cae6ebb9158391fec5fd9abdbe3878630263d8d53a46f19685dd999"
+    },
+    {
+      "caseId": "finding:CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING:canonical-relationship:invoice_references_governing_contract:invoice:canonical-invoice-project-c5dcf382-693e-4968-85dc-f382693e9968-artifact-null-document-73ee3f54-3208-46ba-83ee-3f54320836ba-invoice-number-rs-9:unresolved:invoice_references_governing_contract",
+      "qualificationClass": "conflict",
+      "source": "conflict_fixture",
+      "projectId": "c5dcf382-693e-4968-85dc-f382693e9968",
+      "projectName": "Conflict fixture: Riverside Amendment",
+      "ruleId": "CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING",
+      "rankableActionKinds": [
+        "open_linked_documents",
+        "open_document"
+      ],
+      "transmittedDigest": "9dc90b1534b9f13624f21659c185a973de649963b1361e76e4402098407a15d4",
+      "readDigest": "0140f5e1aba43165974f7ed9b5b60e20b77b048f2fda5add8de1be6e1df5ff6d",
+      "excluded": null,
+      "checkKeySha256": "0744bbca052625ff10e8b57dc35f617703d6317b7df5754ad82dcf357811a0a5"
+    },
+    {
+      "caseId": "finding:CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING:canonical-relationship:invoice_references_governing_contract:invoice:canonical-invoice-project-c5dcf382-693e-4968-85dc-f382693e9968-artifact-null-document-76ee440d-ac1c-4c43-86ee-440dac1c6c43-invoice-number-rs-9:unresolved:invoice_references_governing_contract",
+      "qualificationClass": "conflict",
+      "source": "conflict_fixture",
+      "projectId": "c5dcf382-693e-4968-85dc-f382693e9968",
+      "projectName": "Conflict fixture: Riverside Amendment",
+      "ruleId": "CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING",
+      "rankableActionKinds": [
+        "open_linked_documents",
+        "open_document"
+      ],
+      "transmittedDigest": "fe1690cb1dc14d9e91d6bbad81f3e633a033dfdf22cbed3decedbba6700d4023",
+      "readDigest": "494a728baff7be172620f768bb8b2aab32c16ba8deed8d7978365d7b4d23d8bd",
+      "excluded": null,
+      "checkKeySha256": "54a3a8844ec79c4e6fad88b9f9497ef6077cc33245c36d005e2b52ac7fb808a9"
+    },
+    {
+      "caseId": "finding:CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING:canonical-relationship:pricing_exhibit_belongs_to_contract_family:project:c5dcf382-693e-4968-85dc-f382693e9968:unresolved:pricing_exhibit_belongs_to_contract_family",
+      "qualificationClass": "conflict",
+      "source": "conflict_fixture",
+      "projectId": "c5dcf382-693e-4968-85dc-f382693e9968",
+      "projectName": "Conflict fixture: Riverside Amendment",
+      "ruleId": "CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING",
+      "rankableActionKinds": [
+        "open_linked_documents",
+        "open_document"
+      ],
+      "transmittedDigest": "ba90cc6ce2d3d1499e4af251bbb61d39aa48355521700e880d742d0de76a4e5f",
+      "readDigest": "4d3b6c93387fad114a23e03dbd3a0248e94e9b80394a3fe4ca5db162d7b3a8bf",
+      "excluded": null,
+      "checkKeySha256": "e49df3fe33b29e2437616265462ab28a25785ec3a41e33a742269a1901196d4f"
+    },
+    {
+      "caseId": "finding:CANONICAL_INVOICE_IDENTITY_CONFLICT:invoice-number:rs-9:invoice_number",
+      "qualificationClass": "conflict",
+      "source": "conflict_fixture",
+      "projectId": "c5dcf382-693e-4968-85dc-f382693e9968",
+      "projectName": "Conflict fixture: Riverside Amendment",
+      "ruleId": "CANONICAL_INVOICE_IDENTITY_CONFLICT",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "93f6dc3d49a77dc4727086a1ece2b5302ceed95cc98382d975ecee50c7488edc",
+      "readDigest": "ecd380e23488052849b80c39c51d82182ac142da13cfe6a0aca6a0b6e261050e",
+      "excluded": null,
+      "checkKeySha256": "14b6a754a5dcfc2adb877117ef300e66bfac6233e1b9f2e1c8922aba9c9b8123"
+    },
+    {
+      "caseId": "finding:CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING:canonical-relationship:invoice_references_governing_contract:invoice:canonical-invoice-project-03d0d18a-3cc7-4594-83d0-d18a3cc7b594-artifact-null-document-18e5b11f-b876-4c3d-88e5-b11fb8761c3d-invoice-number-sr-3:unresolved:invoice_references_governing_contract",
+      "qualificationClass": "conflict",
+      "source": "conflict_fixture",
+      "projectId": "03d0d18a-3cc7-4594-83d0-d18a3cc7b594",
+      "projectName": "Conflict fixture: Summit Ridge",
+      "ruleId": "CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING",
+      "rankableActionKinds": [
+        "open_linked_documents",
+        "open_document"
+      ],
+      "transmittedDigest": "809d9a5ea16d92bba843a223042dbcf6ceb57b9a1d06a2d00860e4cd2466fa3b",
+      "readDigest": "68ace479c819b32bd949856cfc9c8dc3c797e9c471d3f3b9fda3491fafef9138",
+      "excluded": null,
+      "checkKeySha256": "c4ea0da6f8ad9084b0e738651c9a173835ded0303a2924da44c7089a8a333085"
+    },
+    {
+      "caseId": "finding:CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING:canonical-relationship:pricing_exhibit_belongs_to_contract_family:project:03d0d18a-3cc7-4594-83d0-d18a3cc7b594:unresolved:pricing_exhibit_belongs_to_contract_family",
+      "qualificationClass": "conflict",
+      "source": "conflict_fixture",
+      "projectId": "03d0d18a-3cc7-4594-83d0-d18a3cc7b594",
+      "projectName": "Conflict fixture: Summit Ridge",
+      "ruleId": "CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING",
+      "rankableActionKinds": [
+        "open_linked_documents",
+        "open_document"
+      ],
+      "transmittedDigest": "f3e703b29f97764d91d2cdd5b35b0cb5518a048a4fb376d18dc718f2ccf52099",
+      "readDigest": "ffd717db20534c1318820a29220038a313468c9c4ef17768ae9de5f0706a13f3",
+      "excluded": null,
+      "checkKeySha256": "bd25501cb44e27ece8de6c1546622a18e23eaa7b8a5589ba44928f9796b6b591"
+    },
+    {
+      "caseId": "finding:7939788c-50fa-460a-99cf-9c15529d9d96",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e61ccba8-993a-46a1-b99a-d2f4fd4a5dc8",
+      "projectName": "B4.6 Golden source qualification",
+      "ruleId": "FINANCIAL_RATE_BASED_ROWS_REQUIRED",
+      "rankableActionKinds": [
+        "open_document",
+        "open_linked_documents"
+      ],
+      "transmittedDigest": "fdd148eec84501d08dba2e0a38c93b4a93115804ffe507f82c2739adc87e460d",
+      "readDigest": "64acf9fd9be5d64b5ec071f477f2854868732e84474f27c4ef59fc0536bcd57c",
+      "excluded": null,
+      "checkKeySha256": "dd2d6533d35f51d44110f70ee98ed5c6e5a2dc2968e2bd88a3779e5cf4449258"
+    },
+    {
+      "caseId": "finding:3086833a-d56e-4f5d-a277-83c432d5a83e",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e61ccba8-993a-46a1-b99a-d2f4fd4a5dc8",
+      "projectName": "B4.6 Golden source qualification",
+      "ruleId": "FINANCIAL_RATE_BASED_UNIT_COVERAGE_INCOMPLETE",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "a37531c47be340782af1659c453331fef30db1ae67a2e859019e827ac99770d6",
+      "readDigest": "bd83e95b23c31ee55f5463db686b57356b96996a004ecbec034b409a13cdddc2",
+      "excluded": null,
+      "checkKeySha256": "bdbe3a2f965b9914be554f46020c4659ec87724829a5123dc9c4b98fea9d3871"
+    },
+    {
+      "caseId": "finding:3abbe8f8-9bbd-4d78-8bda-9fc32b1a1be3",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e61ccba8-993a-46a1-b99a-d2f4fd4a5dc8",
+      "projectName": "B4.6 Golden source qualification",
+      "ruleId": "FINANCIAL_RATE_BASED_PRICING_APPLICABILITY_UNCLEAR",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "ba8469723854b2bacc6a1b24c1bf9930d80d25777c3e3f737c2f1cfc9c248665",
+      "readDigest": "20467efafa76f266e6feabef69f3ce8744a545469dedb57682ce501f62cd91a2",
+      "excluded": null,
+      "checkKeySha256": "522be14178ed02d9e5a78c10e1925f0f945faac0e6011a9692d120534493bc42"
+    },
+    {
+      "caseId": "finding:decision:09e67df4-48e6-468c-b5da-353bc0c85680",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e61ccba8-993a-46a1-b99a-d2f4fd4a5dc8",
+      "projectName": "B4.6 Golden source qualification",
+      "ruleId": "contract_intelligence:derived_value_requires_confirmation",
+      "rankableActionKinds": [],
+      "transmittedDigest": "964f8328da19dbb889e28e7d6e16e1e251fd25fc6031608e310f521d83a1f01e",
+      "readDigest": "636dfd3f69e1f529b4847a67d28431c76bf61755c37f67868f98fc20c2dfc063",
+      "excluded": null,
+      "checkKeySha256": "f00d76c79c0160e55cbe9ebbc9eb41b317180830cd5d7bc108ca73d0bca44139"
+    },
+    {
+      "caseId": "finding:decision:9321b1eb-ae90-4b94-9483-26588895d2d3",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e61ccba8-993a-46a1-b99a-d2f4fd4a5dc8",
+      "projectName": "B4.6 Golden source qualification",
+      "ruleId": "contract_intelligence:pricing_applicability_unclear",
+      "rankableActionKinds": [],
+      "transmittedDigest": "612e8fc0fccdf244ea717c3bfa4de89392fe77cb9df6476bb6752e4aef5f1120",
+      "readDigest": "d726e99ead116684c373f6e02caab41eb3aa8979f05e93818258d73918d1e754",
+      "excluded": null,
+      "checkKeySha256": "171cfa2bcd070dfa93fa2f09c076cd5024c44ceb948f1304dd42c042de3a5c85"
+    },
+    {
+      "caseId": "finding:e8330f45-2367-4f67-8d40-e6276e2b0e57",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e61ccba8-993a-46a1-b99a-d2f4fd4a5dc8",
+      "projectName": "B4.6 Golden source qualification",
+      "ruleId": "CONTRACT_RATE_SCHEDULE_HINT_MISMATCH",
+      "rankableActionKinds": [
+        "open_document",
+        "open_linked_documents"
+      ],
+      "transmittedDigest": "4c5b8c6bfbf4d7c96463812e7adaff33935b4dd4c60ca4494193352611b46990",
+      "readDigest": "be8812adfd3b8d9af6d06964f832955bed47c84b704105ddc01652762330e67c",
+      "excluded": null,
+      "checkKeySha256": "2527bd9d14fe42a2e5b0f2c3523dd29eab1b0e24faa5c9dfa42c4721683e299f"
+    },
+    {
+      "caseId": "finding:6ec5c9e6-eac4-491d-b7f1-185b67735c55",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "8a0d8f18-c5cc-4c0a-b92d-e2e5c2577741",
+      "projectName": "B4.6 Hillsdale source qualification",
+      "ruleId": "SOURCES_NO_CONTRACT",
+      "rankableActionKinds": [
+        "upload_document",
+        "open_linked_documents"
+      ],
+      "transmittedDigest": "d764a052d91da4906f5e038825673113036d5df27de9efda34f427d762f3e179",
+      "readDigest": "a7a2937877f2ee3db8857781f8b47ba0f56a2c88adab0caea6a90b62e5a82e56",
+      "excluded": null,
+      "checkKeySha256": "946fa1ddd1ea9a456d8cbb1a72494431c85ba2c8573cabada52691eaea688a61"
+    },
+    {
+      "caseId": "finding:decision:1757be6d-5acf-46de-8467-7d22037d4ddb",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "8a0d8f18-c5cc-4c0a-b92d-e2e5c2577741",
+      "projectName": "B4.6 Hillsdale source qualification",
+      "ruleId": "contract_contractor_missing",
+      "rankableActionKinds": [],
+      "transmittedDigest": "d6a52824c50b3069ec80281f3d8eca628238691a9d05c0748228d1fed162791a",
+      "readDigest": "eaf97e683179eab81f58d62571e0cf7862e63b8adfdda01f0e91ce3b9638bdf9",
+      "excluded": null,
+      "checkKeySha256": "a604abb6649395e6f4a2f95b1e7994e0f2fd766b4afdd6001bc37fdc1836368f"
+    },
+    {
+      "caseId": "finding:decision:b7abf551-1f3f-4216-b383-063b9b77df67",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "8a0d8f18-c5cc-4c0a-b92d-e2e5c2577741",
+      "projectName": "B4.6 Hillsdale source qualification",
+      "ruleId": "contract_ceiling_missing",
+      "rankableActionKinds": [],
+      "transmittedDigest": "d0cac7b27bd6fefc2749fea90369073c7c43afe534214ea565f09497d566dafa",
+      "readDigest": "5c44525a3a18737d2f7f818316d31238f2779dda6a3598c3e24c08a72065e958",
+      "excluded": null,
+      "checkKeySha256": "fe693cc6bfb48a590095590ab5d01c39d5792964be66bf549ad7eae66efbe9b4"
+    },
+    {
+      "caseId": "finding:decision:f96cb3ae-fc14-470b-bbae-f6c2cc7d73f3",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "885bbb58-5e73-4414-96a7-d4d578257b62",
+      "projectName": "B4.6 DN source qualification",
+      "ruleId": "contract_intelligence:pricing_applicability_unclear",
+      "rankableActionKinds": [],
+      "transmittedDigest": "70ac05b7cc07cece0654a8637627e1095e41af6c3e78646526847bb39258a6af",
+      "readDigest": "93588ce938171acb4bc67c779226c7c5826019c50900a7337e3aae3a6175d05d",
+      "excluded": null,
+      "checkKeySha256": "171cfa2bcd070dfa93fa2f09c076cd5024c44ceb948f1304dd42c042de3a5c85"
+    },
+    {
+      "caseId": "finding:009f3b83-9332-4078-b244-f2b010f8f286",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "TRANSACTION_GROUP_EXISTS_FOR_INVOICE_LINE",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "c98a378fbf3a08077a396d2f405e00fe01f1661ca9ef45d639b6f7dd476cd52e",
+      "readDigest": "0b985ee946a92adeb354eb7ae91537514abfaae7fab250e1fd91f80a3dfcb70f",
+      "excluded": null,
+      "checkKeySha256": "3bd423cd91ce1d53fcd9d0a33b11e38a52d9b7876ed42cd3f87f4a86137c26ec"
+    },
+    {
+      "caseId": "finding:02e2cc3b-ed07-4409-ac55-bacfe9071e4e",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "INVOICE_EXPOSURE_SUPPORTED_AMOUNT_MATCHES_BILLED",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "8dbeb9249ab380c868b54219448fc1944b97bc3945f927f55144d0ea5fad1f99",
+      "readDigest": "2ad7ae0a66634005faa79cb9ad46dc291b56df1a3bc3a2da6f4de8e9ff07a4ae",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "ddaf235e0b65c3fe9af5b5a47afbb2004096fe5655f79034461ded078b133530"
+    },
+    {
+      "caseId": "finding:09d8af74-8e91-4fdc-ae0d-dbff17f120e6",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "TRANSACTION_GROUP_EXISTS_FOR_INVOICE_LINE",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "1b9691c9e01629bc4db7802629b8993747e965e1111859150c7a5eb7afdf2aaf",
+      "readDigest": "072be8b7b3d32f015de135725ffd34a9e1f80876195b6e4119f1cc6e342f35f4",
+      "excluded": null,
+      "checkKeySha256": "be69dd1c1217292e1e5c667c485d859f0a60da1a1b96d1fedfe583edb9366bf2"
+    },
+    {
+      "caseId": "finding:1236d177-6bdc-44cf-be9a-7e5ddf3ae15c",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "INVOICE_EXPOSURE_AT_RISK_AMOUNT_ZERO",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "727816696d1a858abb2c95d5183235ca0fefa5488d976013e9bf7c959e4d9af3",
+      "readDigest": "eec170fd753d9981374d7eecbb9ffe614527ba6415f1fdee50f8f7afeb3bc6e1",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "60ea1791f15e6fca132ffc092b928b696b1427d7aa799937d64621f62373f791"
+    },
+    {
+      "caseId": "finding:15a1306c-184a-4d25-b2c0-e8377e729647",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "CROSS_DOCUMENT_CONTRACT_RATE_EXISTS",
+      "rankableActionKinds": [
+        "link_invoice_line_rate",
+        "open_document"
+      ],
+      "transmittedDigest": "be1881d099c00a7d5f89bdfaadc337ab4b8b53f5c6b6999147e84c0f81807e19",
+      "readDigest": "f7d302fa762fa6befa26c785fc7249d400a0cdc0ee726b409f88c8d0b25e5e4b",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "2e38f21837a5d368f2a6096613d6061bd83c771a103e4c7ba105f3ace608118e"
+    },
+    {
+      "caseId": "finding:18e926de-32ec-4ade-861b-71ceb6e6dbb9",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "TRANSACTION_GROUP_EXISTS_FOR_INVOICE_LINE",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "d379bb9fa265b9d3e9a1547b1774c3e72c6cc91361efe0e99f7843ae2574efff",
+      "readDigest": "ce74ed6c4a90aa91e29e5289c8787df0bba28aa58785024a2b5a9075f39ed524",
+      "excluded": null,
+      "checkKeySha256": "8b518918c26a4c5c4322ff1bc255f82f6731964f450ab9ecfb85f1904f70c979"
+    },
+    {
+      "caseId": "finding:20c16ffc-c044-4576-accd-db3d252a530b",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "INVOICE_EXPOSURE_SUPPORTED_AMOUNT_MATCHES_BILLED",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "02dfad9365302e7a4632ef1f32f3fbd7515319fb7dbfa82c30611dbb6bdd2641",
+      "readDigest": "bc51f28fa4e7a382c9004c4507a3279c73aa656477512e8fd4ad2e8ea9f52949",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "5def4b5dc6253310057bdfc632d9972ad7581f634d09a7b84bf32eabfdb36bd8"
+    },
+    {
+      "caseId": "finding:30c271b6-8194-45b6-95d6-15d730ef71d2",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "TRANSACTION_GROUP_EXISTS_FOR_INVOICE_LINE",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "5c59a8f0b0fea26e2c79399b54067d54684f261bb69b2df2ce2d2efa5b8ead3b",
+      "readDigest": "276c76d158a52f9b2fd03e1f12c7c25ae0470ddfbf49859f8f273ded9c088a88",
+      "excluded": null,
+      "checkKeySha256": "0f1f55490338601bf31d5c24eea51abd0378bffa8eb29d16af00616dd66d6701"
+    },
+    {
+      "caseId": "finding:35557ad9-37d6-413f-bdf4-b1372bfb58b8",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "TRANSACTION_GROUP_EXISTS_FOR_INVOICE_LINE",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "37b32148d552867d8ed62459d044c5670966187aeed11f3e806cf44d6d81659a",
+      "readDigest": "8282de0ba8f64716bdd1143fa439b8f6ccf2b18687bb6f9afb79821abfef5e6c",
+      "excluded": null,
+      "checkKeySha256": "e789514dcc006dbcb160c1405dd752c8e83e4eb0858bc59a408b4955f65d6bc8"
+    },
+    {
+      "caseId": "finding:385bd3a3-b119-465e-9e42-78aa4ad2e03c",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "CROSS_DOCUMENT_CONTRACT_RATE_EXISTS",
+      "rankableActionKinds": [
+        "link_invoice_line_rate",
+        "open_document"
+      ],
+      "transmittedDigest": "d96147133d36ac709aa7ec0aac7f58f3d53df9a5f0adfcd69941cf69a3247a5e",
+      "readDigest": "d24324f97035429c87b153df8a5caa6115bc1b60db177bd02418f60d4c463b0e",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "b2d6c2e3f79d41391c97156974445b887121123c65c510b83ba802e46f897161"
+    },
+    {
+      "caseId": "finding:3c5dba2b-03bb-47a8-b318-95380f1ba0a5",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "PROJECT_EXPOSURE_SUPPORTED_AMOUNT_MATCHES_BILLED",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "f4b75af76912236c520249d68f8269237a222b012a139f5a2b7bb74745caa70f",
+      "readDigest": "aa0bbbab54c15527d9c5dcaff2c6e8e893821156478f914aa9d7cf056b8568bd",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "617ea9a187b06e7587a098e4838d08078e812262cf59032913a75870a864125c"
+    },
+    {
+      "caseId": "finding:3f409901-feea-4dd2-b03f-28409885be26",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "TRANSACTION_GROUP_EXISTS_FOR_INVOICE_LINE",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "242a13d8fdb6d3e97aa04911950436de71c1e79d17bd8173dcfa617980208268",
+      "readDigest": "a76673aae7d5c88f3a3bd7fbe2ad06a56e2c0e225c6357830d7d24979dc9d3c2",
+      "excluded": null,
+      "checkKeySha256": "517cc5e4edd60f934f1a676f0f3cdc61468366be1b35e32d551d438894a7da8a"
+    },
+    {
+      "caseId": "finding:3f5ccc5c-74c8-4cad-b10f-21d86bc08553",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "TRANSACTION_GROUP_EXISTS_FOR_INVOICE_LINE",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "2ca7df873c9da5fe40fdab9cd0ee2f726fd85c51b2b0783f11ed64b2eae9b568",
+      "readDigest": "198d68dbc7da1e5a70ecd1956ad40c90955d547a1d27edb3a183f486192fa2a7",
+      "excluded": null,
+      "checkKeySha256": "6975636d2a7bdcc25b91d13035f8465f4317b0f403cdd99fdc6ff06b407e18a2"
+    },
+    {
+      "caseId": "finding:4edffeca-4688-4cfa-aca1-b822bcdfae72",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "CROSS_DOCUMENT_CONTRACT_RATE_EXISTS",
+      "rankableActionKinds": [
+        "link_invoice_line_rate",
+        "open_document"
+      ],
+      "transmittedDigest": "41660ce48e4deb31efce409c3bfc86faa464b92f1d3f43dacf85f5bb0400bca6",
+      "readDigest": "fe7be0acae6dbcda9bf1b2e51023d783bbaa8b9bdb1269440b8e60e2a36b4edb",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "ea3f96778474085f0e4b0ac8d19933a6dfb36999f1b566dea9680e87d60eeb84"
+    },
+    {
+      "caseId": "finding:537bcd9d-8d9d-4d00-a5f8-647fb8419599",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "INVOICE_EXPOSURE_AT_RISK_AMOUNT_ZERO",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "07a81b1b471c93c0a18d4a26a7def33c6db23f27fab41aae9a557b9b90e841d1",
+      "readDigest": "e8abfee02d4b04ebd4080a44a2a42dc2a4da87f27a837f08f1e5d01b8ba1c11c",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "d974fe98225efa1c8bcf366ba3eea87efc48e0ddc826242e19f49e2e609735bc"
+    },
+    {
+      "caseId": "finding:54b82040-27c4-449f-8f8d-d41b431feca4",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "CROSS_DOCUMENT_CONTRACT_RATE_EXISTS",
+      "rankableActionKinds": [
+        "link_invoice_line_rate",
+        "open_document"
+      ],
+      "transmittedDigest": "86555633bebd2a05d041459a095907294b242106ed8d15a484bd949cb046d6bc",
+      "readDigest": "f1b4be42cd6a1bf2cf8e732b7d769e28893fee4dcd12f7bcd28d11d153539840",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "4ce46e91eb33d1ec60e892c66844595e79f31a0dfa5635f30809c75b45ec7e9e"
+    },
+    {
+      "caseId": "finding:55826058-75bb-4b9f-8b3d-d81f1e352f04",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "FINANCIAL_INVOICE_VENDOR_MATCHES_CONTRACT_CONTRACTOR",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "b9700003918d06d221575b01020f08fc265c04b63935859c5ad75184498b42fb",
+      "readDigest": "1de287fc400739ccb35f7071bc71c7c77405d4540442de9aefa1bd139c0da4f8",
+      "excluded": null,
+      "checkKeySha256": "7c483b0bdb90de687a8e06294348a0fe43ebd6ab346c4cce8393285fa60a774e"
+    },
+    {
+      "caseId": "finding:5b31f9f7-e762-414a-9c3c-4f1829982794",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "CROSS_DOCUMENT_CONTRACT_RATE_EXISTS",
+      "rankableActionKinds": [
+        "link_invoice_line_rate",
+        "open_document"
+      ],
+      "transmittedDigest": "c61e1dd1d2a29a078dacc2340f88677183b55ed6902328f4d3c4879adb5446b5",
+      "readDigest": "908fa5eeec4b0bb35cfb17d0cf2f63f95279f5e21980dff90d7829d3d3dbcc6d",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "8fb6d5ea94a0edfdcaae0625a1b05c9147b255fc77551b4bf38814d926a9b150"
+    },
+    {
+      "caseId": "finding:62b940b4-e8af-4799-a4b2-20b4c1c82a9b",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "FINANCIAL_INVOICE_VENDOR_MATCHES_CONTRACT_CONTRACTOR",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "77c1e7e108e3a7edcef3e2861f5a5a7af4a27fc6df25a508647ed1cdd108d77d",
+      "readDigest": "6c1785ccc5118aac150ed1f2bdea264d433c67955fc8861cb2a466cbcedd862f",
+      "excluded": null,
+      "checkKeySha256": "3239cb66c08e486805526542e1c0d084642d3c5729352f9000b60749b5e91a8c"
+    },
+    {
+      "caseId": "finding:66b53b7f-fef3-4eed-ae64-8f1465784c2c",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "FINANCIAL_INVOICE_VENDOR_MATCHES_CONTRACT_CONTRACTOR",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "4445953cd4c92713d33f3447026c83400e4b09842c65a9b2c7f02c5538a6839d",
+      "readDigest": "fcfa311b64b75aa4589ebbe152c7f880f3f31d885e0bd5c0804906c2a68d4c14",
+      "excluded": null,
+      "checkKeySha256": "4572c2348f2aa04f83784fc675713b7b33d76123c68211a263679673c8919041"
+    },
+    {
+      "caseId": "finding:6aa94ce4-4d7a-48bc-a53a-0293582467de",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "INVOICE_LINE_REQUIRES_BILLING_KEY",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "c3afd524c13a3936d2c10e23add9c284df0576d76a17a80d3b0ebe059ffddc84",
+      "readDigest": "3969a1e6922967518b04c5f65b40280650d0cb117f2f872fbb85ae963bd55a6a",
+      "excluded": null,
+      "checkKeySha256": "50b2595611e31f8743320a529f6bed086726df2aa3bbae58845fab7b31884fb9"
+    },
+    {
+      "caseId": "finding:6c39518c-b2dd-4d7b-b65c-979abd82332c",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "PROJECT_EXPOSURE_AT_RISK_AMOUNT_ZERO",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "459feeccd9ac4312301909d1f48c7054c4c3e15cf96cbef2f6248c9b0a108dba",
+      "readDigest": "388611e1d9810ea02e3e2a3d1f666048627f1852ac1b7b1e1f39df5bcdbb4280",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "fbe0341935882c197cded8f68b1f23cf6899a83d4fb8fd8dc7e9c270892a3e8e"
+    },
+    {
+      "caseId": "finding:6d4bc09c-836c-42d5-bd6f-38ef3a2f4b61",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "TRANSACTION_GROUP_EXISTS_FOR_INVOICE_LINE",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "cc5e65cc76ddc99d968888610ffa4ecc5ccced7b449ab9e334a1eec1fa724bc8",
+      "readDigest": "787c97681a98756026786bdd4027c0d7210413fb23c70362b841503665680385",
+      "excluded": null,
+      "checkKeySha256": "5c3ac6b901a94eb35005fe3489405a9c043a03dda7f97ae30878745ab6159703"
+    },
+    {
+      "caseId": "finding:710584bd-1901-41d3-a669-40d9c49b3325",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "TRANSACTION_GROUP_EXISTS_FOR_INVOICE_LINE",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "dd36a574ef1ee6570628ec2597a227e2b897521cbdedeb1e98d1edc4620e7050",
+      "readDigest": "aa8043fdea72752ac06c736f30b10a94889592dee4a025b8398a415b2fda3da1",
+      "excluded": null,
+      "checkKeySha256": "af1929cf2b8335a14ced2fab3279cfd4ee535ce6c8ecb043ec4655f7ca82e312"
+    },
+    {
+      "caseId": "finding:72206f1f-bd6e-4236-b705-b2b2ad7c093a",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "CROSS_DOCUMENT_CONTRACT_RATE_EXISTS",
+      "rankableActionKinds": [
+        "link_invoice_line_rate",
+        "open_document"
+      ],
+      "transmittedDigest": "4b74eb348336afd8ddc33437924160989fa254a17e2395fe7c5e63d4707c2aa3",
+      "readDigest": "becee7ec9c9ce7594ff3e55c612867b73bde19923f9dc1e20a216e7836eb67d4",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "862ca23c12f33e1ccc1b1ad20d6821d04a6d12a99bed48b87a0b47b9e57f3c79"
+    },
+    {
+      "caseId": "finding:72e2486a-7378-4c18-ae12-d92306aca603",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "TRANSACTION_GROUP_EXISTS_FOR_INVOICE_LINE",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "0a2d967237702f83bd143e2d66aa75dd2024677bda16e623214f5f7d936c6b86",
+      "readDigest": "0957fcd6d39ccbea1c5d330a90d1960e7ecf410b9ebbbfdaa45267129055b381",
+      "excluded": null,
+      "checkKeySha256": "5a4665939c8e07668a4475280c9fe20cd21c16631759d2aa9754a87a8f8d45a8"
+    },
+    {
+      "caseId": "finding:743da704-5a3e-4fbb-a629-5fc5c2059a72",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "CROSS_DOCUMENT_CONTRACT_RATE_EXISTS",
+      "rankableActionKinds": [
+        "link_invoice_line_rate",
+        "open_document"
+      ],
+      "transmittedDigest": "69157e3d01a4271c985249639773590f82bbf7b4b1c3c3e9740443492e278085",
+      "readDigest": "f72d040e9b76e9e5698dea296ad47f5c9d44328bef0f29018a25b301fe08598d",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "291da09ca1042886721437ab2c420f8130fcebeea2fe08039eeffa4f124519c7"
+    },
+    {
+      "caseId": "finding:74c99d0e-8e31-42a4-ac5a-332a44e5f31f",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "FINANCIAL_INVOICE_TOTAL_RECONCILES_TO_LINE_ITEMS",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "5ead51d4a917216e12d29d4480112f18f597ff24c7218f7e31500cd0f572ad41",
+      "readDigest": "784ed9c981dcd23edb98b5c76875962f56401cac1839d94fe2dbecefe2e18ce4",
+      "excluded": null,
+      "checkKeySha256": "ce77ed9f2bd62ca5194fa83f3e0b35d9056db0b92d7fc233372c1a6cf7461518"
+    },
+    {
+      "caseId": "finding:757c771b-9c00-435e-8d81-02ae89de14b2",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "CROSS_DOCUMENT_CONTRACT_RATE_EXISTS",
+      "rankableActionKinds": [
+        "link_invoice_line_rate",
+        "open_document"
+      ],
+      "transmittedDigest": "9fd13f219e9afa821eab9d3f4f1c423374910092659ab2f5ff3aebdab9543713",
+      "readDigest": "a03cea3487a2c3ea167d4a002c7f56e791e078e1a7bd1be4de633a2e863f5a1e",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "93f7bed8ab54f6089d1119faed36ab2d90ca179ddccdb609215c84563c6ab761"
+    },
+    {
+      "caseId": "finding:7a033451-57b3-45ba-b9f5-1eec44ddd6ed",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "FINANCIAL_INVOICE_TOTAL_RECONCILES_TO_LINE_ITEMS",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "17ccb7ddf7b739cc36feb8618d298c31d028fa1e4daee4f376967d1229554733",
+      "readDigest": "befa33ea82a2e2183052efeeec95d03dcc1933032745d43699c48039eef14ad5",
+      "excluded": null,
+      "checkKeySha256": "84ac194d68d83fdf4873f232075e0f1a53788b51270e03a426fca79958930f7b"
+    },
+    {
+      "caseId": "finding:82cb8190-9a35-481e-bae0-b0b5696f4440",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "FINANCIAL_INVOICE_VENDOR_MATCHES_CONTRACT_CONTRACTOR",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "e39ccc23140ef9b8885f28c20ca24ccc46ea05a4cec06dc0400b8fc95317bf50",
+      "readDigest": "992d22fffd55eafa7df2dd3300840abefecce7ff5ddcbe2ec98ffcd96d7e4dd9",
+      "excluded": null,
+      "checkKeySha256": "203f5e8c41e5416ee96e5f7689b75fedff2ab6b0530217b923daeb7fd9a9aba4"
+    },
+    {
+      "caseId": "finding:84bcc460-7edf-414e-914f-8efc5b721e5e",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "TRANSACTION_GROUP_EXISTS_FOR_INVOICE_LINE",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "4d0de608e17cfbe6603f6e44f9e84bdf176119ee8a338831ecf8fe7c7776aa05",
+      "readDigest": "f94e4a16dd053952fcf4da1256906327b3756ab370a1fc5dee95a1c599cd9bb4",
+      "excluded": null,
+      "checkKeySha256": "c27cf122b08c6967064b9d82f2373f790db3ee342058ec4b4d3abd36c7dccd7e"
+    },
+    {
+      "caseId": "finding:87b2648f-e2fd-4c3f-a7e8-4579f44bf9dc",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "INVOICE_EXPOSURE_AT_RISK_AMOUNT_ZERO",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "920d2dbd19e49c799ec19583a2112e21e2f8d599b1fc84cfd83bbaeccf66d7f2",
+      "readDigest": "7d56680865b54cd3964514b0f7cd45907e1645d38fcc0e1a0c063bc0f989c1e7",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "3efc4c6fc580cf8b3d866f54aa6f2b3db5f1eefd7d1841820dd0ca80c4ec5ee0"
+    },
+    {
+      "caseId": "finding:888ea04f-15b3-4c34-9556-ddc0010cae1e",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "CROSS_DOCUMENT_CONTRACT_RATE_EXISTS",
+      "rankableActionKinds": [
+        "link_invoice_line_rate",
+        "open_document"
+      ],
+      "transmittedDigest": "e94fc57e53f3ecc5222b94680bcf191cdb7838f4ec70c04a69bbfbcd987aa076",
+      "readDigest": "03c2783460f2f2854cc7145d1c227cf8ce90e4b594f346ede735a357f4c16f16",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "09544068e5c6e8106c7e26486266fddcf652a3395f678705ef34375c25ce3522"
+    },
+    {
+      "caseId": "finding:89e31138-f7ee-4a10-b1f0-eb0af0b38a03",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "CROSS_DOCUMENT_CONTRACT_RATE_EXISTS",
+      "rankableActionKinds": [
+        "link_invoice_line_rate",
+        "open_document"
+      ],
+      "transmittedDigest": "a74ea02c5f08c68a849847fec483db7d86e92213701c1d8600f0b1f3de543428",
+      "readDigest": "cf627d4d944c0c4baea5113134cc5f6288d87b129d140b52a040f53c58077140",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "d8cbcf488c448e0e341ee16a866982751df3f1659e3fd4dfe67c3c4d78cc87ba"
+    },
+    {
+      "caseId": "finding:8b825139-2a4b-4968-bd36-843646fde73c",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "CROSS_DOCUMENT_CONTRACT_RATE_EXISTS",
+      "rankableActionKinds": [
+        "link_invoice_line_rate",
+        "open_document"
+      ],
+      "transmittedDigest": "584e0fc9487278a524748dbf1f650d56312b18e601551f748b57c25b9c091fa4",
+      "readDigest": "5e9face633aeaf6a757af4c68f8f6685270b8fe269cc3eedc58f09a5f3517399",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "3ecd204fef14436fc2ee8720bf92ab3ac8378065733707bff4f3b5a9d4ffbe3f"
+    },
+    {
+      "caseId": "finding:94360a3f-af7b-4986-b78b-94b02645a0c7",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "FINANCIAL_INVOICE_VENDOR_MATCHES_CONTRACT_CONTRACTOR",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "ad18d8119fff411322b7679eaf7398b4e2c96cb2ef202e0ee3507e0082f74a48",
+      "readDigest": "a9b5e254540e369367c9b7711081d6875f964ca0a7f5c55e2e8c00dfdc59372c",
+      "excluded": null,
+      "checkKeySha256": "567952a7f8ff2bb6dc29c865ede8169fe91e87579a1fdd17763337b8eb5e646a"
+    },
+    {
+      "caseId": "finding:94d55780-10eb-4b85-9a9f-ca24854d29d9",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "FINANCIAL_INVOICE_CLIENT_MATCHES_CONTRACT_CLIENT",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "007e179eb718fdb621c89a0a3ea50b8a37f796c616c23e6b94a5533ec3251046",
+      "readDigest": "734903c18a55ea5f6cf09d3117b941d3163e5e6fe522d5a0f451f8235f0cad9f",
+      "excluded": null,
+      "checkKeySha256": "595f2a85ee997a5480d3f4a3864af6688076100b60ff10809c2a7e63f714ee8f"
+    },
+    {
+      "caseId": "finding:9836765a-cba4-438c-94ab-78697260c016",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "FINANCIAL_INVOICE_LINE_CODE_EXISTS_IN_CONTRACT",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "4386f343489f0c33922e52d190e0f76c1486909a46ea07c5cdd71d8cee341da3",
+      "readDigest": "7b7622c9acc88d66511e61b67ece94a86732ed08955644a7ed79ba42323bf3ee",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "dd60b8ea650bd9f33f075fc197ef8b2b7d1e96bf87c2b5de1dad497730c30cd8"
+    },
+    {
+      "caseId": "finding:99abf1f2-145f-4264-a0c4-37c9a77c4a96",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "CROSS_DOCUMENT_CONTRACT_RATE_EXISTS",
+      "rankableActionKinds": [
+        "link_invoice_line_rate",
+        "open_document"
+      ],
+      "transmittedDigest": "4056f349e6471070bac4c26d449bf96fdaaade6543f92e9fd6df8ff61e060e8a",
+      "readDigest": "0c9f3cf048653df89ff06f499fae6f22291f894877f1d76c024bd55bb33a03f0",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "81747d9004212102e0860f9527b7f12942673895bff45267b52f6cf8778273e8"
+    },
+    {
+      "caseId": "finding:99f25023-ef5c-47bc-bef3-8daa3921a55e",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "INVOICE_EXPOSURE_AT_RISK_AMOUNT_ZERO",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "5b51e02dc2f933ee05d7cea9c79009a7176aa0a29aceee4cce952f0ff6dd9979",
+      "readDigest": "739b75de55fbc2ab1971693a3bbf3e25c747537f8ec49a0229ff0102d33931d1",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "39d17d6aa909a359cce08be5fd3726323cc9097fc6777d66dc0fb1523b220407"
+    },
+    {
+      "caseId": "finding:a06eafbe-e322-451f-8b17-0084c4f17982",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "INVOICE_EXPOSURE_AT_RISK_AMOUNT_ZERO",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "868a59b2520ac5395a2904138e62f2790ec37c1ff968c742b09cda902be473cd",
+      "readDigest": "8952088dafdeb991f3e05aa8bf84e4081595fcbf102afd74f5ae04bbd56b4a55",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "eb1b6c346f3d8718aba848349273f6fa7d42778cfe68c3b66eb8b5ef4b2d1d69"
+    },
+    {
+      "caseId": "finding:a249c82d-3911-45f1-b2bb-67e498ba9112",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "CROSS_DOCUMENT_CONTRACT_RATE_EXISTS",
+      "rankableActionKinds": [
+        "link_invoice_line_rate",
+        "open_document"
+      ],
+      "transmittedDigest": "e1af94ee753a41f78341fe04b583827f89403cd549f96ec158e075a5428d8eb9",
+      "readDigest": "45e0bd0afd9c0c29c80c4c2e9b07759fce1007064410beb0d4532b9ba4180316",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "161faf90d4ec1c2bff043f0103d4adc2fdef13cd0108b89c058dcf4add4d741f"
+    },
+    {
+      "caseId": "finding:a5c9eba4-0013-4f15-abf6-6bf9e7231637",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "INVOICE_EXPOSURE_SUPPORTED_AMOUNT_MATCHES_BILLED",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "a876277c4ceeba73a13cf5b24a3be99c7617b993c2303c5249e2f4a195b9aa93",
+      "readDigest": "78278d60799197f5eaff8f6798e9ecf79bbf48e9fbb4e64c9bd3079eca39ed98",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "656788b715970ad42dfce16e5a438a8b7b07d77cde82305f8bc9ca5afb08bc0c"
+    },
+    {
+      "caseId": "finding:a691b3ab-f97d-4324-81af-c53e8acef328",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "INVOICE_LINE_REQUIRES_BILLING_KEY",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "879a45eb00feb0eb130adcf1138e4c0c7a4aace9025494499ae1d8b2076a7353",
+      "readDigest": "4327f6fdde020203b5086d105885334dc6f78b688c954ad906016fd59106c3e9",
+      "excluded": null,
+      "checkKeySha256": "aee3ef85cbb946d562e13ef7ab9eb7c609209a58b40bd119738ca6de47b8fd9c"
+    },
+    {
+      "caseId": "finding:a7df1566-2391-4388-b6af-6be131860746",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "FINANCIAL_INVOICE_TOTAL_RECONCILES_TO_LINE_ITEMS",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "c412504e46c0b106baf477a8f5d244e89f25012e89c18c84210bc200a835d8ab",
+      "readDigest": "db06910aa3a3ea7a705086a73b6a7ab2685953406787993fb7d8364455ecf8bf",
+      "excluded": null,
+      "checkKeySha256": "828f2e2327bdc8985bba6f34d92bd6ecb9fe4f0dc0a33caa6e0da49a4263489f"
+    },
+    {
+      "caseId": "finding:ab3b20db-bf32-43bb-8a3c-a039364c78e2",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "TRANSACTION_GROUP_EXISTS_FOR_INVOICE_LINE",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "1cbace2e5f01584c5e0b592f990fa69bdebc7491fb70acbdb5cd808375bc440e",
+      "readDigest": "3fe69dbff375c867a546f86d98e4f038adbd74c6b29248c5021c5233bb03437f",
+      "excluded": null,
+      "checkKeySha256": "a53a077b8c1f86ff0a05971bb493464354c2369227eeac21663a7eefb4aab809"
+    },
+    {
+      "caseId": "finding:b03ae8eb-d5db-4bcd-bf5e-e88426faf52d",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "FINANCIAL_INVOICE_CLIENT_MATCHES_CONTRACT_CLIENT",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "008f7c60c774d0b6849296d0b70383e84605a1310aaff3dcabd370b2337d586a",
+      "readDigest": "df673393c753b6e470c18ba085ec61a879ee4200afc918b9f9bc733b7bc410e7",
+      "excluded": null,
+      "checkKeySha256": "e57d209fa91f0ee5d3c49759cf7c5c7af6d7665df303c64049d9dfe38c106a13"
+    },
+    {
+      "caseId": "finding:b2bfa410-1df8-4faf-bd1d-4c8bebce4866",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "INVOICE_EXPOSURE_SUPPORTED_AMOUNT_MATCHES_BILLED",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "97ecbf6637ac8ab3351fb3074fa10090b38abccac338b56868bc6a856568ca0f",
+      "readDigest": "295cb69eee001d8193198b2f94f6590b222cde9a05b5891d8b57e0b7f97fdd3c",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "7bb3836d018447c379e828b1a3a2da8d4e8145732bd5170b4530ddfeff931d8d"
+    },
+    {
+      "caseId": "finding:b368bf0e-d390-491f-a462-dda7f989287a",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "CROSS_DOCUMENT_CONTRACT_RATE_EXISTS",
+      "rankableActionKinds": [
+        "link_invoice_line_rate",
+        "open_document"
+      ],
+      "transmittedDigest": "36b853ce5ce72eb2be1c86a04b3cba4bf73fd1f7d510202be8a955c18a864b54",
+      "readDigest": "96f873f55d3d4994c42c0b2df2b0f81768b117ee5234f19ed5a73596d4a1fc84",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "04752b3c760f4b0842b3660e403b25b46ae81daa5c8e3e8f675a4d3940f83ba9"
+    },
+    {
+      "caseId": "finding:b560aa7c-afe3-4516-8cc0-164d1612364f",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "TRANSACTION_GROUP_EXISTS_FOR_INVOICE_LINE",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "53382b891532f5747860ef5862d0fc55337dfba1a43919c6d8d1fc533d0bd80b",
+      "readDigest": "f13c17f1d2ee234d547620834fa1126057911309e32828b5e1a20eb3c47e044f",
+      "excluded": null,
+      "checkKeySha256": "792362cf68dda471eddd58f7df49ed18552cfd02b2a303e6847f203dffd6bf66"
+    },
+    {
+      "caseId": "finding:baf7bd1d-f819-4e9d-b669-c7fa845e7c36",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "CROSS_DOCUMENT_CONTRACT_RATE_EXISTS",
+      "rankableActionKinds": [
+        "link_invoice_line_rate",
+        "open_document"
+      ],
+      "transmittedDigest": "99598a4cf5a35fdd3354ab1a01d3a7728cbce551a9159988db0b5b48a3ddeff5",
+      "readDigest": "741dd0edddb510ecefb198e39276488e2238da82ca0990b2c2dfdbc129fd47f8",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "dab4605e4d7261df2402e32e5c53801dfca1028e2e6376ad697743d76b936123"
+    },
+    {
+      "caseId": "finding:c33af05d-57c3-4818-a2da-baf7ba831aff",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "TRANSACTION_GROUP_EXISTS_FOR_INVOICE_LINE",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "f89fc11f916b52729492f40c26354a521075242e70bc92b44b978bf9494ebf8a",
+      "readDigest": "f83a2b157730273ffe51d5b434a3842cc6fc7aa4a447f7772df961f768c605b7",
+      "excluded": null,
+      "checkKeySha256": "2b71b916bba9fb1d7bf468e1cf827633279a29b2bef05ebd2cc6ff84380cd8da"
+    },
+    {
+      "caseId": "finding:c53305f9-26fe-40fd-82a4-944303d732fc",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "CROSS_DOCUMENT_CONTRACT_RATE_EXISTS",
+      "rankableActionKinds": [
+        "link_invoice_line_rate",
+        "open_document"
+      ],
+      "transmittedDigest": "8569a1fd4a79b3db23cbe6dbf6a6698c5b43cea2c97ba237a4c57d166154f98b",
+      "readDigest": "3cdcf9418ee8181694d0fafeb00d236e7df83d9a8c13329604f05186061621e4",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "49f152bab3012eb469790bf4478b7962ab7613b33e537bfa1f5949ef65987a21"
+    },
+    {
+      "caseId": "finding:c9ceced7-50d8-4c6e-acde-b6e415123f13",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "INVOICE_EXPOSURE_SUPPORTED_AMOUNT_MATCHES_BILLED",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "34c804750d62fc75a7303f85c62080312f8cba73459f773b9d99922660209383",
+      "readDigest": "446698c217a92f5342ca708c2b85898a4b26893c87e7c98eb2e5aa118f588510",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "a82e9fba9db5916bf27d3a2ac5e6cace5f87148f65e0a25154b54390883c993f"
+    },
+    {
+      "caseId": "finding:d14ae516-6367-4c4b-b490-d25f66fd2fc3",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "CROSS_DOCUMENT_CONTRACT_RATE_EXISTS",
+      "rankableActionKinds": [
+        "link_invoice_line_rate",
+        "open_document"
+      ],
+      "transmittedDigest": "779f4249e942261a6ea344bc4b4d701c2e489ac4eac8e5cdc464b33b322fb8bd",
+      "readDigest": "74596b746386a8d91ab465cdbd448af0e5fe432c58106128238327d977726f04",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "8c4160e3b8d2ad2e3bd6abf6f876991ef9913f580d9610077d87847e4d9cb277"
+    },
+    {
+      "caseId": "finding:d28d0540-3ad2-481d-93ba-47b99f7663cb",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "TRANSACTION_GROUP_EXISTS_FOR_INVOICE_LINE",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "46938f7972e886986cd7755d3742ca8d8ea528e29305b20a0d3d6190cd58e7d5",
+      "readDigest": "b61d4333e0da75dda67a77a4c2d62eea2790fa026ad7fc371b2e9d5c266b6215",
+      "excluded": null,
+      "checkKeySha256": "eec5bcdaad0ade7c197c7d2c1e8b3de26bc1861ddbdd0ef88a8b1dead94ddaf6"
+    },
+    {
+      "caseId": "finding:d3202ef4-8790-4c32-a57c-bb3435491479",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "FINANCIAL_INVOICE_CLIENT_MATCHES_CONTRACT_CLIENT",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "992ee1917e5589c32777058afb03ccc728ed6043301a053c702754205a4d0681",
+      "readDigest": "4c2d230d05365502dfbc9b08488e7fbb83dc43e6516de0ec294b3e9373eaef9b",
+      "excluded": null,
+      "checkKeySha256": "21e67066b59140ae5491aabda0379908376c7910f39e7a46e4813e3be1b31ca9"
+    },
+    {
+      "caseId": "finding:da4ef605-6751-4595-9ed1-afccd0bbe048",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "FINANCIAL_INVOICE_CLIENT_MATCHES_CONTRACT_CLIENT",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "6bacd7fd7388bab8c5215559972b452c239135b0a3df395340e9c398509a7495",
+      "readDigest": "0abec424c61dc7b023446486c69c65b2059f8e9555caa9a1d0bae94f1a771607",
+      "excluded": null,
+      "checkKeySha256": "dfc7807de2774095cedd8ba8a00018f0b84428e3ed521c8e4a910e42b6193848"
+    },
+    {
+      "caseId": "finding:ea62dca6-fda2-4b1d-a890-eaaf192f2f23",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "TRANSACTION_GROUP_EXISTS_FOR_INVOICE_LINE",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "39b178ecae3a605eb7a5e3eb2b1a059c3f28778d240bc67841b0d1464bace1ca",
+      "readDigest": "f57daff4c75c57b96b864ad84d385cd971a3a3056750dd58d041cf60302181f6",
+      "excluded": null,
+      "checkKeySha256": "3935d1f952f2e6bded6213a62fcb4f89486f31acef3cf5b3fcd1cae1af660e43"
+    },
+    {
+      "caseId": "finding:eee05804-80b0-4f03-8ace-5469fa174bd6",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "FINANCIAL_INVOICE_CLIENT_MATCHES_CONTRACT_CLIENT",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "fa68b452189e158372120148065aea7833acb549d7e77efba51b0ca988f545a8",
+      "readDigest": "9365d2e9de30e1b2dd8a0344ba55c078ead904f9712e445f1c18c4399957df04",
+      "excluded": null,
+      "checkKeySha256": "3e0bd435254da1caa1820c2b4f0a882e08e897c2488e661b259a57c76571ea89"
+    },
+    {
+      "caseId": "finding:f187f30c-f0db-404b-b8ad-9ae33066b470",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "TRANSACTION_GROUP_EXISTS_FOR_INVOICE_LINE",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "16e8b3d6e1657cf0bfcd88df3dac67bd5d7535d6b317aee851a6907a0ed14a95",
+      "readDigest": "26add8d01490f3db708f389bbe6b78c674211b1bcf33068e8922f4d1c1f13245",
+      "excluded": null,
+      "checkKeySha256": "f28e3fee718b46635fd76c9d989260916a6f9db0905d56a0fdb71db53946e55a"
+    },
+    {
+      "caseId": "finding:f3900702-d8d0-4a30-acfe-cd7f7b859c7b",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "FINANCIAL_INVOICE_TOTAL_RECONCILES_TO_LINE_ITEMS",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "3e233b7dea835b799b50e74c20b80a24c7f4670e25084b5056e01e31322a5b25",
+      "readDigest": "f6e99a2a2dfb39632940f9e7601d2ec3445d4592cb950d1027ebe5d77b9e0bd1",
+      "excluded": null,
+      "checkKeySha256": "78e628a923fd7131a215a6a0e9dc4567f371b64b70d3c9f4929fcdf57e9fc6eb"
+    },
+    {
+      "caseId": "finding:f4886b1d-da15-41b7-ac95-b7bb1a6a52a0",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "CROSS_DOCUMENT_CONTRACT_RATE_EXISTS",
+      "rankableActionKinds": [
+        "link_invoice_line_rate",
+        "open_document"
+      ],
+      "transmittedDigest": "cbf61cd9715acb98283ad7f569441932faaa563df94dff671c2101c63d970e2f",
+      "readDigest": "ccd9fa24f2f1c758784aa412c96f532d70539e8239fd92c6e049e0a28707ad13",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "c5193f80afd42bf597009f61074779a3701a4cc29cbde7cce2f3d8f7225cdc3c"
+    },
+    {
+      "caseId": "finding:fca817d5-d910-440e-981c-9ba06b905f18",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "TRANSACTION_GROUP_EXISTS_FOR_INVOICE_LINE",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "1e2e5e22d9946a20eceaf2d0ddf88a950f3a515db783129c21a1271128ff299d",
+      "readDigest": "4f6ced97929d59e75a9785ab23c57a19ad972e2bb0603c5824b90b4b4c2d9d51",
+      "excluded": null,
+      "checkKeySha256": "3bfaf36ea0bcc69819491c4560388de5495412af0221d0b995330675dd44ba99"
+    },
+    {
+      "caseId": "finding:fdd00c88-0fa1-4b77-93bb-2f86ef1e63f2",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "TRANSACTION_GROUP_EXISTS_FOR_INVOICE_LINE",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "93b9fdffd3a45ec521d227aaec86b859df540b5aa45e938af86e4daf61ac2171",
+      "readDigest": "cc4d70652ac099bbb43fefa60a9b2f32e8552982805613d9edb43ef9585802c3",
+      "excluded": null,
+      "checkKeySha256": "45857ad2d51bf8b4beceb28aa7956c8b3c12569a361b23f5b9344b1cb0966689"
+    },
+    {
+      "caseId": "finding:28ee7288-c8ae-4740-bbf0-26bb2cb52de4",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "FINANCIAL_RATE_CODE_MISSING",
+      "rankableActionKinds": [
+        "link_invoice_line_rate",
+        "open_document"
+      ],
+      "transmittedDigest": "8b776e433cdb86eae3001045a1e1922d2e700797a6d096a63844adb9c235bc74",
+      "readDigest": "8e5fef99310c077456da91f21537ddbfd07fcd9a5e53d20f1d8d8fbc651f043c",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "b67846983baa147174a2ac3dac5e4df8279e879bac96b1dea0c077e27c547c7e"
+    },
+    {
+      "caseId": "finding:29ddbaa9-ce21-4e0c-942c-9054683641c3",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "FINANCIAL_RATE_CODE_MISSING",
+      "rankableActionKinds": [
+        "link_invoice_line_rate",
+        "open_document"
+      ],
+      "transmittedDigest": "f4f29ea7bf0cd13d394b8d78319dad52b383a41efc17a5dae8c6e06f3caa920c",
+      "readDigest": "b9bef43b8dd26656b4f3a0377b73f62ca773df9e6c4e9535367b565dafd6ae8e",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "967f391d61a0a1b2e0111c8812474516446e294cdfce63befa4a0a1b7b85dee1"
+    },
+    {
+      "caseId": "finding:3549723e-5c9d-46d8-b094-f81a1bd26d17",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "CROSS_DOCUMENT_CATEGORY_NEEDS_REVIEW",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "699510370f0601198edaea5f0028758595f1766ab9e59ea4a8f039ce9cb17f73",
+      "readDigest": "281bd55830b4b10201438fd36e5921dc7318dc2c5baa78408130df383c093c87",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "b509519acca81ffb7ec68992a9526c52ba89f4f46a51443acb4d1764ca899ced"
+    },
+    {
+      "caseId": "finding:4420a235-f983-4c6e-b72b-edec5dc88f86",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "FINANCIAL_RATE_CODE_MISSING",
+      "rankableActionKinds": [
+        "link_invoice_line_rate",
+        "open_document"
+      ],
+      "transmittedDigest": "8dae8d1262e283bdbc7dafc49cf6827ae200d0ed7e736b00259307b240296201",
+      "readDigest": "0ec1cf09106b942f7072ef2db18fca9967f1e8a94e8a7e0493d9fc38c99aa913",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "38ba0c049632e9a910dd93966328952c83fb35f3bf2307fc0646b135a8a524e5"
+    },
+    {
+      "caseId": "finding:5af9cffd-5a1f-4b7f-87dd-aed52916dcf9",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "FINANCIAL_RATE_CODE_MISSING",
+      "rankableActionKinds": [
+        "link_invoice_line_rate",
+        "open_document"
+      ],
+      "transmittedDigest": "77df9466af4cb34a2211670f18ade952366d345946107d69d807093bd241a170",
+      "readDigest": "ac8a14ae0588c6104662900b5c5b97cec00e0eeea20bf03df9a443a295630feb",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "4474ea7ea99ea3152c40084be636ac6e38ec647cc31d86360972bb6ebcb3307b"
+    },
+    {
+      "caseId": "finding:641c2711-2ba0-4d55-bd13-cb6831cc7476",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "FINANCIAL_RATE_CODE_MISSING",
+      "rankableActionKinds": [
+        "link_invoice_line_rate",
+        "open_document"
+      ],
+      "transmittedDigest": "9f2e702a40065856531730b2608a4f941543bf3e8b89f13f91796e3907aeb01c",
+      "readDigest": "b7db9b0b046d243ae728f1331f98c4bae01e11f5e5301f665cf1e17bf47b3e9a",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "17a575c04106058af952a606d495677f58e688648b779af871ee5a357d25f6c4"
+    },
+    {
+      "caseId": "finding:6f16d1a0-df8a-4c71-91b5-417d7646ac28",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "FINANCIAL_RATE_CODE_MISSING",
+      "rankableActionKinds": [
+        "link_invoice_line_rate",
+        "open_document"
+      ],
+      "transmittedDigest": "8191e9205cd58d5065c96d4c56a6d14f8709dddf49adbf56fca996a73a197188",
+      "readDigest": "d5b42668454d1bfced80f3c9bb19d4f747af594c9b528e76a20f3876ce4180ec",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "0dad023c9a81312825086637f0b4d85a448e95092136161e113028856fb71a74"
+    },
+    {
+      "caseId": "finding:7776f825-76c1-40c4-89f7-ddce3c836c07",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "FINANCIAL_RATE_CODE_MISSING",
+      "rankableActionKinds": [
+        "link_invoice_line_rate",
+        "open_document"
+      ],
+      "transmittedDigest": "d1b33f5a58298db5e232b610146cadfd6757ed76ecc1c06663859ff4232e5109",
+      "readDigest": "364935a6fb14d381e6b9d8763a2d54b85b298d8a18b5f45dc8981e55b20abec8",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "cdeba0877050804fe2e786a1037fb3e9f88d195f96597967b67753f195129a98"
+    },
+    {
+      "caseId": "finding:797d64e6-9d34-424a-8540-c6e8e4bd4910",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "FINANCIAL_RATE_CODE_MISSING",
+      "rankableActionKinds": [
+        "link_invoice_line_rate",
+        "open_document"
+      ],
+      "transmittedDigest": "9b74593f92a8b82275a10e27eccaa8e87e70d99e8bc09f1d07febd6db7055a2d",
+      "readDigest": "3b057074f2d57f8aa37ffb18a3c33c97a8dc8b0af25526ed22b368567b2925a1",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "0530e73d96b8c9aa953a1e74124232c302d414708a74d3a8f578916733335e88"
+    },
+    {
+      "caseId": "finding:7e835288-7539-449c-b85a-07bd89a958c8",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "CROSS_DOCUMENT_CATEGORY_NEEDS_REVIEW",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "777b8c0249d0a9e97d0064c93eaaed78479bb18eedee95e5590889cf163d3793",
+      "readDigest": "1d876993a0d4f3167a4151925ef8ca8066278e81f60a578d98ce2b071ffc65bc",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "a705c3e524a97ce7f508f8135d4047a9a6a369b9ba51a1b05dffa9d7af6e9367"
+    },
+    {
+      "caseId": "finding:7eb0a7d4-9bb0-4651-bc50-b27a90ec8eac",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "FINANCIAL_RATE_CODE_MISSING",
+      "rankableActionKinds": [
+        "link_invoice_line_rate",
+        "open_document"
+      ],
+      "transmittedDigest": "9ae1a6e8bb7aa3013cfa4b1901aced5a93fa9d19c8ce18781a459ac93ee15a10",
+      "readDigest": "13916b2225abcd7258a4eb5478c0d999fb817ae4e5da5763b29d1fec786c64bb",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "b2af247e0c7cabed4988ad25460e8f72a42b783caf2110374ed9b4bf6ed139d2"
+    },
+    {
+      "caseId": "finding:89f848ae-e095-47d3-8fd6-ff1d28958db0",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "FINANCIAL_RATE_CODE_MISSING",
+      "rankableActionKinds": [
+        "link_invoice_line_rate",
+        "open_document"
+      ],
+      "transmittedDigest": "0ed09c67fd698eb9eef80fb287bdd14095621bd2d7debc62509ba9063ae5615a",
+      "readDigest": "fc2657d694e51996049400dd879b01dd95eff166178fa74558b6a6428d0f057e",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "e51332feb0df47c1829eb3eff71c671c028cd6548e9546e107d97e657be70718"
+    },
+    {
+      "caseId": "finding:8da6ebeb-56bf-4db4-ac24-3d84268285c4",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "FINANCIAL_RATE_CODE_MISSING",
+      "rankableActionKinds": [
+        "link_invoice_line_rate",
+        "open_document"
+      ],
+      "transmittedDigest": "ef8090920d6d8dde0a155ea9abf6f60574146cc444c4e17b236951f37c75bede",
+      "readDigest": "3de5f140adf2b11adf50d8245033f3662dc4cb944a9416a4fbb413c7df3d0d6c",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "3ac152283e952e58713b8ce443a47dc335e57914bde4708b836272a47bd4bef0"
+    },
+    {
+      "caseId": "finding:907403b7-c750-4c6e-8f09-2d6bc74f7004",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "CROSS_DOCUMENT_CATEGORY_NEEDS_REVIEW",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "0947378ba22d8cef947790987988cfa7e282a6b32d0cba79eff4dfa2df9d62cd",
+      "readDigest": "4998d65d793bb54bccec1e3511f3f627c711f44f80937efa6b4bc31cb4273d9d",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "36c78157b009558a1393460f0a67a62252cc82873874bcc76b994d023479a693"
+    },
+    {
+      "caseId": "finding:90f6ba3a-fd83-47bd-96af-638b1803caa6",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "FINANCIAL_RATE_CODE_MISSING",
+      "rankableActionKinds": [
+        "link_invoice_line_rate",
+        "open_document"
+      ],
+      "transmittedDigest": "6a854246270af45cb10696b2c68f34188200e9365669cc0588aa24901750b892",
+      "readDigest": "80326df989f3ee75218cd14c3a1aa2da93aef5344a0706b4ee3cb86d373f0da8",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "c0247f1ac11f848413b41a8d89af3923951477e70704acea7e345ec7a40c6016"
+    },
+    {
+      "caseId": "finding:9d85e12d-c3fa-455c-ac64-cb5cda2865e9",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "FINANCIAL_RATE_CODE_MISSING",
+      "rankableActionKinds": [
+        "link_invoice_line_rate",
+        "open_document"
+      ],
+      "transmittedDigest": "ad7abedd3f565ddacd3b5aea1b7547fc205ecd32295cca3aa3e3541e57fb4031",
+      "readDigest": "408118be0a5b6277ff3cb833110593b546372ace6da438af93b017c97a0df634",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "d52727ec246c4e1c8d37ebf5b2f98a1a123c4b848b70303979cb404d498452b4"
+    },
+    {
+      "caseId": "finding:c268d2fa-d35d-43d4-ba15-e20a47c5cf5f",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "FINANCIAL_RATE_CODE_MISSING",
+      "rankableActionKinds": [
+        "link_invoice_line_rate",
+        "open_document"
+      ],
+      "transmittedDigest": "fe07b717e68cd08a6474143727fea6303e2268cfe642d25202e169ab7df00d72",
+      "readDigest": "0b0011faf6a0605e57c8804b829cb756c8138e3e73be103943a65450ff33956b",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "d0f6c5df54310ac3c93a0172f45ec6e7fabdd39644a277de5225a66f730326d2"
+    },
+    {
+      "caseId": "finding:c345e468-4a81-45dc-9466-18951b720267",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "FINANCIAL_RATE_CODE_MISSING",
+      "rankableActionKinds": [
+        "link_invoice_line_rate",
+        "open_document"
+      ],
+      "transmittedDigest": "ff83489822f0ebe54b8c2c4c19b9fb1d8ef8c6b90d53ab2b812163520a534cfd",
+      "readDigest": "f4008012b414d85a63259d351b960b8d5afa9f848c52ebd56b6d07534c5301ce",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "e24ba468a0fc5bcefc0ef28646b58ee958ef0d48d822f34f89b5e235cea896e6"
+    },
+    {
+      "caseId": "finding:c642300a-1189-4f1d-a467-1806a2976554",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "FINANCIAL_RATE_CODE_MISSING",
+      "rankableActionKinds": [
+        "link_invoice_line_rate",
+        "open_document"
+      ],
+      "transmittedDigest": "3b9ba2bb59f729293aa57b992d8dd2b2bd47da92b59c85a1b21f2b5eb08de4ce",
+      "readDigest": "68467f74d6a39bf59ff06a491b28f5190f188e0ffcc46bed0417b128490a7e4f",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "96ccddde80522ff05f032ef3a7a36946f85d38aca36b6be3cfa2d58a654df48f"
+    },
+    {
+      "caseId": "finding:cf1d5f2a-b957-4266-ac71-bdf3291d9802",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "CROSS_DOCUMENT_CATEGORY_NEEDS_REVIEW",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "a604bcdd52093c6bcbb4fffd5e00ca497b7e8ea7a9733af8172dc1e960385218",
+      "readDigest": "003a23087a28a42699069e42668aa5b57420578d96fc30770a3aa10bfcfee076",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "0ef447874dcfd059fc1b52bf2e39f40898295852fcdb7e37c7e1fff64c42235a"
+    },
+    {
+      "caseId": "finding:da67de28-c00d-4bec-995b-2b02474322c3",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "FINANCIAL_RATE_CODE_MISSING",
+      "rankableActionKinds": [
+        "link_invoice_line_rate",
+        "open_document"
+      ],
+      "transmittedDigest": "bb2a609c887f31e58c8c35057ff1e0fbe082ba1cca3c87384fe9d3ea51307bc3",
+      "readDigest": "0eb0a0930604506cd76fda54c52cb1e4975d2b2f88f17b955365423af643cd4c",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "b16b2068f98e83f64922a8d064c53c12a2282af27b271e1f61e6c6a1cb2494c1"
+    },
+    {
+      "caseId": "finding:decision:4173e1f6-4119-43b9-977b-4ec6f54f74bb",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "invoice_support_missing",
+      "rankableActionKinds": [],
+      "transmittedDigest": "879ed35ba6648fb93080325eb11495f8ca8cb2ef2630bd9fd80269b85529fd50",
+      "readDigest": "2579118b08bd41fdfc7d8ae421350bf0cc1bb8f5e9782a35c6ee85308c9c3826",
+      "excluded": null,
+      "checkKeySha256": "a59e52092e954b89b3076e96fc4de491d432a21daa835e507d60d079cbe5c112"
+    },
+    {
+      "caseId": "finding:decision:440b9f2e-7481-402c-bb15-296c42188f29",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "invoice_support_missing",
+      "rankableActionKinds": [],
+      "transmittedDigest": "9c5bf4825faa9a2d91d69acc3688ba1d37b694e942387c4236d36869c483504e",
+      "readDigest": "b2403d09f5631835aaa3ea4c7bbfc06923c0831da63c64f6d7134fd0213ac451",
+      "excluded": null,
+      "checkKeySha256": "a59e52092e954b89b3076e96fc4de491d432a21daa835e507d60d079cbe5c112"
+    },
+    {
+      "caseId": "finding:decision:535a8f4c-dad8-4495-961d-3349bbf574ee",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "contract_ceiling_missing",
+      "rankableActionKinds": [],
+      "transmittedDigest": "8d516faf26f07090b59136d3d1de7362d11b3a2f48619261f18ccd4a90c4880b",
+      "readDigest": "2d94ca9ef84486167765f81fa8dd77dd3bc5b3aacf5280c8183341733c9f900c",
+      "excluded": null,
+      "checkKeySha256": "fe693cc6bfb48a590095590ab5d01c39d5792964be66bf549ad7eae66efbe9b4"
+    },
+    {
+      "caseId": "finding:decision:5eb660e7-9094-43b1-9565-e2db59640ae7",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "contract_ceiling_missing",
+      "rankableActionKinds": [],
+      "transmittedDigest": "2049abd5c096f7dbeed2f7d17fd926c0bb404b06c7763842941cbff459ec5769",
+      "readDigest": "00bddfc55d4abcf6c48e8ba8eee367eb0b24665aae3bf22a3d8ecd3e627f9fc4",
+      "excluded": null,
+      "checkKeySha256": "fe693cc6bfb48a590095590ab5d01c39d5792964be66bf549ad7eae66efbe9b4"
+    },
+    {
+      "caseId": "finding:decision:6f3c73df-1ba7-420f-836f-907669566507",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "invoice_support_missing",
+      "rankableActionKinds": [],
+      "transmittedDigest": "3b46ce273bd0bc4043fb32f75e3ff653d7353df37041723b2813ea38067e467b",
+      "readDigest": "fa44530fef1d70d8800e83f018f0ec520482aab00d4de683b1eafd91df7a9850",
+      "excluded": null,
+      "checkKeySha256": "a59e52092e954b89b3076e96fc4de491d432a21daa835e507d60d079cbe5c112"
+    },
+    {
+      "caseId": "finding:decision:bc4777de-604d-4bbf-a5c3-59bc48ab8f2b",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "invoice_support_missing",
+      "rankableActionKinds": [],
+      "transmittedDigest": "72a3601ac99b54821293159519010ae81fd3b049d8f51e3d4e4b63e739d2ddbf",
+      "readDigest": "ae19f07658224c177316385bfcbfdfb83e3b9bafd98bb955f2e2a1772ebef220",
+      "excluded": null,
+      "checkKeySha256": "a59e52092e954b89b3076e96fc4de491d432a21daa835e507d60d079cbe5c112"
+    },
+    {
+      "caseId": "finding:decision:bdd7f137-c456-4686-a56a-aeef2b3f183f",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "contract_ceiling_missing",
+      "rankableActionKinds": [],
+      "transmittedDigest": "f98bcf7eff971631e0ccb8de020b18e82292d2fbcd1de642c869f4b714fdcef3",
+      "readDigest": "9ed969a4f8dddbfe58b51210f3f1e2d4088062221dac9bcd5d9462330e4d22c9",
+      "excluded": null,
+      "checkKeySha256": "fe693cc6bfb48a590095590ab5d01c39d5792964be66bf549ad7eae66efbe9b4"
+    },
+    {
+      "caseId": "finding:decision:e6b2dfda-a1f2-4e7d-9f92-7330133440d7",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "contract_contractor_missing",
+      "rankableActionKinds": [],
+      "transmittedDigest": "0d44721d2058216cd5bc8a398ea5bc7ac589005dc31ee5d14aa4304d84a06313",
+      "readDigest": "608d125c258fd2bb149767528899e1b0ab94ac4adf44a99f0d21ace12643d16d",
+      "excluded": null,
+      "checkKeySha256": "a604abb6649395e6f4a2f95b1e7994e0f2fd766b4afdd6001bc37fdc1836368f"
+    },
+    {
+      "caseId": "finding:decision:e9bd8525-4609-4394-95a9-e2f6aefd7946",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "contract_contractor_missing",
+      "rankableActionKinds": [],
+      "transmittedDigest": "c0e25017ee1fb0e56304324fc94c421f96108e6bd5530b80e1fc906aa401e8c4",
+      "readDigest": "283869bdafd156bc6b8c6886f43c8a6d7a32eab81fa02747ddc49188f79ad9bf",
+      "excluded": null,
+      "checkKeySha256": "a604abb6649395e6f4a2f95b1e7994e0f2fd766b4afdd6001bc37fdc1836368f"
+    },
+    {
+      "caseId": "finding:decision:f2789ada-ba80-464e-add5-5575f1d6c3f3",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "invoice_support_missing",
+      "rankableActionKinds": [],
+      "transmittedDigest": "17d4ac1824d531c725e293392d0ecf97185e9ef744fd592341382b49a3cb0246",
+      "readDigest": "5da55f2b6eaf13d2891e3fc49edead275cf0d1fe0a74697d31bd29d5b789910a",
+      "excluded": null,
+      "checkKeySha256": "a59e52092e954b89b3076e96fc4de491d432a21daa835e507d60d079cbe5c112"
+    },
+    {
+      "caseId": "finding:e47f5e6d-307f-4ea8-849c-66560cb9b1a7",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "CROSS_DOCUMENT_CATEGORY_NEEDS_REVIEW",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "cf89295488fbad498b7f3a6e51698aea0adf3b357062b04f20f4252bc679d07d",
+      "readDigest": "0d8fb5026877552bcbaf844f274a435356530cda61f0192e3a85181105d451d0",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "6b096b43b0423f9d5bccde80141d132766e31be8a9ac4e10d68a6cd3a3686f0e"
+    },
+    {
+      "caseId": "finding:eb3b393a-dd28-49d8-bf0b-e0bae399cd03",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "FINANCIAL_RATE_CODE_MISSING",
+      "rankableActionKinds": [
+        "link_invoice_line_rate",
+        "open_document"
+      ],
+      "transmittedDigest": "20fe191696f2b8521416e624cc93b6b4732d7816ee9b02c6820ff204e66ae30f",
+      "readDigest": "41a67a9e000bef9e3a2f9d14dcb8ff8c1aa73b3ace72ea28ba2b96686d408ca8",
+      "excluded": "duplicate_price_sheet_rate_dependent",
+      "checkKeySha256": "06aee31244b735a9c0c21dda413e1e3b5a2046e53ed9e2f11dc92a9f2d202120"
+    },
+    {
+      "caseId": "finding:aab498c5-7303-4de4-b9a9-126e60a939fe",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "e7185c5f-f532-4886-9022-2e449ced9445",
+      "projectName": "Goodlettsville",
+      "ruleId": "FINANCIAL_NTE_FACT_MISSING",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "a90a69dddb7a92280a029b9d62eb8628b14715f1bceb9035c9310405cfefc54a",
+      "readDigest": "7efe2b3868d0cd7ceb8960f5a2465e77d6e7824bed55d53c2b6e6d25e3a051a1",
+      "excluded": null,
+      "checkKeySha256": "868183c83d8d25249e683e7923d7e831a79f2350be49b30c60575877843c3325"
+    },
+    {
+      "caseId": "finding:b54c1b96-ee89-4c5d-9213-64c94ec40db8",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "aa6a6877-850d-43a2-a753-a9413966f127",
+      "projectName": "Bentonville",
+      "ruleId": "FINANCIAL_RATE_BASED_PRICING_APPLICABILITY_UNCLEAR",
+      "rankableActionKinds": [],
+      "transmittedDigest": "4d0f0d0598578136aacdcbf72a88d34ff545a7bb76c9dc46eab3d021853e173c",
+      "readDigest": "c0570f13dc0b09db771e16fc2767aa0f2bfbce1b9b4ea07347a1437299367a12",
+      "excluded": null,
+      "checkKeySha256": "58e88d42abd667f4ce9c31f41c35f3d37f0a0b3eb4b034ab175606384dc6a8a9"
+    },
+    {
+      "caseId": "finding:decision:16fece30-8628-4d75-8313-0c151b1b8f67",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "aa6a6877-850d-43a2-a753-a9413966f127",
+      "projectName": "Bentonville",
+      "ruleId": "contract_intelligence:documentation_prerequisite_unclear",
+      "rankableActionKinds": [],
+      "transmittedDigest": "246ec8a63d5a07beea2fbccd2eed6bd64d488cbc70b7e5ae052f680ec927b792",
+      "readDigest": "b789ae283d51f2622322a8d64ac69a161b02bb4eb67179141ce826b6c842c41a",
+      "excluded": null,
+      "checkKeySha256": "ea8041a14ecd8e9e068eb72809fbd15a11bf31267fe7bc9d27dc05f94a751eeb"
+    },
+    {
+      "caseId": "finding:decision:3336d895-c66a-4a1a-aa41-070be4ccb710",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "aa6a6877-850d-43a2-a753-a9413966f127",
+      "projectName": "Bentonville",
+      "ruleId": "contract_intelligence:derived_value_requires_confirmation",
+      "rankableActionKinds": [],
+      "transmittedDigest": "d6b07446cf4ebaae0fd8ba76b96baec8d3e2b1afee0b5d573e837fa8206579cb",
+      "readDigest": "5346c09f4848ec3e5d754f1f1042a0fe03d2949f24242fed34e76b78c4fa6b65",
+      "excluded": null,
+      "checkKeySha256": "f00d76c79c0160e55cbe9ebbc9eb41b317180830cd5d7bc108ca73d0bca44139"
+    },
+    {
+      "caseId": "finding:decision:92e90b8d-e899-4c0f-a9ac-50de9b193923",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "aa6a6877-850d-43a2-a753-a9413966f127",
+      "projectName": "Bentonville",
+      "ruleId": "contract_intelligence:conditional_without_trigger_status",
+      "rankableActionKinds": [],
+      "transmittedDigest": "d9d8729eeafe9fde944d4397cba9b71f116f496db099e3159324704170555eb5",
+      "readDigest": "9c482f509ba32514ead8ed1b9e96e062aac6fe15363d304c931072bed2576df6",
+      "excluded": null,
+      "checkKeySha256": "ac62826b69c9e01768a16f3ff0c7bd824d38ecf79f1be7dd1eb3709a1395701d"
+    },
+    {
+      "caseId": "finding:decision:bb264464-a963-4473-953f-3dd36f1b4de8",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "aa6a6877-850d-43a2-a753-a9413966f127",
+      "projectName": "Bentonville",
+      "ruleId": "contract_intelligence:pricing_applicability_unclear",
+      "rankableActionKinds": [],
+      "transmittedDigest": "0fa6ae8dbe9ea1410b8d31b838764de403ba000db508845cba9c3ff1afc6a623",
+      "readDigest": "2606a4f8fab815fae4dc9a90cc0c0ed89687aacfa5fac3d2f8b84247f036ea40",
+      "excluded": null,
+      "checkKeySha256": "171cfa2bcd070dfa93fa2f09c076cd5024c44ceb948f1304dd42c042de3a5c85"
+    },
+    {
+      "caseId": "finding:decision:cf511ac7-097b-4b8b-b860-e9d1e4d6cb84",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "aa6a6877-850d-43a2-a753-a9413966f127",
+      "projectName": "Bentonville",
+      "ruleId": "contract_intelligence:fema_gate_ambiguous",
+      "rankableActionKinds": [],
+      "transmittedDigest": "9c868709b34e3b00fc58be3942a34f69ec063da181299c46ac5069ae8143bb2c",
+      "readDigest": "a16a982df9f2ef6551791b207d65e94c021ad1fade76e31a081977b0f4f2815c",
+      "excluded": null,
+      "checkKeySha256": "4dc9b5fab3060ec937e483da1212b636f9b667141fa73625cfd2444ab2dc490a"
+    },
+    {
+      "caseId": "finding:decision:09c85233-fbc8-4e1a-ab4f-9f2ec22c2190",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "22d51a76-79d8-4026-81bf-d78c0266c489",
+      "projectName": "MVSU",
+      "ruleId": "contract_ceiling_missing",
+      "rankableActionKinds": [],
+      "transmittedDigest": "1334187463f7966cb5ae8e9e2b71a84be449df365ae817c443f2b8d0e3d0cd2e",
+      "readDigest": "34fcc2d1d1d9997956618e61b32999ee237d3bdc42897591cc17c67c91839432",
+      "excluded": null,
+      "checkKeySha256": "fe693cc6bfb48a590095590ab5d01c39d5792964be66bf549ad7eae66efbe9b4"
+    },
+    {
+      "caseId": "finding:decision:2f24277a-a80f-4d5a-ba47-21eb1305a0dd",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "22d51a76-79d8-4026-81bf-d78c0266c489",
+      "projectName": "MVSU",
+      "ruleId": "contract_ceiling_missing",
+      "rankableActionKinds": [],
+      "transmittedDigest": "46257caa68fa6d5507fc834eb7799ae29f346321c5a5a1a95f395c361b7fb33e",
+      "readDigest": "d91d5c4f1db5f0324f788962282c5f7f8b19702fe294244c4cca82c4976e1709",
+      "excluded": null,
+      "checkKeySha256": "fe693cc6bfb48a590095590ab5d01c39d5792964be66bf549ad7eae66efbe9b4"
+    },
+    {
+      "caseId": "finding:decision:633fe718-b6dd-436b-a2cc-fbf2c89b80cf",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "22d51a76-79d8-4026-81bf-d78c0266c489",
+      "projectName": "MVSU",
+      "ruleId": "contract_ceiling_missing",
+      "rankableActionKinds": [],
+      "transmittedDigest": "26e469da44a0f33b6c72c8a5af4f6037efefc418b7f3edbdb54414eac39e69b9",
+      "readDigest": "f4748d0c5c775b28a64eab6d38d342441dd4a0cecbe7fe94d776e166325617ef",
+      "excluded": null,
+      "checkKeySha256": "fe693cc6bfb48a590095590ab5d01c39d5792964be66bf549ad7eae66efbe9b4"
+    },
+    {
+      "caseId": "finding:decision:95d3c244-0bac-4bc1-9da3-ce91b208b6dc",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "22d51a76-79d8-4026-81bf-d78c0266c489",
+      "projectName": "MVSU",
+      "ruleId": "contract_rate_schedule_inference_only",
+      "rankableActionKinds": [],
+      "transmittedDigest": "5e1567b75e7f9dab46c9252e39761ec25184a990fd7514d660e1c55938313326",
+      "readDigest": "9b4a0366b7672556c457f6ce3886bbe40af511e30a893018271ce2a714c8ea25",
+      "excluded": null,
+      "checkKeySha256": "ccebfbb0ae17909fcc0ac1ad13939364612460bc588b6d9f30caf73a8b5970a0"
+    },
+    {
+      "caseId": "finding:decision:c7518510-d053-4cb1-aab5-e7272c7f828c",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "22d51a76-79d8-4026-81bf-d78c0266c489",
+      "projectName": "MVSU",
+      "ruleId": "contract_contractor_missing",
+      "rankableActionKinds": [],
+      "transmittedDigest": "1914b10b77427bab8e6093c5d13bfd0cbb16403879d6564b204e61dfc951752e",
+      "readDigest": "df3ffdade29688305e8d1e2d2a0734a463b9f7aae8447f61bc2ae15f32aa4fec",
+      "excluded": null,
+      "checkKeySha256": "a604abb6649395e6f4a2f95b1e7994e0f2fd766b4afdd6001bc37fdc1836368f"
+    },
+    {
+      "caseId": "finding:decision:d1a67d44-e99a-4436-8f92-d213704121d7",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "22d51a76-79d8-4026-81bf-d78c0266c489",
+      "projectName": "MVSU",
+      "ruleId": "contract_rate_schedule_missing",
+      "rankableActionKinds": [],
+      "transmittedDigest": "becb51eca3480a0c1191baedbb99a145b2660afebb2847c286ed03d416c3e279",
+      "readDigest": "6ebfe197e3fa61ebff7dfb51055f76e671c16debfaf66869fcf8aaaab203a512",
+      "excluded": null,
+      "checkKeySha256": "db02624d2ce0029ce4dd0a7545217411ba405de1eb5fafa91a90b5ff1f40735d"
+    },
+    {
+      "caseId": "finding:64fb6b61-bf88-4440-8003-7e24775bd30d",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "22d51a76-79d8-4026-81bf-d78c0266c489",
+      "projectName": "MVSU",
+      "ruleId": "FINANCIAL_NTE_FACT_MISSING",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "ede0721de22fc8e7607ca7af8dab25c19409fcd04d060aeae25db56d7a74a753",
+      "readDigest": "60484f757c28f4d53dc2328e0849c5176ab9ca6bcb565265180939cee4a829f2",
+      "excluded": null,
+      "checkKeySha256": "cb05d37bfe92392dd7ff3d2f86417ee2ab54dd5243eb906ab5521327531ef9db"
+    },
+    {
+      "caseId": "finding:decision:067f61e9-b495-489c-b790-99d01247fa2d",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "71f60a1b-c06a-4518-aed0-2153c6e720e9",
+      "projectName": "TDOT",
+      "ruleId": "contract_contractor_missing",
+      "rankableActionKinds": [],
+      "transmittedDigest": "67df274b8b2041e610346a89ee9a22804f576a1084dc3cc089ef9372a5b24d74",
+      "readDigest": "61d3e2a854def50b305ee1a84e85a26cf1b0acd607d4da7576b060e7d1072dda",
+      "excluded": null,
+      "checkKeySha256": "a604abb6649395e6f4a2f95b1e7994e0f2fd766b4afdd6001bc37fdc1836368f"
+    },
+    {
+      "caseId": "finding:decision:1ea591de-4275-411c-a046-2a29524480d9",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "71f60a1b-c06a-4518-aed0-2153c6e720e9",
+      "projectName": "TDOT",
+      "ruleId": "contract_ceiling_missing",
+      "rankableActionKinds": [],
+      "transmittedDigest": "499c93b70c9fbea7ed8519c1995f4066fc58035329be97103200e0a1defde528",
+      "readDigest": "843b2d23c3acadeb67cd5a797bbbc1db6889393ecb8bc618098e1cbaa0125904",
+      "excluded": null,
+      "checkKeySha256": "fe693cc6bfb48a590095590ab5d01c39d5792964be66bf549ad7eae66efbe9b4"
+    },
+    {
+      "caseId": "finding:decision:22c7918c-0fee-437f-9d61-98be894d5360",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "71f60a1b-c06a-4518-aed0-2153c6e720e9",
+      "projectName": "TDOT",
+      "ruleId": "contract_rate_schedule_missing",
+      "rankableActionKinds": [],
+      "transmittedDigest": "4b0ed5df2703c55628e2500ad82eb179b35a2a0a3a3ecf4626ca341301b9788b",
+      "readDigest": "793cf2fc55bed5ba4c1e84f41953d68324c14a48fe52ebc3a205d1bbfbe95f5b",
+      "excluded": null,
+      "checkKeySha256": "db02624d2ce0029ce4dd0a7545217411ba405de1eb5fafa91a90b5ff1f40735d"
+    },
+    {
+      "caseId": "finding:decision:3db31877-66ad-48dc-ba49-a5541bf536a4",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "71f60a1b-c06a-4518-aed0-2153c6e720e9",
+      "projectName": "TDOT",
+      "ruleId": "contract_rate_schedule_missing",
+      "rankableActionKinds": [],
+      "transmittedDigest": "20ed4d73682381fc56fb6073a52518fa6b19a42e2ec371d02b01414d83bf17f6",
+      "readDigest": "982d5b6b52bb12b10962b410889a818fe342bc321a5ebf3427d8bb0a14a69b73",
+      "excluded": null,
+      "checkKeySha256": "db02624d2ce0029ce4dd0a7545217411ba405de1eb5fafa91a90b5ff1f40735d"
+    },
+    {
+      "caseId": "finding:decision:58a401ae-e0f5-4c0c-99ea-08577af9cfb1",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "71f60a1b-c06a-4518-aed0-2153c6e720e9",
+      "projectName": "TDOT",
+      "ruleId": "contract_rate_schedule_missing",
+      "rankableActionKinds": [],
+      "transmittedDigest": "104a3fcbb1c7f3fb07d977dc39d55adf5dfd4b36ee955ab6819162cc5836e814",
+      "readDigest": "55d7f9a0b2a8a9a32d76b3d8be234dbf89487727427c9333e151a09dfa127d47",
+      "excluded": null,
+      "checkKeySha256": "db02624d2ce0029ce4dd0a7545217411ba405de1eb5fafa91a90b5ff1f40735d"
+    },
+    {
+      "caseId": "finding:decision:77087f58-96ab-4c93-9c2b-c86573a61453",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "71f60a1b-c06a-4518-aed0-2153c6e720e9",
+      "projectName": "TDOT",
+      "ruleId": "contract_ceiling_missing",
+      "rankableActionKinds": [],
+      "transmittedDigest": "b2d75b6a55668f16178bc28699804a9444c325aec55181a805b79ec152857331",
+      "readDigest": "dc92e424727b32aeea378f3a0694d0981140a0946729967c47bec4c533bf74f4",
+      "excluded": null,
+      "checkKeySha256": "fe693cc6bfb48a590095590ab5d01c39d5792964be66bf549ad7eae66efbe9b4"
+    },
+    {
+      "caseId": "finding:decision:7a7fcd7b-1c60-4d82-bfa9-935d5a97cb81",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "71f60a1b-c06a-4518-aed0-2153c6e720e9",
+      "projectName": "TDOT",
+      "ruleId": "contract_contractor_missing",
+      "rankableActionKinds": [],
+      "transmittedDigest": "dab0e46168968e136e07f40e10c106d2de830d56937cab5af5f84f8d89e41c84",
+      "readDigest": "99e032ccfea3765dab038ef4e2858f13cc0329ab650255b4991a557e4397c22c",
+      "excluded": null,
+      "checkKeySha256": "a604abb6649395e6f4a2f95b1e7994e0f2fd766b4afdd6001bc37fdc1836368f"
+    },
+    {
+      "caseId": "finding:decision:9f8c82b7-d68a-4cd5-8e02-4ee2cc6cfbfc",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "71f60a1b-c06a-4518-aed0-2153c6e720e9",
+      "projectName": "TDOT",
+      "ruleId": "contract_rate_schedule_missing",
+      "rankableActionKinds": [],
+      "transmittedDigest": "d8c5c76790c2d479d53a8e823fd09791f97051d53e8a0966adf42c886fcb461a",
+      "readDigest": "fda10c51cfbb8cad2a2a02f6c86592da75988e7a53abee6d7c70bf1293e5d47e",
+      "excluded": null,
+      "checkKeySha256": "db02624d2ce0029ce4dd0a7545217411ba405de1eb5fafa91a90b5ff1f40735d"
+    },
+    {
+      "caseId": "finding:decision:a3913be7-3f42-4949-a65f-8e275c57bcef",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "71f60a1b-c06a-4518-aed0-2153c6e720e9",
+      "projectName": "TDOT",
+      "ruleId": "contract_contractor_missing",
+      "rankableActionKinds": [],
+      "transmittedDigest": "44d0e353c61f65562c9b0cd95568d18e6c8b50addee3b60edbd5ba0b78440293",
+      "readDigest": "ade04cc4b4f84c1c9c5ccf9e4f77b3ee2a0fc1478ce25495e415dcefb2b39086",
+      "excluded": null,
+      "checkKeySha256": "a604abb6649395e6f4a2f95b1e7994e0f2fd766b4afdd6001bc37fdc1836368f"
+    },
+    {
+      "caseId": "finding:decision:a5d3d75a-5574-4b0e-a55b-da81deb7bb12",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "71f60a1b-c06a-4518-aed0-2153c6e720e9",
+      "projectName": "TDOT",
+      "ruleId": "contract_ceiling_missing",
+      "rankableActionKinds": [],
+      "transmittedDigest": "38fa5769c7ef1c0eccae646b5f060eada316e281757512d769c9ee512cac4a85",
+      "readDigest": "7b3bd5b4c75850fbc3e8247099f4dd9cbe3f50a6d57272dada7cf14e7d55518b",
+      "excluded": null,
+      "checkKeySha256": "fe693cc6bfb48a590095590ab5d01c39d5792964be66bf549ad7eae66efbe9b4"
+    },
+    {
+      "caseId": "finding:decision:d0804837-ef6d-42e8-8d2e-6075c590d0b9",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "71f60a1b-c06a-4518-aed0-2153c6e720e9",
+      "projectName": "TDOT",
+      "ruleId": "contract_ceiling_missing",
+      "rankableActionKinds": [],
+      "transmittedDigest": "5b537e1fcce98d0a305015b9d04604cf577a493847b13913ba4bcea065bd6682",
+      "readDigest": "9d3cdb51d69fc507a466cc2ec77dabacb12ad425e00e321169d63000bb541bb7",
+      "excluded": null,
+      "checkKeySha256": "fe693cc6bfb48a590095590ab5d01c39d5792964be66bf549ad7eae66efbe9b4"
+    },
+    {
+      "caseId": "finding:decision:d2e1205e-de40-409b-859b-0052f10352bc",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "71f60a1b-c06a-4518-aed0-2153c6e720e9",
+      "projectName": "TDOT",
+      "ruleId": "contract_ceiling_missing",
+      "rankableActionKinds": [],
+      "transmittedDigest": "abad06dd48c9937147251cda31688a4e2df69667621c0d6b082d69ec58f7b329",
+      "readDigest": "24f5336337e71bc92e3fb33700eb61423b2e8d1f79e9eced205b6a0f721f031b",
+      "excluded": null,
+      "checkKeySha256": "fe693cc6bfb48a590095590ab5d01c39d5792964be66bf549ad7eae66efbe9b4"
+    },
+    {
+      "caseId": "finding:decision:d7c2a695-60d2-4fd5-a95d-3d1e2601ac29",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "71f60a1b-c06a-4518-aed0-2153c6e720e9",
+      "projectName": "TDOT",
+      "ruleId": "contract_ceiling_missing",
+      "rankableActionKinds": [],
+      "transmittedDigest": "e697c6045fea49d78de62f4726497e051a642e7277047b83a364dbed97b92d8b",
+      "readDigest": "747abaa97c2113fed32655c16857709cbbb025ba91f56b85bdf2dffdd6dbcdda",
+      "excluded": null,
+      "checkKeySha256": "fe693cc6bfb48a590095590ab5d01c39d5792964be66bf549ad7eae66efbe9b4"
+    },
+    {
+      "caseId": "finding:decision:e684436b-eb49-4340-8419-7adedec6331f",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "71f60a1b-c06a-4518-aed0-2153c6e720e9",
+      "projectName": "TDOT",
+      "ruleId": "contract_intelligence:pricing_applicability_unclear",
+      "rankableActionKinds": [],
+      "transmittedDigest": "52b43a963035a47809fa8166a17026f9dc8326b41cc81d980bca44cb9b19a0ec",
+      "readDigest": "e5b4f3360ff588faafafd6331e8112c3f3c6c6f2e9b17585cbbca93dcee0c82b",
+      "excluded": null,
+      "checkKeySha256": "171cfa2bcd070dfa93fa2f09c076cd5024c44ceb948f1304dd42c042de3a5c85"
+    },
+    {
+      "caseId": "finding:decision:e6d3611f-f984-45b9-bfc7-8ca04f8294df",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "71f60a1b-c06a-4518-aed0-2153c6e720e9",
+      "projectName": "TDOT",
+      "ruleId": "contract_ceiling_missing",
+      "rankableActionKinds": [],
+      "transmittedDigest": "17475e78d8eb40e672f1415115b3c5eb3fbb004c66a5171552176fba60b500e5",
+      "readDigest": "38cb35090f60990a5b4a7b4f486b80d5fca9978039ef546f77cf9b2849c8516c",
+      "excluded": null,
+      "checkKeySha256": "fe693cc6bfb48a590095590ab5d01c39d5792964be66bf549ad7eae66efbe9b4"
+    },
+    {
+      "caseId": "finding:38d9f2d3-69d9-4e95-9572-237ea5cf476a",
+      "qualificationClass": "validator_failure",
+      "source": "production",
+      "projectId": "71f60a1b-c06a-4518-aed0-2153c6e720e9",
+      "projectName": "TDOT",
+      "ruleId": "FINANCIAL_NTE_FACT_MISSING",
+      "rankableActionKinds": [
+        "open_document"
+      ],
+      "transmittedDigest": "86465fb1d6f85581fd02cef877266b31d301226243fbe54e8f24e06ef4e0d969",
+      "readDigest": "5c975e39c5e547bc123f9a08950e26b06c77ca715cd403d2c10b59fa3486735b",
+      "excluded": null,
+      "checkKeySha256": "32931522ca3a633ef15d24276e6c63151d7ee30287d67d58d60f985cc5adec09"
+    }
+  ]
+}

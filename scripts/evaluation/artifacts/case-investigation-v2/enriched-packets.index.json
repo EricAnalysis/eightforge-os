@@ -1,0 +1,1784 @@
+[
+ {
+  "caseRef": "C004",
+  "caseId": "finding:TRANSACTION_TICKET_GRAIN_CONFLICT:ticket:13c81cf3-adfa-4cdd-83c8-1cf3adfaecdd:CC-2003:quantity:transaction_quantity",
+  "transmittedDigest": "7d6160e41c7924a1fd7b6fb1e3d7e0341781cb914908b2b5fb1d42e0892a9f1a",
+  "packetSha256": "7d9ac41614f478c3af34000ef0f66a1560629546d33f541d508786b5d6ba5158",
+  "sources": [
+   {
+    "kind": "fixture_source_rows"
+   }
+  ]
+ },
+ {
+  "caseRef": "C010",
+  "caseId": "finding:TRANSACTION_TICKET_GRAIN_CONFLICT:ticket:c579529e-70d6-4e84-8579-529e70d6ae84:LK-3001:quantity:transaction_quantity",
+  "transmittedDigest": "18f2dc962fc3190b7d94a7d3a62587e38968c259b6eba7b0f6c7936caec36424",
+  "packetSha256": "304e5153cc981fc4dfbd312f1f9de9f2883413737794cf2d9ecf5f48d2631f7d",
+  "sources": [
+   {
+    "kind": "fixture_source_rows"
+   }
+  ]
+ },
+ {
+  "caseRef": "C015",
+  "caseId": "finding:TRANSACTION_TICKET_GRAIN_CONFLICT:ticket:dbf71553-a8f8-437d-8bf7-1553a8f8637d:OK-5001:extendedCost:extended_cost",
+  "transmittedDigest": "514b27c877c00d975f2f32304e25f7bc3335ed62a6fe34cd422566382e2fd302",
+  "packetSha256": "4059e768b5a171d8c290b7ab7c0a2fcf249a9c0b29ca888bc14507e082d15449",
+  "sources": [
+   {
+    "kind": "fixture_source_rows"
+   }
+  ]
+ },
+ {
+  "caseRef": "C018",
+  "caseId": "finding:TRANSACTION_TICKET_GRAIN_CONFLICT:ticket:288331d2-b828-4d4c-8883-31d2b8286d4c:TKT-1001:quantity:transaction_quantity",
+  "transmittedDigest": "dbaded4b9b304834fe2c8762ae68da2fff687000ce49903b5b09cfcff7128a2f",
+  "packetSha256": "13dcbbced69b7fe3666d68683d3f4d4ffd365a332aaff0268ed106218e8cac87",
+  "sources": [
+   {
+    "kind": "fixture_source_rows"
+   }
+  ]
+ },
+ {
+  "caseRef": "C019",
+  "caseId": "finding:TRANSACTION_TICKET_GRAIN_CONFLICT:ticket:288331d2-b828-4d4c-8883-31d2b8286d4c:TKT-1002:extendedCost:extended_cost",
+  "transmittedDigest": "1a6e372522a85a195d43da6d06b7e59171e1c76bb0e0980cd5ccb6c8d4d5dbec",
+  "packetSha256": "4bd6981f779ffc63e1e86af97853b2659fe78226a95620aded216ac2cb9ca5d9",
+  "sources": [
+   {
+    "kind": "fixture_source_rows"
+   }
+  ]
+ },
+ {
+  "caseRef": "C031",
+  "caseId": "finding:decision:f96cb3ae-fc14-470b-bbae-f6c2cc7d73f3",
+  "transmittedDigest": "70ac05b7cc07cece0654a8637627e1095e41af6c3e78646526847bb39258a6af",
+  "packetSha256": "dc176a08744bbbc2cbd558480900ed5554698514bdbfbf390796939c0c02ddbf",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "257883ae-9fbf-4920-8f15-8410c387ffa2",
+    "citedPage": null,
+    "termHits": 100,
+    "excerptPages": [
+     2,
+     3,
+     6,
+     6,
+     6
+    ],
+    "excerptSha256": [
+     "5765ff83353c4d0694f89c7e370e590432e532bf6a42d19e45d986231a97938e",
+     "04057c3463e102ffe9226fb6e2f40363e406fa35cfb8204b82308cdbef44b200",
+     "58d90246a2e96efca095767dbb29821899d8f11f755cafae3413dcc787cbcc40",
+     "00a06053ed73879046c953a9baaa5005da1e7745c7fc5846b8d47f5498980c15",
+     "2fafbc0376bf16aa20e4e99fd8bf5a6c1c505f2cff5b9df3589715981e5f3a2a"
+    ],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C032",
+  "caseId": "finding:e8330f45-2367-4f67-8d40-e6276e2b0e57",
+  "transmittedDigest": "4c5b8c6bfbf4d7c96463812e7adaff33935b4dd4c60ca4494193352611b46990",
+  "packetSha256": "e893c3659c03c69ebe66f6e54a2024758f5504d06b292ab7de5efbaca6b3f7fc",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "c8b779f2-0084-4f5e-b587-c96fe44c7bd9",
+    "citedPage": null,
+    "termHits": 15,
+    "excerptPages": [
+     3,
+     3,
+     3,
+     4,
+     5
+    ],
+    "excerptSha256": [
+     "c63d606b4c63f375eb10050594a3e47c9429001e59f6efd7eac79ffdb61e62fa",
+     "4429f00ac4ff6245acc818e69ebed66c2978ef6ea1a00edd9b8af6c9f9f080b5",
+     "c0bdfa4ea6d8b1a4d32b164b991556b1e6e14041466740f396328d4e5105a6ad",
+     "01bcd2ed8fdf765f95e46d23fe32ac988bd5ca0547b4a4ec0908dfffa13c55da",
+     "b984c0a1c535e23102647f9ee0959916f598d29d1fa9d914213150261e084eab"
+    ],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C033",
+  "caseId": "finding:3abbe8f8-9bbd-4d78-8bda-9fc32b1a1be3",
+  "transmittedDigest": "ba8469723854b2bacc6a1b24c1bf9930d80d25777c3e3f737c2f1cfc9c248665",
+  "packetSha256": "ec8d171c31afc84c9c44efb696f7cc41d5c98591ca0e1a715d9e135d81ac1928",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "c8b779f2-0084-4f5e-b587-c96fe44c7bd9",
+    "citedPage": 8,
+    "termHits": 4,
+    "excerptPages": [
+     8,
+     8,
+     8,
+     8
+    ],
+    "excerptSha256": [
+     "eeb6c9b769e619353c04dd2dd77e2c9af6d6ba6eb6f3a331925b32aae22b91c4",
+     "fab58e8e9d829d7c130faa61234a43e2c1effd519f504100cc900f740000c98f",
+     "84061c05552cc9a5683a4b7c78c19f6368a222e9f978eaf7cca0446ad8050bd7",
+     "3e3d63485f449900a5280eb12ec2066ad31c36f7c54a5e64fa4deeac2061e46f"
+    ],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C034",
+  "caseId": "finding:7939788c-50fa-460a-99cf-9c15529d9d96",
+  "transmittedDigest": "fdd148eec84501d08dba2e0a38c93b4a93115804ffe507f82c2739adc87e460d",
+  "packetSha256": "42d7bf5e0acc9ef4a5503347c7e7091df1e89fa0b11eb1652704dc246d8de397",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "c8b779f2-0084-4f5e-b587-c96fe44c7bd9",
+    "citedPage": null,
+    "termHits": 15,
+    "excerptPages": [
+     3,
+     3,
+     3,
+     4,
+     5
+    ],
+    "excerptSha256": [
+     "c63d606b4c63f375eb10050594a3e47c9429001e59f6efd7eac79ffdb61e62fa",
+     "4429f00ac4ff6245acc818e69ebed66c2978ef6ea1a00edd9b8af6c9f9f080b5",
+     "c0bdfa4ea6d8b1a4d32b164b991556b1e6e14041466740f396328d4e5105a6ad",
+     "01bcd2ed8fdf765f95e46d23fe32ac988bd5ca0547b4a4ec0908dfffa13c55da",
+     "b984c0a1c535e23102647f9ee0959916f598d29d1fa9d914213150261e084eab"
+    ],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C035",
+  "caseId": "finding:3086833a-d56e-4f5d-a277-83c432d5a83e",
+  "transmittedDigest": "a37531c47be340782af1659c453331fef30db1ae67a2e859019e827ac99770d6",
+  "packetSha256": "cda41386b5e5062a0932b121b0ef8a6a33b8e94520bcea06e98889d3b7cf0ee5",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "c8b779f2-0084-4f5e-b587-c96fe44c7bd9",
+    "citedPage": null,
+    "termHits": 15,
+    "excerptPages": [
+     3,
+     3,
+     3,
+     4,
+     5
+    ],
+    "excerptSha256": [
+     "c63d606b4c63f375eb10050594a3e47c9429001e59f6efd7eac79ffdb61e62fa",
+     "4429f00ac4ff6245acc818e69ebed66c2978ef6ea1a00edd9b8af6c9f9f080b5",
+     "c0bdfa4ea6d8b1a4d32b164b991556b1e6e14041466740f396328d4e5105a6ad",
+     "01bcd2ed8fdf765f95e46d23fe32ac988bd5ca0547b4a4ec0908dfffa13c55da",
+     "b984c0a1c535e23102647f9ee0959916f598d29d1fa9d914213150261e084eab"
+    ],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C036",
+  "caseId": "finding:decision:09e67df4-48e6-468c-b5da-353bc0c85680",
+  "transmittedDigest": "964f8328da19dbb889e28e7d6e16e1e251fd25fc6031608e310f521d83a1f01e",
+  "packetSha256": "98b59e1c95be244634dddebf3501a7ff2c81e4c8a5ec909c4af597d6416c86fd",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "c8b779f2-0084-4f5e-b587-c96fe44c7bd9",
+    "citedPage": null,
+    "termHits": 37,
+    "excerptPages": [
+     1,
+     1,
+     1,
+     1,
+     2
+    ],
+    "excerptSha256": [
+     "5cf94282b95c5e9477d160b480bda01b2276941771f4e4469e34ef2e1e13bcd9",
+     "def33bd9e872bcb0e4845b969bb659e8ecfed4724c4c988389f1b13e5e8de028",
+     "442dfaf68d6b4f8a1fed4cecb2ca831036031f5c16651f5ea83a384a224bd509",
+     "c8ba70bacc9dc21deee0dc813160a9078a72a04611a470d86c265d510f44cbbf",
+     "19ddc40760dd4e2c4dd43af0054c90fe2e571915056ae3ca4cfe64ebae1b32c3"
+    ],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C037",
+  "caseId": "finding:decision:9321b1eb-ae90-4b94-9483-26588895d2d3",
+  "transmittedDigest": "612e8fc0fccdf244ea717c3bfa4de89392fe77cb9df6476bb6752e4aef5f1120",
+  "packetSha256": "820cf737cae26d89803abb5b9bf7b24f732ff148751f4876e06b3baefe56a20a",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "c8b779f2-0084-4f5e-b587-c96fe44c7bd9",
+    "citedPage": null,
+    "termHits": 15,
+    "excerptPages": [
+     3,
+     3,
+     3,
+     4,
+     5
+    ],
+    "excerptSha256": [
+     "c63d606b4c63f375eb10050594a3e47c9429001e59f6efd7eac79ffdb61e62fa",
+     "4429f00ac4ff6245acc818e69ebed66c2978ef6ea1a00edd9b8af6c9f9f080b5",
+     "c0bdfa4ea6d8b1a4d32b164b991556b1e6e14041466740f396328d4e5105a6ad",
+     "01bcd2ed8fdf765f95e46d23fe32ac988bd5ca0547b4a4ec0908dfffa13c55da",
+     "b984c0a1c535e23102647f9ee0959916f598d29d1fa9d914213150261e084eab"
+    ],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C038",
+  "caseId": "finding:6ec5c9e6-eac4-491d-b7f1-185b67735c55",
+  "transmittedDigest": "d764a052d91da4906f5e038825673113036d5df27de9efda34f427d762f3e179",
+  "packetSha256": "54399bb18f17e7ed2d18b9bf9042756c8bb8a54f230d8a2303b85994733e90ef",
+  "sources": []
+ },
+ {
+  "caseRef": "C039",
+  "caseId": "finding:decision:b7abf551-1f3f-4216-b383-063b9b77df67",
+  "transmittedDigest": "d0cac7b27bd6fefc2749fea90369073c7c43afe534214ea565f09497d566dafa",
+  "packetSha256": "7faaa0eeca001e4963578b50ae7a8b9269dbe888d98a6fd7f94b172f0b0c89ab",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "f75b65b5-74f9-4f1e-a8af-4d0f36d81c4e",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C040",
+  "caseId": "finding:decision:1757be6d-5acf-46de-8467-7d22037d4ddb",
+  "transmittedDigest": "d6a52824c50b3069ec80281f3d8eca628238691a9d05c0748228d1fed162791a",
+  "packetSha256": "f1ead03eb0a4dfad42412e2ca4e70119f1ec33a02637974d0c072528a030cfc5",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "f75b65b5-74f9-4f1e-a8af-4d0f36d81c4e",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C041",
+  "caseId": "finding:b54c1b96-ee89-4c5d-9213-64c94ec40db8",
+  "transmittedDigest": "4d0f0d0598578136aacdcbf72a88d34ff545a7bb76c9dc46eab3d021853e173c",
+  "packetSha256": "ebd5317180a8d659d76302044e58350cd97a545432033ccab2367ae8c75ac305",
+  "sources": []
+ },
+ {
+  "caseRef": "C042",
+  "caseId": "finding:decision:92e90b8d-e899-4c0f-a9ac-50de9b193923",
+  "transmittedDigest": "d9d8729eeafe9fde944d4397cba9b71f116f496db099e3159324704170555eb5",
+  "packetSha256": "cc2cb4b8c6838ed09a1313e71469316c6de3237d2de9851a05526381e7ef4933",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "c295be20-0a7c-4a98-92f6-783a1eb11c40",
+    "citedPage": null,
+    "termHits": 315,
+    "excerptPages": [
+     1,
+     1,
+     3,
+     3,
+     3
+    ],
+    "excerptSha256": [
+     "6d3b054a829ede7fcfd93a8118174834cd2b10d996f7b19d77d0fed5a386487e",
+     "ce4754f3067679a12292d922d0bc982d725c401bae2e2ef56b207a23c29c05f4",
+     "d3a63919366707e249c2e02c5d16e989549f1b7a2a5487f46ca8d6cbee7eacdd",
+     "c121de9ff65f6e806e40a855e3ceecb344559c67e46c64f8b95c4f5bfbe9dc92",
+     "5a69d4274dc442a2776fd5f45e8d174e31cbf2ee6e97575f0d10841829cfaffc"
+    ],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C043",
+  "caseId": "finding:decision:3336d895-c66a-4a1a-aa41-070be4ccb710",
+  "transmittedDigest": "d6b07446cf4ebaae0fd8ba76b96baec8d3e2b1afee0b5d573e837fa8206579cb",
+  "packetSha256": "138b5860446a24aa50b93cdf3aad817683e9dc90da0a06ddbf5f811accad01c1",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "c295be20-0a7c-4a98-92f6-783a1eb11c40",
+    "citedPage": null,
+    "termHits": 315,
+    "excerptPages": [
+     1,
+     1,
+     3,
+     3,
+     3
+    ],
+    "excerptSha256": [
+     "6d3b054a829ede7fcfd93a8118174834cd2b10d996f7b19d77d0fed5a386487e",
+     "ce4754f3067679a12292d922d0bc982d725c401bae2e2ef56b207a23c29c05f4",
+     "d3a63919366707e249c2e02c5d16e989549f1b7a2a5487f46ca8d6cbee7eacdd",
+     "c121de9ff65f6e806e40a855e3ceecb344559c67e46c64f8b95c4f5bfbe9dc92",
+     "5a69d4274dc442a2776fd5f45e8d174e31cbf2ee6e97575f0d10841829cfaffc"
+    ],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C044",
+  "caseId": "finding:decision:16fece30-8628-4d75-8313-0c151b1b8f67",
+  "transmittedDigest": "246ec8a63d5a07beea2fbccd2eed6bd64d488cbc70b7e5ae052f680ec927b792",
+  "packetSha256": "fa26e84ae6a00f5a4730c99c7d311a5a3673fba3874aae1b1140593266ec4f3f",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "c295be20-0a7c-4a98-92f6-783a1eb11c40",
+    "citedPage": null,
+    "termHits": 315,
+    "excerptPages": [
+     1,
+     1,
+     3,
+     3,
+     3
+    ],
+    "excerptSha256": [
+     "6d3b054a829ede7fcfd93a8118174834cd2b10d996f7b19d77d0fed5a386487e",
+     "ce4754f3067679a12292d922d0bc982d725c401bae2e2ef56b207a23c29c05f4",
+     "d3a63919366707e249c2e02c5d16e989549f1b7a2a5487f46ca8d6cbee7eacdd",
+     "c121de9ff65f6e806e40a855e3ceecb344559c67e46c64f8b95c4f5bfbe9dc92",
+     "5a69d4274dc442a2776fd5f45e8d174e31cbf2ee6e97575f0d10841829cfaffc"
+    ],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C045",
+  "caseId": "finding:decision:cf511ac7-097b-4b8b-b860-e9d1e4d6cb84",
+  "transmittedDigest": "9c868709b34e3b00fc58be3942a34f69ec063da181299c46ac5069ae8143bb2c",
+  "packetSha256": "6b9da7c39f901982908b846a11ac83474f81da96505d5338eabe47b4c9d9faca",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "c295be20-0a7c-4a98-92f6-783a1eb11c40",
+    "citedPage": null,
+    "termHits": 315,
+    "excerptPages": [
+     1,
+     1,
+     3,
+     3,
+     3
+    ],
+    "excerptSha256": [
+     "6d3b054a829ede7fcfd93a8118174834cd2b10d996f7b19d77d0fed5a386487e",
+     "ce4754f3067679a12292d922d0bc982d725c401bae2e2ef56b207a23c29c05f4",
+     "d3a63919366707e249c2e02c5d16e989549f1b7a2a5487f46ca8d6cbee7eacdd",
+     "c121de9ff65f6e806e40a855e3ceecb344559c67e46c64f8b95c4f5bfbe9dc92",
+     "5a69d4274dc442a2776fd5f45e8d174e31cbf2ee6e97575f0d10841829cfaffc"
+    ],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C046",
+  "caseId": "finding:decision:bb264464-a963-4473-953f-3dd36f1b4de8",
+  "transmittedDigest": "0fa6ae8dbe9ea1410b8d31b838764de403ba000db508845cba9c3ff1afc6a623",
+  "packetSha256": "6b125e1f32a20cd1673262f7aa6b5c78706817976a9373d71e55ada35c05fe5e",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "c295be20-0a7c-4a98-92f6-783a1eb11c40",
+    "citedPage": null,
+    "termHits": 112,
+    "excerptPages": [
+     1,
+     1,
+     1,
+     2,
+     2
+    ],
+    "excerptSha256": [
+     "e03dab09c6a5768b6ca65a26d088da82baf78caf4f47e2f20432eed55e802675",
+     "4f2b2ee5b36546e6fbcb72bdcc97bd5776931d87844bdb18b51286f065f0579d",
+     "9cea58f659937e5a1cf5780c3624f643985093ec870fc30b6030c0818be67ada",
+     "d4ee191e905b200503d9370bd17c843c73664a5d6b67c35f53c5193f6867e755",
+     "48075cfadecf0d5cc789f6c9774eaa4cf5be6b337ed4dd0c4120316d24b91d10"
+    ],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C052",
+  "caseId": "finding:74c99d0e-8e31-42a4-ac5a-332a44e5f31f",
+  "transmittedDigest": "5ead51d4a917216e12d29d4480112f18f597ff24c7218f7e31500cd0f572ad41",
+  "packetSha256": "17173208eafaf71154799deacf29cb9033d063755246e83e3afa11b031ff3172",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "6bd2872e-1ed7-4720-a079-496427e6809f",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C053",
+  "caseId": "finding:7a033451-57b3-45ba-b9f5-1eec44ddd6ed",
+  "transmittedDigest": "17ccb7ddf7b739cc36feb8618d298c31d028fa1e4daee4f376967d1229554733",
+  "packetSha256": "3aa78676b3ffde800071093803d444af7442924212e2a08aa4fa8add30cd937c",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "7888c42d-2add-44a2-9e0c-2aec0f16ba6b",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C054",
+  "caseId": "finding:a7df1566-2391-4388-b6af-6be131860746",
+  "transmittedDigest": "c412504e46c0b106baf477a8f5d244e89f25012e89c18c84210bc200a835d8ab",
+  "packetSha256": "76efe6544f19c355d1cc5cda3ba8697f06b1b058f1fcaa9f5521d44ebbea5d95",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "bd15ed40-0b32-452b-8af4-75a27d120cae",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C055",
+  "caseId": "finding:f3900702-d8d0-4a30-acfe-cd7f7b859c7b",
+  "transmittedDigest": "3e233b7dea835b799b50e74c20b80a24c7f4670e25084b5056e01e31322a5b25",
+  "packetSha256": "7535ed8f19d041fd8db77c1d7a468ffbaa63ced492869fb86600b22854af2070",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "35083bf5-d6d7-4c76-9c0b-31c3dba486a7",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C061",
+  "caseId": "finding:aab498c5-7303-4de4-b9a9-126e60a939fe",
+  "transmittedDigest": "a90a69dddb7a92280a029b9d62eb8628b14715f1bceb9035c9310405cfefc54a",
+  "packetSha256": "21def8fbbf9491b96ab83385aff64ffb8931b6baebae1eac52f1e77bbf7ec57c",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "9fb9ca6f-c2c5-4c53-86f6-78ec47ee52de",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C062",
+  "caseId": "finding:6aa94ce4-4d7a-48bc-a53a-0293582467de",
+  "transmittedDigest": "c3afd524c13a3936d2c10e23add9c284df0576d76a17a80d3b0ebe059ffddc84",
+  "packetSha256": "8ad403b255f6c7e94837107ae061dc230efd25c19a5424dac33d9bff2bfa6891",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "6bd2872e-1ed7-4720-a079-496427e6809f",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C063",
+  "caseId": "finding:a691b3ab-f97d-4324-81af-c53e8acef328",
+  "transmittedDigest": "879a45eb00feb0eb130adcf1138e4c0c7a4aace9025494499ae1d8b2076a7353",
+  "packetSha256": "86d22ac8bf799ef95f0970b418b6120d186d48faac384864d8d108f33bcff31f",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "35083bf5-d6d7-4c76-9c0b-31c3dba486a7",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C064",
+  "caseId": "finding:009f3b83-9332-4078-b244-f2b010f8f286",
+  "transmittedDigest": "c98a378fbf3a08077a396d2f405e00fe01f1661ca9ef45d639b6f7dd476cd52e",
+  "packetSha256": "ae4e88d4b94cedd14ac9bbe6672c4c55c8049019ee14dda63ee15d2850f16629",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "35083bf5-d6d7-4c76-9c0b-31c3dba486a7",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   },
+   {
+    "kind": "cited_document",
+    "documentId": "7b12515a-dbd3-4b68-bc21-1621fcf86d82",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [
+     43,
+     44,
+     45,
+     87,
+     88,
+     89
+    ],
+    "workbookRowsSha256": "ec5c0358e8ffb6fe03820798717657c1aa122f366cdc9c08db88d6c85a44c7f0"
+   }
+  ]
+ },
+ {
+  "caseRef": "C065",
+  "caseId": "finding:09d8af74-8e91-4fdc-ae0d-dbff17f120e6",
+  "transmittedDigest": "1b9691c9e01629bc4db7802629b8993747e965e1111859150c7a5eb7afdf2aaf",
+  "packetSha256": "d59669f43f20cd55dafece8486d39a37ecc62a3848fbf5e27cb53692baab52b7",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "6bd2872e-1ed7-4720-a079-496427e6809f",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   },
+   {
+    "kind": "cited_document",
+    "documentId": "7b12515a-dbd3-4b68-bc21-1621fcf86d82",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [
+     4,
+     5,
+     6,
+     7,
+     8,
+     9
+    ],
+    "workbookRowsSha256": "f079741be0a22f988c40ddcc7b416f301e46685ed506683f883f2dfa2248db08"
+   }
+  ]
+ },
+ {
+  "caseRef": "C066",
+  "caseId": "finding:18e926de-32ec-4ade-861b-71ceb6e6dbb9",
+  "transmittedDigest": "d379bb9fa265b9d3e9a1547b1774c3e72c6cc91361efe0e99f7843ae2574efff",
+  "packetSha256": "c0e177fd14d424e8fd6f34584285170b8f6125a8c7527e8503f99b809ef09b4e",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "7888c42d-2add-44a2-9e0c-2aec0f16ba6b",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   },
+   {
+    "kind": "cited_document",
+    "documentId": "7b12515a-dbd3-4b68-bc21-1621fcf86d82",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [
+     3,
+     154,
+     218,
+     918,
+     1129,
+     1251
+    ],
+    "workbookRowsSha256": "a24ba4df0a4a516a32fafbed1f16bebb9432fa63f9d732b630cf0af8d11f49a9"
+   }
+  ]
+ },
+ {
+  "caseRef": "C068",
+  "caseId": "finding:35557ad9-37d6-413f-bdf4-b1372bfb58b8",
+  "transmittedDigest": "37b32148d552867d8ed62459d044c5670966187aeed11f3e806cf44d6d81659a",
+  "packetSha256": "255b3480e5c64f8eb4910e2f061507aae2ad92d3487875b1ce835e1c5aa5dcb0",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "7888c42d-2add-44a2-9e0c-2aec0f16ba6b",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   },
+   {
+    "kind": "cited_document",
+    "documentId": "7b12515a-dbd3-4b68-bc21-1621fcf86d82",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [
+     3,
+     154,
+     218,
+     918,
+     1129,
+     1251
+    ],
+    "workbookRowsSha256": "a24ba4df0a4a516a32fafbed1f16bebb9432fa63f9d732b630cf0af8d11f49a9"
+   }
+  ]
+ },
+ {
+  "caseRef": "C069",
+  "caseId": "finding:3f409901-feea-4dd2-b03f-28409885be26",
+  "transmittedDigest": "242a13d8fdb6d3e97aa04911950436de71c1e79d17bd8173dcfa617980208268",
+  "packetSha256": "d79b850549b660fc1471d290e484f3e090cacb6ee702a059e80555aaa4528563",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "7888c42d-2add-44a2-9e0c-2aec0f16ba6b",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   },
+   {
+    "kind": "cited_document",
+    "documentId": "7b12515a-dbd3-4b68-bc21-1621fcf86d82",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [
+     3,
+     154,
+     218,
+     918,
+     1129,
+     1251
+    ],
+    "workbookRowsSha256": "a24ba4df0a4a516a32fafbed1f16bebb9432fa63f9d732b630cf0af8d11f49a9"
+   }
+  ]
+ },
+ {
+  "caseRef": "C070",
+  "caseId": "finding:3f5ccc5c-74c8-4cad-b10f-21d86bc08553",
+  "transmittedDigest": "2ca7df873c9da5fe40fdab9cd0ee2f726fd85c51b2b0783f11ed64b2eae9b568",
+  "packetSha256": "c4683bdc09728cff6797fae45b3075d7a7f0e3c7f46417b58e2f5e1866dfdb3e",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "7b12515a-dbd3-4b68-bc21-1621fcf86d82",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [
+     14,
+     15,
+     16,
+     30,
+     31,
+     32
+    ],
+    "workbookRowsSha256": "1069de3bc46297b0e854892bd196af0ac3ac446afef91715d1f6e8581f143ffa"
+   },
+   {
+    "kind": "cited_document",
+    "documentId": "bd15ed40-0b32-452b-8af4-75a27d120cae",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C071",
+  "caseId": "finding:6d4bc09c-836c-42d5-bd6f-38ef3a2f4b61",
+  "transmittedDigest": "cc5e65cc76ddc99d968888610ffa4ecc5ccced7b449ab9e334a1eec1fa724bc8",
+  "packetSha256": "475e2049cd152d74064d9ce17089690cd1c505d11801aa198a6fecd56a5b993e",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "35083bf5-d6d7-4c76-9c0b-31c3dba486a7",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   },
+   {
+    "kind": "cited_document",
+    "documentId": "7b12515a-dbd3-4b68-bc21-1621fcf86d82",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [
+     43,
+     44,
+     45,
+     87,
+     88,
+     89
+    ],
+    "workbookRowsSha256": "ec5c0358e8ffb6fe03820798717657c1aa122f366cdc9c08db88d6c85a44c7f0"
+   }
+  ]
+ },
+ {
+  "caseRef": "C072",
+  "caseId": "finding:710584bd-1901-41d3-a669-40d9c49b3325",
+  "transmittedDigest": "dd36a574ef1ee6570628ec2597a227e2b897521cbdedeb1e98d1edc4620e7050",
+  "packetSha256": "460f9137bfd8408d242754ffb687ff32f8ff3956c4acd3451fefba5b2b20acd2",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "7888c42d-2add-44a2-9e0c-2aec0f16ba6b",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   },
+   {
+    "kind": "cited_document",
+    "documentId": "7b12515a-dbd3-4b68-bc21-1621fcf86d82",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [
+     3,
+     154,
+     218,
+     918,
+     1129,
+     1251
+    ],
+    "workbookRowsSha256": "a24ba4df0a4a516a32fafbed1f16bebb9432fa63f9d732b630cf0af8d11f49a9"
+   }
+  ]
+ },
+ {
+  "caseRef": "C073",
+  "caseId": "finding:72e2486a-7378-4c18-ae12-d92306aca603",
+  "transmittedDigest": "0a2d967237702f83bd143e2d66aa75dd2024677bda16e623214f5f7d936c6b86",
+  "packetSha256": "02ab848ddf43e88fe392c763276691b4e14d0e6107828abc8868e6e2a24947e1",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "47f62106-38e9-400a-b7e6-bb6b1b2f269e",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   },
+   {
+    "kind": "cited_document",
+    "documentId": "7b12515a-dbd3-4b68-bc21-1621fcf86d82",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [
+     2,
+     53,
+     118,
+     129,
+     134,
+     136
+    ],
+    "workbookRowsSha256": "a4e073496a395e2d7f08297f3da0699fc10f4202c5475adb155eff497dc59417"
+   }
+  ]
+ },
+ {
+  "caseRef": "C074",
+  "caseId": "finding:84bcc460-7edf-414e-914f-8efc5b721e5e",
+  "transmittedDigest": "4d0de608e17cfbe6603f6e44f9e84bdf176119ee8a338831ecf8fe7c7776aa05",
+  "packetSha256": "0589ad6401b8e68295b7f7203d0304de63c8e5e45a17515fe3634d03af091914",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "7b12515a-dbd3-4b68-bc21-1621fcf86d82",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [
+     14,
+     15,
+     16,
+     30,
+     31,
+     32
+    ],
+    "workbookRowsSha256": "1069de3bc46297b0e854892bd196af0ac3ac446afef91715d1f6e8581f143ffa"
+   },
+   {
+    "kind": "cited_document",
+    "documentId": "bd15ed40-0b32-452b-8af4-75a27d120cae",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C075",
+  "caseId": "finding:ab3b20db-bf32-43bb-8a3c-a039364c78e2",
+  "transmittedDigest": "1cbace2e5f01584c5e0b592f990fa69bdebc7491fb70acbdb5cd808375bc440e",
+  "packetSha256": "5fb4135e1bcc64bb15923afc81eca4ffa3effff311f5dbfebc370a56fb7bebe2",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "35083bf5-d6d7-4c76-9c0b-31c3dba486a7",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   },
+   {
+    "kind": "cited_document",
+    "documentId": "7b12515a-dbd3-4b68-bc21-1621fcf86d82",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [
+     43,
+     44,
+     45,
+     87,
+     88,
+     89
+    ],
+    "workbookRowsSha256": "ec5c0358e8ffb6fe03820798717657c1aa122f366cdc9c08db88d6c85a44c7f0"
+   }
+  ]
+ },
+ {
+  "caseRef": "C076",
+  "caseId": "finding:b560aa7c-afe3-4516-8cc0-164d1612364f",
+  "transmittedDigest": "53382b891532f5747860ef5862d0fc55337dfba1a43919c6d8d1fc533d0bd80b",
+  "packetSha256": "2ff1fc027f0c199df122d0d51782cbb84d415396ea1a5d2fcfb2f3b1427ffe29",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "6bd2872e-1ed7-4720-a079-496427e6809f",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   },
+   {
+    "kind": "cited_document",
+    "documentId": "7b12515a-dbd3-4b68-bc21-1621fcf86d82",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [
+     4,
+     5,
+     6,
+     7,
+     8,
+     9
+    ],
+    "workbookRowsSha256": "f079741be0a22f988c40ddcc7b416f301e46685ed506683f883f2dfa2248db08"
+   }
+  ]
+ },
+ {
+  "caseRef": "C077",
+  "caseId": "finding:c33af05d-57c3-4818-a2da-baf7ba831aff",
+  "transmittedDigest": "f89fc11f916b52729492f40c26354a521075242e70bc92b44b978bf9494ebf8a",
+  "packetSha256": "df251cc4ed49bd6a4271e947fee76a3246f96e39069a519fe888fcdbf5eefb39",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "35083bf5-d6d7-4c76-9c0b-31c3dba486a7",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   },
+   {
+    "kind": "cited_document",
+    "documentId": "7b12515a-dbd3-4b68-bc21-1621fcf86d82",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [
+     43,
+     44,
+     45,
+     87,
+     88,
+     89
+    ],
+    "workbookRowsSha256": "ec5c0358e8ffb6fe03820798717657c1aa122f366cdc9c08db88d6c85a44c7f0"
+   }
+  ]
+ },
+ {
+  "caseRef": "C078",
+  "caseId": "finding:d28d0540-3ad2-481d-93ba-47b99f7663cb",
+  "transmittedDigest": "46938f7972e886986cd7755d3742ca8d8ea528e29305b20a0d3d6190cd58e7d5",
+  "packetSha256": "7840d825e05ffc5b4210ed2eda34b43bbc302e3d76d6b59eabf8202f3bd2c970",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "6bd2872e-1ed7-4720-a079-496427e6809f",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   },
+   {
+    "kind": "cited_document",
+    "documentId": "7b12515a-dbd3-4b68-bc21-1621fcf86d82",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [
+     4,
+     5,
+     6,
+     7,
+     8,
+     9
+    ],
+    "workbookRowsSha256": "f079741be0a22f988c40ddcc7b416f301e46685ed506683f883f2dfa2248db08"
+   }
+  ]
+ },
+ {
+  "caseRef": "C079",
+  "caseId": "finding:ea62dca6-fda2-4b1d-a890-eaaf192f2f23",
+  "transmittedDigest": "39b178ecae3a605eb7a5e3eb2b1a059c3f28778d240bc67841b0d1464bace1ca",
+  "packetSha256": "f55abe260f469aac50f91210e372ae6ed06059f8ff0efc9a21300a29691ca190",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "6bd2872e-1ed7-4720-a079-496427e6809f",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   },
+   {
+    "kind": "cited_document",
+    "documentId": "7b12515a-dbd3-4b68-bc21-1621fcf86d82",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [
+     4,
+     5,
+     6,
+     7,
+     8,
+     9
+    ],
+    "workbookRowsSha256": "f079741be0a22f988c40ddcc7b416f301e46685ed506683f883f2dfa2248db08"
+   }
+  ]
+ },
+ {
+  "caseRef": "C081",
+  "caseId": "finding:fca817d5-d910-440e-981c-9ba06b905f18",
+  "transmittedDigest": "1e2e5e22d9946a20eceaf2d0ddf88a950f3a515db783129c21a1271128ff299d",
+  "packetSha256": "07f1a6a2803727f906d1abc3c02a9f06a6f8302f99d2839295d4299fa80bbdf5",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "7b12515a-dbd3-4b68-bc21-1621fcf86d82",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [
+     14,
+     15,
+     16,
+     30,
+     31,
+     32
+    ],
+    "workbookRowsSha256": "1069de3bc46297b0e854892bd196af0ac3ac446afef91715d1f6e8581f143ffa"
+   },
+   {
+    "kind": "cited_document",
+    "documentId": "bd15ed40-0b32-452b-8af4-75a27d120cae",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C082",
+  "caseId": "finding:fdd00c88-0fa1-4b77-93bb-2f86ef1e63f2",
+  "transmittedDigest": "93b9fdffd3a45ec521d227aaec86b859df540b5aa45e938af86e4daf61ac2171",
+  "packetSha256": "230ce2ace8468c673218f142ba4b645698b94cb702715138a1126582eeef5a11",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "7b12515a-dbd3-4b68-bc21-1621fcf86d82",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [
+     14,
+     15,
+     16,
+     30,
+     31,
+     32
+    ],
+    "workbookRowsSha256": "1069de3bc46297b0e854892bd196af0ac3ac446afef91715d1f6e8581f143ffa"
+   },
+   {
+    "kind": "cited_document",
+    "documentId": "bd15ed40-0b32-452b-8af4-75a27d120cae",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C083",
+  "caseId": "finding:decision:535a8f4c-dad8-4495-961d-3349bbf574ee",
+  "transmittedDigest": "8d516faf26f07090b59136d3d1de7362d11b3a2f48619261f18ccd4a90c4880b",
+  "packetSha256": "6cd5012090c3a9dc1d95291d6732ea4b373bdd91048f221440e04f3dde4aee70",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "9fb9ca6f-c2c5-4c53-86f6-78ec47ee52de",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C088",
+  "caseId": "finding:decision:4173e1f6-4119-43b9-977b-4ec6f54f74bb",
+  "transmittedDigest": "879ed35ba6648fb93080325eb11495f8ca8cb2ef2630bd9fd80269b85529fd50",
+  "packetSha256": "9f6c801c80f479e70f90272bd60652247f7440033ef57bba0c3cf08ae2209342",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "35083bf5-d6d7-4c76-9c0b-31c3dba486a7",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C089",
+  "caseId": "finding:decision:440b9f2e-7481-402c-bb15-296c42188f29",
+  "transmittedDigest": "9c5bf4825faa9a2d91d69acc3688ba1d37b694e942387c4236d36869c483504e",
+  "packetSha256": "a6df95bcd85a418da6dd23e2aa6222d2dd8d663cbdc40780c2be1a87b4bb6315",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "bd15ed40-0b32-452b-8af4-75a27d120cae",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C090",
+  "caseId": "finding:decision:6f3c73df-1ba7-420f-836f-907669566507",
+  "transmittedDigest": "3b46ce273bd0bc4043fb32f75e3ff653d7353df37041723b2813ea38067e467b",
+  "packetSha256": "46083cd18586a8865fc097df07b9b8270a1968c4cfa1040cd4afd60ba010762e",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "47f62106-38e9-400a-b7e6-bb6b1b2f269e",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C091",
+  "caseId": "finding:decision:bc4777de-604d-4bbf-a5c3-59bc48ab8f2b",
+  "transmittedDigest": "72a3601ac99b54821293159519010ae81fd3b049d8f51e3d4e4b63e739d2ddbf",
+  "packetSha256": "f825386a1139148441ea96af4f9198cc1052a4592d7d97f50a54781ea199e791",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "7888c42d-2add-44a2-9e0c-2aec0f16ba6b",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C092",
+  "caseId": "finding:decision:f2789ada-ba80-464e-add5-5575f1d6c3f3",
+  "transmittedDigest": "17d4ac1824d531c725e293392d0ecf97185e9ef744fd592341382b49a3cb0246",
+  "packetSha256": "0db8b1e285c3322d64241bc1c2d4f75127bdf873c558b7f61ad9baedd3b02aaa",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "6bd2872e-1ed7-4720-a079-496427e6809f",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C093",
+  "caseId": "finding:64fb6b61-bf88-4440-8003-7e24775bd30d",
+  "transmittedDigest": "ede0721de22fc8e7607ca7af8dab25c19409fcd04d060aeae25db56d7a74a753",
+  "packetSha256": "adcec9f13f9caac7dbfca37f897e31c751dbf025d37080768efed66d96112c78",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "7e97e1bc-9fda-4d2d-a4f0-d57e46649f84",
+    "citedPage": null,
+    "termHits": 1,
+    "excerptPages": [
+     1
+    ],
+    "excerptSha256": [
+     "63083cdd9d5c4331313f804570550520ef2d6d7af0c35eb5106658dcb6b96ad6"
+    ],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C094",
+  "caseId": "finding:decision:09c85233-fbc8-4e1a-ab4f-9f2ec22c2190",
+  "transmittedDigest": "1334187463f7966cb5ae8e9e2b71a84be449df365ae817c443f2b8d0e3d0cd2e",
+  "packetSha256": "0b160c1cdc1766a3db7d829e11817d1e8cff0c537b2c4b35dee359feda4f6e84",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "7e97e1bc-9fda-4d2d-a4f0-d57e46649f84",
+    "citedPage": null,
+    "termHits": 1,
+    "excerptPages": [
+     1
+    ],
+    "excerptSha256": [
+     "63083cdd9d5c4331313f804570550520ef2d6d7af0c35eb5106658dcb6b96ad6"
+    ],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C095",
+  "caseId": "finding:decision:2f24277a-a80f-4d5a-ba47-21eb1305a0dd",
+  "transmittedDigest": "46257caa68fa6d5507fc834eb7799ae29f346321c5a5a1a95f395c361b7fb33e",
+  "packetSha256": "22bef5dcdef77f2fcdc33db1914345adc5299c38314405c62afab8711d24cb2f",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "c17d9278-f467-40f8-8c96-a645fd4aeb72",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C096",
+  "caseId": "finding:decision:633fe718-b6dd-436b-a2cc-fbf2c89b80cf",
+  "transmittedDigest": "26e469da44a0f33b6c72c8a5af4f6037efefc418b7f3edbdb54414eac39e69b9",
+  "packetSha256": "e9e904b60a13cd6ada0e37e1e3e94b3cdb62a536d459e5a9c7010bfbfb663e18",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "fe2f4c4c-d2bd-496d-84e2-3d98f30742b3",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C097",
+  "caseId": "finding:decision:c7518510-d053-4cb1-aab5-e7272c7f828c",
+  "transmittedDigest": "1914b10b77427bab8e6093c5d13bfd0cbb16403879d6564b204e61dfc951752e",
+  "packetSha256": "e3390e177adcefec8abb8c3e0d9e829f576592b8ae07c00c5c35f1fe7cf6a361",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "c17d9278-f467-40f8-8c96-a645fd4aeb72",
+    "citedPage": null,
+    "termHits": 2,
+    "excerptPages": [
+     1,
+     1
+    ],
+    "excerptSha256": [
+     "24c033225ef69d5a5710368ab6340e1b3838f5e9879ed10ba810c5e0737fb6ec",
+     "41742caaa57228e23a36036a8c168098f8ea7a8afd62d07c67fa43504c100cdb"
+    ],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C098",
+  "caseId": "finding:decision:95d3c244-0bac-4bc1-9da3-ce91b208b6dc",
+  "transmittedDigest": "5e1567b75e7f9dab46c9252e39761ec25184a990fd7514d660e1c55938313326",
+  "packetSha256": "380d06c2b19d534dd22245b0c8ffcad7cae7d8d088c9d9f0465278b032e3bbc0",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "7e97e1bc-9fda-4d2d-a4f0-d57e46649f84",
+    "citedPage": null,
+    "termHits": 7,
+    "excerptPages": [
+     1,
+     1,
+     1,
+     1,
+     1
+    ],
+    "excerptSha256": [
+     "61660251f24836b8503b71c4ba91bb2464decce9aceec083737688988162d55a",
+     "d4c0baa51d5e2d06bb9a0c5839825b16dfafe5be26cf8e5275ad0167ad5853ea",
+     "cdd8f27661a66b62dc0c20d3105b9951458abe1478f13909cee8821905b844b9",
+     "79a165971b0bf60643014c3a224adf7a535e2fb8e7cea8d09fbbb8345f2da2c2",
+     "d5f755b814120f5316a8fb8953746057b0bf1f2382fe4d7270637bf74344b3c9"
+    ],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C099",
+  "caseId": "finding:decision:d1a67d44-e99a-4436-8f92-d213704121d7",
+  "transmittedDigest": "becb51eca3480a0c1191baedbb99a145b2660afebb2847c286ed03d416c3e279",
+  "packetSha256": "835f2309d6c71f696588a46e33e0fc9bc02bc9d9745c7887dbf8b8c28a6cd4cf",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "fe2f4c4c-d2bd-496d-84e2-3d98f30742b3",
+    "citedPage": null,
+    "termHits": 12,
+    "excerptPages": [
+     1,
+     2,
+     3,
+     4,
+     4
+    ],
+    "excerptSha256": [
+     "c6ff6e223015ddcf19977b80029544f8b898ec77e612212350b709d909107e2a",
+     "2173409d0689969ae134ae71a453c2c0f6dc4913112005b26fbfef6aa1193728",
+     "dbfd12cf6083b1aadb6cbd55d12d70fd756c744803512527a49efe54384293c7",
+     "851ee6d46b700e95a4cdad0a768203143e926208acdac4b5f82c5bc0fa664369",
+     "5f0fa0b7e1a9e72a088928c009bec1e3f90c403cf5f16196b305a71d00ea832f"
+    ],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C100",
+  "caseId": "finding:38d9f2d3-69d9-4e95-9572-237ea5cf476a",
+  "transmittedDigest": "86465fb1d6f85581fd02cef877266b31d301226243fbe54e8f24e06ef4e0d969",
+  "packetSha256": "9debf69f46962a59cacb006a99949b4afd340459d8588b089ba73b6bffc9375e",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "05f6ab98-462d-4bb0-9f82-a5cbff49351e",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   },
+   {
+    "kind": "cited_document",
+    "documentId": "2b260e04-5bcf-4c0d-b5b4-4f921ebc0367",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   },
+   {
+    "kind": "cited_document",
+    "documentId": "2be4d656-4e90-41e8-9950-9d7f89b462d7",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C101",
+  "caseId": "finding:decision:1ea591de-4275-411c-a046-2a29524480d9",
+  "transmittedDigest": "499c93b70c9fbea7ed8519c1995f4066fc58035329be97103200e0a1defde528",
+  "packetSha256": "f142eec3bdd6a066ab3a78865b2954688a37cac03a76b82eea5176f1ae982d4f",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "582e57b2-0c75-4d05-89b2-520b0447f94f",
+    "citedPage": null,
+    "termHits": 2,
+    "excerptPages": [
+     2,
+     15
+    ],
+    "excerptSha256": [
+     "ba9eeb3c62b4b7514e64114433a5139dd0329c2355e9bfe1e84e6ee37824139f",
+     "03e2c32b2917dcc6d3462ea2a94f48a2750e2b9d52af02697588cb8215bacccf"
+    ],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C102",
+  "caseId": "finding:decision:77087f58-96ab-4c93-9c2b-c86573a61453",
+  "transmittedDigest": "b2d75b6a55668f16178bc28699804a9444c325aec55181a805b79ec152857331",
+  "packetSha256": "d2beb064e7c855f42133047555c0091439c55747dfc175ac628199d1d9597251",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "2be4d656-4e90-41e8-9950-9d7f89b462d7",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C103",
+  "caseId": "finding:decision:a5d3d75a-5574-4b0e-a55b-da81deb7bb12",
+  "transmittedDigest": "38fa5769c7ef1c0eccae646b5f060eada316e281757512d769c9ee512cac4a85",
+  "packetSha256": "da5601734c79df6083ea60250fe3c120c6467d6d68030c665561b4402f458510",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "2b260e04-5bcf-4c0d-b5b4-4f921ebc0367",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C104",
+  "caseId": "finding:decision:d0804837-ef6d-42e8-8d2e-6075c590d0b9",
+  "transmittedDigest": "5b537e1fcce98d0a305015b9d04604cf577a493847b13913ba4bcea065bd6682",
+  "packetSha256": "e85cac428a0f02c289874354675d96f7c09d37e0ceb202dd7c4b036df4f1e387",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "05f6ab98-462d-4bb0-9f82-a5cbff49351e",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C105",
+  "caseId": "finding:decision:d2e1205e-de40-409b-859b-0052f10352bc",
+  "transmittedDigest": "abad06dd48c9937147251cda31688a4e2df69667621c0d6b082d69ec58f7b329",
+  "packetSha256": "ada30ff34f57e2aeeee5acc61f94f2957cffb94ad8570404c0fb626d48924624",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "738dbd08-5527-4ba6-932f-dcc67db6c721",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C106",
+  "caseId": "finding:decision:d7c2a695-60d2-4fd5-a95d-3d1e2601ac29",
+  "transmittedDigest": "e697c6045fea49d78de62f4726497e051a642e7277047b83a364dbed97b92d8b",
+  "packetSha256": "e6c36d365c7605f8bb78dfd58789c4abcfbaaa33c0665b7c4874ae029798f026",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "e2806f47-b91e-4831-ad3a-f6e1b28bde24",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C107",
+  "caseId": "finding:decision:e6d3611f-f984-45b9-bfc7-8ca04f8294df",
+  "transmittedDigest": "17475e78d8eb40e672f1415115b3c5eb3fbb004c66a5171552176fba60b500e5",
+  "packetSha256": "7965be46ff0a9ecec83b218e0de29412a79705bd2a6f8a26308eb85f7da76966",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "b8e45397-b9d7-4720-9725-779e77863f2d",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C108",
+  "caseId": "finding:decision:067f61e9-b495-489c-b790-99d01247fa2d",
+  "transmittedDigest": "67df274b8b2041e610346a89ee9a22804f576a1084dc3cc089ef9372a5b24d74",
+  "packetSha256": "c79f190f0a38df1360b612107ab3cf264edc2a6083d5ec4a841efd9e7b8a6c4b",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "05f6ab98-462d-4bb0-9f82-a5cbff49351e",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C109",
+  "caseId": "finding:decision:7a7fcd7b-1c60-4d82-bfa9-935d5a97cb81",
+  "transmittedDigest": "dab0e46168968e136e07f40e10c106d2de830d56937cab5af5f84f8d89e41c84",
+  "packetSha256": "3a9b38d7a46165292f75cbee94dd979383d4b208164f80e42c9228e86ef5f943",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "e2806f47-b91e-4831-ad3a-f6e1b28bde24",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C110",
+  "caseId": "finding:decision:a3913be7-3f42-4949-a65f-8e275c57bcef",
+  "transmittedDigest": "44d0e353c61f65562c9b0cd95568d18e6c8b50addee3b60edbd5ba0b78440293",
+  "packetSha256": "3acc54c4977413cd2e6455391fe4b5a0fe852545f9f4cf439cfd0ea7be0cd69f",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "2be4d656-4e90-41e8-9950-9d7f89b462d7",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C111",
+  "caseId": "finding:decision:e684436b-eb49-4340-8419-7adedec6331f",
+  "transmittedDigest": "52b43a963035a47809fa8166a17026f9dc8326b41cc81d980bca44cb9b19a0ec",
+  "packetSha256": "e127191aed3d87c35d6bd66afad21a60aaf5dda6cb1b832304052871a35348b6",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "582e57b2-0c75-4d05-89b2-520b0447f94f",
+    "citedPage": null,
+    "termHits": 36,
+    "excerptPages": [
+     2,
+     2,
+     2,
+     7,
+     9
+    ],
+    "excerptSha256": [
+     "836f4afe298bedef0d69bb8947d3a978e13f2950d04b4b7b5d349e5412530603",
+     "165f159602d3c18f33aa31a9aed422d6153ae1b06bb6ef2c63edf6f5962d594a",
+     "f67cf8fc51366639670bc5e1de6fda0c8fb6ab2ae3374495ee30f65a36d6bf55",
+     "58c9bff5075cb690e643277936600153bf417e7b5b7b04c476e67061bf622683",
+     "2d15d903a6b75d5e7038b988ac3260209142cdb79f0b94e22bf9a6ee4347b5e1"
+    ],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C112",
+  "caseId": "finding:decision:22c7918c-0fee-437f-9d61-98be894d5360",
+  "transmittedDigest": "4b0ed5df2703c55628e2500ad82eb179b35a2a0a3a3ecf4626ca341301b9788b",
+  "packetSha256": "48f820caaf8d2d0b126e5c02d05001c1da9a0d23a978cbc910eb402552c96953",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "2b260e04-5bcf-4c0d-b5b4-4f921ebc0367",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C113",
+  "caseId": "finding:decision:3db31877-66ad-48dc-ba49-a5541bf536a4",
+  "transmittedDigest": "20ed4d73682381fc56fb6073a52518fa6b19a42e2ec371d02b01414d83bf17f6",
+  "packetSha256": "c91a74b01fbb009af474aae63c9d8e659293acf332df6dd7764251cd3f5707cc",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "2be4d656-4e90-41e8-9950-9d7f89b462d7",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C114",
+  "caseId": "finding:decision:58a401ae-e0f5-4c0c-99ea-08577af9cfb1",
+  "transmittedDigest": "104a3fcbb1c7f3fb07d977dc39d55adf5dfd4b36ee955ab6819162cc5836e814",
+  "packetSha256": "1eebef9f9af5f531bcceedd86541e775542f74151c39a9a28d20c16d8d4e196c",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "05f6ab98-462d-4bb0-9f82-a5cbff49351e",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ },
+ {
+  "caseRef": "C115",
+  "caseId": "finding:decision:9f8c82b7-d68a-4cd5-8e02-4ee2cc6cfbfc",
+  "transmittedDigest": "d8c5c76790c2d479d53a8e823fd09791f97051d53e8a0966adf42c886fcb461a",
+  "packetSha256": "9ec429bb809d6cd05b6c512de16abff101583d2384011e66e3d1d6d9b686c394",
+  "sources": [
+   {
+    "kind": "cited_document",
+    "documentId": "e2806f47-b91e-4831-ad3a-f6e1b28bde24",
+    "citedPage": null,
+    "termHits": 0,
+    "excerptPages": [],
+    "excerptSha256": [],
+    "citedWorkbookRows": [],
+    "workbookRowsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+   }
+  ]
+ }
+]

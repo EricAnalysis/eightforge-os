@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { SourceEvidencePage } from '@/components/recovery/SourceEvidencePage';
+import { CaseInvestigationPanel } from '@/components/resolution/CaseInvestigationPanel';
 import { ResolutionImpactSection } from '@/components/resolution/ResolutionImpactSection';
 import { ManualRateLinkResolutionPanel } from '@/components/validator/ManualRateLinkResolutionPanel';
 import {
@@ -342,6 +343,10 @@ export function ResolutionDecisionPane({ entry, forgewingSuggestionsIncluded, sa
             ))}
           </ol>
         </section>
+      ) : null}
+
+      {forgewingSuggestionsIncluded && entry.kind === 'validator_finding' ? (
+        <CaseInvestigationPanel projectId={entry.projectId} caseId={entry.caseId} />
       ) : null}
 
       {showReading ? (

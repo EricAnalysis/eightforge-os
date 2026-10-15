@@ -31,8 +31,11 @@ Every gate fails closed, and every switch is strict `=== '1'`. `true`, `yes`,
 
 Steps 5-7 apply to every customer-content workflow: Project Ask, value
 reading, case investigation and Workflow Assessment (S3). Extraction shadow and
-recovery tasks check the kill switch, their switch and entitlement, and use an
-in-request call budget (`FORGEWING_MAX_CALLS`).
+recovery tasks check the kill switch, their switch, entitlement and an approved
+`text_excerpts` data policy (steps 5-6). Their budget is still the in-request
+call budget (`FORGEWING_MAX_CALLS`), not a durable reservation: the
+reservation ledger's workflow list does not include them, and adding them is a
+migration.
 
 ## Kill switch, model and provider
 
@@ -56,7 +59,7 @@ code, after a canonical qualification result explicitly qualifies another model
 | Value reading | `FORGEWING_VALUE_READING_ENABLED` | `FORGEWING_VALUE_READING_DAILY_CAP` | **`disabled`**: B4.6 failed; B4.6.1 not qualified | `page_region_images` (+`text_excerpts`) | Immutable proposal; truth only via a human assertion |
 | Case investigation | `FORGEWING_CASE_INVESTIGATION_ENABLED` | `FORGEWING_CASE_INVESTIGATION_DAILY_CAP` | **`disabled`**: no qualification yet | `text_excerpts` | Advisory |
 | Workflow Assessment (S3, #237) | `FORGEWING_WORKFLOW_ASSESSMENT_ENABLED` | `FORGEWING_WORKFLOW_ASSESSMENT_DAILY_CAP` | `enabled` | `text_excerpts` | Non-authoritative assessment; human review |
-| Plan V2 repository guidance | `FORGEWING_REPOSITORY_PLAN_GUIDANCE_ENABLED` | none (worker-hosted, job-bounded) | env | repository content only | Non-authoritative plan; human engineering review |
+| Plan V2 repository guidance | `FORGEWING_REPOSITORY_PLAN_GUIDANCE_ENABLED` | none (worker-hosted, job-bounded) | env | repository content, plus the step text of the human-reviewed workflow specification (platform-internal; no entitlement or data-policy gate) | Non-authoritative plan; human engineering review |
 | Region classification | `FORGEWING_REGION_CLASSIFICATION_ENABLED` | in-request `FORGEWING_MAX_CALLS` | env | document text | Shadow artifact (TTL) |
 | Table continuation | `FORGEWING_TABLE_CONTINUATION_ENABLED` | in-request | env | document text | Shadow artifact |
 | Column mapping | `FORGEWING_COLUMN_MAPPING_ENABLED` | in-request | env | document text | Shadow artifact (never activates a mapping) |

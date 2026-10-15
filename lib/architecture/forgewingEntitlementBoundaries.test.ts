@@ -26,6 +26,10 @@ describe('organization Forgewing entitlement boundaries', () => {
     const source = readFileSync(COMPLIANCE_SHADOW, 'utf8');
     expect(source).toContain('step3InterpretationBridge: step3BridgeForForgewingEntitlement(');
     expect(source).toContain('?? resolveForgewingEntitlement)(');
+    // Customer text leaves only under an approved text_excerpts data policy (D2).
+    const bridge = source.slice(source.indexOf('step3InterpretationBridge: step3BridgeForForgewingEntitlement('));
+    expect(bridge.slice(0, bridge.indexOf('input.organizationId,\n            input.sourceDocumentId'))).toMatch(
+      /resolveForgewingDataPolicy\)\(input\.admin, \{\s*organizationId: input\.organizationId, provider: 'anthropic', contentClasses: \['text_excerpts'\],\s*\}\)\)\.approved/);
     // One definition, plus one call inside the entitlement helper.
     expect(source.match(/withForgewingRegionClassificationShadow\(/g)).toHaveLength(2);
   });
@@ -41,6 +45,7 @@ describe('organization Forgewing entitlement boundaries', () => {
     const condition = source.slice(source.lastIndexOf('if (', guard), schedule);
     expect(condition).toContain('params.providerWorkAllowed !== false');
     expect(condition).toContain('.entitled');
+    expect(condition).toMatch(/resolveForgewingDataPolicy\)\(params\.admin, \{\s*organizationId: params\.organizationId, provider: 'anthropic', contentClasses: \['text_excerpts'\],\s*\}\)\)\.approved/);
   });
 
   it('never lets the entitlement shape deterministic extraction, canonical truth, or the Validator', () => {

@@ -1408,4 +1408,35 @@ describe('organization Forgewing entitlement at the Step 3 bridge', () => {
     // Not entitled still publishes the deterministic shadow (Core behaviour).
     expect(admin.rpc).toHaveBeenCalled();
   });
+
+  it('an entitled organization also needs an approved text_excerpts data policy (D2)', async () => {
+    vi.stubEnv('EIGHTFORGE_BUILD_DIGEST', 'build-digest-1');
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const run = async (entitled: boolean) => {
+      const admin = {
+        storage: { from: vi.fn(() => ({ info: vi.fn(async () => ({ data: { id: 'object-1', version: 'version-1' }, error: null })) })) },
+        rpc: vi.fn(async () => { throw new Error('Step 1 unavailable'); }),
+      };
+      const resolveEntitlement = vi.fn(async () => (entitled
+        ? { entitled: true as const, reason: 'entitled' as const }
+        : { entitled: false as const, reason: 'no_entitlement' as const }) as never);
+      const resolveDataPolicy = vi.fn(async () => ({ approved: false, reason: 'no_policy', contentClass: 'text_excerpts' }) as never);
+      await scheduleExtractionComplianceShadow({
+        admin: admin as never, organizationId: 'org-1', sourceDocumentId: 'document-1',
+        sourceBytes: new TextEncoder().encode('source bytes').buffer, storageBucket: 'documents',
+        storagePath: 'org-1/document-1.pdf', storageVersionBeforeDownload: 'version-1:object-1',
+        mediaType: 'application/pdf', legacyExtractionPayload: {}, locatedObservations: { pages: [] },
+        analysisJobId: 'job-1', analysisMode: 'deterministic',
+      }, { resolveEntitlement, resolveDataPolicy });
+      return { admin, resolveDataPolicy };
+    };
+    const entitled = await run(true);
+    expect(entitled.resolveDataPolicy).toHaveBeenCalledWith(entitled.admin, {
+      organizationId: 'org-1', provider: 'anthropic', contentClasses: ['text_excerpts'],
+    });
+    // Denied data policy still publishes the deterministic shadow (Core behaviour).
+    expect(entitled.admin.rpc).toHaveBeenCalled();
+    // The data policy is consulted only for an entitled organization.
+    expect((await run(false)).resolveDataPolicy).not.toHaveBeenCalled();
+  });
 });

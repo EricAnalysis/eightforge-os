@@ -34,11 +34,16 @@ describe('additive Sonnet 5.5 qualification boundaries', () => {
     expect(production.filter((file) => read(file).includes('phase17Sonnet55RationaleCompatQualificationClient')))
       .toEqual([]);
     expect(production.filter((file) => read(file).includes('phase17Sonnet55PromptClarificationQualificationClient')
-      && file !== 'lib/forgewing/runtime/phase17Sonnet55BoundedRationaleQualificationClient.ts'))
+      && !['lib/forgewing/runtime/phase17Sonnet55BoundedRationaleQualificationClient.ts',
+        'lib/forgewing/runtime/phase17Sonnet55RationalePatternCompatQualificationClient.ts'].includes(file)))
       .toEqual([]);
     expect(read('lib/forgewing/runtime/phase17Sonnet55BoundedRationaleQualificationClient.ts'))
       .toMatch(/import \{\s*loadPhase17Sonnet55PromptClarificationPrompt,?\s*\}\s*from '@\/lib\/forgewing\/runtime\/phase17Sonnet55PromptClarificationQualificationClient';/);
     expect(production.filter((file) => read(file).includes('phase17Sonnet55BoundedRationaleQualificationClient')))
+      .toEqual([]);
+    expect(read('lib/forgewing/runtime/phase17Sonnet55RationalePatternCompatQualificationClient.ts'))
+      .toMatch(/import \{\s*loadPhase17Sonnet55PromptClarificationPrompt,?\s*\}\s*from '@\/lib\/forgewing\/runtime\/phase17Sonnet55PromptClarificationQualificationClient';/);
+    expect(production.filter((file) => read(file).includes('phase17Sonnet55RationalePatternCompatQualificationClient')))
       .toEqual([]);
   }, 60_000);
 
@@ -60,11 +65,13 @@ describe('additive Sonnet 5.5 qualification boundaries', () => {
       'scripts/evaluation/phase17/runPhase17Sonnet55RationaleCompatEvaluation.ts',
       'scripts/evaluation/phase17/runPhase17Sonnet55PromptClarificationEvaluation.ts',
       'scripts/evaluation/phase17/runPhase17Sonnet55BoundedRationaleEvaluation.ts',
+      'scripts/evaluation/phase17/runPhase17Sonnet55RationalePatternCompatEvaluation.ts',
       'lib/evaluation/forgewing/phase17/phase17Sonnet55Run.ts',
       'lib/evaluation/forgewing/phase17/phase17Sonnet55AdaptiveLowRun.ts',
       'lib/evaluation/forgewing/phase17/phase17Sonnet55RationaleCompatRun.ts',
       'lib/evaluation/forgewing/phase17/phase17Sonnet55PromptClarificationRun.ts',
       'lib/evaluation/forgewing/phase17/phase17Sonnet55BoundedRationaleRun.ts',
+      'lib/evaluation/forgewing/phase17/phase17Sonnet55RationalePatternCompatRun.ts',
     ]) {
       expect(read(file), file).not.toMatch(/process\.env\.FORGEWING_MODEL\s*=|FORGEWING_MODEL\s*=/);
     }

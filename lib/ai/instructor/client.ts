@@ -45,10 +45,13 @@ function createDefaultClient(): InstructorLikeClient | null {
   }) as unknown as InstructorLikeClient;
 }
 
-function parseRetryCount(raw: string | undefined, fallback: number): number {
+/** Retries are bounded in code: an env value can lower them, never raise them past the cap. */
+export const MAX_INSTRUCTOR_RETRIES = 3;
+
+export function parseRetryCount(raw: string | undefined, fallback: number): number {
   if (!raw) return fallback;
   const parsed = Number(raw);
-  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : fallback;
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.min(Math.floor(parsed), MAX_INSTRUCTOR_RETRIES) : fallback;
 }
 
 function errorMessage(error: unknown): string {
@@ -66,8 +69,8 @@ export async function runStructuredOutput<T>(params: {
   client?: InstructorLikeClient | null;
   createClient?: () => InstructorLikeClient | null;
 }): Promise<StructuredOutputResult<T>> {
-  const maxRetries = params.maxRetries
-    ?? parseRetryCount(process.env.EIGHTFORGE_INSTRUCTOR_MAX_RETRIES, 2);
+  const maxRetries = Math.min(params.maxRetries
+    ?? parseRetryCount(process.env.EIGHTFORGE_INSTRUCTOR_MAX_RETRIES, 2), MAX_INSTRUCTOR_RETRIES);
   const warnings: string[] = [];
   const client =
     params.client

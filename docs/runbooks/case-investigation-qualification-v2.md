@@ -1,6 +1,6 @@
 # Case Investigation qualification contract v2 (`case_investigation_qualification_v2`)
 
-**Status:** owner-directed 2026-10-15. Corpus constructed and census complete. Phase-1 labels are proposed, and **78 cases await Eric Martin's adjudication**. No provider call has been made.
+**Status:** owner-directed 2026-10-15. Corpus constructed and census complete. Corpus r2: 111 eligible cases. 89 are labelled; **22 residual disagreements await Eric Martin's adjudication**. No provider call has been made.
 
 v2 is additive. [v1](case-investigation-qualification.md) stays exactly as recorded, as historical evidence:
 - the production corpus was insufficient;
@@ -150,3 +150,15 @@ The action set and the six-category vocabulary are unchanged. The same two indep
 `scripts/evaluation/artifacts/case-investigation-v2/enriched-packets.index.json` records, per case, the cited document ids, pages, hit counts and excerpt and row digests only. The excerpts themselves stay outside the repository.
 
 Note on the relabel packets: in the 5 conflict-fixture packets the reviewers labelled, each fixture source row named its document by its fixture key (for example `tickets`) rather than its title. A spread-order bug in `enrichPacketsV2.ts` caused this, and it has since been fixed. The labelled packets are identified by their recorded `packetSha256`, so the evidence the reviewers saw stays exactly reproducible. The rows' values were complete and correct.
+
+### Relabel result (2026-10-15)
+
+| | Cases |
+|---|---|
+| Relabelled with cited source evidence | 74 |
+| Accepted by exact reviewer agreement (primary action and root cause) | **52** |
+| Phase-1 agreements carried | 37 |
+| **Labelled so far** | **89 of 111** |
+| Residual disagreements for Eric Martin | **22** (21 `validator_failure`, 1 `conflict`) |
+
+The residual sheet groups cases by project, rule and cited source document, and is kept outside the repository because it quotes customer text. Each of the 22 residual cases cites a different source document, so each needs its own source-truth decision. **Labels are not frozen**, and no zero-call preflight or provider call may run until the 22 are resolved.

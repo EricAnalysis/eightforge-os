@@ -36,7 +36,8 @@ describe('additive Sonnet 5.5 qualification boundaries', () => {
     expect(production.filter((file) => read(file).includes('phase17Sonnet55PromptClarificationQualificationClient')
       && !['lib/forgewing/runtime/phase17Sonnet55BoundedRationaleQualificationClient.ts',
         'lib/forgewing/runtime/phase17Sonnet55RationalePatternCompatQualificationClient.ts',
-        'lib/forgewing/runtime/phase17Sonnet55RationalePatternLinearQualificationClient.ts'].includes(file)))
+        'lib/forgewing/runtime/phase17Sonnet55RationalePatternLinearQualificationClient.ts',
+        'lib/forgewing/runtime/phase17Sonnet55PromptBetweenToolsQualificationClient.ts'].includes(file)))
       .toEqual([]);
     expect(read('lib/forgewing/runtime/phase17Sonnet55BoundedRationaleQualificationClient.ts'))
       .toMatch(/import \{\s*loadPhase17Sonnet55PromptClarificationPrompt,?\s*\}\s*from '@\/lib\/forgewing\/runtime\/phase17Sonnet55PromptClarificationQualificationClient';/);
@@ -49,6 +50,10 @@ describe('additive Sonnet 5.5 qualification boundaries', () => {
     expect(read('lib/forgewing/runtime/phase17Sonnet55RationalePatternLinearQualificationClient.ts'))
       .toMatch(/import \{\s*loadPhase17Sonnet55PromptClarificationPrompt,?\s*\}\s*from '@\/lib\/forgewing\/runtime\/phase17Sonnet55PromptClarificationQualificationClient';/);
     expect(production.filter((file) => read(file).includes('phase17Sonnet55RationalePatternLinearQualificationClient')))
+      .toEqual([]);
+    expect(read('lib/forgewing/runtime/phase17Sonnet55PromptBetweenToolsQualificationClient.ts'))
+      .toMatch(/import \{\s*loadPhase17Sonnet55PromptClarificationPrompt,?\s*\}\s*from '@\/lib\/forgewing\/runtime\/phase17Sonnet55PromptClarificationQualificationClient';/);
+    expect(production.filter((file) => read(file).includes('phase17Sonnet55PromptBetweenToolsQualificationClient')))
       .toEqual([]);
   }, 60_000);
 
@@ -72,6 +77,7 @@ describe('additive Sonnet 5.5 qualification boundaries', () => {
       'scripts/evaluation/phase17/runPhase17Sonnet55BoundedRationaleEvaluation.ts',
       'scripts/evaluation/phase17/runPhase17Sonnet55RationalePatternCompatEvaluation.ts',
       'scripts/evaluation/phase17/runPhase17Sonnet55RationalePatternLinearEvaluation.ts',
+      'scripts/evaluation/phase17/runPhase17Sonnet55PromptBetweenToolsEvaluation.ts',
       'lib/evaluation/forgewing/phase17/phase17Sonnet55Run.ts',
       'lib/evaluation/forgewing/phase17/phase17Sonnet55AdaptiveLowRun.ts',
       'lib/evaluation/forgewing/phase17/phase17Sonnet55RationaleCompatRun.ts',
@@ -79,6 +85,7 @@ describe('additive Sonnet 5.5 qualification boundaries', () => {
       'lib/evaluation/forgewing/phase17/phase17Sonnet55BoundedRationaleRun.ts',
       'lib/evaluation/forgewing/phase17/phase17Sonnet55RationalePatternCompatRun.ts',
       'lib/evaluation/forgewing/phase17/phase17Sonnet55RationalePatternLinearRun.ts',
+      'lib/evaluation/forgewing/phase17/phase17Sonnet55PromptBetweenToolsRun.ts',
     ]) {
       expect(read(file), file).not.toMatch(/process\.env\.FORGEWING_MODEL\s*=|FORGEWING_MODEL\s*=/);
     }

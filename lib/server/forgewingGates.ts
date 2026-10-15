@@ -213,6 +213,31 @@ export function readForgewingWorkflowDailyCap(
     ? parsed : DEFAULT_VALUE_READING_DAILY_CAP;
 }
 
+/**
+ * Durable daily budgets for the extraction shadow and recovery provider calls
+ * (census D2). They are not gated workflows of their own: their switches,
+ * entitlement and data policy are checked at their entry points
+ * (complianceShadow, intelligencePersistence). They spend the same
+ * reservation ledger through the same reservation function.
+ */
+export const FORGEWING_SHADOW_BUDGETS = Object.freeze({
+  extraction_shadow: Object.freeze({ dailyCapEnv: 'FORGEWING_EXTRACTION_SHADOW_DAILY_CAP' }),
+  extraction_recovery: Object.freeze({ dailyCapEnv: 'FORGEWING_EXTRACTION_RECOVERY_DAILY_CAP' }),
+});
+export type ShadowCallBudget = keyof typeof FORGEWING_SHADOW_BUDGETS;
+
+/** Same bounds and default (0: no calls) as every workflow cap. */
+export function readForgewingShadowDailyCap(
+  budget: ShadowCallBudget,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): number {
+  const raw = env[FORGEWING_SHADOW_BUDGETS[budget].dailyCapEnv];
+  if (raw == null || raw.trim() === '') return DEFAULT_VALUE_READING_DAILY_CAP;
+  const parsed = Number(raw);
+  return Number.isSafeInteger(parsed) && parsed >= 0 && parsed <= MAXIMUM_VALUE_READING_DAILY_CAP
+    ? parsed : DEFAULT_VALUE_READING_DAILY_CAP;
+}
+
 /** Calls per organization per trailing 24 hours. Default 0: no calls unless configured. */
 export function readValueReadingDailyCap(
   env: Readonly<Record<string, string | undefined>> = process.env,
@@ -357,7 +382,7 @@ export async function reserveForgewingProviderCall(
     reservedBy: string | null;
     dailyCap: number;
     /** Each workflow spends its own budget. */
-    workflow?: GatedWorkflow;
+    workflow?: GatedWorkflow | ShadowCallBudget;
   }>,
 ): Promise<ProviderCallReservation> {
   try {

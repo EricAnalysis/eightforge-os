@@ -2885,6 +2885,7 @@ WSLENV="${WSLENV:+${WSLENV}:}B3_DATABASE_URL" \
 "${psql[@]}" --file scripts/sql/verify-forgewing-provider-telemetry.sql
 "${psql[@]}" --file scripts/sql/verify-forgewing-relationship-proposals.sql
 "${psql[@]}" --file scripts/sql/verify-forgewing-case-investigations.sql
+"${psql[@]}" --file scripts/sql/verify-forgewing-shadow-recovery-budgets.sql
 
 # B4.2 value-reading proposals: immutable, non-authoritative, promoted only by
 # a database-verified human fact assertion.

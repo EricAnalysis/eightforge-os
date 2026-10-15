@@ -43,7 +43,11 @@ import {
   isForgewingTableContinuationEnabled,
 } from '@/lib/forgewing/runtime/modelConfig';
 import { ForgewingCallBudget } from '@/lib/forgewing/runtime/budget';
-import type { ForgewingProvider, ForgewingProviderObservation } from '@/lib/forgewing/runtime/client';
+import {
+  callClaudeForPricingRateClusterRecovery,
+  type ForgewingProvider,
+  type ForgewingProviderObservation,
+} from '@/lib/forgewing/runtime/client';
 import {
   createObservedForgewingProvider,
   type ObservedProviderTask,
@@ -54,7 +58,12 @@ import {
   resolveForgewingEntitlement,
   type OrganizationForgewingEntitlementResolver,
 } from '@/lib/server/forgewingEntitlement';
-import { resolveForgewingDataPolicy } from '@/lib/server/forgewingGates';
+import {
+  readForgewingShadowDailyCap,
+  reserveForgewingProviderCall,
+  resolveForgewingDataPolicy,
+  type ShadowCallBudget,
+} from '@/lib/server/forgewingGates';
 import { buildRuntimeShadowParserManifest } from '@/lib/extraction/persistence/shadowRuntimeManifest';
 import { sniffExtractionMediaType } from '@/lib/extraction/persistence/shadowSourceIdentity';
 import { publishExtractionStep1ShadowNonBlocking } from '@/lib/extraction/persistence/step1Shadow';
@@ -1205,7 +1214,8 @@ export function scheduleForgewingPricingRateClusterRecoveryShadow(
     try {
       const result = await (dependencies.run ?? runForgewingPricingRateClusterRecovery)(
         candidate,
-        { env },
+        { env, provider: reservedShadowProvider('extraction_recovery', input.organizationId,
+          callClaudeForPricingRateClusterRecovery, { env }) },
       );
       console.info('[forgewingRecovery] pricing recovery outcome', {
         mode: 'shadow', resultState: result.status, eligibilityReason: 'ambiguous_relationship',
@@ -1386,11 +1396,13 @@ export function scheduleRecoveryCandidateV2Shadow(
         extractionSnapshotId: input.extractionSnapshotId,
         candidates: unitCandidates,
       };
+      let budgetRefused = false;
       const recommendation = dependencies.run
         ? await dependencies.run(recoveryInput, { env, budget: new ForgewingCallBudget(1) })
         : await withShadowProviderTelemetry('recovery_candidate_v2', input.organizationId,
           (provider) => runRecoveryCandidateV2Recommendation(recoveryInput,
-            { env, budget: new ForgewingCallBudget(1), provider }));
+            { env, budget: new ForgewingCallBudget(1), provider }),
+          { env, onRefused: () => { budgetRefused = true; } });
       if (recommendation.status !== 'requires_human_review') {
         const outcomeCode: RecoveryGenerationOutcomeCode =
           recommendation.status === 'eligible_not_executed'
@@ -1398,7 +1410,8 @@ export function scheduleRecoveryCandidateV2Shadow(
         await recordRecoveryGenerationOutcome({
           ...base, outcomeCode,
           sanitizedReason: sanitizeRecoveryGenerationReason(outcomeCode, recommendation.reason),
-          providerInvoked: recommendation.providerCalls > 0,
+          // A budget refusal throws before the provider: no call happened.
+          providerInvoked: !budgetRefused && recommendation.providerCalls > 0,
         }, dependencies.persistOutcome ?? persistForgewingRecoveryGenerationOutcome);
         return;
       }
@@ -1578,17 +1591,101 @@ export function step3BridgeForForgewingEntitlement(
  * prompt, no output). The request is identical to the task's default
  * provider; recording is best effort and never changes the task's result.
  */
+/** The durable daily budget each shadow / recovery task spends (census D2). */
+export function shadowTaskBudget(task: ObservedProviderTask): ShadowCallBudget {
+  return task === 'recovery_candidate_v2' ? 'extraction_recovery' : 'extraction_shadow';
+}
+
+/**
+ * Durable reservation before every shadow / recovery provider call (census
+ * D2): one slot of the organization's daily budget in the shared reservation
+ * ledger, bound to the exact request (digest only; no content is stored).
+ * Anything but a granted slot throws BEFORE the provider is called, so a
+ * provider call never happens without a durable reservation. The task treats
+ * the throw as a provider failure and the deterministic shadow is unaffected.
+ * The in-request call budget still applies on top of this.
+ */
+export class ShadowBudgetRefusal extends Error {
+  constructor(readonly code: 'budget_exhausted' | 'reservation_failed' | 'budget_unavailable') {
+    super(code);
+    this.name = 'ShadowBudgetRefusal';
+  }
+}
+
+type ShadowReservationDependencies = Readonly<{
+  admin?: SupabaseClient | null;
+  reserve?: typeof reserveForgewingProviderCall;
+  env?: Readonly<Record<string, string | undefined>>;
+  /** Told when the budget refuses, so an outcome never records a call that did not happen. */
+  onRefused?: (code: ShadowBudgetRefusal['code']) => void;
+}>;
+
+/** Reserves one durable slot for exactly this request, or throws before any provider call. */
+async function reserveShadowProviderSlot(
+  budget: ShadowCallBudget,
+  organizationId: string,
+  requestDigestSha256: string,
+  admin: SupabaseClient | null,
+  dependencies: ShadowReservationDependencies,
+): Promise<string> {
+  const refuse = (code: ShadowBudgetRefusal['code']): never => {
+    dependencies.onRefused?.(code);
+    throw new ShadowBudgetRefusal(code);
+  };
+  if (!admin) return refuse('budget_unavailable');
+  const reservation = await (dependencies.reserve ?? reserveForgewingProviderCall)(admin, {
+    organizationId,
+    requestDigestSha256,
+    reservedBy: null,
+    dailyCap: readForgewingShadowDailyCap(budget, dependencies.env ?? process.env),
+    workflow: budget,
+  });
+  if (reservation.status !== 'reserved') {
+    return refuse(reservation.status === 'budget_exhausted' ? 'budget_exhausted' : 'reservation_failed');
+  }
+  return reservation.reservationId;
+}
+
+/**
+ * A provider that spends a durable slot before delegating to `base`, for a
+ * recovery task that is not an observed provider task (the deprecated V1
+ * pricing rate-cluster recovery, census D2 follow-up). The request `base`
+ * sends is unchanged.
+ */
+export function reservedShadowProvider(
+  budget: ShadowCallBudget,
+  organizationId: string,
+  base: ForgewingProvider,
+  dependencies: ShadowReservationDependencies = {},
+): ForgewingProvider {
+  return async (request) => {
+    const admin = dependencies.admin === undefined ? getSupabaseAdmin() : dependencies.admin;
+    await reserveShadowProviderSlot(budget, organizationId,
+      hashCanonical({ budget, request }), admin, dependencies);
+    return base(request);
+  };
+}
+
 export async function withShadowProviderTelemetry<T>(
   task: ObservedProviderTask,
   organizationId: string,
   run: (provider: ForgewingProvider) => Promise<T>,
+  dependencies: ShadowReservationDependencies & Readonly<{
+    createProvider?: typeof createObservedForgewingProvider;
+  }> = {},
 ): Promise<T> {
   let invokedModel: string | null = null;
+  let reservationId: string | null = null;
+  let requestDigestSha256: string | null = null;
   let observation: ForgewingProviderObservation | null = null;
   let failure: unknown;
   const startedAt = performance.now();
-  const observed = createObservedForgewingProvider(task, (entry) => { observation = entry; });
+  const admin = dependencies.admin === undefined ? getSupabaseAdmin() : dependencies.admin;
+  const observed = (dependencies.createProvider ?? createObservedForgewingProvider)(task, (entry) => { observation = entry; });
   const result = await run(async (request) => {
+    requestDigestSha256 = hashCanonical({ task, request });
+    reservationId = await reserveShadowProviderSlot(shadowTaskBudget(task), organizationId, requestDigestSha256,
+      admin, dependencies);
     invokedModel = request.model;
     try {
       return await observed(request);
@@ -1598,13 +1695,14 @@ export async function withShadowProviderTelemetry<T>(
     }
   });
   if (invokedModel) {
-    const admin = getSupabaseAdmin();
     if (admin) {
       const observed = observation as ForgewingProviderObservation | null;
       const message = failure instanceof Error ? failure.message : failure === undefined ? null : String(failure);
       await recordForgewingProviderCallObservation(admin, {
         workflow: task,
         organizationId,
+        reservationId,
+        requestDigestSha256,
         model: invokedModel,
         returnedModel: observed?.returnedModel,
         providerRequestId: observed?.requestId,

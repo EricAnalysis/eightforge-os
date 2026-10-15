@@ -32,10 +32,12 @@ Every gate fails closed, and every switch is strict `=== '1'`. `true`, `yes`,
 Steps 5-7 apply to every customer-content workflow: Project Ask, value
 reading, case investigation and Workflow Assessment (S3). Extraction shadow and
 recovery tasks check the kill switch, their switch, entitlement and an approved
-`text_excerpts` data policy (steps 5-6). Their budget is still the in-request
-call budget (`FORGEWING_MAX_CALLS`), not a durable reservation: the
-reservation ledger's workflow list does not include them, and adding them is a
-migration.
+`text_excerpts` data policy (steps 5-6), then reserve one slot of a durable
+daily budget before every provider call (step 7, census D2):
+`FORGEWING_EXTRACTION_SHADOW_DAILY_CAP` (the five shadow tasks, one shared
+budget) and `FORGEWING_EXTRACTION_RECOVERY_DAILY_CAP` (recovery V2), each
+0-500, default `0` (no calls). The in-request call budget (`FORGEWING_MAX_CALLS`)
+still applies on top.
 
 ## Kill switch, model and provider
 
@@ -60,15 +62,15 @@ code, after a canonical qualification result explicitly qualifies another model
 | Value reading | `FORGEWING_VALUE_READING_ENABLED` | `FORGEWING_VALUE_READING_DAILY_CAP` | **`disabled`**: B4.6 failed; B4.6.1 not qualified | `page_region_images` (+`text_excerpts`) | Immutable proposal; truth only via a human assertion |
 | Case investigation | `FORGEWING_CASE_INVESTIGATION_ENABLED` | `FORGEWING_CASE_INVESTIGATION_DAILY_CAP` | **`disabled`**: no qualification yet | `text_excerpts` | Advisory |
 | Workflow Assessment (S3, #237) | `FORGEWING_WORKFLOW_ASSESSMENT_ENABLED` | `FORGEWING_WORKFLOW_ASSESSMENT_DAILY_CAP` | `enabled` | `text_excerpts` | Non-authoritative assessment; human review |
-| Plan V2 repository guidance | `FORGEWING_REPOSITORY_PLAN_GUIDANCE_ENABLED` | none (worker-hosted, job-bounded) | env | repository content, plus the step text of the human-reviewed workflow specification (platform-internal; no entitlement or data-policy gate) | Non-authoritative plan; human engineering review |
-| Region classification | `FORGEWING_REGION_CLASSIFICATION_ENABLED` | in-request `FORGEWING_MAX_CALLS` | env | document text | Shadow artifact (TTL) |
-| Table continuation | `FORGEWING_TABLE_CONTINUATION_ENABLED` | in-request | env | document text | Shadow artifact |
-| Column mapping | `FORGEWING_COLUMN_MAPPING_ENABLED` | in-request | env | document text | Shadow artifact (never activates a mapping) |
-| Observation arbitration | `FORGEWING_OBSERVATION_ARBITRATION_ENABLED` | in-request | env | document text | Shadow artifact |
-| Pricing interpretation | `FORGEWING_PRICING_INTERPRETATION_ENABLED` | in-request | env | document text | Shadow artifact |
-| Recovery V2: continuation attribution, header-role selection | `FORGEWING_EXTRACTION_RECOVERY_V2_ENABLED` | in-request | **`controlled`** (`corpus_qualified`) | document text | Immutable proposal; human review, then a processing run |
-| Recovery V2: multi-observation pricing cluster | `FORGEWING_RECOVERY_V2_PRICING_CLUSTER_ENABLED` | in-request | **`disabled`** | — | — |
-| Recovery V1: pricing rate cluster | `FORGEWING_PRICING_RATE_CLUSTER_RECOVERY_ENABLED` | in-request | **`disabled`** | — | — |
+| Plan V2 repository guidance | `FORGEWING_REPOSITORY_PLAN_GUIDANCE_ENABLED` | none (worker-hosted, job-bounded) | env | repository content, plus the step text of the human-reviewed workflow specification or of a triaged improvement signal (B8.3d) (platform-internal; no entitlement or data-policy gate) | Non-authoritative plan; human engineering review |
+| Region classification | `FORGEWING_REGION_CLASSIFICATION_ENABLED` | durable `FORGEWING_EXTRACTION_SHADOW_DAILY_CAP` (+ in-request `FORGEWING_MAX_CALLS`) | env | document text | Shadow artifact (TTL) |
+| Table continuation | `FORGEWING_TABLE_CONTINUATION_ENABLED` | durable `FORGEWING_EXTRACTION_SHADOW_DAILY_CAP` (+ in-request `FORGEWING_MAX_CALLS`) | env | document text | Shadow artifact |
+| Column mapping | `FORGEWING_COLUMN_MAPPING_ENABLED` | durable `FORGEWING_EXTRACTION_SHADOW_DAILY_CAP` (+ in-request `FORGEWING_MAX_CALLS`) | env | document text | Shadow artifact (never activates a mapping) |
+| Observation arbitration | `FORGEWING_OBSERVATION_ARBITRATION_ENABLED` | durable `FORGEWING_EXTRACTION_SHADOW_DAILY_CAP` (+ in-request `FORGEWING_MAX_CALLS`) | env | document text | Shadow artifact |
+| Pricing interpretation | `FORGEWING_PRICING_INTERPRETATION_ENABLED` | durable `FORGEWING_EXTRACTION_SHADOW_DAILY_CAP` (+ in-request `FORGEWING_MAX_CALLS`) | env | document text | Shadow artifact |
+| Recovery V2: continuation attribution, header-role selection | `FORGEWING_EXTRACTION_RECOVERY_V2_ENABLED` | durable `FORGEWING_EXTRACTION_RECOVERY_DAILY_CAP` (+ in-request) | **`controlled`** (`corpus_qualified`) | document text | Immutable proposal; human review, then a processing run |
+| Recovery V2: multi-observation pricing cluster | `FORGEWING_RECOVERY_V2_PRICING_CLUSTER_ENABLED` | durable `FORGEWING_EXTRACTION_RECOVERY_DAILY_CAP` (+ in-request) | **`disabled`** | — | — |
+| Recovery V1: pricing rate cluster | `FORGEWING_PRICING_RATE_CLUSTER_RECOVERY_ENABLED` | durable `FORGEWING_EXTRACTION_RECOVERY_DAILY_CAP` (+ in-request) | **`disabled`** | — | — |
 
 ## Bounds (tuning, never enablement)
 

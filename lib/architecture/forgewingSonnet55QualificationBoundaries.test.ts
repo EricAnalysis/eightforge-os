@@ -31,6 +31,8 @@ describe('additive Sonnet 5.5 qualification boundaries', () => {
       .toEqual([]);
     expect(production.filter((file) => read(file).includes('phase17Sonnet55AdaptiveLowQualificationClient')))
       .toEqual([]);
+    expect(production.filter((file) => read(file).includes('phase17Sonnet55RationaleCompatQualificationClient')))
+      .toEqual([]);
   }, 60_000);
 
   it('registers manual commands with distinct artifact roots and no production model mutation', () => {
@@ -48,8 +50,10 @@ describe('additive Sonnet 5.5 qualification boundaries', () => {
       'scripts/evaluation/b461/runQualificationV4.ts',
       'scripts/evaluation/phase17/runPhase17Sonnet55ContinuationEvaluation.ts',
       'scripts/evaluation/phase17/runPhase17Sonnet55AdaptiveLowEvaluation.ts',
+      'scripts/evaluation/phase17/runPhase17Sonnet55RationaleCompatEvaluation.ts',
       'lib/evaluation/forgewing/phase17/phase17Sonnet55Run.ts',
       'lib/evaluation/forgewing/phase17/phase17Sonnet55AdaptiveLowRun.ts',
+      'lib/evaluation/forgewing/phase17/phase17Sonnet55RationaleCompatRun.ts',
     ]) {
       expect(read(file), file).not.toMatch(/process\.env\.FORGEWING_MODEL\s*=|FORGEWING_MODEL\s*=/);
     }

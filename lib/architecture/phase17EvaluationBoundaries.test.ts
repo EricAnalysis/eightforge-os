@@ -26,6 +26,7 @@ const NO_UPFRONT_THINKING_RUN = `${PHASE17_LIB}/phase17Sonnet55NoUpfrontThinking
 const ADAPTIVE_LOW_RUN = `${PHASE17_LIB}/phase17Sonnet55AdaptiveLowRun.ts`;
 const RATIONALE_COMPAT_RUN = `${PHASE17_LIB}/phase17Sonnet55RationaleCompatRun.ts`;
 const PROMPT_CLARIFICATION_RUN = `${PHASE17_LIB}/phase17Sonnet55PromptClarificationRun.ts`;
+const BOUNDED_RATIONALE_RUN = `${PHASE17_LIB}/phase17Sonnet55BoundedRationaleRun.ts`;
 
 function walk(directory: string): string[] {
   const absolute = path.join(ROOT, directory);
@@ -80,6 +81,7 @@ describe('Phase 17 evaluation boundaries', () => {
       RUN, SONNET_55_RUN, OWNER_LABEL_RUN, SCHEMA_COMPAT_RUN, NO_UPFRONT_THINKING_RUN, ADAPTIVE_LOW_RUN,
       RATIONALE_COMPAT_RUN,
       PROMPT_CLARIFICATION_RUN,
+      BOUNDED_RATIONALE_RUN,
     ].sort());
     expect(code(RUN)).toContain("await import('@/lib/evaluation/phase17LiveSeams')");
     expect(code(SONNET_55_RUN)).toContain("await import('@/lib/evaluation/phase17LiveSeams')");
@@ -114,6 +116,7 @@ describe('Phase 17 evaluation boundaries', () => {
       `${PHASE17_LIB}/phase17Artifacts.ts`,
       `${PHASE17_LIB}/phase17Sonnet55AdaptiveLowArtifacts.ts`,
       `${PHASE17_LIB}/phase17Sonnet55Artifacts.ts`,
+      `${PHASE17_LIB}/phase17Sonnet55BoundedRationaleArtifacts.ts`,
       `${PHASE17_LIB}/phase17Sonnet55NoUpfrontThinkingArtifacts.ts`,
       `${PHASE17_LIB}/phase17Sonnet55PromptClarificationArtifacts.ts`,
       `${PHASE17_LIB}/phase17Sonnet55RationaleCompatArtifacts.ts`,
@@ -214,6 +217,7 @@ describe('Phase 17 evaluation boundaries', () => {
       ADAPTIVE_LOW_RUN,
       RATIONALE_COMPAT_RUN,
       PROMPT_CLARIFICATION_RUN,
+      BOUNDED_RATIONALE_RUN,
     ].sort());
     expect([...code(`${PHASE17_LIB}/phase17Execution.ts`).matchAll(/\? 'anthropic_live'/g)]).toHaveLength(1);
     expect(code(`${PHASE17_LIB}/phase17Qualification.ts`))

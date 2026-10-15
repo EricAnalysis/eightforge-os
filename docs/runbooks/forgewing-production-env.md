@@ -44,7 +44,8 @@ migration.
 | `FORGEWING_SHADOW_ENABLED` | off | Master kill switch for all Forgewing provider work, entitlement lookups included |
 | `ANTHROPIC_API_KEY` | none | Secret. Without it every provider path is "not configured" |
 | `FORGEWING_MODEL` | none (falls back to `ANTHROPIC_MODEL`, then `claude-sonnet-4-6`) | **Set it to `claude-sonnet-4-6`.** Any model not in `FORGEWING_QUALIFIED_MODELS` disables Forgewing (`model_unqualified`). It never silently inherits a Claude 5 shared model |
-| `ANTHROPIC_MODEL` | `claude-sonnet-4-6` | Shared model for Ask, the orchestrator and the extractor diagnostic, which use model-aware sampling. Not a Forgewing qualification |
+| `ANTHROPIC_MODEL` | `claude-sonnet-4-6` | Shared model for the orchestrator and the extractor diagnostic, which use model-aware sampling. Not a Forgewing qualification |
+| `FORGEWING_PROJECT_ASK_MODEL` | unset | Ask-specific model pin; overrides `ANTHROPIC_MODEL` for Ask only. Ask calls only a model in `PROJECT_ASK_QUALIFIED_MODELS` (`lib/server/ai/askModel.ts`; currently `claude-sonnet-4-6`); an unqualified model returns `ai_model_unqualified` before any context, budget or provider call. Separate from `FORGEWING_QUALIFIED_MODELS` |
 | `ANTHROPIC_EXTRACTOR_MODEL` | `ANTHROPIC_MODEL` | Extractor diagnostic only |
 
 `FORGEWING_QUALIFIED_MODELS` is `['claude-sonnet-4-6']`. It is widened only in

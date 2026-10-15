@@ -75,6 +75,7 @@ describe('askProjectWithClaude', () => {
     const result = await askProjectWithClaude({
       question: 'What is the ceiling?',
       context,
+      model: 'claude-sonnet-4-6',
     });
 
     assert.equal(result.answer, 'The canonical ceiling is $1,000.');
@@ -101,6 +102,7 @@ describe('askProjectWithClaude', () => {
     await askProjectWithClaude({
       question: 'What is known?',
       context: { contextSource: 'canonical_project_truth_retrieval' } as AskProjectClaudeContext,
+      model: 'claude-sonnet-5-5',
     });
 
     expect(createMock).toHaveBeenCalledWith(expect.objectContaining({ model: 'claude-sonnet-5-5' }), { timeout: 45_000, maxRetries: 0 });

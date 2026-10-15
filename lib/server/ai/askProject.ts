@@ -1,9 +1,6 @@
 // Server-only Claude "Ask This Project" adapter. Read-only explanations only.
 
-import {
-  getClaudeClient,
-  getClaudeModel,
-} from '@/lib/server/ai/claudeClient';
+import { getClaudeClient } from '@/lib/server/ai/claudeClient';
 import { CLAUDE_REQUEST_OPTIONS } from '@/lib/server/ai/claudeRequestOptions';
 import { getClaudeSamplingParameters } from '@/lib/server/ai/claudeSampling';
 import type { AskProjectClaudeContext } from '@/lib/server/ai/askProjectContext';
@@ -29,9 +26,11 @@ function extractTextContent(content: Array<{ type: string; text?: string }>): st
 export async function askProjectWithClaude(params: {
   question: string;
   context: AskProjectClaudeContext;
+  /** The Ask-qualified model the route resolved (askModel.ts). Never chosen here. */
+  model: string;
 }): Promise<{ answer: string; model: string; observation: AskProviderObservation }> {
   const client = getClaudeClient();
-  const model = getClaudeModel();
+  const model = params.model;
   const startedAt = performance.now();
 
   const message = await client.messages.create({

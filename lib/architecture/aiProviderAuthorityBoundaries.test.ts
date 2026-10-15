@@ -51,14 +51,23 @@ describe('AI provider authority boundaries (legacy paths are evidence only)', ()
     const importers = production().filter((file) => PROVIDER_SDK_IMPORT.test(code(file))).map(posix);
     // A further importer is a new provider path: route it through the shared
     // Claude client and the Forgewing gates, or add it here deliberately.
+    // The legacy enrichment and Instructor provider paths are disabled (D4):
+    // neither imports a provider SDK any more.
     expect(importers.sort()).toEqual([
       'app/api/test/anthropic/route.ts',
       'app/api/test/openai/route.ts',
-      'lib/ai/instructor/client.ts',
       'lib/server/ai/claudeClient.ts',
-      'lib/server/documentAiEnrichment.ts',
     ]);
   }, WALK_TIMEOUT_MS);
+
+  it('legacy enrichment and the Instructor assist build no provider client (D4)', () => {
+    const enrichment = code('lib/server/documentAiEnrichment.ts');
+    expect(enrichment).not.toMatch(/messages\.create|chat\.completions|new (?:Anthropic|OpenAI)\(/);
+    expect(enrichment).toContain('LEGACY_ENRICHMENT_DISABLED_NOTE');
+    const instructor = code('lib/ai/instructor/client.ts');
+    expect(instructor).toContain('export const INSTRUCTOR_PROVIDER_GOVERNED = false;');
+    expect(instructor).toMatch(/function createDefaultClient\(\): InstructorLikeClient \| null \{\s*return null;\s*\}/);
+  });
 
   it('the Instructor assist is explicit opt-in, never enabled by an OpenAI key alone', () => {
     const client = code('lib/ai/instructor/client.ts');

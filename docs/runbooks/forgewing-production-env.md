@@ -46,7 +46,8 @@ still applies on top.
 | `FORGEWING_SHADOW_ENABLED` | off | Master kill switch for all Forgewing provider work, entitlement lookups included |
 | `ANTHROPIC_API_KEY` | none | Secret. Without it every provider path is "not configured" |
 | `FORGEWING_MODEL` | none (falls back to `ANTHROPIC_MODEL`, then `claude-sonnet-4-6`) | **Set it to `claude-sonnet-4-6`.** Any model not in `FORGEWING_QUALIFIED_MODELS` disables Forgewing (`model_unqualified`). It never silently inherits a Claude 5 shared model |
-| `ANTHROPIC_MODEL` | `claude-sonnet-4-6` | Shared model for Ask, the orchestrator and the extractor diagnostic, which use model-aware sampling. Not a Forgewing qualification |
+| `ANTHROPIC_MODEL` | `claude-sonnet-4-6` | Shared model for the orchestrator and the extractor diagnostic, which use model-aware sampling. Not a Forgewing qualification |
+| `FORGEWING_PROJECT_ASK_MODEL` | unset | Ask-specific model pin; overrides `ANTHROPIC_MODEL` for Ask only. Ask calls only a model in `PROJECT_ASK_QUALIFIED_MODELS` (`lib/server/ai/askModel.ts`; currently `claude-sonnet-4-6`); an unqualified model returns `ai_model_unqualified` before any context, budget or provider call. Separate from `FORGEWING_QUALIFIED_MODELS` |
 | `ANTHROPIC_EXTRACTOR_MODEL` | `ANTHROPIC_MODEL` | Extractor diagnostic only |
 
 `FORGEWING_QUALIFIED_MODELS` is `['claude-sonnet-4-6']`. It is widened only in
@@ -114,8 +115,8 @@ Always record `recorded_by`.
 |---|---|---|
 | `CRON_SECRET` | Vercel | Internal routes return 503 without it. Crons: shadow cleanup `17 3 * * *`, Workflow Assessment sweep `41 4 * * *` (three attempts per sweep at most) |
 | Engineering Worker | Separate host (`Dockerfile.worker`) | `FORGEWING_ENGINEERING_WORKER_ACCESS_TOKEN` (dedicated-role JWT), `FORGEWING_REPOSITORY_ROOT=/repository`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `ANTHROPIC_API_KEY`, optionally `FORGEWING_REPOSITORY_PLAN_POLL_INTERVAL_MS` / `FORGEWING_REPOSITORY_PLAN_ONE_SHOT`. Never on Vercel |
-| Legacy OpenAI Instructor assist | Vercel | Off unless `EIGHTFORGE_INSTRUCTOR_ENABLED=1` **and** `OPENAI_API_KEY` (S1). Evidence-only: never writes typed fields |
-| Legacy document AI enrichment | Per org | `organizations.analysis_mode='ai_enriched'`. Evidence-only: never creates decisions or tasks (S1) |
+| Legacy OpenAI Instructor assist | Vercel | **Provider path disabled (D4).** The opt-in `EIGHTFORGE_INSTRUCTOR_ENABLED=1` is kept, but no provider client is built: OpenAI is not an approvable data-policy provider and the path has no entitlement, budget or qualified model. The assist is skipped with an auditable warning. Evidence-only (S1) |
+| Legacy document AI enrichment | Per org | **Provider path disabled (D4).** An org with `analysis_mode='ai_enriched'` gets a stored result with an auditable `disabled` note and no provider call (Claude used an unqualified legacy model; OpenAI is not an approvable data-policy provider). Evidence-only (S1). Re-enabling is a governed project |
 
 ## Intended production state (hardening complete, nothing newly enabled)
 

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { ASK_PROJECT_CLAUDE_SYSTEM_PROMPT, askProjectWithClaude } from '@/lib/server/ai/askProject';
 import { recordForgewingProviderCallObservation } from '@/lib/server/forgewingProviderTelemetry';
-import { getClaudeModel } from '@/lib/server/ai/claudeClient';
+import { resolveProjectAskModel } from '@/lib/server/ai/askModel';
 import { buildAskProjectContext } from '@/lib/server/ai/askProjectContext';
 import { getActorContext } from '@/lib/server/getActorContext';
 import {
@@ -18,6 +18,7 @@ const AI_NOT_CONFIGURED_CODE = 'ai_not_configured';
 const AI_NOT_CONFIGURED_MESSAGE = 'AI assistance is not configured.';
 const AI_NOT_PERMITTED_CODE = 'forgewing_not_permitted';
 const AI_BUDGET_EXHAUSTED_CODE = 'forgewing_budget_exhausted';
+const AI_MODEL_UNQUALIFIED_CODE = 'ai_model_unqualified';
 
 /** Ask sends project truth as text. Nothing else is transmitted. */
 const ASK_CONTENT_CLASSES = ['text_excerpts'] as const;
@@ -116,6 +117,18 @@ export async function POST(
     );
   }
 
+  // Ask calls only a model qualified for its own request contract (D3): an
+  // unqualified model is refused before any context, budget or provider call,
+  // with no fallback to another model.
+  const askModel = resolveProjectAskModel();
+  if (!askModel.qualified) {
+    console.error('[projectAsk] model_unqualified', { source: askModel.source });
+    return NextResponse.json(
+      { error: 'AI assistance is not available with the configured model.', code: AI_MODEL_UNQUALIFIED_CODE },
+      { status: 503 },
+    );
+  }
+
   try {
     const context = await buildAskProjectContext({
       admin,
@@ -132,7 +145,7 @@ export async function POST(
     // One slot of the organization's durable Ask budget, bound to the exact
     // request, immediately before the provider call.
     const requestDigestSha256 = createHash('sha256').update(JSON.stringify([
-      'project_ask_v1', getClaudeModel(), ASK_PROJECT_CLAUDE_SYSTEM_PROMPT, question, context,
+      'project_ask_v1', askModel.model, ASK_PROJECT_CLAUDE_SYSTEM_PROMPT, question, context,
     ])).digest('hex');
     const reservation = await reserveForgewingProviderCall(admin, {
       organizationId: actor.actor.organizationId,
@@ -158,10 +171,10 @@ export async function POST(
       organizationId: actor.actor.organizationId,
       reservationId: reservation.reservationId,
       requestDigestSha256,
-      model: getClaudeModel(),
+      model: askModel.model,
     };
     try {
-      answer = await askProjectWithClaude({ question, context });
+      answer = await askProjectWithClaude({ question, context, model: askModel.model });
     } catch (providerError) {
       await recordForgewingProviderCallObservation(admin, {
         ...telemetry,

@@ -2,7 +2,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 
-const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-4-6';
+export const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-4-6';
 
 let cachedClient: Anthropic | null = null;
 

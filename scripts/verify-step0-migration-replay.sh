@@ -2883,6 +2883,7 @@ WSLENV="${WSLENV:+${WSLENV}:}B3_DATABASE_URL" \
 # B4.1 gates: default-deny data policy and the durable provider-call budget.
 "${psql[@]}" --file scripts/sql/verify-forgewing-gates.sql
 "${psql[@]}" --file scripts/sql/verify-forgewing-provider-telemetry.sql
+"${psql[@]}" --file scripts/sql/verify-forgewing-relationship-proposals.sql
 
 # B4.2 value-reading proposals: immutable, non-authoritative, promoted only by
 # a database-verified human fact assertion.

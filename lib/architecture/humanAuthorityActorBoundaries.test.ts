@@ -28,7 +28,9 @@ const HUMAN_AUTHORITY_ROUTES = [
   'app/api/decisions/[id]/status/route.ts', // finding / decision clearance
   'app/api/execution-items/[id]/outcome/route.ts', // execution outcome
   'app/api/projects/[id]/invoice-line-rate-link/route.ts', // rate-link closure
-  'app/api/projects/[id]/document-precedence/route.ts', // relationship / precedence approval
+  'app/api/projects/[id]/document-precedence/route.ts', // relationship / precedence approval (+ proposal acceptance)
+  'app/api/projects/[id]/relationship-proposals/route.ts', // relationship proposal generation (requested_by)
+  'app/api/projects/[id]/relationship-proposals/[proposalId]/review/route.ts', // proposal reject / defer
 ] as const;
 
 const code = (relative: string) => readFileSync(relative, 'utf8')

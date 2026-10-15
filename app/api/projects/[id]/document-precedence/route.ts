@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   AUTHORITY_STATUS_VALUES,
   DOCUMENT_RELATIONSHIP_TYPES,
@@ -16,6 +17,12 @@ import { enforceRequiredActivityEvent } from '@/lib/server/activity/requiredActi
 import { getActorContext } from '@/lib/server/getActorContext';
 import { loadProjectDocumentPrecedenceSnapshot } from '@/lib/server/documentPrecedence';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
+import {
+  readProposalForLink,
+  recordRelationshipProposalReview,
+  relationshipProposalDecided,
+  type RecordRelationshipProposalReviewResult,
+} from '@/lib/server/relationshipProposals';
 import { requestDocumentPrecedenceRevalidation } from '@/lib/validator/revalidationRequests';
 
 function jsonError(message: string, status: number) {
@@ -153,6 +160,17 @@ async function logTruthMutationActivity(params: {
     });
   }
   return result;
+}
+
+/** The id of an existing relationship edge (a concurrent link may have won the unique index). */
+async function existingRelationshipId(admin: SupabaseClient, params: {
+  projectId: string; sourceDocumentId: string; targetDocumentId: string; relationshipType: string;
+}): Promise<string | null> {
+  const { data } = await admin.from('document_relationships').select('id')
+    .eq('project_id', params.projectId).eq('source_document_id', params.sourceDocumentId)
+    .eq('target_document_id', params.targetDocumentId).eq('relationship_type', params.relationshipType)
+    .maybeSingle();
+  return (data as { id?: string } | null)?.id ?? null;
 }
 
 async function projectExists(
@@ -367,6 +385,7 @@ export async function PATCH(
     projectId,
   });
   let shouldRefreshValidator = false;
+  let proposalReview: RecordRelationshipProposalReviewResult | null = null;
   let duplicateAuditAlreadyLogged = false;
   let truthMutationAuditPlan:
     | {
@@ -673,6 +692,25 @@ export async function PATCH(
           return jsonError('A duplicate disposition cannot create a cycle', 409);
         }
       }
+      // P3.2: the operator may confirm a relationship proposal by linking it
+      // here. The proposal is verified first and must match the link exactly;
+      // the relationship itself is still created only by this human action.
+      const forgewingProposalId = typeof body.forgewingProposalId === 'string' && body.forgewingProposalId.trim()
+        ? body.forgewingProposalId.trim() : null;
+      if (forgewingProposalId) {
+        const proposal = await readProposalForLink(projectResult.admin, {
+          organizationId: ctx.actor.organizationId, projectId, proposalId: forgewingProposalId,
+        });
+        if (!proposal) return jsonError('Relationship proposal not found', 404);
+        if (proposal.source_document_id !== sourceDocumentId || proposal.target_document_id !== targetDocumentId
+          || proposal.relationship_type !== canonicalRelationshipType) {
+          return jsonError('The link does not match the relationship proposal', 409);
+        }
+        if (await relationshipProposalDecided(projectResult.admin, {
+          organizationId: ctx.actor.organizationId, proposalId: forgewingProposalId })) {
+          return jsonError('This relationship proposal is already decided', 409);
+        }
+      }
       const relationshipAlreadyExists = snapshot.relationships.some((relationship) =>
         relationship.source_document_id === sourceDocumentId &&
         relationship.target_document_id === targetDocumentId &&
@@ -709,6 +747,30 @@ export async function PATCH(
           }
         } else {
           createdRelationshipId = insertResult.data?.id ?? null;
+        }
+      }
+
+      if (forgewingProposalId) {
+        const linkedRelationshipId = createdRelationshipId
+          ?? snapshot.relationships.find((relationship) => relationship.source_document_id === sourceDocumentId
+            && relationship.target_document_id === targetDocumentId
+            && canonicalizeRelationshipType(relationship.relationship_type) === canonicalRelationshipType)?.id
+          ?? await existingRelationshipId(projectResult.admin, {
+            projectId, sourceDocumentId, targetDocumentId, relationshipType: canonicalRelationshipType,
+          });
+        proposalReview = linkedRelationshipId
+          ? await recordRelationshipProposalReview(projectResult.admin, {
+            organizationId: ctx.actor.organizationId, proposalId: forgewingProposalId,
+            disposition: createdRelationshipId ? 'accepted' : 'already_linked',
+            relationshipId: linkedRelationshipId, reason, reviewerActorId: ctx.actor.actorId,
+          })
+          : { status: 'rejected', reason: 'linked relationship not found' };
+        if (proposalReview.status !== 'recorded') {
+          // The operator's link stands: it is the human decision. Only the
+          // proposal's review record failed, and the response says so.
+          console.warn('[document-precedence] relationship proposal review not recorded', {
+            projectId, proposalId: forgewingProposalId, status: proposalReview.status,
+          });
         }
       }
 
@@ -1130,6 +1192,7 @@ export async function PATCH(
       documents: refreshed.documents,
       relationships: refreshed.relationships,
       families: refreshed.families,
+      ...(proposalReview ? { proposalReview: proposalReview.status } : {}),
     });
   } catch (error) {
     return jsonError(

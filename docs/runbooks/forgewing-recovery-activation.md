@@ -15,6 +15,11 @@ This runbook describes the repo-owned operational ceiling for Forgewing recovery
 
 Existing V1 proposals, reviews, confirmations, and deterministic re-entry remain valid. Phase 16 disables only new V1 provider scheduling.
 
+**Continuation attribution stays at `corpus_qualified` / `controlled` on `claude-sonnet-4-6` (owner decision, 2026-10-22).** Its path to `production_qualified` is qualification-blocked:
+- The Phase 17 source-bound successor was closed for lack of held-out supply: 10 of the 13 required units, and 28 public procurement documents yielded none.
+- Raising this ceiling would need a new, separately approved qualification.
+- See the hardening engineering log, entries 44 and 48.
+
 ## Runtime gates
 
 `FORGEWING_SHADOW_ENABLED` remains the master kill switch.

@@ -24,7 +24,10 @@ export const CASE_INVESTIGATION_EXECUTION = Object.freeze({
   maxOutputTokens: 1_500,
 });
 
-/** Mirrors the runner's strict output schema (caseInvestigationRunner.ts). */
+/**
+ * Mirrors the runner's strict output schema (caseInvestigationRunner.ts). Structured outputs
+ * reject length constraints, so the runner's bounds travel in the system prompt instead.
+ */
 export const CASE_INVESTIGATION_OUTPUT_JSON_SCHEMA = Object.freeze({
   type: 'object',
   additionalProperties: false,

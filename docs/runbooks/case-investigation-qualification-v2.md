@@ -162,3 +162,46 @@ Note on the relabel packets: in the 5 conflict-fixture packets the reviewers lab
 | Residual disagreements for Eric Martin | **22** (21 `validator_failure`, 1 `conflict`) |
 
 The residual sheet groups cases by project, rule and cited source document, and is kept outside the repository because it quotes customer text. Each of the 22 residual cases cites a different source document, so each needs its own source-truth decision. **Labels are not frozen**, and no zero-call preflight or provider call may run until the 22 are resolved.
+
+## Qualification harness (2026-10-22, before any label was frozen)
+
+Until now the repository had no way to freeze the labels, preflight or run the
+qualification, so nothing could follow the 22 decisions. The harness adds that path. It
+changes no contract term, request, prompt, bar or label.
+
+| Step | Command (`scripts/evaluation/case-investigation/qualifyV2.ts`) | Calls |
+|---|---|---|
+| Corpus identity re-check, no labels needed | `verify-corpus --corpus <r2>` | 0 |
+| Freeze the 111 labels | `freeze-labels --corpus <r2> --phase1 <r1> --adjudication eric-martin-adjudication.json --out <labels.json>` | 0 |
+| Zero-call preflight | `preflight --corpus <r2> --labels <labels.json> --out <dir>` | 0 |
+| The one paid run | `run ... --freeze <preflight dir> --out <dir> --confirm-paid-run` | ≤ 134 |
+| Post-run grading packet | `grading-packet --corpus <r2> --run <dir> --out <packets.jsonl>` | 0 |
+| Scorecard | `score --labels <labels.json> --run <dir> --grades-a ... --grades-b ... [--grade-adjudication ...]` | 0 |
+
+- **Label freeze** (`lib/evaluation/caseInvestigation/labelsV2.ts`) is built from people only:
+  - the 37 phase-1 agreements;
+  - the 52 relabel agreements, with agreement re-checked rather than trusted;
+  - Eric Martin's root-cause decision for each of the 22 residual cases. In all 22, both reviewers already agree on the primary action.
+  - It fails closed on any missing, duplicate, ineligible, unoffered or invalid label, or on an adjudicator other than Eric Martin.
+  - The frozen file holds case ids, actions, root causes and input digests only. It can be committed.
+- **Preflight and run** re-verify every frozen identity from bytes:
+  - the committed manifest;
+  - the seven pinned sources, hashed as on-disk bytes exactly as `buildCorpusV2.ts` hashed them;
+  - the Validator rule catalogue;
+  - each case's `transmittedDigest`, recomputed from the frozen provider context;
+  - the offered actions, and each request body against the freeze.
+  - On 2026-10-22, `verify-corpus` passed for all 111 cases (81 `validator_failure`, 30 `conflict`) with zero calls.
+  - Call cap: 134. The conservative maximum estimate is $3.13 (input at 1 token per 3 characters, every answer at the full 1,500-token cap). The run halts at the $3.00 safety ceiling, and any case it cannot reach counts as an invalid answer.
+- **The run** uses the production runner and Claude adapter unchanged:
+  - Only three runner dependencies are replaced: the context read returns the frozen context, eligibility is the qualification itself, and the reservation is a local ledger.
+  - The adapter's client is wrapped only to record usage. It forwards the exact body and options.
+  - There are no retries and no selective reruns.
+- **Scoring** (`lib/evaluation/caseInvestigation/qualificationV2.ts`) applies v1's bars verbatim. These interpretations are fixed before any call, each the strictest coherent reading:
+  - A raw answer with an invented number, an unoffered action or an untransmitted evidence reference breaches that hard bar, even though the runner then rejects it as invalid.
+  - No case leaves a denominator. An invalid answer is a wrong top-1, a root-cause disagreement and faithfulness 0 in the mean. The faithfulness-0 hard bar counts graded valid answers.
+  - The ranking bar uses cases offering at least two rankable actions: 3 `validator_failure` and 12 `conflict`. Single- and zero-action cases are reported only.
+  - A call that reports no usage is charged its upper bound. Unknown cost is never zero.
+  - Percentiles are nearest-rank, as in B4.6.1.
+- **Post-run grades** follow the same two-reviewer process as the labels. The packet shows graders the frozen operator evidence and the answer, never the benchmark label. Every disagreement needs Eric Martin's decision.
+
+The workflow stays `disabled`. A PASS can only support a reviewed PR that raises the code ceiling (see the promotion rule).

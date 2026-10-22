@@ -25,7 +25,23 @@ import { readInvestigationContext, type InvestigationContextReadResult } from '@
  * case already lists. It writes nothing and decides nothing.
  */
 
-export const CASE_INVESTIGATION_PROMPT_VERSION = 'case_investigation_prompt_v2';
+export const CASE_INVESTIGATION_PROMPT_VERSION = 'case_investigation_prompt_v3';
+
+/**
+ * The answer's bounds, enforced below and by forgewing_case_investigations' checks. Structured
+ * outputs cannot express string lengths, so the prompt states them (v3); v2 enforced them unstated.
+ * A shorter budget (400 / 600 characters, 500 tokens) was probed on 2026-10-22 and not adopted:
+ * the model overran it or was truncated, and latency still missed the bar (runbook v3).
+ */
+export const CASE_INVESTIGATION_OUTPUT_LIMITS = Object.freeze({
+  diagnosisMaxChars: 1200,
+  rationaleMaxChars: 2000,
+  rankedActionKindsMax: 8,
+  evidenceRefsMin: 1,
+  evidenceRefsMax: 12,
+});
+
+const LIMITS = CASE_INVESTIGATION_OUTPUT_LIMITS;
 
 export const CASE_INVESTIGATION_SYSTEM_PROMPT = [
   'You investigate one EightForge Validator finding for a human operator.',
@@ -33,6 +49,9 @@ export const CASE_INVESTIGATION_SYSTEM_PROMPT = [
   'Explain the most likely cause, cite the context records it rests on, and rank only the offered action kinds.',
   'When sources conflict, explain the conflict; never choose which source is right.',
   'You decide nothing: never recommend approving, correcting or overriding the finding. The operator makes every decision through the listed actions.',
+  `Keep the diagnosis within ${LIMITS.diagnosisMaxChars} characters and the rationale within ${LIMITS.rationaleMaxChars}. `
+    + `Cite ${LIMITS.evidenceRefsMin} to ${LIMITS.evidenceRefsMax} records, each by a slice kind and one of that slice's provenance recordIds, copied exactly.`,
+  'Write points as prose, or separate them with semicolons; never number or letter them.',
 ].join('\n');
 
 /**
@@ -56,12 +75,16 @@ export type CaseInvestigationProvider = Readonly<{
 }>;
 
 const OutputSchema = z.object({
-  diagnosis: z.string().min(1).max(1200),
-  rankedActionKinds: z.array(z.string()).max(8),
-  rationale: z.string().min(1).max(2000),
-  /** The transmitted context records the explanation rests on. */
-  evidenceRefs: z.array(z.object({ sliceKind: z.string().min(1).max(64), recordId: z.string().min(1).max(200) }).strict())
-    .min(1).max(12),
+  diagnosis: z.string().min(1).max(LIMITS.diagnosisMaxChars),
+  rankedActionKinds: z.array(z.string()).max(LIMITS.rankedActionKindsMax),
+  rationale: z.string().min(1).max(LIMITS.rationaleMaxChars),
+  /**
+   * The transmitted context records the explanation rests on. A recordId has no length bound of
+   * its own: it must equal a transmitted record id exactly (checked below), and those run past
+   * 300 characters (v2 capped them at 200, so such a record could never be cited).
+   */
+  evidenceRefs: z.array(z.object({ sliceKind: z.string().min(1).max(64), recordId: z.string().min(1) }).strict())
+    .min(LIMITS.evidenceRefsMin).max(LIMITS.evidenceRefsMax),
 }).strict();
 
 /** Every number written in the answer, normalized (thousands separators and currency removed). */
@@ -69,6 +92,23 @@ export function numericTokens(text: string): string[] {
   return [...text.matchAll(/\d[\d,]*(?:\.\d+)?/gu)]
     .map((match) => match[0].replace(/,/gu, '').replace(/\.0+$/u, '').replace(/(\.\d*?)0+$/u, '$1'))
     .filter((token) => token.length > 0);
+}
+
+const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/giu;
+
+/**
+ * What the answer writes that the transmitted context never contained: every number, and every
+ * UUID. A UUID is read whole, as an identifier the context must have carried (in a payload or a
+ * provenance record), so its digits are never mistaken for loose numbers. Nothing else is exempt.
+ */
+export function unsupportedNumbers(answer: string,
+  transmitted: readonly Readonly<{ provenance: unknown; payload: unknown }>[]): string[] {
+  const sentIdentifiers = JSON.stringify(transmitted.map((slice) => [slice.provenance, slice.payload])).toLowerCase();
+  const sentNumbers = new Set(numericTokens(JSON.stringify(transmitted.map((slice) => slice.payload))));
+  return [
+    ...[...answer.matchAll(UUID)].map((match) => match[0].toLowerCase()).filter((id) => !sentIdentifiers.includes(id)),
+    ...numericTokens(answer.replace(UUID, ' ')).filter((token) => !sentNumbers.has(token)),
+  ];
 }
 
 export type ProviderCaseInvestigation = Readonly<{
@@ -173,9 +213,8 @@ export async function runProviderCaseInvestigation(
   if (parsed.evidenceRefs.some((entry) => !transmittedRecords.has(`${entry.sliceKind}\u0000${entry.recordId}`))) {
     return { status: 'output_invalid' };
   }
-  // No invented numbers: every number in the answer appears in what was sent.
-  const sentNumbers = new Set(numericTokens(JSON.stringify(transmitted.map((slice) => slice.payload))));
-  if (numericTokens(`${parsed.diagnosis} ${parsed.rationale}`).some((token) => !sentNumbers.has(token))) {
+  // No invented numbers: every number (and identifier) in the answer appears in what was sent.
+  if (unsupportedNumbers(`${parsed.diagnosis} ${parsed.rationale}`, transmitted).length > 0) {
     return { status: 'output_invalid' };
   }
   return {

@@ -24,7 +24,7 @@
  */
 
 import { hashCanonical } from '@/lib/extraction/domain/hash';
-import { numericTokens, PROVIDER_RANKABLE_ACTION_KINDS } from '@/lib/server/caseInvestigationRunner';
+import { PROVIDER_RANKABLE_ACTION_KINDS, unsupportedNumbers } from '@/lib/server/caseInvestigationRunner';
 
 import { CLASS_MINIMUMS, type QualificationClass } from './corpusV2';
 import type { FrozenCaseLabel, RootCause } from './labelsV2';
@@ -107,7 +107,6 @@ export function auditRawAnswer(raw: string, params: Readonly<{
   const offered = new Set(params.offeredActionKinds);
   const transmittedRecords = new Set(params.transmitted.flatMap((slice) =>
     slice.provenance.recordIds.map((recordId) => `${slice.kind}\u0000${recordId}`)));
-  const sentNumbers = new Set(numericTokens(JSON.stringify(params.transmitted.map((slice) => slice.payload))));
   const text = `${typeof parsed.diagnosis === 'string' ? parsed.diagnosis : ''} ${typeof parsed.rationale === 'string' ? parsed.rationale : ''}`;
   return {
     schemaInvalid: typeof parsed.diagnosis !== 'string' || typeof parsed.rationale !== 'string'
@@ -115,7 +114,7 @@ export function auditRawAnswer(raw: string, params: Readonly<{
     unofferedRankedAction: ranked.some((kind) => !offered.has(kind)),
     duplicateRankedAction: new Set(ranked).size !== ranked.length,
     wrongEvidenceReference: refs.some((ref) => !transmittedRecords.has(`${String(ref.sliceKind)}\u0000${String(ref.recordId)}`)),
-    inventedNumber: numericTokens(text).some((token) => !sentNumbers.has(token)),
+    inventedNumber: unsupportedNumbers(text, params.transmitted).length > 0,
   };
 }
 

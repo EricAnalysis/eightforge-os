@@ -105,6 +105,18 @@ describe('resolveInvestigationContext', () => {
     expect(imagesOnly.omissions).toEqual(expect.arrayContaining([{ kind: 'case_evidence', reason: 'content_class_not_approved' }]));
   });
 
+  it('makes the precedence slice citable even when no relationship row exists', () => {
+    const findingCase = scannedCase({ caseId: 'finding:f1', kind: 'validator_finding' });
+    const precedence = (governingDocumentId: string | null, relationships: { id: string | null }[]) =>
+      resolveInvestigationContext(findingCase, { documentRelationships: { family: 'contract', isGoverning: governingDocumentId === DOC,
+        governingDocumentId, governingReason: 'r',
+        relationships: relationships.map((entry) => ({ ...entry, type: 'amends', sourceDocumentId: 'a', targetDocumentId: DOC })) } },
+      local).slices.find((slice) => slice.kind === 'document_relationships')!.provenance.recordIds;
+    expect(precedence(DOC, [])).toEqual([DOC]);
+    expect(precedence('governing-doc', [])).toEqual([DOC, 'governing-doc']);
+    expect(precedence(null, [{ id: 'rel-1' }, { id: null }])).toEqual([DOC, 'rel-1']);
+  });
+
   it('gives every case kind a relevance list that starts from the case itself', () => {
     for (const kinds of Object.values(RELEVANT_SLICES)) expect(kinds[0]).toBe('case_evidence');
   });

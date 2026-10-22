@@ -358,14 +358,38 @@ function validatorFindings(resolutionCase: ResolutionCase, sources: Investigatio
   };
 }
 
+/**
+ * The relationships slice's citable records. The slice states the case document's precedence
+ * (family, governing document) even when no relationship row exists, so the documents it names
+ * are citable records too: the case document, the governing document, then the relationship
+ * rows. With relationship ids alone it travelled with no record at all, and every citation of it
+ * was refused (Case Investigation v2).
+ */
+export function documentRelationshipRecordIds(caseDocumentId: string | null,
+  value: NonNullable<InvestigationSources['documentRelationships']>): string[] {
+  return [...new Set([caseDocumentId, value.governingDocumentId, ...value.relationships.map((entry) => entry.id)])]
+    .filter((id): id is string => typeof id === 'string' && id.length > 0);
+}
+
+/** A context's identities: what it transmits, and everything it read. */
+export function investigationContextDigests(caseId: string, slices: readonly InvestigationSlice[]) {
+  const transmitted = slices.filter((slice) => slice.transmitted)
+    .map((slice) => ({ kind: slice.kind, provenance: slice.provenance, payload: slice.payload }));
+  return {
+    transmittedDigest: hashCanonical({ version: 'investigation_context_v1', caseId, transmitted }),
+    readDigest: hashCanonical({ version: 'investigation_context_v1', caseId,
+      read: slices.map((slice) => ({ kind: slice.kind, provenance: slice.provenance, payload: slice.payload })) }),
+  };
+}
+
 function relationships(resolutionCase: ResolutionCase, sources: InvestigationSources): Candidate | null {
   const value = sources.documentRelationships;
   if (!value) return null;
+  const recordIds = documentRelationshipRecordIds(resolutionCase.documentId, value);
   return {
     kind: 'document_relationships',
     contentClass: 'metadata',
-    provenance: { source: 'document_precedence', documentId: resolutionCase.documentId, physicalPageNumber: null,
-      recordIds: value.relationships.flatMap((entry) => entry.id ? [entry.id] : []) },
+    provenance: { source: 'document_precedence', documentId: resolutionCase.documentId, physicalPageNumber: null, recordIds },
     payload: value,
   };
 }
@@ -444,16 +468,12 @@ export function resolveInvestigationContext(
     budget -= size;
     slices.push({ ...candidate, transmitted: true });
   }
-  const transmitted = slices.filter((slice) => slice.transmitted)
-    .map((slice) => ({ kind: slice.kind, provenance: slice.provenance, payload: slice.payload }));
   return {
     caseId: resolutionCase.caseId,
     caseKind: resolutionCase.kind,
     purpose: options.purpose,
     slices,
     omissions,
-    transmittedDigest: hashCanonical({ version: 'investigation_context_v1', caseId: resolutionCase.caseId, transmitted }),
-    readDigest: hashCanonical({ version: 'investigation_context_v1', caseId: resolutionCase.caseId,
-      read: slices.map((slice) => ({ kind: slice.kind, provenance: slice.provenance, payload: slice.payload })) }),
+    ...investigationContextDigests(resolutionCase.caseId, slices),
   };
 }

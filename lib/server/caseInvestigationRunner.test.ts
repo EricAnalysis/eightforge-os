@@ -4,7 +4,9 @@ vi.mock('@/lib/server/supabaseAdmin', () => ({ getSupabaseAdmin: () => null }));
 
 import { resolveForgewingWorkflowEligibility } from '@/lib/server/forgewingGates';
 import {
+  CASE_INVESTIGATION_OUTPUT_LIMITS,
   CASE_INVESTIGATION_PROMPT_VERSION,
+  CASE_INVESTIGATION_SYSTEM_PROMPT,
   numericTokens,
   runProviderCaseInvestigation,
 } from '@/lib/server/caseInvestigationRunner';
@@ -85,10 +87,68 @@ describe('runProviderCaseInvestigation', () => {
       .resolves.toEqual({ status: 'output_invalid' });
   });
 
+  it('accepts a citation of any transmitted record, however long its id', async () => {
+    const longId = `finding:TRANSACTION_TICKET_GRAIN_CONFLICT:${'x'.repeat(300)}`;
+    const read = vi.fn(async () => ({
+      status: 'ok' as const,
+      resolutionCase: { caseId: 'finding:f1', kind: 'validator_finding', actions: FINDING_ACTIONS } as never,
+      context: { caseId: 'finding:f1', caseKind: 'validator_finding', purpose: 'provider_investigation', omissions: [],
+        transmittedDigest: 'd', readDigest: 'r',
+        slices: [{ kind: 'case_evidence', contentClass: 'text_excerpts', transmitted: true,
+          provenance: { source: 'resolution_case', documentId: 'doc', physicalPageNumber: 1, recordIds: [longId] },
+          payload: { problem: 'Expected 1,250.00 found 1,300.00' } }] } as never,
+    }));
+    await expect(run(provider(answer({ evidenceRefs: [{ sliceKind: 'case_evidence', recordId: longId }] })), read))
+      .resolves.toMatchObject({ status: 'proposed' });
+    await expect(run(provider(answer({ evidenceRefs: [{ sliceKind: 'case_evidence', recordId: `${longId}y` }] })), read))
+      .resolves.toEqual({ status: 'output_invalid' });
+  });
+
+  it('states the bounds it enforces to the model, and still enforces them', async () => {
+    expect(CASE_INVESTIGATION_SYSTEM_PROMPT).toContain(`within ${CASE_INVESTIGATION_OUTPUT_LIMITS.diagnosisMaxChars} characters`);
+    expect(CASE_INVESTIGATION_SYSTEM_PROMPT).toContain(`within ${CASE_INVESTIGATION_OUTPUT_LIMITS.rationaleMaxChars}`);
+    expect(CASE_INVESTIGATION_SYSTEM_PROMPT).toContain(
+      `${CASE_INVESTIGATION_OUTPUT_LIMITS.evidenceRefsMin} to ${CASE_INVESTIGATION_OUTPUT_LIMITS.evidenceRefsMax} records`);
+    await expect(run(provider(answer({ diagnosis: 'x'.repeat(CASE_INVESTIGATION_OUTPUT_LIMITS.diagnosisMaxChars + 1) }))))
+      .resolves.toEqual({ status: 'output_invalid' });
+    await expect(run(provider(answer({ diagnosis: 'x'.repeat(CASE_INVESTIGATION_OUTPUT_LIMITS.diagnosisMaxChars) }))))
+      .resolves.toMatchObject({ status: 'proposed' });
+  });
+
   it('refuses an answer that writes a number the context never contained', async () => {
     await expect(run(provider(answer({ rationale: 'The correct amount is 1,275.00.' })))).resolves.toEqual({ status: 'output_invalid' });
     await expect(run(provider(answer({ diagnosis: 'Totals differ: 1,300.00 versus 1250.' })))).resolves
       .toMatchObject({ status: 'proposed' });
+  });
+
+  it('stays strict on list markers: numbering is a number the context never contained (the prompt forbids it)', async () => {
+    expect(CASE_INVESTIGATION_SYSTEM_PROMPT).toContain('never number or letter them');
+    await expect(run(provider(answer({ diagnosis: '(1) The invoice is 1,300.00; (2) the contract says 1,250.00.' }))))
+      .resolves.toEqual({ status: 'output_invalid' });
+    await expect(run(provider(answer({ diagnosis: 'The invoice is 1,300.00; the contract says 1,250.00.' }))))
+      .resolves.toMatchObject({ status: 'proposed' });
+  });
+
+  it('reads a UUID whole: one the context carried is supported, any other is invented', async () => {
+    const carried = '3336d895-c66a-4a1a-a0b1-0123456789ab';
+    const read = vi.fn(async () => ({
+      status: 'ok' as const,
+      resolutionCase: { caseId: 'finding:f1', kind: 'validator_finding', actions: FINDING_ACTIONS } as never,
+      context: { caseId: 'finding:f1', caseKind: 'validator_finding', purpose: 'provider_investigation', omissions: [],
+        transmittedDigest: 'd', readDigest: 'r',
+        slices: [{ kind: 'validator_findings', contentClass: 'text_excerpts', transmitted: true,
+          provenance: { source: 'project_validation_findings', documentId: 'doc', physicalPageNumber: 1,
+            recordIds: [`finding:decision:${carried}`] },
+          payload: [{ summary: 'Expected 1,250.00 found 1,300.00' }] }] } as never,
+    }));
+    const cite = { evidenceRefs: [{ sliceKind: 'validator_findings', recordId: `finding:decision:${carried}` }] };
+    await expect(run(provider(answer({ ...cite, diagnosis: `Decision ${carried} flags 1,300.00.` })), read))
+      .resolves.toMatchObject({ status: 'proposed' });
+    await expect(run(provider(answer({ ...cite, diagnosis: 'Decision 9136d895-c66a-4a1a-a0b1-0123456789ab flags it.' })), read))
+      .resolves.toEqual({ status: 'output_invalid' });
+    // An identifier never shelters a factual number written beside it.
+    await expect(run(provider(answer({ ...cite, diagnosis: `Decision ${carried} expects 1,275.00.` })), read))
+      .resolves.toEqual({ status: 'output_invalid' });
   });
 
   it('calls nothing over budget', async () => {

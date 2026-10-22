@@ -51,7 +51,7 @@ describe('readInvestigationContext', () => {
     if (result.status !== 'ok') throw new Error(result.status);
     expect(d.resolveDataPolicy).toHaveBeenCalledTimes(2);
     const relationships = result.context.slices.find((slice) => slice.kind === 'document_relationships')!;
-    expect(relationships).toMatchObject({ transmitted: true, provenance: { source: 'document_precedence', recordIds: ['rel-1'] } });
+    expect(relationships).toMatchObject({ transmitted: true, provenance: { source: 'document_precedence', recordIds: [DOC, 'rel-1'] } });
   });
 
   it('returns not_found for a case the queue does not list', async () => {

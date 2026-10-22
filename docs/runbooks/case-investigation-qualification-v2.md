@@ -1,6 +1,8 @@
 # Case Investigation qualification contract v2 (`case_investigation_qualification_v2`)
 
-**Status:** owner-directed 2026-10-15. Corpus constructed and census complete. Corpus r2: 111 eligible cases. 89 are labelled; **22 residual disagreements await Eric Martin's adjudication**. No provider call has been made.
+**Status:** **closed 2026-10-22: the single qualification run FAILED** (see [Qualification run result](#qualification-run-result-2026-10-22-fail)). All 111 labels were frozen after Eric Martin adjudicated the 22 residual cases. The workflow stays `disabled`. Successor proposed: [v3](case-investigation-qualification-v3.md).
+
+*History:* owner-directed 2026-10-15. Corpus constructed and census complete. Corpus r2: 111 eligible cases, of which 89 were labelled by reviewer agreement and 22 awaited Eric Martin's adjudication.
 
 v2 is additive. [v1](case-investigation-qualification.md) stays exactly as recorded, as historical evidence:
 - the production corpus was insufficient;
@@ -205,3 +207,45 @@ changes no contract term, request, prompt, bar or label.
 - **Post-run grades** follow the same two-reviewer process as the labels. The packet shows graders the frozen operator evidence and the answer, never the benchmark label. Every disagreement needs Eric Martin's decision.
 
 The workflow stays `disabled`. A PASS can only support a reviewed PR that raises the code ceiling (see the promotion rule).
+
+## Qualification run result (2026-10-22): FAIL
+
+The single paid run was made exactly once under the frozen identities, from a checkout byte-identical to main `7b62011`. There were no retries, replacement cases or exclusions. The evidence directory, which holds customer text, is kept outside the repository: `case-investigation-v2-qualification-20261022/`. Its `SHA256SUMS.txt` lists every artifact.
+
+| Identity | Value |
+|---|---|
+| Owner adjudication file (sha256) | `62c465ab4681d2057abbcc3d80d9fe0236d8e2669606b190689fe490b50abed2` — Eric Martin, 22 decisions, structurally valid |
+| Label-set digest | `7a139119e16be2cd3dac83a9994188bbde8c862fd1d6579885523844d494063f` (37 phase-1 + 52 relabel agreements + 22 owner adjudications); label file sha256 `789800e5294c5d824df012d5912941b9786aa071b3bdde3a15aae103bf4dcb7e` |
+| Preflight freeze | `8cdec598d0d9d3a38ea9274a5337e6bd0557b21404f23c6bb08e2312232abd09`. Zero calls; 111 cases (81 / 30); call cap 134; estimated maximum $3.13 against the $3.00 ceiling |
+| Bars digest | `e47875886300dce952827286c0584e10cfd6c70a16d8ff52d031723f54a9ccfd` |
+
+**Run:** 111 calls, an upper-bound spend of $2.0489, and no halt.
+
+| | `validator_failure` (81) | `conflict` (30) | Bar |
+|---|---|---|---|
+| Accepted (`proposed`) | 19 | 3 | — |
+| Invalid share | 0.765 | 0.900 | ≤ 0.05 ✗ |
+| Provider timeouts (all at the 15 s timeout) | 34 | 1 | count as invalid |
+| Invented numbers | 18 | 0 | 0 ✗ |
+| Wrong evidence references | 5 | 23 | 0 ✗ |
+| Unoffered ranked actions | 0 | 0 | 0 ✓ |
+| Median / p95 latency | 12.9 s / 15.0 s | 12.9 s / 14.7 s | ≤ 6 s / ≤ 12 s ✗ |
+| USD per investigation | 0.0199 | 0.0147 | ≤ 0.03 ✓ |
+| Top-1 on ranking cases (baseline) | 1/3 (3/3) | 0/12 (12/12) | ≥ max(baseline + 0.10, 0.70) ✗ |
+
+**Not graded:** faithfulness, root-cause agreement, side selection and decision recommendations. The grading packet was built (22 valid answers), but no independent grades exist. Grades cannot change the verdict:
+- The hard bars above fail mechanically.
+- Root-cause agreement is at most 19/81 and 3/30, against a 0.70 bar.
+- Mean faithfulness is at most 0.47 and 0.20, against a 1.6 bar.
+
+**Diagnosis**, read-only over the stored records and answers:
+- **Latency is the binding limitation.** It is genuine model and contract fit, not a defect: every call that answered still took a median 11.4 s, against the 6 s bar. All 35 provider failures are 15 s timeouts.
+- **Three concrete implementation defects inflated invalidity** (fixed for v3; see v3):
+  1. **The relationships slice was uncitable.** `document_relationships` was transmitted with `provenance.recordIds = []` whenever the case document had no relationship row, which is 55 of 111 cases. All 28 wrong evidence references cite that slice: 22 with an empty id and 6 with the case document's id.
+  2. **The length bounds were unstated.** The runner rejects a diagnosis over 1,200 characters or a rationale over 2,000. Neither the prompt nor the provider schema said so; structured outputs cannot express string lengths. 7 answers were rejected for length alone.
+  3. **Some record ids could not be cited.** Transmitted record ids reach 315 characters, but the runner capped a cited `recordId` at 200. A correct citation was impossible in 12 conflict cases, and 3 answers were rejected for it.
+- **Two contract observations for the owner, not changed:**
+  - 14 of the 18 invented-number flags are enumeration markers such as "(1)", which the strict "every number you write" rule counts.
+  - The top-1 ranking bar cannot be met in either class: the deterministic baseline is 100% on the ranking cases, so the required score is 1.10.
+
+This result is final for v2. Labels, bars and corpus were not changed after the outputs were seen.

@@ -24,7 +24,7 @@
  */
 
 import { hashCanonical } from '@/lib/extraction/domain/hash';
-import { PROVIDER_RANKABLE_ACTION_KINDS, unsupportedNumbers } from '@/lib/server/caseInvestigationRunner';
+import { citableRecords, PROVIDER_RANKABLE_ACTION_KINDS, unsupportedNumbers } from '@/lib/server/caseInvestigationRunner';
 
 import { CLASS_MINIMUMS, type QualificationClass } from './corpusV2';
 import type { FrozenCaseLabel, RootCause } from './labelsV2';
@@ -96,7 +96,8 @@ export function auditRawAnswer(raw: string, params: Readonly<{
 }>): AnswerViolations {
   const none: AnswerViolations = { schemaInvalid: false, unofferedRankedAction: false, duplicateRankedAction: false,
     wrongEvidenceReference: false, inventedNumber: false };
-  let parsed: { diagnosis?: unknown; rankedActionKinds?: unknown; rationale?: unknown; evidenceRefs?: unknown };
+  let parsed: { diagnosis?: unknown; rankedActionKinds?: unknown; rationale?: unknown; evidenceRefs?: unknown;
+    citations?: unknown };
   try {
     parsed = JSON.parse(raw);
   } catch {
@@ -107,13 +108,18 @@ export function auditRawAnswer(raw: string, params: Readonly<{
   const offered = new Set(params.offeredActionKinds);
   const transmittedRecords = new Set(params.transmitted.flatMap((slice) =>
     slice.provenance.recordIds.map((recordId) => `${slice.kind}\u0000${recordId}`)));
+  // v3 answers cite by letter ref (citableRecords); v2 answers echoed the slice kind and record id.
+  const letterRefs = new Set(citableRecords(params.transmitted).map((record) => record.ref));
+  const citations = Array.isArray(parsed.citations) ? parsed.citations.map(String) : null;
   const text = `${typeof parsed.diagnosis === 'string' ? parsed.diagnosis : ''} ${typeof parsed.rationale === 'string' ? parsed.rationale : ''}`;
   return {
     schemaInvalid: typeof parsed.diagnosis !== 'string' || typeof parsed.rationale !== 'string'
-      || !Array.isArray(parsed.rankedActionKinds) || !Array.isArray(parsed.evidenceRefs),
+      || !Array.isArray(parsed.rankedActionKinds) || (citations == null && !Array.isArray(parsed.evidenceRefs)),
     unofferedRankedAction: ranked.some((kind) => !offered.has(kind)),
     duplicateRankedAction: new Set(ranked).size !== ranked.length,
-    wrongEvidenceReference: refs.some((ref) => !transmittedRecords.has(`${String(ref.sliceKind)}\u0000${String(ref.recordId)}`)),
+    wrongEvidenceReference: citations != null
+      ? citations.some((ref) => !letterRefs.has(ref)) || new Set(citations).size !== citations.length
+      : refs.some((ref) => !transmittedRecords.has(`${String(ref.sliceKind)}\u0000${String(ref.recordId)}`)),
     inventedNumber: unsupportedNumbers(text, params.transmitted).length > 0,
   };
 }

@@ -50,7 +50,7 @@ export const CASE_INVESTIGATION_SYSTEM_PROMPT = [
   'When sources conflict, explain the conflict; never choose which source is right.',
   'You decide nothing: never recommend approving, correcting or overriding the finding. The operator makes every decision through the listed actions.',
   `Keep the diagnosis within ${LIMITS.diagnosisMaxChars} characters and the rationale within ${LIMITS.rationaleMaxChars}. `
-    + `Cite ${LIMITS.evidenceRefsMin} to ${LIMITS.evidenceRefsMax} records, each by a slice kind and one of that slice's provenance recordIds, copied exactly.`,
+    + `Cite ${LIMITS.evidenceRefsMin} to ${LIMITS.evidenceRefsMax} records by the letter ref each slice's "cite" map gives them (for example "B"); never write a record id.`,
   'Write points as prose, or separate them with semicolons; never number or letter them.',
 ].join('\n');
 
@@ -83,8 +83,8 @@ const OutputSchema = z.object({
    * its own: it must equal a transmitted record id exactly (checked below), and those run past
    * 300 characters (v2 capped them at 200, so such a record could never be cited).
    */
-  evidenceRefs: z.array(z.object({ sliceKind: z.string().min(1).max(64), recordId: z.string().min(1) }).strict())
-    .min(LIMITS.evidenceRefsMin).max(LIMITS.evidenceRefsMax),
+  /** The transmitted records the explanation rests on, by their letter ref (`citableRecords`). */
+  citations: z.array(z.string().min(1).max(8)).min(LIMITS.evidenceRefsMin).max(LIMITS.evidenceRefsMax),
 }).strict();
 
 /** Every number written in the answer, normalized (thousands separators and currency removed). */
@@ -92,6 +92,28 @@ export function numericTokens(text: string): string[] {
   return [...text.matchAll(/\d[\d,]*(?:\.\d+)?/gu)]
     .map((match) => match[0].replace(/,/gu, '').replace(/\.0+$/u, '').replace(/(\.\d*?)0+$/u, '$1'))
     .filter((token) => token.length > 0);
+}
+
+/** A record's citation ref: A, B, ... Z, AA, AB, ... Letters only, so a ref is never a number. */
+export function citationRef(index: number): string {
+  let ref = '';
+  for (let rest = index + 1; rest > 0; rest = Math.floor((rest - 1) / 26)) ref = String.fromCharCode(65 + ((rest - 1) % 26)) + ref;
+  return ref;
+}
+
+/**
+ * Every transmitted record, in context order, with the short ref the model cites it by (v3).
+ * Echoed record ids (up to 315 characters) were a large share of v2's output, and output length
+ * drove its latency; the runner maps each ref back to its slice kind and record id.
+ */
+export function citableRecords(transmitted: readonly Readonly<{ kind: string; provenance: { recordIds: readonly string[] } }>[]) {
+  const records: { ref: string; sliceKind: string; recordId: string }[] = [];
+  for (const slice of transmitted) {
+    for (const recordId of new Set(slice.provenance.recordIds)) {
+      records.push({ ref: citationRef(records.length), sliceKind: slice.kind, recordId });
+    }
+  }
+  return records;
 }
 
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/giu;
@@ -174,6 +196,7 @@ export async function runProviderCaseInvestigation(
   if (!provider) return { status: 'provider_not_configured' };
 
   const offered = offeredKinds(read.resolutionCase);
+  const citable = citableRecords(transmitted);
   const requestDigestSha256 = createHash('sha256').update(JSON.stringify([
     CASE_INVESTIGATION_PROMPT_VERSION, provider.providerModel, CASE_INVESTIGATION_SYSTEM_PROMPT,
     read.context.transmittedDigest, offered,
@@ -189,7 +212,9 @@ export async function runProviderCaseInvestigation(
   try {
     raw = await provider.investigate({
       system: CASE_INVESTIGATION_SYSTEM_PROMPT,
-      context: transmitted.map((slice) => ({ kind: slice.kind, provenance: slice.provenance, payload: slice.payload })),
+      context: transmitted.map((slice) => ({ kind: slice.kind, provenance: slice.provenance, payload: slice.payload,
+        cite: Object.fromEntries(citable.filter((record) => record.sliceKind === slice.kind)
+          .map((record) => [record.ref, record.recordId])) })),
       offeredActionKinds: offered,
     });
   } catch {
@@ -207,12 +232,12 @@ export async function runProviderCaseInvestigation(
     || new Set(parsed.rankedActionKinds).size !== parsed.rankedActionKinds.length) {
     return { status: 'output_invalid' };
   }
-  // Every cited record must be one actually transmitted under that slice kind.
-  const transmittedRecords = new Set(transmitted.flatMap((slice) =>
-    slice.provenance.recordIds.map((recordId) => `${slice.kind}\u0000${recordId}`)));
-  if (parsed.evidenceRefs.some((entry) => !transmittedRecords.has(`${entry.sliceKind}\u0000${entry.recordId}`))) {
+  // Every citation must name a transmitted record, each once; it resolves to that slice and record.
+  const byRef = new Map(citable.map((record) => [record.ref, record]));
+  if (parsed.citations.some((ref) => !byRef.has(ref)) || new Set(parsed.citations).size !== parsed.citations.length) {
     return { status: 'output_invalid' };
   }
+  const evidenceRefs = parsed.citations.map((ref) => ({ sliceKind: byRef.get(ref)!.sliceKind, recordId: byRef.get(ref)!.recordId }));
   // No invented numbers: every number (and identifier) in the answer appears in what was sent.
   if (unsupportedNumbers(`${parsed.diagnosis} ${parsed.rationale}`, transmitted).length > 0) {
     return { status: 'output_invalid' };
@@ -224,7 +249,7 @@ export async function runProviderCaseInvestigation(
       diagnosis: parsed.diagnosis,
       rankedActionKinds: parsed.rankedActionKinds as ResolutionAction['kind'][],
       rationale: parsed.rationale,
-      evidenceRefs: parsed.evidenceRefs,
+      evidenceRefs,
       promptVersion: CASE_INVESTIGATION_PROMPT_VERSION,
       caseKind: read.resolutionCase.kind,
       findingCheckKey: read.resolutionCase.finding?.checkKey ?? null,

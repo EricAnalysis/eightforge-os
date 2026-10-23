@@ -118,6 +118,12 @@ describe('auditRawAnswer', () => {
     expect(auditRawAnswer(answer({ evidenceRefs: [{ sliceKind: 'case_evidence', recordId: 'r2' }] }),
       { offeredActionKinds: [], transmitted }).wrongEvidenceReference).toBe(true);
     expect(auditRawAnswer('not json', { offeredActionKinds: [], transmitted }).schemaInvalid).toBe(true);
+    // v3 answers cite by letter ref.
+    const v3 = (citations: string[]) => auditRawAnswer(JSON.stringify({ diagnosis: 'd', rationale: 'r', rankedActionKinds: [], citations }),
+      { offeredActionKinds: [], transmitted });
+    expect(v3(['A'])).toEqual(clean);
+    expect(v3(['B']).wrongEvidenceReference).toBe(true);
+    expect(v3(['A', 'A']).wrongEvidenceReference).toBe(true);
   });
 });
 

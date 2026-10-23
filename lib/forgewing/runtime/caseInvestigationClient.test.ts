@@ -15,7 +15,7 @@ describe('case investigation Claude adapter (P3b)', () => {
     expect(built.options).toEqual({ timeout: 15_000, maxRetries: 0 });
     expect(JSON.parse(built.body.messages[0]!.content)).toEqual({
       offered_action_kinds: ['open_document'], context: [{ kind: 'validator_findings' }] });
-    expect(CASE_INVESTIGATION_OUTPUT_JSON_SCHEMA.required).toEqual(['diagnosis', 'rankedActionKinds', 'rationale', 'evidenceRefs']);
+    expect(CASE_INVESTIGATION_OUTPUT_JSON_SCHEMA.required).toEqual(['diagnosis', 'rankedActionKinds', 'rationale', 'citations']);
     expect(() => buildCaseInvestigationMessagesRequest(' ', REQUEST)).toThrow('provider_model_missing');
   });
 

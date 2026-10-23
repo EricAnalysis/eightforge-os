@@ -7,6 +7,8 @@ import {
   CASE_INVESTIGATION_OUTPUT_LIMITS,
   CASE_INVESTIGATION_PROMPT_VERSION,
   CASE_INVESTIGATION_SYSTEM_PROMPT,
+  citableRecords,
+  citationRef,
   numericTokens,
   runProviderCaseInvestigation,
 } from '@/lib/server/caseInvestigationRunner';
@@ -31,7 +33,7 @@ const answer = (overrides: Record<string, unknown> = {}) => ({
   diagnosis: 'The invoice total 1300 differs from 1,250.00 in the contract.',
   rankedActionKinds: ['open_document', 'open_linked_documents'],
   rationale: 'Check the cited page first.',
-  evidenceRefs: [{ sliceKind: 'validator_findings', recordId: 'check-1' }],
+  citations: ['A'],
   ...overrides,
 });
 const run = (port: ReturnType<typeof provider>, read = context(true)) =>
@@ -80,11 +82,24 @@ describe('runProviderCaseInvestigation', () => {
   });
 
   it('refuses uncited or wrongly cited answers', async () => {
-    await expect(run(provider(answer({ evidenceRefs: [] })))).resolves.toEqual({ status: 'output_invalid' });
-    await expect(run(provider(answer({ evidenceRefs: [{ sliceKind: 'validator_findings', recordId: 'check-9' }] }))))
-      .resolves.toEqual({ status: 'output_invalid' });
-    await expect(run(provider(answer({ evidenceRefs: [{ sliceKind: 'source_text', recordId: 'check-1' }] }))))
-      .resolves.toEqual({ status: 'output_invalid' });
+    await expect(run(provider(answer({ citations: [] })))).resolves.toEqual({ status: 'output_invalid' });
+    await expect(run(provider(answer({ citations: ['B'] })))).resolves.toEqual({ status: 'output_invalid' });
+    await expect(run(provider(answer({ citations: ['A', 'A'] })))).resolves.toEqual({ status: 'output_invalid' });
+    // A record id is no longer a citation: the model cites by letter ref only.
+    await expect(run(provider(answer({ citations: ['check-1'] })))).resolves.toEqual({ status: 'output_invalid' });
+  });
+
+  it('gives each transmitted record a letter ref, sends the map and resolves citations to records', async () => {
+    expect([0, 25, 26, 51, 52].map((index) => citationRef(index))).toEqual(['A', 'Z', 'AA', 'AZ', 'BA']);
+    expect(citableRecords([
+      { kind: 'case_evidence', provenance: { recordIds: ['c1'] } },
+      { kind: 'validator_findings', provenance: { recordIds: ['f1', 'f2', 'f1'] } },
+    ])).toEqual([{ ref: 'A', sliceKind: 'case_evidence', recordId: 'c1' },
+      { ref: 'B', sliceKind: 'validator_findings', recordId: 'f1' }, { ref: 'C', sliceKind: 'validator_findings', recordId: 'f2' }]);
+    const port = provider(answer());
+    await run(port);
+    expect((port.investigate.mock.calls[0]![0] as unknown as { context: { cite: unknown }[] }).context[0]!.cite)
+      .toEqual({ A: 'check-1' });
   });
 
   it('accepts a citation of any transmitted record, however long its id', async () => {
@@ -98,10 +113,8 @@ describe('runProviderCaseInvestigation', () => {
           provenance: { source: 'resolution_case', documentId: 'doc', physicalPageNumber: 1, recordIds: [longId] },
           payload: { problem: 'Expected 1,250.00 found 1,300.00' } }] } as never,
     }));
-    await expect(run(provider(answer({ evidenceRefs: [{ sliceKind: 'case_evidence', recordId: longId }] })), read))
-      .resolves.toMatchObject({ status: 'proposed' });
-    await expect(run(provider(answer({ evidenceRefs: [{ sliceKind: 'case_evidence', recordId: `${longId}y` }] })), read))
-      .resolves.toEqual({ status: 'output_invalid' });
+    await expect(run(provider(answer({ citations: ['A'] })), read))
+      .resolves.toMatchObject({ status: 'proposed', investigation: { evidenceRefs: [{ sliceKind: 'case_evidence', recordId: longId }] } });
   });
 
   it('states the bounds it enforces to the model, and still enforces them', async () => {
@@ -141,7 +154,7 @@ describe('runProviderCaseInvestigation', () => {
             recordIds: [`finding:decision:${carried}`] },
           payload: [{ summary: 'Expected 1,250.00 found 1,300.00' }] }] } as never,
     }));
-    const cite = { evidenceRefs: [{ sliceKind: 'validator_findings', recordId: `finding:decision:${carried}` }] };
+    const cite = { citations: ['A'] };
     await expect(run(provider(answer({ ...cite, diagnosis: `Decision ${carried} flags 1,300.00.` })), read))
       .resolves.toMatchObject({ status: 'proposed' });
     await expect(run(provider(answer({ ...cite, diagnosis: 'Decision 9136d895-c66a-4a1a-a0b1-0123456789ab flags it.' })), read))

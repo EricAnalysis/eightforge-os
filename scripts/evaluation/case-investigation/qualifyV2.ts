@@ -1,9 +1,14 @@
 /**
- * Case Investigation qualification contract v2: label freeze, zero-call
+ * Case Investigation qualification contracts v2 and v3: label freeze, zero-call
  * preflight, the single paid run, the post-run grading packet and the score.
  * Explicit, manual commands. Never run in CI.
  *
- *   npx vite-node --config vitest.config.ts scripts/evaluation/case-investigation/qualifyV2.ts -- <command> [flags]
+ *   npx vite-node --config vitest.config.ts scripts/evaluation/case-investigation/qualifyV2.ts -- <command> [--contract v3] [flags]
+ *
+ * `--contract` selects the contract (default v2, whose commands are unchanged). v3 adds two
+ * zero-call commands and takes its labels from v2 instead of freezing new ones:
+ *   derive-corpus --contract v3 --from <r2 dir> --out <new r3 dir>
+ *   carry-labels  --contract v3 --corpus <r3 dir> --v2-labels <v2 labels.json> --out <labels.json>
  *
  *   freeze-labels --corpus <r2 dir> --phase1 <r1 dir> --adjudication <eric-martin-adjudication.json> --out <labels.json>
  *   verify-corpus --corpus <r2 dir>                                                                (zero calls, no labels)
@@ -36,26 +41,30 @@ import {
   type FrozenLabelSet, freezeLabelSetV2, type OwnerAdjudication, type ReviewedCase, verifyFrozenLabelSet,
 } from '@/lib/evaluation/caseInvestigation/labelsV2';
 import {
-  auditRawAnswer, baselineTop1, CASE_INVESTIGATION_BARS_V2, CASE_INVESTIGATION_PRICING_V2, callCap,
-  type CaseGrade, type CaseRunRecord, costUsd, estimateInputTokens, qualificationBarsDigest, resolveGradesV2,
-  scoreQualificationV2,
+  auditRawAnswer, baselineTop1, CASE_INVESTIGATION_PRICING_V2, CASE_INVESTIGATION_SCORING_V2, callCap,
+  type CaseGrade, type CaseInvestigationScoring, type CaseRunRecord, costUsd, estimateInputTokens, qualificationBarsDigest,
+  resolveGradesV2, scoreQualification,
 } from '@/lib/evaluation/caseInvestigation/qualificationV2';
+import {
+  CASE_INVESTIGATION_CONTRACT_V3, CASE_INVESTIGATION_SCORING_V3, type CarriedLabelSetV3, carryLabelSetToV3, verifyLabelSetV3,
+} from '@/lib/evaluation/caseInvestigation/qualificationV3';
 import {
   buildCaseInvestigationMessagesRequest, CASE_INVESTIGATION_EXECUTION, createClaudeCaseInvestigationProvider,
 } from '@/lib/forgewing/runtime/caseInvestigationClient';
 import { FORGEWING_QUALIFIED_MODELS } from '@/lib/forgewing/runtime/modelConfig';
-import type { InvestigationContext } from '@/lib/resolution/investigationContext';
+import {
+  documentRelationshipRecordIds, type InvestigationContext, investigationContextDigests,
+} from '@/lib/resolution/investigationContext';
 import type { ResolutionCase } from '@/lib/resolution/resolutionCases';
 import { getClaudeClient } from '@/lib/server/ai/claudeClient';
 import {
   CASE_INVESTIGATION_PROMPT_VERSION, CASE_INVESTIGATION_SYSTEM_PROMPT, PROVIDER_RANKABLE_ACTION_KINDS,
-  runProviderCaseInvestigation,
+  providerRequestContext, runProviderCaseInvestigation,
 } from '@/lib/server/caseInvestigationRunner';
 import { validatorRuleCatalogueFingerprint } from '@/lib/validator/ruleCatalogueFingerprint';
 
 const MODEL = CASE_INVESTIGATION_PRICING_V2.model;
-const REPO_MANIFEST = 'scripts/evaluation/artifacts/case-investigation-v2/corpus-manifest.json';
-const QUALIFICATION_ACTOR = 'case-investigation-qualification-v2';
+const V2_REPO_MANIFEST = 'scripts/evaluation/artifacts/case-investigation-v2/corpus-manifest.json';
 
 const sha256 = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 const readJson = <T>(file: string): T => JSON.parse(readFileSync(file, 'utf8')) as T;
@@ -69,6 +78,23 @@ function flag(name: string, required = true): string {
   return value ?? '';
 }
 
+type LabelSet = Readonly<{ labels: FrozenLabelSet['labels']; labelSetDigest: string }>;
+type ContractConfig = Readonly<{ contract: string; repoManifest: string; actor: string; scoring: CaseInvestigationScoring;
+  verifyLabels: (labels: LabelSet, entries: readonly CorpusManifestEntry[]) => void }>;
+const CONTRACTS: Readonly<Record<'v2' | 'v3', ContractConfig>> = {
+  v2: { contract: CASE_INVESTIGATION_CONTRACT_V2, repoManifest: V2_REPO_MANIFEST, actor: 'case-investigation-qualification-v2',
+    scoring: CASE_INVESTIGATION_SCORING_V2,
+    verifyLabels: (labels, entries) => verifyFrozenLabelSet(labels as FrozenLabelSet, entries) },
+  v3: { contract: CASE_INVESTIGATION_CONTRACT_V3, repoManifest: 'scripts/evaluation/artifacts/case-investigation-v3/corpus-manifest.json',
+    actor: 'case-investigation-qualification-v3', scoring: CASE_INVESTIGATION_SCORING_V3,
+    verifyLabels: (labels, entries) => verifyLabelSetV3(labels as CarriedLabelSetV3, entries) },
+};
+const contractName = flag('contract', false) || 'v2';
+if (contractName !== 'v2' && contractName !== 'v3') throw new Error(`unknown --contract: ${contractName}`);
+const CONTRACT = CONTRACTS[contractName];
+const REPO_MANIFEST = CONTRACT.repoManifest;
+const QUALIFICATION_ACTOR = CONTRACT.actor;
+
 function freshDirectory(dir: string): string {
   const resolved = path.resolve(dir);
   if (existsSync(resolved) && readdirSync(resolved).length > 0) throw new Error(`refusing a non-empty --out: ${resolved}`);
@@ -79,6 +105,8 @@ function freshDirectory(dir: string): string {
 
 type RepoManifest = Readonly<{
   contract: string;
+  derivedFrom?: Readonly<{ contract: string; manifestSha256: string }>;
+  census?: unknown;
   pins: Readonly<{ promptVersion: string; contextVersion: string; validatorRuleCatalogueFingerprint: string;
     approvedContentClasses: readonly string[]; sources: Readonly<Record<string, string>> }>;
   entries: readonly (Omit<CorpusManifestEntry, 'checkKey'> & { checkKeySha256: string })[];
@@ -99,12 +127,12 @@ function transmittedOf(context: InvestigationContext) {
 }
 
 /** Every identity the corpus froze, re-verified from bytes. Throws on the first difference. */
-function verifyCorpus(corpus: string, labels: FrozenLabelSet | null) {
+function verifyCorpus(corpus: string, labels: LabelSet | null) {
   const manifest = readJson<RepoManifest>(path.join(corpus, 'corpus-manifest.repo.json'));
   if (fileDigest(path.join(corpus, 'corpus-manifest.repo.json')) !== fileDigest(REPO_MANIFEST)) {
     throw new Error('corpus manifest differs from the committed manifest');
   }
-  if (manifest.contract !== CASE_INVESTIGATION_CONTRACT_V2) throw new Error('manifest contract mismatch');
+  if (manifest.contract !== CONTRACT.contract) throw new Error('manifest contract mismatch');
   // Pins are the on-disk bytes, hashed exactly as buildCorpusV2.ts hashed them.
   for (const [file, pinned] of Object.entries(manifest.pins.sources)) {
     if (fileDigest(file) !== pinned) throw new Error(`pinned source changed since the corpus froze: ${file}`);
@@ -114,13 +142,12 @@ function verifyCorpus(corpus: string, labels: FrozenLabelSet | null) {
     throw new Error('Validator rule catalogue changed since the corpus froze');
   }
   const entries = manifest.entries as unknown as CorpusManifestEntry[];
-  if (labels) verifyFrozenLabelSet(labels, entries);
+  if (labels) CONTRACT.verifyLabels(labels, entries);
   const eligible = entries.filter((entry) => entry.excluded == null);
   const cases = eligible.map((entry) => {
     const file = readJson<CaseFile>(caseFile(corpus, entry.caseId));
     const context = file.providerContext;
-    const transmittedDigest = hashCanonical({ version: 'investigation_context_v1', caseId: entry.caseId,
-      transmitted: transmittedOf(context) });
+    const { transmittedDigest } = investigationContextDigests(entry.caseId, context.slices);
     if (file.entry.caseId !== entry.caseId || context.caseId !== entry.caseId || file.resolutionCase.caseId !== entry.caseId) {
       throw new Error(`case file identity mismatch: ${entry.caseId}`);
     }
@@ -128,11 +155,14 @@ function verifyCorpus(corpus: string, labels: FrozenLabelSet | null) {
       || context.transmittedDigest !== entry.transmittedDigest) {
       throw new Error(`transmitted context digest mismatch: ${entry.caseId}`);
     }
+    if (investigationContextDigests(entry.caseId, file.operatorContext.slices).readDigest !== entry.readDigest) {
+      throw new Error(`read context digest mismatch: ${entry.caseId}`);
+    }
     const offered = [...new Set(file.resolutionCase.actions.map((action) => action.kind))]
       .filter((kind) => PROVIDER_RANKABLE_ACTION_KINDS.has(kind));
     if (hashCanonical(offered) !== hashCanonical(entry.rankableActionKinds)) throw new Error(`offered actions mismatch: ${entry.caseId}`);
     const built = buildCaseInvestigationMessagesRequest(MODEL, {
-      system: CASE_INVESTIGATION_SYSTEM_PROMPT, context: transmittedOf(context), offeredActionKinds: offered });
+      system: CASE_INVESTIGATION_SYSTEM_PROMPT, context: providerRequestContext(transmittedOf(context)), offeredActionKinds: offered });
     const requestDigestSha256 = sha256(JSON.stringify([
       CASE_INVESTIGATION_PROMPT_VERSION, MODEL, CASE_INVESTIGATION_SYSTEM_PROMPT, context.transmittedDigest, offered]));
     return { entry, file, offered, built, requestDigestSha256, estimatedInputTokens: estimateInputTokens(built.body) };
@@ -141,6 +171,7 @@ function verifyCorpus(corpus: string, labels: FrozenLabelSet | null) {
 }
 
 function freezeLabels() {
+  if (CONTRACT.contract !== CASE_INVESTIGATION_CONTRACT_V2) throw new Error('v3 carries its labels over from v2: use carry-labels');
   const corpus = flag('corpus');
   const phase1 = flag('phase1');
   const adjudicationFile = flag('adjudication');
@@ -183,20 +214,20 @@ function verifyCorpusOnly() {
   const maxCostUsd = cases.reduce((sum, item) => sum + costUsd(item.estimatedInputTokens, CASE_INVESTIGATION_EXECUTION.maxOutputTokens), 0);
   const byClass = cases.reduce<Record<string, number>>((acc, item) => ({ ...acc,
     [item.entry.qualificationClass]: (acc[item.entry.qualificationClass] ?? 0) + 1 }), {});
-  console.log(`[verify-corpus] ${cases.length} cases ${JSON.stringify(byClass)} verified; call cap ${callCap(cases.length)}; estimated maximum $${maxCostUsd.toFixed(4)} (ceiling $${CASE_INVESTIGATION_BARS_V2.run.safetySpendCeilingUsd}); zero calls`);
+  console.log(`[verify-corpus] ${cases.length} cases ${JSON.stringify(byClass)} verified; call cap ${callCap(cases.length)}; estimated maximum $${maxCostUsd.toFixed(4)} (ceiling $${CONTRACT.scoring.bars.run.safetySpendCeilingUsd}); zero calls`);
 }
 
 function preflight() {
   refuseProviderCredentials();
   const corpus = flag('corpus');
   const labelsFile = flag('labels');
-  const labels = readJson<FrozenLabelSet>(labelsFile);
+  const labels = readJson<LabelSet>(labelsFile);
   const out = freshDirectory(flag('out'));
   if (!FORGEWING_QUALIFIED_MODELS.includes(MODEL)) throw new Error(`${MODEL} is not a Forgewing-qualified model`);
   const { cases } = verifyCorpus(corpus, labels);
   const maxCostUsd = cases.reduce((sum, item) => sum + costUsd(item.estimatedInputTokens, CASE_INVESTIGATION_EXECUTION.maxOutputTokens), 0);
   const freeze = {
-    contract: CASE_INVESTIGATION_CONTRACT_V2,
+    contract: CONTRACT.contract,
     model: MODEL,
     execution: CASE_INVESTIGATION_EXECUTION,
     promptVersion: CASE_INVESTIGATION_PROMPT_VERSION,
@@ -204,10 +235,10 @@ function preflight() {
     manifestSha256: fileDigest(REPO_MANIFEST),
     labelSetDigest: labels.labelSetDigest,
     labelFileSha256: fileDigest(labelsFile),
-    barsDigest: qualificationBarsDigest(),
+    barsDigest: qualificationBarsDigest(CONTRACT.scoring),
     cases: cases.length,
     callCap: callCap(cases.length),
-    safetySpendCeilingUsd: CASE_INVESTIGATION_BARS_V2.run.safetySpendCeilingUsd,
+    safetySpendCeilingUsd: CONTRACT.scoring.bars.run.safetySpendCeilingUsd,
     estimatedMaxCostUsd: Number(maxCostUsd.toFixed(6)),
     requests: cases.map((item) => ({ caseId: item.entry.caseId, requestDigestSha256: item.requestDigestSha256,
       bodySha256: sha256(JSON.stringify(item.built.body)), estimatedInputTokens: item.estimatedInputTokens })),
@@ -216,7 +247,7 @@ function preflight() {
   const freezeSha256 = hashCanonical(freeze);
   writeJson(path.join(out, 'freeze.json'), { ...freeze, freezeSha256 });
   console.log(`[preflight] ${cases.length} cases verified, ${freeze.callCap} call cap, estimated maximum $${freeze.estimatedMaxCostUsd} (ceiling $${freeze.safetySpendCeilingUsd}), zero calls, freeze ${freezeSha256}`);
-  if (maxCostUsd > CASE_INVESTIGATION_BARS_V2.run.safetySpendCeilingUsd) {
+  if (maxCostUsd > CONTRACT.scoring.bars.run.safetySpendCeilingUsd) {
     console.log('[preflight] WARNING: the estimated maximum exceeds the safety spend ceiling; the run halts at the ceiling.');
   }
 }
@@ -225,14 +256,14 @@ async function run() {
   if (!process.argv.includes('--confirm-paid-run')) throw new Error('the paid run requires --confirm-paid-run');
   const corpus = flag('corpus');
   const labelsFile = flag('labels');
-  const labels = readJson<FrozenLabelSet>(labelsFile);
+  const labels = readJson<LabelSet>(labelsFile);
   const frozen = readJson<Record<string, unknown> & { freezeSha256: string; requests: { caseId: string; bodySha256: string }[] }>(
     path.join(flag('freeze'), 'freeze.json'));
   const { freezeSha256, ...frozenBody } = frozen;
   if (hashCanonical(frozenBody) !== freezeSha256) throw new Error('freeze digest mismatch');
   const out = freshDirectory(flag('out'));
   const { cases } = verifyCorpus(corpus, labels);
-  if (frozenBody.labelSetDigest !== labels.labelSetDigest || frozenBody.barsDigest !== qualificationBarsDigest()
+  if (frozenBody.labelSetDigest !== labels.labelSetDigest || frozenBody.barsDigest !== qualificationBarsDigest(CONTRACT.scoring)
     || frozenBody.manifestSha256 !== fileDigest(REPO_MANIFEST) || frozenBody.model !== MODEL) {
     throw new Error('run identity differs from the preflight freeze');
   }
@@ -266,7 +297,7 @@ async function run() {
   const provider = createClaudeCaseInvestigationProvider({ model: MODEL, client: observingClient as never });
 
   const cap = callCap(cases.length);
-  const ceiling = CASE_INVESTIGATION_BARS_V2.run.safetySpendCeilingUsd;
+  const ceiling = CONTRACT.scoring.bars.run.safetySpendCeilingUsd;
   let calls = 0;
   let spentUpperBound = 0;
   let halted: string | null = null;
@@ -356,7 +387,7 @@ function gradingPacket() {
 }
 
 function score() {
-  const labels = readJson<FrozenLabelSet>(flag('labels'));
+  const labels = readJson<LabelSet>(flag('labels'));
   const runRecords = readJson<{ records: CaseRunRecord[] }>(path.join(flag('run'), 'records.json'));
   const adjudicationFile = flag('grade-adjudication', false);
   const grades = resolveGradesV2({
@@ -365,15 +396,79 @@ function score() {
     adjudication: adjudicationFile ? readJson(adjudicationFile) : null,
     gradedCaseIds: runRecords.records.filter((record) => record.status === 'proposed').map((record) => record.caseId),
   });
-  const scorecard = scoreQualificationV2({ labels: labels.labels, records: runRecords.records, grades });
+  const scorecard = scoreQualification({ labels: labels.labels, records: runRecords.records, grades }, CONTRACT.scoring);
   writeJson(path.resolve(flag('out')), { labelSetDigest: labels.labelSetDigest, ...scorecard });
   console.log(`[score] ${scorecard.result} ${scorecard.classes.map((entry) => `${entry.qualificationClass}=${entry.status}${
     entry.reasons.length ? `(${entry.reasons.join(',')})` : ''}`).join(' ')}`);
 }
 
-const command = process.argv.slice(2).find((arg) => !arg.startsWith('-'));
+/**
+ * v3 corpus: the same cases as the frozen v2 corpus. Each v2 identity is re-verified first; then
+ * only the relationships provenance is re-derived by the production rule, and the context digests
+ * recomputed by the production helper. Zero calls; nothing is read from production.
+ */
+function deriveCorpus() {
+  refuseProviderCredentials();
+  if (CONTRACT.contract !== CASE_INVESTIGATION_CONTRACT_V3) throw new Error('derive-corpus is a v3 command');
+  const from = flag('from');
+  const out = freshDirectory(flag('out'));
+  const fromManifest = path.join(from, 'corpus-manifest.repo.json');
+  if (fileDigest(fromManifest) !== fileDigest(V2_REPO_MANIFEST)) throw new Error('--from is not the committed v2 corpus');
+  const v2 = readJson<RepoManifest>(fromManifest);
+  if (v2.pins.validatorRuleCatalogueFingerprint !== validatorRuleCatalogueFingerprint()) {
+    throw new Error('Validator rule catalogue changed since the v2 corpus froze');
+  }
+  mkdirSync(path.join(out, 'cases'));
+  let changed = 0;
+  const entries = v2.entries.map((entry) => {
+    const file = readJson<CaseFile>(caseFile(from, entry.caseId));
+    if (investigationContextDigests(entry.caseId, file.providerContext.slices).transmittedDigest !== entry.transmittedDigest
+      || investigationContextDigests(entry.caseId, file.operatorContext.slices).readDigest !== entry.readDigest) {
+      throw new Error(`v2 identity not reproduced: ${entry.caseId}`);
+    }
+    const rederive = (context: InvestigationContext): InvestigationContext => {
+      const slices = context.slices.map((slice) => slice.kind !== 'document_relationships' ? slice : {
+        ...slice, provenance: { ...slice.provenance,
+          recordIds: documentRelationshipRecordIds(file.resolutionCase.documentId, slice.payload as never) } });
+      return { ...context, slices, ...investigationContextDigests(context.caseId, slices) };
+    };
+    const providerContext = rederive(file.providerContext);
+    const operatorContext = rederive(file.operatorContext);
+    const next = { ...entry, transmittedDigest: providerContext.transmittedDigest, readDigest: operatorContext.readDigest };
+    if (next.transmittedDigest !== entry.transmittedDigest || next.readDigest !== entry.readDigest) changed += 1;
+    writeJson(caseFile(out, entry.caseId), { entry: { ...file.entry, transmittedDigest: next.transmittedDigest,
+      readDigest: next.readDigest }, resolutionCase: file.resolutionCase, providerContext, operatorContext });
+    return next;
+  });
+  const manifest = {
+    contract: CASE_INVESTIGATION_CONTRACT_V3,
+    derivedFrom: { contract: v2.contract, manifestSha256: fileDigest(V2_REPO_MANIFEST) },
+    pins: { ...v2.pins, promptVersion: CASE_INVESTIGATION_PROMPT_VERSION,
+      // On-disk bytes, hashed exactly as buildCorpusV2.ts hashed v2's pins.
+      sources: Object.fromEntries(Object.keys(v2.pins.sources).map((file) => [file, fileDigest(file)])) },
+    census: v2.census,
+    entries,
+  };
+  writeJson(path.join(out, 'corpus-manifest.repo.json'), manifest);
+  const eligible = entries.filter((entry) => entry.excluded == null).length;
+  console.log(`[derive-corpus] ${entries.length} cases (${eligible} eligible) derived from v2; ${changed} identities changed by relationships provenance; zero calls`);
+}
+
+function carryLabels() {
+  if (CONTRACT.contract !== CASE_INVESTIGATION_CONTRACT_V3) throw new Error('carry-labels is a v3 command');
+  const manifest = readJson<RepoManifest>(path.join(flag('corpus'), 'corpus-manifest.repo.json'));
+  if (manifest.contract !== CASE_INVESTIGATION_CONTRACT_V3) throw new Error('--corpus is not a v3 corpus');
+  const out = path.resolve(flag('out'));
+  if (existsSync(out)) throw new Error(`refusing to overwrite a frozen label set: ${out}`);
+  const set = carryLabelSetToV3(readJson<FrozenLabelSet>(flag('v2-labels')), manifest.entries as unknown as CorpusManifestEntry[]);
+  writeJson(out, set);
+  console.log(`[carry-labels] ${set.labels.length} labels carried from v2 ${set.carriedFrom.labelSetDigest}; v3 digest ${set.labelSetDigest}`);
+}
+
+const command = process.argv.slice(2).find((arg) => !arg.startsWith('-') && !['v2', 'v3'].includes(arg));
 const commands: Record<string, () => unknown> = {
   'freeze-labels': freezeLabels, 'verify-corpus': verifyCorpusOnly, preflight, run, 'grading-packet': gradingPacket, score,
+  'derive-corpus': deriveCorpus, 'carry-labels': carryLabels,
 };
 if (!command || !commands[command]) throw new Error(`usage: ${Object.keys(commands).join(' | ')}`);
 await commands[command]!();

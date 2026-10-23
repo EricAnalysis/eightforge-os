@@ -26,7 +26,9 @@ import {
 } from '@/lib/resolution/investigationContext';
 import type { ResolutionCase } from '@/lib/resolution/resolutionCases';
 import { getClaudeClient } from '@/lib/server/ai/claudeClient';
-import { PROVIDER_RANKABLE_ACTION_KINDS, runProviderCaseInvestigation } from '@/lib/server/caseInvestigationRunner';
+import {
+  CASE_INVESTIGATION_OUTPUT_LIMITS, CASE_INVESTIGATION_SYSTEM_PROMPT, PROVIDER_RANKABLE_ACTION_KINDS, runProviderCaseInvestigation,
+} from '@/lib/server/caseInvestigationRunner';
 
 const MODEL = 'claude-sonnet-4-6';
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -119,6 +121,7 @@ async function main() {
   const spend = results.reduce<number>((sum, entry) => sum + (entry.inputTokens != null && entry.outputTokens != null
     ? costUsd(entry.inputTokens as number, entry.outputTokens as number) : 0), 0);
   const summary = { probe: 'case_investigation_v3_latency_probe', model: MODEL, execution: CASE_INVESTIGATION_EXECUTION,
+    outputLimits: CASE_INVESTIGATION_OUTPUT_LIMITS, promptSha256: sha256(CASE_INVESTIGATION_SYSTEM_PROMPT),
     calls: results.length, medianLatencyMs: nearestRank(0.5), p95LatencyMs: nearestRank(0.95),
     proposed: results.filter((entry) => entry.status === 'proposed').length, knownSpendUsd: Number(spend.toFixed(6)) };
   writeFileSync(path.join(out, 'probe.json'), `${JSON.stringify({ summary, results }, null, 2)}\n`);

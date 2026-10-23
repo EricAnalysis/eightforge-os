@@ -20,7 +20,7 @@ import {
  */
 
 export const CASE_INVESTIGATION_EXECUTION = Object.freeze({
-  timeoutMs: 15_000,
+  timeoutMs: 30_000,
   maxOutputTokens: 1_500,
 });
 
@@ -31,20 +31,13 @@ export const CASE_INVESTIGATION_EXECUTION = Object.freeze({
 export const CASE_INVESTIGATION_OUTPUT_JSON_SCHEMA = Object.freeze({
   type: 'object',
   additionalProperties: false,
-  required: ['diagnosis', 'rankedActionKinds', 'rationale', 'evidenceRefs'],
+  required: ['diagnosis', 'rankedActionKinds', 'rationale', 'citations'],
   properties: {
     diagnosis: { type: 'string' },
     rankedActionKinds: { type: 'array', items: { type: 'string' } },
     rationale: { type: 'string' },
-    evidenceRefs: {
-      type: 'array',
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['sliceKind', 'recordId'],
-        properties: { sliceKind: { type: 'string' }, recordId: { type: 'string' } },
-      },
-    },
+    /** Letter refs from each context slice's `cite` map; the runner resolves them to records. */
+    citations: { type: 'array', items: { type: 'string' } },
   },
 } as const);
 

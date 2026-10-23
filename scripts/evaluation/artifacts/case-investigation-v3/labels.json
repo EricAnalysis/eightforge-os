@@ -1,0 +1,789 @@
+{
+  "version": "case_investigation_labels_v3",
+  "contract": "case_investigation_qualification_v3",
+  "finalAdjudicator": "Eric Martin",
+  "carriedFrom": {
+    "contract": "case_investigation_qualification_v2",
+    "labelSetDigest": "7a139119e16be2cd3dac83a9994188bbde8c862fd1d6579885523844d494063f"
+  },
+  "labels": [
+    {
+      "caseId": "finding:009f3b83-9332-4078-b244-f2b010f8f286",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:09d8af74-8e91-4fdc-ae0d-dbff17f120e6",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:18e926de-32ec-4ade-861b-71ceb6e6dbb9",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:3086833a-d56e-4f5d-a277-83c432d5a83e",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "extraction_error",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:30c271b6-8194-45b6-95d6-15d730ef71d2",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "extraction_error",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:35557ad9-37d6-413f-bdf4-b1372bfb58b8",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:38d9f2d3-69d9-4e95-9572-237ea5cf476a",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "extraction_error",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:3abbe8f8-9bbd-4d78-8bda-9fc32b1a1be3",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "extraction_error",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:3f409901-feea-4dd2-b03f-28409885be26",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:3f5ccc5c-74c8-4cad-b10f-21d86bc08553",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:55826058-75bb-4b9f-8b3d-d81f1e352f04",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "extraction_error",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:62b940b4-e8af-4799-a4b2-20b4c1c82a9b",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "extraction_error",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:64fb6b61-bf88-4440-8003-7e24775bd30d",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "source_missing",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:66b53b7f-fef3-4eed-ae64-8f1465784c2c",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "extraction_error",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:6aa94ce4-4d7a-48bc-a53a-0293582467de",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "source_missing",
+      "source": "owner_adjudication"
+    },
+    {
+      "caseId": "finding:6d4bc09c-836c-42d5-bd6f-38ef3a2f4b61",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:6ec5c9e6-eac4-491d-b7f1-185b67735c55",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "upload_document",
+      "rootCause": "source_missing",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:710584bd-1901-41d3-a669-40d9c49b3325",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:72e2486a-7378-4c18-ae12-d92306aca603",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:74c99d0e-8e31-42a4-ac5a-332a44e5f31f",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "extraction_error",
+      "source": "owner_adjudication"
+    },
+    {
+      "caseId": "finding:7939788c-50fa-460a-99cf-9c15529d9d96",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "extraction_error",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:7a033451-57b3-45ba-b9f5-1eec44ddd6ed",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "extraction_error",
+      "source": "owner_adjudication"
+    },
+    {
+      "caseId": "finding:82cb8190-9a35-481e-bae0-b0b5696f4440",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "extraction_error",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:84bcc460-7edf-414e-914f-8efc5b721e5e",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:94360a3f-af7b-4986-b78b-94b02645a0c7",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "extraction_error",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:94d55780-10eb-4b85-9a9f-ca24854d29d9",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "extraction_error",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:a691b3ab-f97d-4324-81af-c53e8acef328",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "source_missing",
+      "source": "owner_adjudication"
+    },
+    {
+      "caseId": "finding:a7df1566-2391-4388-b6af-6be131860746",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "extraction_error",
+      "source": "owner_adjudication"
+    },
+    {
+      "caseId": "finding:aab498c5-7303-4de4-b9a9-126e60a939fe",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "source_missing",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:ab3b20db-bf32-43bb-8a3c-a039364c78e2",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:b03ae8eb-d5db-4bcd-bf5e-e88426faf52d",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "extraction_error",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:b54c1b96-ee89-4c5d-9213-64c94ec40db8",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "other",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:b560aa7c-afe3-4516-8cc0-164d1612364f",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:c33af05d-57c3-4818-a2da-baf7ba831aff",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING:canonical-relationship:invoice_references_governing_contract:invoice:canonical-invoice-project-03d0d18a-3cc7-4594-83d0-d18a3cc7b594-artifact-null-document-18e5b11f-b876-4c3d-88e5-b11fb8761c3d-invoice-number-sr-3:unresolved:invoice_references_governing_contract",
+      "qualificationClass": "conflict",
+      "primaryAction": "open_linked_documents",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING:canonical-relationship:invoice_references_governing_contract:invoice:canonical-invoice-project-9c5937d1-e049-4733-8c59-37d1e0495733-artifact-null-document-da121058-6f0f-468e-8a12-10586f0f468e-invoice-number-gf-12:unresolved:invoice_references_governing_contract",
+      "qualificationClass": "conflict",
+      "primaryAction": "open_linked_documents",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING:canonical-relationship:invoice_references_governing_contract:invoice:canonical-invoice-project-a1c47b96-4b3f-412c-81c4-7b964b3f112c-artifact-null-document-8c7d3213-e9b1-4ca5-8c7d-3213e9b1fca5-invoice-number-pc-501:unresolved:invoice_references_governing_contract",
+      "qualificationClass": "conflict",
+      "primaryAction": "open_linked_documents",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING:canonical-relationship:invoice_references_governing_contract:invoice:canonical-invoice-project-ab9bc31b-168b-416d-8b9b-c31b168b316d-artifact-null-document-3202ee6e-9558-443c-8202-ee6e9558243c-invoice-number-wb-77:unresolved:invoice_references_governing_contract",
+      "qualificationClass": "conflict",
+      "primaryAction": "open_linked_documents",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING:canonical-relationship:invoice_references_governing_contract:invoice:canonical-invoice-project-c5dcf382-693e-4968-85dc-f382693e9968-artifact-null-document-73ee3f54-3208-46ba-83ee-3f54320836ba-invoice-number-rs-9:unresolved:invoice_references_governing_contract",
+      "qualificationClass": "conflict",
+      "primaryAction": "open_linked_documents",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING:canonical-relationship:invoice_references_governing_contract:invoice:canonical-invoice-project-c5dcf382-693e-4968-85dc-f382693e9968-artifact-null-document-76ee440d-ac1c-4c43-86ee-440dac1c6c43-invoice-number-rs-9:unresolved:invoice_references_governing_contract",
+      "qualificationClass": "conflict",
+      "primaryAction": "open_linked_documents",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING:canonical-relationship:pricing_exhibit_belongs_to_contract_family:project:03d0d18a-3cc7-4594-83d0-d18a3cc7b594:unresolved:pricing_exhibit_belongs_to_contract_family",
+      "qualificationClass": "conflict",
+      "primaryAction": "open_linked_documents",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING:canonical-relationship:pricing_exhibit_belongs_to_contract_family:project:9c5937d1-e049-4733-8c59-37d1e0495733:unresolved:pricing_exhibit_belongs_to_contract_family",
+      "qualificationClass": "conflict",
+      "primaryAction": "open_linked_documents",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING:canonical-relationship:pricing_exhibit_belongs_to_contract_family:project:a1c47b96-4b3f-412c-81c4-7b964b3f112c:unresolved:pricing_exhibit_belongs_to_contract_family",
+      "qualificationClass": "conflict",
+      "primaryAction": "open_linked_documents",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING:canonical-relationship:pricing_exhibit_belongs_to_contract_family:project:ab9bc31b-168b-416d-8b9b-c31b168b316d:unresolved:pricing_exhibit_belongs_to_contract_family",
+      "qualificationClass": "conflict",
+      "primaryAction": "open_linked_documents",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING:canonical-relationship:pricing_exhibit_belongs_to_contract_family:project:c5dcf382-693e-4968-85dc-f382693e9968:unresolved:pricing_exhibit_belongs_to_contract_family",
+      "qualificationClass": "conflict",
+      "primaryAction": "open_linked_documents",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:CANONICAL_GOVERNING_RELATIONSHIP_CONFLICTING:canonical-relationship:pricing_exhibit_belongs_to_contract_family:project:f6717adc-639c-4746-8671-7adc639c0746:unresolved:pricing_exhibit_belongs_to_contract_family",
+      "qualificationClass": "conflict",
+      "primaryAction": "open_linked_documents",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:CANONICAL_INVOICE_IDENTITY_CONFLICT:invoice-number:4410:invoice_number",
+      "qualificationClass": "conflict",
+      "primaryAction": "open_document",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:CANONICAL_INVOICE_IDENTITY_CONFLICT:invoice-number:4411:invoice_number",
+      "qualificationClass": "conflict",
+      "primaryAction": "open_document",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:CANONICAL_INVOICE_IDENTITY_CONFLICT:invoice-number:4412:invoice_number",
+      "qualificationClass": "conflict",
+      "primaryAction": "open_document",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:CANONICAL_INVOICE_IDENTITY_CONFLICT:invoice-number:inv-3001:invoice_number",
+      "qualificationClass": "conflict",
+      "primaryAction": "open_document",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:CANONICAL_INVOICE_IDENTITY_CONFLICT:invoice-number:inv-3002:invoice_number",
+      "qualificationClass": "conflict",
+      "primaryAction": "open_document",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:CANONICAL_INVOICE_IDENTITY_CONFLICT:invoice-number:inv-3003:invoice_number",
+      "qualificationClass": "conflict",
+      "primaryAction": "open_document",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:CANONICAL_INVOICE_IDENTITY_CONFLICT:invoice-number:rs-9:invoice_number",
+      "qualificationClass": "conflict",
+      "primaryAction": "open_document",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:d28d0540-3ad2-481d-93ba-47b99f7663cb",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:d3202ef4-8790-4c32-a57c-bb3435491479",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "extraction_error",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:da4ef605-6751-4595-9ed1-afccd0bbe048",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "extraction_error",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:decision:067f61e9-b495-489c-b790-99d01247fa2d",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "extraction_error",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:decision:09c85233-fbc8-4e1a-ab4f-9f2ec22c2190",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "source_missing",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:decision:09e67df4-48e6-468c-b5da-353bc0c85680",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "source_missing",
+      "source": "owner_adjudication"
+    },
+    {
+      "caseId": "finding:decision:16fece30-8628-4d75-8313-0c151b1b8f67",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "extraction_error",
+      "source": "owner_adjudication"
+    },
+    {
+      "caseId": "finding:decision:1757be6d-5acf-46de-8467-7d22037d4ddb",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "relationship_or_precedence",
+      "source": "owner_adjudication"
+    },
+    {
+      "caseId": "finding:decision:1ea591de-4275-411c-a046-2a29524480d9",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "extraction_error",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:decision:22c7918c-0fee-437f-9d61-98be894d5360",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "source_missing",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:decision:2f24277a-a80f-4d5a-ba47-21eb1305a0dd",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "relationship_or_precedence",
+      "source": "owner_adjudication"
+    },
+    {
+      "caseId": "finding:decision:3336d895-c66a-4a1a-aa41-070be4ccb710",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "source_missing",
+      "source": "owner_adjudication"
+    },
+    {
+      "caseId": "finding:decision:3db31877-66ad-48dc-ba49-a5541bf536a4",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "extraction_error",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:decision:4173e1f6-4119-43b9-977b-4ec6f54f74bb",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "relationship_or_precedence",
+      "source": "owner_adjudication"
+    },
+    {
+      "caseId": "finding:decision:440b9f2e-7481-402c-bb15-296c42188f29",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "relationship_or_precedence",
+      "source": "owner_adjudication"
+    },
+    {
+      "caseId": "finding:decision:535a8f4c-dad8-4495-961d-3349bbf574ee",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "source_missing",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:decision:58a401ae-e0f5-4c0c-99ea-08577af9cfb1",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "extraction_error",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:decision:633fe718-b6dd-436b-a2cc-fbf2c89b80cf",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "source_missing",
+      "source": "owner_adjudication"
+    },
+    {
+      "caseId": "finding:decision:6f3c73df-1ba7-420f-836f-907669566507",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "relationship_or_precedence",
+      "source": "owner_adjudication"
+    },
+    {
+      "caseId": "finding:decision:77087f58-96ab-4c93-9c2b-c86573a61453",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "extraction_error",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:decision:7a7fcd7b-1c60-4d82-bfa9-935d5a97cb81",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "extraction_error",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:decision:92e90b8d-e899-4c0f-a9ac-50de9b193923",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "source_missing",
+      "source": "owner_adjudication"
+    },
+    {
+      "caseId": "finding:decision:9321b1eb-ae90-4b94-9483-26588895d2d3",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "other",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:decision:95d3c244-0bac-4bc1-9da3-ce91b208b6dc",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:decision:9f8c82b7-d68a-4cd5-8e02-4ee2cc6cfbfc",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "extraction_error",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:decision:a3913be7-3f42-4949-a65f-8e275c57bcef",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "extraction_error",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:decision:a5d3d75a-5574-4b0e-a55b-da81deb7bb12",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "source_missing",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:decision:b7abf551-1f3f-4216-b383-063b9b77df67",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "source_missing",
+      "source": "owner_adjudication"
+    },
+    {
+      "caseId": "finding:decision:bb264464-a963-4473-953f-3dd36f1b4de8",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "other",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:decision:bc4777de-604d-4bbf-a5c3-59bc48ab8f2b",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "relationship_or_precedence",
+      "source": "owner_adjudication"
+    },
+    {
+      "caseId": "finding:decision:c7518510-d053-4cb1-aab5-e7272c7f828c",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "extraction_error",
+      "source": "owner_adjudication"
+    },
+    {
+      "caseId": "finding:decision:cf511ac7-097b-4b8b-b860-e9d1e4d6cb84",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "other",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:decision:d0804837-ef6d-42e8-8d2e-6075c590d0b9",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "extraction_error",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:decision:d1a67d44-e99a-4436-8f92-d213704121d7",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:decision:d2e1205e-de40-409b-859b-0052f10352bc",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "source_missing",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:decision:d7c2a695-60d2-4fd5-a95d-3d1e2601ac29",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "extraction_error",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:decision:e684436b-eb49-4340-8419-7adedec6331f",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "other",
+      "source": "owner_adjudication"
+    },
+    {
+      "caseId": "finding:decision:e6d3611f-f984-45b9-bfc7-8ca04f8294df",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "source_missing",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:decision:f2789ada-ba80-464e-add5-5575f1d6c3f3",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "relationship_or_precedence",
+      "source": "owner_adjudication"
+    },
+    {
+      "caseId": "finding:decision:f96cb3ae-fc14-470b-bbae-f6c2cc7d73f3",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "none",
+      "rootCause": "other",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:e8330f45-2367-4f67-8d40-e6276e2b0e57",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "extraction_error",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:ea62dca6-fda2-4b1d-a890-eaaf192f2f23",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:eee05804-80b0-4f03-8ace-5469fa174bd6",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "extraction_error",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:f187f30c-f0db-404b-b8ad-9ae33066b470",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "extraction_error",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:f3900702-d8d0-4a30-acfe-cd7f7b859c7b",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "extraction_error",
+      "source": "owner_adjudication"
+    },
+    {
+      "caseId": "finding:fca817d5-d910-440e-981c-9ba06b905f18",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:fdd00c88-0fa1-4b77-93bb-2f86ef1e63f2",
+      "qualificationClass": "validator_failure",
+      "primaryAction": "open_document",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:TRANSACTION_TICKET_GRAIN_CONFLICT:ticket:13c81cf3-adfa-4cdd-83c8-1cf3adfaecdd:CC-2001:extendedCost:extended_cost",
+      "qualificationClass": "conflict",
+      "primaryAction": "open_document",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:TRANSACTION_TICKET_GRAIN_CONFLICT:ticket:13c81cf3-adfa-4cdd-83c8-1cf3adfaecdd:CC-2001:quantity:transaction_quantity",
+      "qualificationClass": "conflict",
+      "primaryAction": "open_document",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:TRANSACTION_TICKET_GRAIN_CONFLICT:ticket:13c81cf3-adfa-4cdd-83c8-1cf3adfaecdd:CC-2002:extendedCost:extended_cost",
+      "qualificationClass": "conflict",
+      "primaryAction": "open_document",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:TRANSACTION_TICKET_GRAIN_CONFLICT:ticket:13c81cf3-adfa-4cdd-83c8-1cf3adfaecdd:CC-2003:quantity:transaction_quantity",
+      "qualificationClass": "conflict",
+      "primaryAction": "open_document",
+      "rootCause": "genuine_exposure",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:TRANSACTION_TICKET_GRAIN_CONFLICT:ticket:288331d2-b828-4d4c-8883-31d2b8286d4c:TKT-1001:quantity:transaction_quantity",
+      "qualificationClass": "conflict",
+      "primaryAction": "open_document",
+      "rootCause": "genuine_exposure",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:TRANSACTION_TICKET_GRAIN_CONFLICT:ticket:288331d2-b828-4d4c-8883-31d2b8286d4c:TKT-1002:extendedCost:extended_cost",
+      "qualificationClass": "conflict",
+      "primaryAction": "open_document",
+      "rootCause": "genuine_exposure",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:TRANSACTION_TICKET_GRAIN_CONFLICT:ticket:288331d2-b828-4d4c-8883-31d2b8286d4c:TKT-1003:quantity:transaction_quantity",
+      "qualificationClass": "conflict",
+      "primaryAction": "open_document",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:TRANSACTION_TICKET_GRAIN_CONFLICT:ticket:288331d2-b828-4d4c-8883-31d2b8286d4c:TKT-1004:extendedCost:extended_cost",
+      "qualificationClass": "conflict",
+      "primaryAction": "open_document",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:TRANSACTION_TICKET_GRAIN_CONFLICT:ticket:288331d2-b828-4d4c-8883-31d2b8286d4c:TKT-1004:quantity:transaction_quantity",
+      "qualificationClass": "conflict",
+      "primaryAction": "open_document",
+      "rootCause": "relationship_or_precedence",
+      "source": "reviewer_agreement_phase1"
+    },
+    {
+      "caseId": "finding:TRANSACTION_TICKET_GRAIN_CONFLICT:ticket:c579529e-70d6-4e84-8579-529e70d6ae84:LK-3001:quantity:transaction_quantity",
+      "qualificationClass": "conflict",
+      "primaryAction": "open_document",
+      "rootCause": "genuine_exposure",
+      "source": "reviewer_agreement_relabel"
+    },
+    {
+      "caseId": "finding:TRANSACTION_TICKET_GRAIN_CONFLICT:ticket:dbf71553-a8f8-437d-8bf7-1553a8f8637d:OK-5001:extendedCost:extended_cost",
+      "qualificationClass": "conflict",
+      "primaryAction": "open_document",
+      "rootCause": "genuine_exposure",
+      "source": "owner_adjudication"
+    }
+  ],
+  "labelSetDigest": "80d4c874fc570b8ee79fc90e9d83ea4a3d2326065e06c3f60702541f85ade605"
+}

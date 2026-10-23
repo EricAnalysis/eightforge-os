@@ -1,8 +1,6 @@
-# Case Investigation qualification contract v3 (`case_investigation_qualification_v3`): draft
+# Case Investigation qualification contract v3 (`case_investigation_qualification_v3`)
 
-**Status: DRAFT, not frozen. Blocked on one owner decision: latency. Two probes (short budget; letter-ref citations) both missed the 6 s bar.** Nothing has run under v3 and no v3 identity is frozen. The workflow stays `disabled`. [v2](case-investigation-qualification-v2.md) FAILED on 2026-10-22. That result is final for v2 and is not reinterpreted here.
-
-The owner decided every v3 term on 2026-10-22, except latency. A 10-call probe, approved by the owner, showed that the approved short-answer budget cannot meet the unchanged latency bar on this model. So v3 is not frozen, and no paid v3 run may start until the latency term is decided.
+**Status: FROZEN 2026-10-22.** Every term is decided by the owner, the identities are committed below, and exactly one paid run is authorized. The workflow stays `disabled` until a PASS passes the reviewed activation path. [v2](case-investigation-qualification-v2.md) FAILED on 2026-10-22. That result is final for v2 and is not reinterpreted here.
 
 ## Defects fixed in code (this PR)
 
@@ -33,7 +31,16 @@ The context-digest formula moved into `investigationContextDigests`. Over the fr
 5. **Corpus and labels carry over unchanged.**
    - The v3 corpus is the same 111 cases: each frozen r2 context, with only its relationships provenance re-derived by the production helper. It is not a live rebuild, so no case can enter or leave.
    - The labels are the frozen v2 label set `7a139119…063f`, including Eric Martin's 22 adjudications, carried over verbatim under a v3 label identity.
-   - Classes, minimums, root-cause vocabulary, human authority, model, temperature 0, 15 s timeout, zero retries, all other bars, cost limit, $3.00 ceiling and run rules are unchanged.
+   - Classes, minimums, root-cause vocabulary, human authority, model, temperature 0, zero retries, all other bars, cost limit, $3.00 ceiling and run rules are unchanged.
+6. **Latency, raised deliberately** (decision 6, after probes 1–3 below):
+   - median ≤ **15 s** (was 6 s); p95 ≤ **25 s** (was 12 s); provider timeout **30 s** (was 15 s);
+   - invalid answers, timeouts included, stay at most **5%**.
+   - **Why:** the operator invokes the investigation on demand, and the deterministic investigation is already on screen, so the operator is never blocked. The 30 s timeout covers the longest observed answer (817 tokens) at the slowest observed throughput (about 27 ms per token). It stays under the app's 45 s budgeted-call bound and the 300 s function limit. The p95 bar sits below the timeout, and the unchanged 5% invalid bar controls the tail.
+   - This is a deliberate product decision, not a correction of v2, and v2's FAIL stands.
+7. **Citations by letter ref (option B).** The model cites each record by the short ref in its slice's `cite` map, and the runner resolves the ref to the slice kind and record id.
+   - The stored investigation, the durable record and the UI are unchanged.
+   - Unknown or duplicate refs are refused.
+   - The code from draft #279 is merged with this freeze.
 
 ## The latency probe (2026-10-22): the short-answer budget does not fit
 
@@ -81,22 +88,47 @@ The owner chose to try option B before deciding latency.
 - **Provider throughput varies.** It was slower this session, about 27 ms per output token against v2's fitted 12.5 ms.
 - **Conclusion:** neither the shorter-instruction budget (probe 1) nor compact citations (probe 2) bring Sonnet 4.6 near the 6 s median on this request.
 
-## The one remaining owner decision: latency
+## Probe 3 (2026-10-22): the tail at a 30 s timeout, before the freeze
 
-v3 can be frozen and run once this is decided. Each option is a contract term.
+The owner approved this probe as the go/no-go check for the new latency terms.
+- **Setup:** the same 10 synthetic fixture cases; letter-ref citations; v2's answer bounds; timeout 30 s.
+- **Evidence:** `case-investigation-v3-latency-probe-c-20261022/probe.json`. Known spend $0.12.
 
-- **A. Raise the latency bar deliberately**, for an operator-invoked, on-demand investigation. Examples: median ≤ 15 s and p95 ≤ 20 s. The timeout would also need raising from 15 s, because v2 timed out 35 times at 15 s. Record why.
-- **B. Shrink the output through the request shape**, not through instructions the model ignores. For example, cite records by a short index into the transmitted records instead of echoing ids of up to 315 characters; echoed ids cost about 0.64 tokens per character in v2. This needs another probe first: the fixed cost of about 4.4 s alone leaves little room under 6 s.
-- **C. Qualify a different model** under its own contract. It must first be added to the qualified-model lists.
-- **D. Accept that Case Investigation does not qualify on this model.** It stays disabled.
+| Result | Value | v3 bar |
+|---|---|---|
+| Accepted | **10 of 10** | invalid ≤ 5% |
+| Median latency | **13.4 s** | ≤ 15 s |
+| p95 / longest | 16.6 s / 16.6 s | ≤ 25 s |
+| Timeouts | 0 | — |
 
-## After the decision
+The bars were not already lost, so v3 was frozen. The median margin is thin: the probe covered synthetic conflict cases only, and provider throughput varies.
 
-1. Freeze v3 under a harness parameterized for v3, at the bars and request implied by the decision.
-2. Freeze the carried-over corpus and labels (zero calls).
-3. Run the zero-call preflight.
-4. Run a compatibility probe, only if the request or schema changes materially.
-5. Run exactly one complete paid run.
+## Frozen identities
+
+| Identity | Value |
+|---|---|
+| Contract | `case_investigation_qualification_v3` |
+| Scorer / bars digest | `case_investigation_scorecard_v3` / `f288175020a6a9606d4c56284b9e1f9d7cb8ade599e669586aeaaff6b6324ce9` |
+| Prompt | `case_investigation_prompt_v3`, sha256 `ebee491dab80316c1219b95e546c226c5d3b9254d67fce3862d35e86e3837219` |
+| Request | `claude-sonnet-4-6`, temperature 0, 1,500 output tokens, **30 s** timeout, zero retries |
+| Corpus manifest | `scripts/evaluation/artifacts/case-investigation-v3/corpus-manifest.json`, sha256 `017ee6339992ae42b8c39f4d9a2f9c788e005e10b2c645114c5e681bf8f64672` |
+| Corpus content | Derived from the committed v2 manifest: 169 cases, 111 eligible (81 / 30), 126 identities changed by relationships provenance only |
+| Labels | `scripts/evaluation/artifacts/case-investigation-v3/labels.json`, digest `80d4c874fc570b8ee79fc90e9d83ea4a3d2326065e06c3f60702541f85ade605`, carried verbatim from v2 `7a139119…063f` |
+
+**Proof before the paid run:**
+- v2's bars digest is unchanged (`e4787588…`), and all 9 v2 evidence files match their recorded checksums.
+- The v2 harness now refuses the v2 corpus ("pinned source changed"), so v2 cannot be reused by accident.
+- Architecture guards pass (40 files, 470 tests), along with the focused tests and tsc.
+
+## Commands (zero-call except the run)
+
+```text
+qualifyV2.ts derive-corpus --contract v3 --from <r2 dir> --out <r3 dir>
+qualifyV2.ts carry-labels  --contract v3 --corpus <r3 dir> --v2-labels <v2 labels.json> --out <labels.json>
+qualifyV2.ts preflight     --contract v3 --corpus <r3 dir> --labels <labels.json> --out <dir>
+qualifyV2.ts run           --contract v3 ... --confirm-paid-run      (exactly once)
+qualifyV2.ts grading-packet / score --contract v3 ...
+```
 
 ## Known residual, not on the provider path
 

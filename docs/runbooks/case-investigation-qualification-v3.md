@@ -1,6 +1,6 @@
 # Case Investigation qualification contract v3 (`case_investigation_qualification_v3`)
 
-**Status: FROZEN 2026-10-22.** Every term is decided by the owner, the identities are committed below, and exactly one paid run is authorized. The workflow stays `disabled` until a PASS passes the reviewed activation path. [v2](case-investigation-qualification-v2.md) FAILED on 2026-10-22. That result is final for v2 and is not reinterpreted here.
+**Status: closed 2026-10-22. The single qualification run FAILED** (see [Qualification run result](#qualification-run-result-2026-10-22-fail)). The workflow stays `disabled`. The terms below were frozen before the run and were not changed after it. [v2](case-investigation-qualification-v2.md) FAILED on 2026-10-22. That result is final for v2 and is not reinterpreted here.
 
 ## Defects fixed in code (this PR)
 
@@ -133,3 +133,42 @@ qualifyV2.ts grading-packet / score --contract v3 ...
 ## Known residual, not on the provider path
 
 `page_structure` slices are also built with `recordIds: []`. No investigable case kind transmits them today. They must be given citable records before any kind that does becomes investigable.
+
+## Qualification run result (2026-10-22): FAIL
+
+The single paid run was made exactly once under the frozen identities, from a checkout identical to main `3121b79`. There were no retries, replacement cases or exclusions.
+
+| Identity | Value |
+|---|---|
+| Preflight freeze | `0a71316e4b2d8385a7936c3ee480654d803cb895f43048a55008b14781db773a`. Zero calls; 111 cases; call cap 134 |
+| Evidence | `case-investigation-v3-qualification-20261022/`, outside the repository. `SHA256SUMS.txt` lists all 6 artifacts |
+
+**Run:** 111 calls, an upper-bound spend of $1.57, and no halt. Every response came from `claude-sonnet-4-6`.
+
+| | `validator_failure` (81) | `conflict` (30) | v3 bar |
+|---|---|---|---|
+| Accepted | 55 | **30** | — |
+| Invalid share | **0.321** ✗ | 0.000 ✓ | ≤ 0.05 |
+| Invented numbers | **4** ✗ | 0 ✓ | 0 |
+| Wrong references, unoffered actions | 0 / 0 | 0 / 0 | 0 |
+| Median / p95 latency | 14.2 s / 18.8 s ✓ | 12.9 s / 14.9 s ✓ | ≤ 15 s / ≤ 25 s |
+| USD per investigation | 0.0149 ✓ | 0.0120 ✓ | ≤ 0.03 |
+| Top-1 on ranking cases (baseline) | 3/3 (3/3) ✓ | 12/12 (12/12) ✓ | ≥ 0.90 and ≥ baseline |
+
+**Verdict: FAIL**, final for v3. Activation requires both classes. `validator_failure` fails two hard bars on its own, so the graded bars (faithfulness, root cause, side selection, recommendations) were not graded. Grades cannot change the verdict.
+
+`conflict` passed every mechanical bar. That is an observation only: it does not qualify anything, because activation is all-or-nothing.
+
+**Diagnosis (read-only):** this is genuine model behaviour under the frozen contract. No implementation defect was found.
+
+The 26 invalid `validator_failure` answers break down as follows; some answers have more than one cause:
+- **19 cited more than the stated maximum of 12 records.** One cited 25. The prompt states the 1–12 bound, and the runner enforces it.
+- **11 wrote a diagnosis longer than the stated 1,200 characters.**
+- **4 contained an unsupported number.** All four are genuine: the model computed figures the evidence did not contain, such as "a shortfall of 223,990.00" and "a 165.00 gap". The strict rule correctly rejects these.
+
+**Observations for any future contract.** These are not changed and not proposed here.
+- Letter refs make citing every record nearly free, and the model then exceeds the cap. In v2, echoing ids kept the citation count lower.
+- The model does not reliably keep to stated length or count bounds. Structured outputs cannot enforce them.
+- Derived arithmetic is the remaining source of invented numbers.
+
+Case Investigation does not qualify on `claude-sonnet-4-6` under v3. It stays `disabled`. Nothing was activated.

@@ -1,6 +1,6 @@
 # Case Investigation qualification contract v3 (`case_investigation_qualification_v3`): draft
 
-**Status: DRAFT, not frozen. Blocked on one owner decision: latency.** Nothing has run under v3 and no v3 identity is frozen. The workflow stays `disabled`. [v2](case-investigation-qualification-v2.md) FAILED on 2026-10-22. That result is final for v2 and is not reinterpreted here.
+**Status: DRAFT, not frozen. Blocked on one owner decision: latency. Two probes (short budget; letter-ref citations) both missed the 6 s bar.** Nothing has run under v3 and no v3 identity is frozen. The workflow stays `disabled`. [v2](case-investigation-qualification-v2.md) FAILED on 2026-10-22. That result is final for v2 and is not reinterpreted here.
 
 The owner decided every v3 term on 2026-10-22, except latency. A 10-call probe, approved by the owner, showed that the approved short-answer budget cannot meet the unchanged latency bar on this model. So v3 is not frozen, and no paid v3 run may start until the latency term is decided.
 
@@ -58,6 +58,28 @@ The probe was owner-approved. It is not a qualification.
 | Known spend | $0.12 | — |
 
 The model does not keep to a stated character budget: it overran the budget or was truncated. Even truncated at 500 tokens, the median stayed far above 6 s. The short budget was therefore **not adopted**, and the code keeps v2's bounds.
+
+## Probe 2 (2026-10-22): option B, citing records by letter ref
+
+The owner chose to try option B before deciding latency.
+- **Request change:** the model cites each record by a short letter ref from its slice's `cite` map, instead of echoing the record id. The runner resolves the ref back to the slice kind and record id, so the stored record and UI are unchanged.
+- **Setup:** the same 10 synthetic fixture cases and production runner as probe 1. The answer bounds stayed at v2's 1,200 / 2,000 characters and 1,500 tokens.
+- **Code:** draft PR #279, not merged.
+- **Evidence:** `case-investigation-v3-latency-probe-b-20261022/probe.json`, sha256 `7042a75b624526b7ba57527052af15ef86bbaf31375f667c1d6cb214522988a3`; prompt sha256 `ebee491d…7219`. Known spend $0.07.
+
+| Result | Value | Bar |
+|---|---|---|
+| Accepted, of completed answers | **6 of 6** | — |
+| Timeouts at 15 s | 4 of 10 | — |
+| Median latency | **14.7 s** | ≤ 6 s ✗ |
+| p95 latency | 15.0 s | ≤ 12 s ✗ |
+| Output tokens, completed answers | 434–498 (v2 median 528) | — |
+
+**What the probe shows:**
+- **Validity improved.** No completed answer was rejected.
+- **Latency did not.** The model spent the tokens it no longer used on ids on longer prose, so output fell only about 10%.
+- **Provider throughput varies.** It was slower this session, about 27 ms per output token against v2's fitted 12.5 ms.
+- **Conclusion:** neither the shorter-instruction budget (probe 1) nor compact citations (probe 2) bring Sonnet 4.6 near the 6 s median on this request.
 
 ## The one remaining owner decision: latency
 

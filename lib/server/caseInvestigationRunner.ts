@@ -116,6 +116,16 @@ export function citableRecords(transmitted: readonly Readonly<{ kind: string; pr
   return records;
 }
 
+/** Exactly what the provider receives as context: each transmitted slice, with its records' letter refs. */
+export function providerRequestContext(
+  transmitted: readonly Readonly<{ kind: string; provenance: { recordIds: readonly string[] }; payload: unknown }>[],
+) {
+  const citable = citableRecords(transmitted);
+  return transmitted.map((slice) => ({ kind: slice.kind, provenance: slice.provenance, payload: slice.payload,
+    cite: Object.fromEntries(citable.filter((record) => record.sliceKind === slice.kind)
+      .map((record) => [record.ref, record.recordId])) }));
+}
+
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/giu;
 
 /**
@@ -212,9 +222,7 @@ export async function runProviderCaseInvestigation(
   try {
     raw = await provider.investigate({
       system: CASE_INVESTIGATION_SYSTEM_PROMPT,
-      context: transmitted.map((slice) => ({ kind: slice.kind, provenance: slice.provenance, payload: slice.payload,
-        cite: Object.fromEntries(citable.filter((record) => record.sliceKind === slice.kind)
-          .map((record) => [record.ref, record.recordId])) })),
+      context: providerRequestContext(transmitted),
       offeredActionKinds: offered,
     });
   } catch {

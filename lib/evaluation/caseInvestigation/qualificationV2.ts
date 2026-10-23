@@ -59,9 +59,17 @@ export const CASE_INVESTIGATION_PRICING_V2 = Object.freeze({
   model: 'claude-sonnet-4-6', inputUsdPerMTok: 3, outputUsdPerMTok: 15,
 });
 
-export const qualificationBarsDigest = () => hashCanonical({
+/** A contract's scoring: its scorer identity and bars. Later contracts change only what they name. */
+type Bars = typeof CASE_INVESTIGATION_BARS_V2;
+export type CaseInvestigationBars = Readonly<{ [Group in keyof Bars]: Readonly<Record<keyof Bars[Group], number>> }>;
+export type CaseInvestigationScoring = Readonly<{ scorer: string; bars: CaseInvestigationBars }>;
+
+export const CASE_INVESTIGATION_SCORING_V2: CaseInvestigationScoring = Object.freeze({
   scorer: CASE_INVESTIGATION_QUALIFICATION_SCORER_V2, bars: CASE_INVESTIGATION_BARS_V2,
-  pricing: CASE_INVESTIGATION_PRICING_V2,
+});
+
+export const qualificationBarsDigest = (scoring: CaseInvestigationScoring = CASE_INVESTIGATION_SCORING_V2) => hashCanonical({
+  scorer: scoring.scorer, bars: scoring.bars, pricing: CASE_INVESTIGATION_PRICING_V2,
 });
 
 export function callCap(cases: number): number {
@@ -185,7 +193,7 @@ export type ClassScorecard = Readonly<{
 }>;
 
 export type QualificationScorecard = Readonly<{
-  scorer: typeof CASE_INVESTIGATION_QUALIFICATION_SCORER_V2;
+  scorer: string;
   barsDigest: string;
   classes: readonly ClassScorecard[];
   result: 'PASS' | 'FAIL';
@@ -196,6 +204,14 @@ export function scoreQualificationV2(input: Readonly<{
   records: readonly CaseRunRecord[];
   grades: readonly CaseGrade[];
 }>): QualificationScorecard {
+  return scoreQualification(input, CASE_INVESTIGATION_SCORING_V2);
+}
+
+export function scoreQualification(input: Readonly<{
+  labels: readonly FrozenCaseLabel[];
+  records: readonly CaseRunRecord[];
+  grades: readonly CaseGrade[];
+}>, scoring: CaseInvestigationScoring): QualificationScorecard {
   const labels = new Map(input.labels.map((label) => [label.caseId, label]));
   const grades = new Map(input.grades.map((grade) => [grade.caseId, grade]));
   const records = new Map(input.records.map((record) => [record.caseId, record]));
@@ -215,7 +231,7 @@ export function scoreQualificationV2(input: Readonly<{
     const cost = rows.reduce((sum, record) => sum + (record.inputTokens != null && record.outputTokens != null
       ? costUsd(record.inputTokens, record.outputTokens)
       : costUsd(record.estimatedInputTokens, record.maxOutputTokens)), 0);
-    const bars = CASE_INVESTIGATION_BARS_V2.hard;
+    const bars = scoring.bars.hard;
     const hard = {
       unofferedRankedActions: atMost(count((record) => record.violations?.unofferedRankedAction === true), bars.unofferedRankedActions),
       inventedNumbers: atMost(count((record) => record.violations?.inventedNumber === true), bars.inventedNumbers),
@@ -230,7 +246,7 @@ export function scoreQualificationV2(input: Readonly<{
       usdPerInvestigation: atMost(n === 0 ? null : cost / n, bars.maxUsdPerInvestigation),
     };
 
-    const soft = CASE_INVESTIGATION_BARS_V2.soft;
+    const soft = scoring.bars.soft;
     const correct = (record: CaseRunRecord) => record.top1 != null && record.top1 === labels.get(record.caseId)!.primaryAction;
     const baselineCorrect = (record: CaseRunRecord) => record.baselineTop1 === labels.get(record.caseId)!.primaryAction;
     const ranking = rows.filter((record) => record.rankableActionKinds.length >= 2);
@@ -261,8 +277,8 @@ export function scoreQualificationV2(input: Readonly<{
       status: reasons.length === 0 ? 'qualified' : 'not_qualified', reasons };
   });
   return {
-    scorer: CASE_INVESTIGATION_QUALIFICATION_SCORER_V2,
-    barsDigest: qualificationBarsDigest(),
+    scorer: scoring.scorer,
+    barsDigest: qualificationBarsDigest(scoring),
     classes,
     // Activation is all-or-nothing for the workflow.
     result: classes.every((entry) => entry.status === 'qualified') ? 'PASS' : 'FAIL',

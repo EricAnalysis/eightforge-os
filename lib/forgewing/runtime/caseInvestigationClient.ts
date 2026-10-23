@@ -20,7 +20,7 @@ import {
  */
 
 export const CASE_INVESTIGATION_EXECUTION = Object.freeze({
-  timeoutMs: 15_000,
+  timeoutMs: 30_000,
   maxOutputTokens: 1_500,
 });
 

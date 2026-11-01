@@ -49,8 +49,15 @@ function normalizeText(value: string | null | undefined): string {
     .replace(/\s+/g, ' ');
 }
 
-function isMissingRelationshipTable(error: { code?: string | null; message?: string | null } | null | undefined): boolean {
-  return error?.code === '42P01' || (error?.message ?? '').toLowerCase().includes('document_relationships');
+/**
+ * Whether a read failed because the relationships table does not exist: Postgres
+ * undefined_table, or PostgREST's report of the same thing, which is what this
+ * client receives for a table absent from the schema cache. Decided by the exact
+ * code, never the message: a permission, network or query error also names the
+ * table, and treating one as "no relationships" silently drops real links.
+ */
+export function isMissingRelationshipTable(error: { code?: string | null } | null | undefined): boolean {
+  return error?.code === '42P01' || error?.code === 'PGRST205';
 }
 
 function shouldIncludeLegacySupportDocument(document: DocumentPrecedenceRecord): boolean {

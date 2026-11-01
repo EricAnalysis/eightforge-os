@@ -1,6 +1,6 @@
 # Case Investigation qualification contract v4 (`case_investigation_qualification_v4`)
 
-**Status: frozen 2026-11-01. The single qualification run has not been made.** The workflow stays `disabled`. [v2](case-investigation-qualification-v2.md) and [v3](case-investigation-qualification-v3.md) FAILED on `claude-sonnet-4-6`. Those results are final and are not reinterpreted here.
+**Status: closed 2026-11-01. The single qualification run FAILED** (see [Qualification run result](#qualification-run-result-2026-11-01-fail)). **Case Investigation is MODEL-BLOCKED / PARKED**, and the workflow stays `disabled`. The terms below were frozen before the run and were not changed after it. [v2](case-investigation-qualification-v2.md) and [v3](case-investigation-qualification-v3.md) FAILED on `claude-sonnet-4-6`. Those results are final and are not reinterpreted here.
 
 ## What v4 is
 
@@ -78,3 +78,52 @@ qualifyV2.ts grading-packet / score --contract v4 ...
 `grade-independent` applies the frozen scorer with the best grade every valid answer could receive. Any failure it reports is final whatever the graders decide. An empty result passes nothing: the graded bars still need two independent reviews, and Eric Martin decides every disagreement.
 
 Pins are on-disk CRLF bytes, so run this on a Windows checkout whose pinned files came from `git checkout`.
+
+## Qualification run result (2026-11-01): FAIL
+
+The single paid run was made exactly once under the frozen identities. There were no retries, replacement cases or exclusions.
+
+| Identity | Value |
+|---|---|
+| Preflight freeze | `8586731d6c098f5180f03a909032e6fbe9b13baeb2aea8511a6e2350759c90dc`. Zero calls; 111 cases; call cap 134 |
+| Commit | Run from `662983c`, public before the run started. It began before PR #282 merged, while CI was still running. Merged as `775ea03`; every pinned source, the manifest, the labels and the harness have identical blobs on main |
+| Evidence | `case-investigation-v4-qualification-20261101/`, outside the repository. `SHA256SUMS.txt` lists all 9 artifacts |
+
+**Run:** 111 calls, an upper-bound spend of $1.27, and no halt. Every response came from `claude-sonnet-5-5` and ended with `end_turn`. There were no timeouts, refusals or truncations.
+
+| | `validator_failure` (81) | `conflict` (30) | v4 bar |
+|---|---|---|---|
+| Accepted | 79 | **30** | — |
+| Invalid share | 0.025 ✓ | 0.000 ✓ | ≤ 0.05 |
+| Invented numbers | **1** ✗ | 0 ✓ | 0 |
+| Wrong references, unoffered actions | 0 / 0 | 0 / 0 | 0 |
+| Median / p95 latency | 5.2 s / 7.8 s ✓ | 4.8 s / 7.9 s ✓ | ≤ 15 s / ≤ 25 s |
+| USD per investigation | 0.0122 ✓ | 0.0094 ✓ | ≤ 0.03 |
+| Top-1 on ranking cases (baseline) | **2/3** (3/3) ✗ | 12/12 (12/12) ✓ | ≥ 0.90 and ≥ baseline |
+
+**Verdict: FAIL**, final for v4. Activation requires both classes, and `validator_failure` fails a hard bar and the top-1 bar. The graded bars were not graded, because grades cannot change the verdict: `grade-independent.json` applies the frozen scorer with the best possible grade on every valid answer, and it still fails. The packet for the 109 valid answers is preserved with the evidence.
+
+`conflict` passed every mechanical bar. That is an observation only: it does not qualify anything, because activation is all-or-nothing.
+
+**Diagnosis (read-only, after the run):** this is genuine model behaviour under the frozen contract. No implementation defect was found.
+- **The invented number.** The answer wrote the difference between two amounts in the evidence. The subtraction is correct, but the figure appears nowhere in the transmitted payload or provenance, and the rule is that every number must appear in the context. v3 recorded this kind of derived figure, and the owner kept the rule strict.
+- **The top-1 miss.** A valid answer on a `SOURCES_NO_CONTRACT` finding ranked `open_linked_documents` above `upload_document`, which is both the frozen label and the deterministic baseline.
+- **The other invalid answer.** It cited 14 records against the cap of 12. This is within the 5% invalid bar and is not a cause of the FAIL.
+
+**Observations.** These are not changed and not proposed here.
+- Sonnet 5.5 corrected 24 of v3's 26 invalid answers. The 2 still invalid are the same 2 cases v3 rejected. The top-1 miss is new: v3 ranked that case correctly.
+- Each failing bar turns on one case. On this corpus the top-1 requirement is 1.00 over only 3 `validator_failure` ranking cases. A near miss is still a FAIL.
+
+## Case Investigation state: MODEL-BLOCKED / PARKED
+
+| Contract | Model | Result |
+|---|---|---|
+| v2 | `claude-sonnet-4-6` | FAIL (latency, invalid answers; defects later fixed for v3) |
+| v3 | `claude-sonnet-4-6` | FAIL (invalid share 0.321, 4 invented numbers) |
+| v4 | `claude-sonnet-5-5` | FAIL (1 invented number, top-1 2/3) |
+
+- **Production:** `case_investigation` stays `unqualified` with its code ceiling `disabled`, so it cannot run whatever its switch, entitlement, data policy or cap say. `FORGEWING_QUALIFIED_MODELS` is unchanged. Nothing was activated, and the worker stays undeployed.
+- **The deterministic investigation is unaffected:** it still runs for every case without a provider.
+- **The merged adapter change is inert in production:** the Sonnet 4.6 body is byte-identical (111 of 111), and the route refuses `claude-sonnet-5-5` as an unqualified model.
+- **No implementation defect remains** that explains this result.
+- **Reopening** requires a materially different model or a separately approved qualification contract. No v5 prompt tuning, weakened bar, or change to labels or corpus follows from this result, and no other model is tried without separate approval.

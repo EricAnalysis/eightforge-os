@@ -61,7 +61,7 @@ function limit<T>(rows: T[], max: number): T[] {
 }
 
 /** Every document in the project, then the shared reviewed-truth resolver over them. */
-async function readProjectReviewedTruthForProject(
+export async function readProjectReviewedTruthForProject(
   admin: SupabaseClient,
   query: { organizationId: string; projectId: string },
 ): Promise<ProjectReviewedTruth> {

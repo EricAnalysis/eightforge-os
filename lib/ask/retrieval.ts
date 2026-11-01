@@ -729,7 +729,7 @@ async function loadStructuredFacts(params: {
   };
 }
 
-async function loadFactsByFieldKeys(params: {
+export async function loadFactsByFieldKeys(params: {
   admin: SupabaseClient;
   projectId: string;
   orgId: string;
@@ -837,7 +837,7 @@ function mergeFacts(primary: StructuredFact[], supplemental: StructuredFact[]): 
   return Array.from(merged.values());
 }
 
-async function loadValidatorFindings(params: {
+export async function loadValidatorFindings(params: {
   admin: SupabaseClient;
   projectId: string;
   orgId: string;
@@ -946,6 +946,12 @@ async function loadValidatorFindings(params: {
       linkedDecisionId: row.linked_decision_id,
       linkedActionId: row.linked_action_id,
       factId: primaryEvidence?.fact_id ?? null,
+      ruleId: row.rule_id,
+      subjectId: row.subject_id,
+      field: row.field,
+      expected: row.expected,
+      actual: row.actual,
+      evidenceDocumentIds: [...new Set(evidence.flatMap((entry) => entry.source_document_id ? [entry.source_document_id] : []))],
       searchText: [
         ...descriptionParts,
         row.category,
@@ -996,13 +1002,14 @@ async function loadValidatorFindings(params: {
   };
 }
 
-async function loadProjectDocuments(params: {
+export async function loadProjectDocuments(params: {
   admin: SupabaseClient;
   projectId: string;
   orgId: string;
   question: ClassifiedQuestion;
 }): Promise<{
   matched: AskDocument[];
+  all: AskDocument[];
   totalCount: number;
   processedCount: number;
 }> {
@@ -1058,6 +1065,7 @@ async function loadProjectDocuments(params: {
 
   return {
     matched,
+    all: documents,
     totalCount: documents.length,
     processedCount,
   };
@@ -1082,7 +1090,7 @@ async function loadProjectDocumentIds(params: {
   return ((result.data ?? []) as Array<{ id: string }>).map((row) => row.id);
 }
 
-async function loadDecisions(params: {
+export async function loadDecisions(params: {
   admin: SupabaseClient;
   projectId: string;
   orgId: string;

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { hasProjectAdminRole } from '@/lib/projectAdmin';
 import { isMissingProjectIdColumnError } from '@/lib/isMissingProjectIdColumnError';
+import { isMissingRelationshipTable } from '@/lib/server/documentPrecedence';
 
 export type ScopedProjectRow = {
   id: string;
@@ -38,13 +39,6 @@ type CountResult = {
   count: number;
   error: { message?: string; code?: string } | null;
 };
-
-function isMissingDocumentRelationshipsTable(
-  error: { message?: string; code?: string } | null | undefined,
-): boolean {
-  if (!error) return false;
-  return error.code === '42P01' || (error.message ?? '').toLowerCase().includes('document_relationships');
-}
 
 export function requireProjectAdminRole(role: string | null | undefined):
   | { ok: true }
@@ -111,7 +105,7 @@ async function countRows(
   }
 
   const { count, error } = await query;
-  if (params.table === 'document_relationships' && isMissingDocumentRelationshipsTable(error)) {
+  if (params.table === 'document_relationships' && isMissingRelationshipTable(error)) {
     return { count: 0, error: null };
   }
   return { count: coerceCount(count), error };
@@ -174,14 +168,14 @@ export async function getDocumentProjectMutationBlockers(
     .select('id', { count: 'exact', head: true })
     .eq('organization_id', params.organizationId)
     .or(`source_document_id.eq.${params.documentId},target_document_id.eq.${params.documentId}`);
-  if (relationshipResult.error && !isMissingDocumentRelationshipsTable(relationshipResult.error)) {
+  if (relationshipResult.error && !isMissingRelationshipTable(relationshipResult.error)) {
     errors.push(relationshipResult.error.message);
   }
 
   return {
     decisionCount: decisionIds.size,
     taskCount: directTaskIds.size,
-    relationshipCount: isMissingDocumentRelationshipsTable(relationshipResult.error)
+    relationshipCount: isMissingRelationshipTable(relationshipResult.error)
       ? 0
       : coerceCount(relationshipResult.count),
     errors,

@@ -38,9 +38,10 @@ const RATE_BASED_FACT = {
 };
 
 const QUERY_TIMEOUT = { code: '57014', message: 'canceling statement due to statement timeout' };
+const PERMISSION_DENIED = { code: '42501', message: 'permission denied for table document_relationships' };
 
 /** Any chain resolves to the table's rows, or to the configured error. */
-function database(options: Readonly<{ failRelationships: boolean }>) {
+function database(options: Readonly<{ failRelationships: boolean; relationshipsError?: { code: string; message: string } }>) {
   const rows: Readonly<Record<string, readonly unknown[]>> = {
     projects: [{ id: PROJECT_ID, organization_id: ORG, name: 'Project', code: 'P1', validation_status: 'FINDINGS_OPEN', validation_summary_json: null, validation_phase: 'contract_setup' }],
     documents: [CONTRACT],
@@ -48,7 +49,8 @@ function database(options: Readonly<{ failRelationships: boolean }>) {
   };
   return {
     from(table: string) {
-      const error = table === 'document_relationships' && options.failRelationships ? QUERY_TIMEOUT : null;
+      const error = table === 'document_relationships' && options.failRelationships
+        ? options.relationshipsError ?? QUERY_TIMEOUT : null;
       const result = { data: error ? null : rows[table] ?? [], error };
       const chain: Record<string, unknown> = new Proxy({}, {
         get(_target, property) {
@@ -65,7 +67,7 @@ function database(options: Readonly<{ failRelationships: boolean }>) {
   };
 }
 
-function useDatabase(options: Readonly<{ failRelationships: boolean }>) {
+function useDatabase(options: Readonly<{ failRelationships: boolean; relationshipsError?: { code: string; message: string } }>) {
   vi.mocked(getSupabaseAdmin).mockReturnValue(database(options) as never);
 }
 
@@ -86,6 +88,11 @@ describe('a failed precedence read during validation', () => {
   it('stops the source read with the query error, like every other read', async () => {
     useDatabase({ failRelationships: true });
     await expect(loadValidatorSourceReads(PROJECT_ID)).rejects.toThrow(QUERY_TIMEOUT.message);
+  });
+
+  it('stops on an error naming the table too, rather than validating without relationships', async () => {
+    useDatabase({ failRelationships: true, relationshipsError: PERMISSION_DENIED });
+    await expect(loadValidatorSourceReads(PROJECT_ID)).rejects.toThrow(PERMISSION_DENIED.message);
   });
 
   it('produces no validation result', async () => {

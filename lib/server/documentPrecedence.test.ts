@@ -108,4 +108,69 @@ describe('loadProjectDocumentPrecedenceSnapshot', () => {
     );
     assert.deepEqual(selects, [`documents::${DOCUMENT_PRECEDENCE_SELECT}`]);
   });
+
+  describe('when the relationships read fails', () => {
+    const DOCUMENT = {
+      id: 'doc-1',
+      project_id: 'project-1',
+      title: 'Debris Contract',
+      name: 'contract.pdf',
+      document_type: 'contract',
+      created_at: '2026-03-20T00:00:00Z',
+    };
+
+    function adminFailingRelationships(error: { code?: string | null; message?: string | null }) {
+      return createAdmin({
+        [`documents::${DOCUMENT_PRECEDENCE_SELECT}`]: { data: [DOCUMENT], error: null },
+        [`document_relationships::${DOCUMENT_RELATIONSHIPS_SELECT}`]: { data: null, error },
+      }).admin as never;
+    }
+
+    const PARAMS = { organizationId: 'org-1', projectId: 'project-1' };
+
+    it.each([
+      ['42P01', { code: '42P01', message: 'relation "public.document_relationships" does not exist' }],
+      ['PGRST205', { code: 'PGRST205', message: "Could not find the table 'public.document_relationships' in the schema cache" }],
+    ])('tolerates a truly missing table (%s) with no relationships', async (_name, error) => {
+      const snapshot = await loadProjectDocumentPrecedenceSnapshot(adminFailingRelationships(error), PARAMS);
+      assert.deepEqual(snapshot.relationships, []);
+      assert.deepEqual(snapshot.documents.map((document) => document.id), ['doc-1']);
+    });
+
+    it.each([
+      ['permission denied', { code: '42501', message: 'permission denied for table document_relationships' }],
+      ['a missing column', { code: '42703', message: 'column document_relationships.project_id does not exist' }],
+      ['a query timeout', { code: '57014', message: 'canceling statement on document_relationships due to statement timeout' }],
+      ['a row-level security failure', { code: 'PGRST301', message: 'JWT rejected reading document_relationships' }],
+      ['a network failure with no code', { message: 'TypeError: fetch failed while reading document_relationships' }],
+      ['a null code', { code: null, message: 'document_relationships is unavailable' }],
+    ])('propagates %s naming the table, rather than dropping relationships', async (_name, error) => {
+      await assert.rejects(
+        loadProjectDocumentPrecedenceSnapshot(adminFailingRelationships(error), PARAMS),
+        (thrown: Error) => thrown.message === error.message,
+      );
+    });
+
+    it('does not trust an error message that merely claims the table is missing', async () => {
+      await assert.rejects(
+        loadProjectDocumentPrecedenceSnapshot(
+          adminFailingRelationships({ code: '42501', message: 'relation "public.document_relationships" does not exist' }),
+          PARAMS,
+        ),
+      );
+    });
+
+    it('keeps relationships when the read succeeds', async () => {
+      const relationship = {
+        id: 'rel-1', project_id: 'project-1', source_document_id: 'doc-1', target_document_id: 'doc-1',
+        relationship_type: 'attached_to', created_by: null, created_at: '2026-03-20T00:00:00Z',
+      };
+      const { admin } = createAdmin({
+        [`documents::${DOCUMENT_PRECEDENCE_SELECT}`]: { data: [DOCUMENT], error: null },
+        [`document_relationships::${DOCUMENT_RELATIONSHIPS_SELECT}`]: { data: [relationship], error: null },
+      });
+      const snapshot = await loadProjectDocumentPrecedenceSnapshot(admin as never, PARAMS);
+      assert.deepEqual(snapshot.relationships, [relationship]);
+    });
+  });
 });

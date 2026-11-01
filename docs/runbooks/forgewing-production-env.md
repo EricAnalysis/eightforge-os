@@ -60,7 +60,7 @@ code, after a canonical qualification result explicitly qualifies another model
 |---|---|---|---|---|---|
 | Project Ask | `FORGEWING_PROJECT_ASK_ENABLED` | `FORGEWING_PROJECT_ASK_DAILY_CAP` (0-500) | `enabled` | `text_excerpts` | Read-only explanation |
 | Value reading | `FORGEWING_VALUE_READING_ENABLED` | `FORGEWING_VALUE_READING_DAILY_CAP` | **`disabled`**: B4.6 failed; B4.6.1 not qualified | `page_region_images` (+`text_excerpts`) | Immutable proposal; truth only via a human assertion |
-| Case investigation | `FORGEWING_CASE_INVESTIGATION_ENABLED` | `FORGEWING_CASE_INVESTIGATION_DAILY_CAP` | **`disabled`**: no qualification yet | `text_excerpts` | Advisory |
+| Case investigation | `FORGEWING_CASE_INVESTIGATION_ENABLED` | `FORGEWING_CASE_INVESTIGATION_DAILY_CAP` | **`disabled`**: model-blocked / parked (v2 and v3 failed on Sonnet 4.6, v4 on Sonnet 5.5) | `text_excerpts` | Advisory |
 | Workflow Assessment (S3, #237) | `FORGEWING_WORKFLOW_ASSESSMENT_ENABLED` | `FORGEWING_WORKFLOW_ASSESSMENT_DAILY_CAP` | `enabled` | `text_excerpts` | Non-authoritative assessment; human review |
 | Plan V2 repository guidance | `FORGEWING_REPOSITORY_PLAN_GUIDANCE_ENABLED` | none (worker-hosted, job-bounded) | env | repository content, plus the step text of the human-reviewed workflow specification or of a triaged improvement signal (B8.3d) (platform-internal; no entitlement or data-policy gate) | Non-authoritative plan; human engineering review |
 | Region classification | `FORGEWING_REGION_CLASSIFICATION_ENABLED` | durable `FORGEWING_EXTRACTION_SHADOW_DAILY_CAP` (+ in-request `FORGEWING_MAX_CALLS`) | env | document text | Shadow artifact (TTL) |

@@ -3547,22 +3547,15 @@ export async function loadValidatorSourceReads(projectId: string): Promise<Valid
       loadRegionAssertionRows(documentIds),
     ]);
 
-  let precedenceFamilies: ResolvedDocumentPrecedenceFamily[] = [];
-  let documentRelationships: DocumentRelationshipRecord[] = [];
-  try {
-    const precedenceSnapshot = await loadProjectDocumentPrecedenceSnapshot(
-      getSupabaseAdmin()!,
-      {
-        organizationId: project.organization_id,
-        projectId,
-      },
-    );
-    precedenceFamilies = precedenceSnapshot.families;
-    documentRelationships = precedenceSnapshot.relationships;
-  } catch {
-    precedenceFamilies = [];
-    documentRelationships = [];
-  }
+  const precedenceSnapshot = await loadProjectDocumentPrecedenceSnapshot(
+    getSupabaseAdmin()!,
+    {
+      organizationId: project.organization_id,
+      projectId,
+    },
+  );
+  const precedenceFamilies = precedenceSnapshot.families;
+  const documentRelationships = precedenceSnapshot.relationships;
 
   // Which contract's upload guidance to read depends only on documents and
   // precedence, never on a hypothesis, so it is read here once.

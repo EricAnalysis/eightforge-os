@@ -30,6 +30,20 @@ import { DEFAULT_CLAUDE_MODEL } from '@/lib/server/ai/claudeClient';
  */
 export const PROJECT_ASK_QUALIFIED_MODELS: readonly string[] = Object.freeze(['claude-sonnet-4-6']);
 
+/**
+ * The operator-guidance request contract (`project_ask_operator_guidance_v1`:
+ * structured recommendation, deterministic evidence reading, validated answer)
+ * runs beneath every Ask gate on Ask's own qualified model, and has its own
+ * switch because it is a different request shape from `project_ask_v1`. Off
+ * unless set: with it off, guidance answers from evidence alone and no provider
+ * is called. It never widens Ask; both must say yes.
+ */
+export const PROJECT_ASK_GUIDANCE_ENABLED_ENV = 'FORGEWING_PROJECT_ASK_GUIDANCE_ENABLED';
+
+export function isProjectAskGuidanceProviderEnabled(env: Readonly<Record<string, string | undefined>> = process.env): boolean {
+  return env[PROJECT_ASK_GUIDANCE_ENABLED_ENV] === '1';
+}
+
 export type ProjectAskModelResolution = Readonly<{
   model: string;
   source: 'FORGEWING_PROJECT_ASK_MODEL' | 'ANTHROPIC_MODEL' | 'default';

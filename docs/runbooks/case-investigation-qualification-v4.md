@@ -40,10 +40,12 @@ In probe 2 every answer parsed with the schema's exact keys and stayed within th
 | Scorer / bars digest | `case_investigation_scorecard_v4` / `c48ae93dad5d392b39fb3785eeb9c43105dcc5f000e734953eda3df720fd659a` (v3's bars by reference; v4 pricing) |
 | Prompt | `case_investigation_prompt_v3`, sha256 `ebee491dab80316c1219b95e546c226c5d3b9254d67fce3862d35e86e3837219` (unchanged) |
 | Request | `claude-sonnet-5-5`, `temperature` omitted, `between_tools`, 1,500 output tokens, 30 s timeout, zero retries |
-| Corpus manifest | `scripts/evaluation/artifacts/case-investigation-v4/corpus-manifest.json`, sha256 `9426b35f3e94e073d609177df48ed5380404874b52208ac4c5a6d92fc4a1674d` |
+| Corpus manifest | `scripts/evaluation/artifacts/case-investigation-v4/corpus-manifest.json`, sha256 `b676bfec161b4b2dbc5aa7c010016ef93267a9fd554aa0222bf927b459ded81f` |
 | Corpus content | 169 case files copied byte for byte from v3; 111 eligible; entries and census identical. Only `caseInvestigationClient.ts`'s source pin moved |
 | Labels | `scripts/evaluation/artifacts/case-investigation-v4/labels.json`, digest `987ba91c8be621706081fee76919d2f69014787ea6dfc33ea861d4121558ba86`, carried verbatim from v3 `80d4c874…` |
-| Preflight freeze | `e992ae47730f072f8f468712fee66ee9f677880b355bf5c0df27ecf8338a6f2a` |
+| Preflight freeze | `8586731d6c098f5180f03a909032e6fbe9b13baeb2aea8511a6e2350759c90dc`. Evidence `case-investigation-v4-corpus-r2-20261101/` and `case-investigation-v4-preflight-r2-20261101/`, outside the repository |
+
+An earlier freeze (`e992ae47…`, directories without `-r2`) is superseded. CI's import-boundary guard refused its adapter import, so the adapter now states the model difference itself, and no guard was widened. Its source pin moved, and all 111 request bodies and request digests are identical across the two freezes, so the probe and proofs below still apply. It was never run.
 
 ## Zero-call preflight (2026-11-01): pass
 

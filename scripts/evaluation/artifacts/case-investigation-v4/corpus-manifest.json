@@ -14,7 +14,7 @@
     ],
     "sources": {
       "lib/server/caseInvestigationRunner.ts": "79062dde08dc6e8980b197ae268ff7f0a8fe8b1ee5710589a7f6b348b4a5ab0d",
-      "lib/forgewing/runtime/caseInvestigationClient.ts": "84af754dfc6cae79201fe07fa9ec247607d23068dd0b5e50b16c6238d82693dd",
+      "lib/forgewing/runtime/caseInvestigationClient.ts": "d70e3336f51ec665a015157d6e462cf50e018cfa07ee79a50a2734d0b6f02e08",
       "lib/resolution/investigationContext.ts": "b14fac5f9ad2a6e6db3562be26f37e32b5c383fe03f8a42ea6aba93396939e9c",
       "lib/server/investigationContextRead.ts": "7e579a377408095d2f76dcc8167bb47d436be786730c5165adcdf766bc156d1f",
       "lib/resolution/caseInvestigation.ts": "e91a99e774e9fe8b90d6989ef635e8cc4ef311e8715e2fe43d667a720cb4465f",

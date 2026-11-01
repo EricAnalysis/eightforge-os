@@ -19,6 +19,19 @@ describe('case investigation Claude adapter (P3b)', () => {
     expect(() => buildCaseInvestigationMessagesRequest(' ', REQUEST)).toThrow('provider_model_missing');
   });
 
+  it('keeps the Sonnet 4.6 body byte-identical and adapts only sampling and thinking for Sonnet 5.5', () => {
+    const v3 = buildCaseInvestigationMessagesRequest('claude-sonnet-4-6', REQUEST);
+    expect(Object.keys(v3.body)).toEqual(['model', 'temperature', 'max_tokens', 'system', 'messages', 'output_config']);
+    const v4 = buildCaseInvestigationMessagesRequest('claude-sonnet-5-5', REQUEST);
+    expect(Object.keys(v4.body)).toEqual(['model', 'thinking', 'max_tokens', 'system', 'messages', 'output_config']);
+    expect(v4.body).toMatchObject({ model: 'claude-sonnet-5-5', thinking: { type: 'between_tools' } });
+    expect(v4.body).not.toHaveProperty('temperature');
+    const { model: _a, temperature: _b, ...v3Rest } = v3.body;
+    const { model: _c, thinking: _d, ...v4Rest } = v4.body;
+    expect(JSON.stringify(v4Rest)).toBe(JSON.stringify(v3Rest));
+    expect(v4.options).toEqual(v3.options);
+  });
+
   it('returns the text, and treats truncation and refusal as provider failures', async () => {
     const create = vi.fn()
       .mockResolvedValueOnce({ content: [{ type: 'text', text: '{"a":1}' }], stop_reason: 'end_turn' })

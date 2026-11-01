@@ -1,4 +1,5 @@
 import { getClaudeClient } from '@/lib/server/ai/claudeClient';
+import { getClaudeSamplingParameters } from '@/lib/server/ai/claudeSampling';
 import {
   ForgewingProviderOutputError,
   normalizeClaudeProviderError,
@@ -15,9 +16,20 @@ import {
  * non-authoritative explanation; it writes nothing and decides nothing.
  *
  * Self-contained: client.ts is frozen whole by a qualification contract.
- * Same request discipline: temperature 0, zero retries, a hard timeout,
- * truncation is an error, a refusal is a provider failure.
+ * Same request discipline: model-aware sampling (temperature 0 where the model
+ * accepts it), zero retries, a hard timeout, truncation is an error, a refusal
+ * is a provider failure.
  */
+
+/**
+ * Request compatibility only (contract v4). With `thinking` omitted, Sonnet 5.5
+ * runs adaptive thinking, which Sonnet 4.6 did not, and spends the same output
+ * cap on it. `between_tools` keeps the no-upfront-thinking request the earlier
+ * contracts measured. Every other model's body is byte-identical to before.
+ */
+function caseInvestigationThinkingParameters(model: string): { thinking?: { type: 'between_tools' } } {
+  return model.trim() === 'claude-sonnet-5-5' ? { thinking: { type: 'between_tools' } } : {};
+}
 
 export const CASE_INVESTIGATION_EXECUTION = Object.freeze({
   timeoutMs: 30_000,
@@ -52,7 +64,8 @@ export function buildCaseInvestigationMessagesRequest(model: string, request: Ca
   return {
     body: {
       model,
-      temperature: 0,
+      ...getClaudeSamplingParameters(model),
+      ...caseInvestigationThinkingParameters(model),
       max_tokens: CASE_INVESTIGATION_EXECUTION.maxOutputTokens,
       system: request.system,
       messages: [{

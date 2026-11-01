@@ -62,23 +62,25 @@ export const CASE_INVESTIGATION_PRICING_V2 = Object.freeze({
 /** A contract's scoring: its scorer identity and bars. Later contracts change only what they name. */
 type Bars = typeof CASE_INVESTIGATION_BARS_V2;
 export type CaseInvestigationBars = Readonly<{ [Group in keyof Bars]: Readonly<Record<keyof Bars[Group], number>> }>;
-export type CaseInvestigationScoring = Readonly<{ scorer: string; bars: CaseInvestigationBars }>;
+export type CaseInvestigationPricing = Readonly<{ model: string; inputUsdPerMTok: number; outputUsdPerMTok: number }>;
+/** `pricing` is the model the contract measures; v2 and v3 omit it and price Sonnet 4.6. */
+export type CaseInvestigationScoring = Readonly<{ scorer: string; bars: CaseInvestigationBars; pricing?: CaseInvestigationPricing }>;
 
 export const CASE_INVESTIGATION_SCORING_V2: CaseInvestigationScoring = Object.freeze({
   scorer: CASE_INVESTIGATION_QUALIFICATION_SCORER_V2, bars: CASE_INVESTIGATION_BARS_V2,
 });
 
 export const qualificationBarsDigest = (scoring: CaseInvestigationScoring = CASE_INVESTIGATION_SCORING_V2) => hashCanonical({
-  scorer: scoring.scorer, bars: scoring.bars, pricing: CASE_INVESTIGATION_PRICING_V2,
+  scorer: scoring.scorer, bars: scoring.bars, pricing: scoring.pricing ?? CASE_INVESTIGATION_PRICING_V2,
 });
 
 export function callCap(cases: number): number {
   return Math.ceil(CASE_INVESTIGATION_BARS_V2.run.callCapMultiplier * cases);
 }
 
-export function costUsd(inputTokens: number, outputTokens: number): number {
-  return (inputTokens * CASE_INVESTIGATION_PRICING_V2.inputUsdPerMTok
-    + outputTokens * CASE_INVESTIGATION_PRICING_V2.outputUsdPerMTok) / 1_000_000;
+export function costUsd(inputTokens: number, outputTokens: number,
+  pricing: CaseInvestigationPricing = CASE_INVESTIGATION_PRICING_V2): number {
+  return (inputTokens * pricing.inputUsdPerMTok + outputTokens * pricing.outputUsdPerMTok) / 1_000_000;
 }
 
 /** A conservative input-token estimate (one token per 3 characters) for budget bounds only. */
@@ -229,8 +231,8 @@ export function scoreQualification(input: Readonly<{
     const graded = rows.flatMap((record) => grades.has(record.caseId) ? [grades.get(record.caseId)!] : []);
     const count = (predicate: (record: CaseRunRecord) => boolean) => rows.filter(predicate).length;
     const cost = rows.reduce((sum, record) => sum + (record.inputTokens != null && record.outputTokens != null
-      ? costUsd(record.inputTokens, record.outputTokens)
-      : costUsd(record.estimatedInputTokens, record.maxOutputTokens)), 0);
+      ? costUsd(record.inputTokens, record.outputTokens, scoring.pricing)
+      : costUsd(record.estimatedInputTokens, record.maxOutputTokens, scoring.pricing)), 0);
     const bars = scoring.bars.hard;
     const hard = {
       unofferedRankedActions: atMost(count((record) => record.violations?.unofferedRankedAction === true), bars.unofferedRankedActions),

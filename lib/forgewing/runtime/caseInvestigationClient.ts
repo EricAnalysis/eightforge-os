@@ -15,9 +15,21 @@ import {
  * non-authoritative explanation; it writes nothing and decides nothing.
  *
  * Self-contained: client.ts is frozen whole by a qualification contract.
- * Same request discipline: temperature 0, zero retries, a hard timeout,
- * truncation is an error, a refusal is a provider failure.
+ * Same request discipline: temperature 0 where the model accepts it, zero
+ * retries, a hard timeout, truncation is an error, a refusal is a provider
+ * failure.
  */
+
+/**
+ * Request compatibility only (contract v4). Sonnet 5.5 rejects `temperature: 0`,
+ * and with `thinking` omitted it runs adaptive thinking, which Sonnet 4.6 did
+ * not, spending the same output cap on it. `between_tools` keeps the
+ * no-upfront-thinking request the earlier contracts measured. Every other
+ * model's body is byte-identical to before.
+ */
+function caseInvestigationModelParameters(model: string): { temperature: 0 } | { thinking: { type: 'between_tools' } } {
+  return model.trim() === 'claude-sonnet-5-5' ? { thinking: { type: 'between_tools' } } : { temperature: 0 };
+}
 
 export const CASE_INVESTIGATION_EXECUTION = Object.freeze({
   timeoutMs: 30_000,
@@ -52,7 +64,7 @@ export function buildCaseInvestigationMessagesRequest(model: string, request: Ca
   return {
     body: {
       model,
-      temperature: 0,
+      ...caseInvestigationModelParameters(model),
       max_tokens: CASE_INVESTIGATION_EXECUTION.maxOutputTokens,
       system: request.system,
       messages: [{

@@ -56,7 +56,7 @@ import {
 import {
   CARRIED_V3_MANIFEST_SHA256, CASE_INVESTIGATION_CONTRACT_V4, CASE_INVESTIGATION_MODEL_V4, CASE_INVESTIGATION_SCORING_V4,
   type CarriedLabelSetV4, carryLabelSetToV4, FROZEN_BARS_DIGEST_V2, FROZEN_BARS_DIGEST_V3, gradeIndependentScore, labelMarkersIn,
-  V4_CHANGED_PINNED_SOURCE, verifyLabelSetV4,
+  verifyLabelSetV4,
 } from '@/lib/evaluation/caseInvestigation/qualificationV4';
 import {
   buildCaseInvestigationMessagesRequest, CASE_INVESTIGATION_EXECUTION, createClaudeCaseInvestigationProvider,
@@ -76,6 +76,8 @@ import { validatorRuleCatalogueFingerprint } from '@/lib/validator/ruleCatalogue
 
 const V2_REPO_MANIFEST = 'scripts/evaluation/artifacts/case-investigation-v2/corpus-manifest.json';
 const V3_REPO_MANIFEST = 'scripts/evaluation/artifacts/case-investigation-v3/corpus-manifest.json';
+/** The only pinned source v4 changes: request compatibility in the adapter. */
+const V4_CHANGED_PINNED_SOURCE = 'lib/forgewing/runtime/caseInvestigationClient.ts';
 
 const sha256 = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 const readJson = <T>(file: string): T => JSON.parse(readFileSync(file, 'utf8')) as T;

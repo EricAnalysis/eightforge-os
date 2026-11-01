@@ -28,8 +28,6 @@ export const CARRIED_V3_LABEL_SET_DIGEST = '80d4c874fc570b8ee79fc90e9d83ea4a3d23
 export const CARRIED_V3_MANIFEST_SHA256 = '017ee6339992ae42b8c39f4d9a2f9c788e005e10b2c645114c5e681bf8f64672';
 export const FROZEN_BARS_DIGEST_V2 = 'e47875886300dce952827286c0584e10cfd6c70a16d8ff52d031723f54a9ccfd';
 export const FROZEN_BARS_DIGEST_V3 = 'f288175020a6a9606d4c56284b9e1f9d7cb8ade599e669586aeaaff6b6324ce9';
-/** The only pinned source v4 changes: request compatibility in the adapter. */
-export const V4_CHANGED_PINNED_SOURCE = 'lib/forgewing/runtime/caseInvestigationClient.ts';
 
 /** Published Claude Sonnet 5.5 list prices, USD per million tokens. */
 export const CASE_INVESTIGATION_PRICING_V4: CaseInvestigationPricing = Object.freeze({

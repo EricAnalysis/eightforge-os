@@ -130,6 +130,13 @@ export interface ValidatorFinding {
   linkedActionId?: string | null;
   factId?: string | null;
   searchText?: string;
+  /** Identity for rule-catalogue lookups and per-finding routes. Not part of the Ask request context. */
+  ruleId?: string;
+  subjectId?: string | null;
+  field?: string | null;
+  expected?: string | null;
+  actual?: string | null;
+  evidenceDocumentIds?: string[];
 }
 
 export interface AskPresentedValidatorFinding {

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import type { MouseEvent, ReactNode } from 'react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { inferGoverningDocumentFamily } from '@/lib/documentPrecedence';
 import {
   PROJECT_TERM_AT_RISK_AMOUNT,
@@ -1725,8 +1725,10 @@ export function ProjectOverview({
               </div>
             </section>
 
-            <section className="space-y-4">
-              <ProjectAskBar projectId={model.project.id} />
+            <section id="project-ask" className="space-y-4">
+              <Suspense fallback={null}>
+                <ProjectAskBar projectId={model.project.id} />
+              </Suspense>
               <AskProjectSection
                 projectId={model.project.id}
                 validatorStatus={model.validator_status}

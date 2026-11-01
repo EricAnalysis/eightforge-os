@@ -1,6 +1,11 @@
 'use client';
 
 import { startTransition, useState, type FormEvent } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { OperatorGuidanceCard } from '@/components/projects/OperatorGuidanceCard';
+import { classifyOperatorIntent } from '@/lib/projectIntelligence/contextPlan';
+import type { OperatorRecommendation } from '@/lib/projectIntelligence/operatorRecommendation';
+import { SUGGESTED_OPERATOR_QUESTIONS } from '@/lib/projectIntelligence/presentation';
 import { supabase } from '@/lib/supabaseClient';
 
 type ProjectAskBarProps = {
@@ -9,7 +14,8 @@ type ProjectAskBarProps = {
 
 type ProjectAskResponse = {
   answer?: string;
-  model?: string;
+  recommendation?: OperatorRecommendation;
+  model?: string | null;
   error?: string;
   code?: string;
 };
@@ -25,20 +31,37 @@ export function getProjectAskErrorMessage(payload: ProjectAskResponse): string {
   return payload.error ?? 'Ask failed';
 }
 
+/**
+ * A question guidance can place gets the structured answer; anything else, such
+ * as a fact lookup, stays on plain Ask. A finding the operator came from focuses
+ * the question on it.
+ */
+export function projectAskRequestBody(question: string, focusFindingId: string | null): Record<string, string> {
+  const guidance = classifyOperatorIntent(question, { hasFocusFinding: focusFindingId != null }) != null;
+  return {
+    question,
+    ...(guidance ? { mode: 'operator_guidance' } : {}),
+    ...(guidance && focusFindingId ? { findingId: focusFindingId } : {}),
+  };
+}
+
 export function ProjectAskBar({ projectId }: ProjectAskBarProps) {
+  const focusFindingId = useSearchParams()?.get('askFinding') ?? null;
   const [question, setQuestion] = useState('');
   const [answer, setAnswer] = useState<string | null>(null);
+  const [recommendation, setRecommendation] = useState<OperatorRecommendation | null>(null);
   const [model, setModel] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
-  async function submitAsk() {
-    const trimmed = question.trim();
+  async function submitAsk(asked: string = question) {
+    const trimmed = asked.trim();
     if (!trimmed) return;
 
     setPending(true);
     setError(null);
     setAnswer(null);
+    setRecommendation(null);
     setModel(null);
 
     try {
@@ -54,14 +77,15 @@ export function ProjectAskBar({ projectId }: ProjectAskBarProps) {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ question: trimmed }),
+        body: JSON.stringify(projectAskRequestBody(trimmed, focusFindingId)),
       });
       const payload = (await response.json().catch(() => ({}))) as ProjectAskResponse;
       if (!response.ok) {
         throw new Error(getProjectAskErrorMessage(payload));
       }
 
-      setAnswer(payload.answer ?? '');
+      if (payload.recommendation) setRecommendation(payload.recommendation);
+      else setAnswer(payload.answer ?? '');
       setModel(payload.model ?? null);
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : 'Ask failed');
@@ -74,6 +98,13 @@ export function ProjectAskBar({ projectId }: ProjectAskBarProps) {
     event.preventDefault();
     startTransition(() => {
       void submitAsk();
+    });
+  }
+
+  function askSuggested(suggested: string) {
+    setQuestion(suggested);
+    startTransition(() => {
+      void submitAsk(suggested);
     });
   }
 
@@ -96,6 +127,22 @@ export function ProjectAskBar({ projectId }: ProjectAskBarProps) {
       </div>
 
       <div className="space-y-3 px-4 py-4">
+        {focusFindingId ? (
+          <p className="text-[11px] text-[#94A3B8]">Asking about the finding you opened.</p>
+        ) : null}
+        <div className="flex flex-wrap gap-2">
+          {SUGGESTED_OPERATOR_QUESTIONS.map((suggested) => (
+            <button
+              key={suggested}
+              type="button"
+              disabled={pending}
+              onClick={() => askSuggested(suggested)}
+              className="rounded-sm border border-[#2F3B52]/70 px-2 py-1 text-[11px] text-[#CBD5E1] transition hover:border-[#3B82F6]/70 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {suggested}
+            </button>
+          ))}
+        </div>
         <form onSubmit={handleSubmit} className="flex flex-col gap-2 sm:flex-row">
           <input
             value={question}
@@ -118,6 +165,8 @@ export function ProjectAskBar({ projectId }: ProjectAskBarProps) {
             {error}
           </div>
         ) : null}
+
+        {recommendation ? <OperatorGuidanceCard recommendation={recommendation} /> : null}
 
         {answer ? (
           <div className="rounded-sm border border-[#2F3B52]/70 bg-[#0B1020]/70 px-4 py-3">

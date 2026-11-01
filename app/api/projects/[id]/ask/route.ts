@@ -1,8 +1,26 @@
 import { createHash } from 'node:crypto';
 import { NextResponse } from 'next/server';
-import { ASK_PROJECT_CLAUDE_SYSTEM_PROMPT, askProjectWithClaude } from '@/lib/server/ai/askProject';
+import {
+  ASK_PROJECT_CLAUDE_SYSTEM_PROMPT,
+  askOperatorGuidanceWithClaude,
+  askProjectWithClaude,
+  OPERATOR_GUIDANCE_REQUEST_CONTRACT,
+  OPERATOR_GUIDANCE_SYSTEM_PROMPT,
+} from '@/lib/server/ai/askProject';
+import {
+  acceptModelRecommendation,
+  guidanceTransmittedContext,
+  type GuidanceRejectionReason,
+} from '@/lib/server/ai/operatorGuidance';
+import { classifyOperatorIntent, planProjectContext } from '@/lib/projectIntelligence/contextPlan';
+import { assessProjectEvidence } from '@/lib/projectIntelligence/evidenceAssessment';
+import { deriveProductImprovementSignals } from '@/lib/projectIntelligence/improvementSignal';
+import { deterministicRecommendation, type OperatorRecommendation } from '@/lib/projectIntelligence/operatorRecommendation';
+import { assembleProjectContext, LOCAL_ONLY_POLICY } from '@/lib/projectIntelligence/projectContext';
+import { operatorGuidanceTelemetry, type GuidanceProviderStatus } from '@/lib/projectIntelligence/telemetry';
+import { primaryFindingActionContext, readProjectIntelligenceSources } from '@/lib/server/projectIntelligenceRead';
 import { recordForgewingProviderCallObservation } from '@/lib/server/forgewingProviderTelemetry';
-import { resolveProjectAskModel } from '@/lib/server/ai/askModel';
+import { isProjectAskGuidanceProviderEnabled, resolveProjectAskModel } from '@/lib/server/ai/askModel';
 import { buildAskProjectContext } from '@/lib/server/ai/askProjectContext';
 import { getActorContext } from '@/lib/server/getActorContext';
 import {
@@ -50,6 +68,128 @@ function isAiNotConfiguredError(): boolean {
   return !process.env.ANTHROPIC_API_KEY?.trim();
 }
 
+/**
+ * Operator guidance: Project Ask's structured answer to "what am I missing?" and
+ * its neighbours. Evidence first and always: the reading and the deterministic
+ * recommendation need no provider, so a Core organization, a closed gate, a
+ * spent budget or a rejected answer all still give the operator something true.
+ * Only then, behind every Ask gate plus guidance's own switch, may a model explain
+ * it. Read-only: the only writes on this path are the budget reservation and
+ * content-free telemetry, the same as Ask.
+ */
+async function handleOperatorGuidance(params: {
+  admin: NonNullable<ReturnType<typeof getSupabaseAdmin>>;
+  actor: { organizationId: string; actorId: string };
+  project: ProjectRow;
+  question: string;
+  focusFindingId: string | null;
+}): Promise<Response> {
+  const { admin, actor, project, question, focusFindingId } = params;
+  const classified = classifyOperatorIntent(question, { hasFocusFinding: focusFindingId != null });
+  if (!classified) {
+    return NextResponse.json({ error: 'This question is not one guidance can answer.', code: 'intent_not_supported' }, { status: 422 });
+  }
+  const plan = planProjectContext(classified.intent, { focusFindingId });
+  const read = await readProjectIntelligenceSources({ admin, organizationId: actor.organizationId, project, question, plan });
+  if (read.status === 'focus_finding_not_found') {
+    return NextResponse.json({ error: 'That finding is not open on this project.' }, { status: 404 });
+  }
+  const assessment = assessProjectEvidence({ intent: plan.intent, focusFindingId, sources: read.sources });
+  const assemble = (approved: boolean) => assembleProjectContext({
+    organizationId: actor.organizationId, plan, sources: read.sources,
+    policy: approved ? { approvedContentClasses: ASK_CONTENT_CLASSES } : LOCAL_ONLY_POLICY,
+  });
+  const localContext = assemble(false);
+  const primaryFinding = primaryFindingActionContext(read.sources, assessment.primary?.findingId ?? null);
+  let recommendation: OperatorRecommendation = deterministicRecommendation({ context: localContext, assessment, primaryFinding });
+  let context = localContext;
+  let providerStatus: GuidanceProviderStatus = 'not_attempted';
+  let rejection: GuidanceRejectionReason | null = null;
+  let observation: Awaited<ReturnType<typeof askOperatorGuidanceWithClaude>>['observation'] | null = null;
+  let requestDigest: string | null = null;
+  const askModel = resolveProjectAskModel();
+
+  const switchOn = isProjectAskGuidanceProviderEnabled();
+  const eligibility = switchOn ? await resolveForgewingWorkflowEligibility(admin, {
+    organizationId: actor.organizationId, workflow: 'project_ask', contentClasses: ASK_CONTENT_CLASSES,
+  }) : null;
+  if (!eligibility) {
+    providerStatus = 'switch_off';
+  } else if (!eligibility.eligible) {
+    providerStatus = 'gate_closed';
+  } else if (isAiNotConfiguredError()) {
+    providerStatus = 'not_configured';
+  } else if (!askModel.qualified) {
+    providerStatus = 'model_unqualified';
+  } else {
+    context = assemble(true);
+    const transmitted = guidanceTransmittedContext(context, assessment);
+    requestDigest = createHash('sha256').update(JSON.stringify([
+      OPERATOR_GUIDANCE_REQUEST_CONTRACT, askModel.model, OPERATOR_GUIDANCE_SYSTEM_PROMPT, question, plan, context.transmittedDigest, assessment,
+    ])).digest('hex');
+    const reservation = await reserveForgewingProviderCall(admin, {
+      organizationId: actor.organizationId, requestDigestSha256: requestDigest, reservedBy: actor.actorId,
+      dailyCap: eligibility.dailyCap, workflow: 'project_ask',
+    });
+    if (reservation.status !== 'reserved') {
+      providerStatus = reservation.status === 'budget_exhausted' ? 'budget_exhausted' : 'reservation_failed';
+    } else {
+      const startedAt = performance.now();
+      const telemetry = {
+        workflow: 'project_ask' as const, organizationId: actor.organizationId, reservationId: reservation.reservationId,
+        requestDigestSha256: requestDigest, model: askModel.model,
+      };
+      try {
+        const answered = await askOperatorGuidanceWithClaude({
+          question, intent: plan.intent, allowedNextSteps: assessment.primary?.nextSteps ?? [recommendation.recommendedNextStep.kind],
+          context: transmitted.request, model: askModel.model,
+        });
+        observation = answered.observation;
+        const accepted = answered.truncated ? { ok: false as const, reason: 'truncated' as const }
+          : answered.refused ? { ok: false as const, reason: 'refused' as const }
+          : acceptModelRecommendation({ raw: answered.raw, context, assessment, floor: recommendation, transmitted: transmitted.sections });
+        if (accepted.ok) {
+          recommendation = accepted.recommendation;
+          providerStatus = 'accepted';
+        } else {
+          rejection = accepted.reason;
+          providerStatus = 'rejected';
+        }
+        await recordForgewingProviderCallObservation(admin, {
+          ...telemetry, ...answered.observation,
+          outcome: accepted.ok ? 'succeeded' : accepted.reason === 'truncated' ? 'output_truncated'
+            : accepted.reason === 'refused' ? 'provider_failed' : 'output_invalid',
+        });
+      } catch (providerError) {
+        providerStatus = 'provider_failed';
+        await recordForgewingProviderCallObservation(admin, {
+          ...telemetry,
+          outcome: providerError instanceof Error && /timed? ?out|abort/i.test(providerError.name + providerError.message)
+            ? 'provider_timeout' : 'provider_failed',
+          latencyMs: performance.now() - startedAt,
+        });
+        console.error('[projectAsk] guidance_provider_failed', {
+          reservationId: reservation.reservationId,
+          errorClass: providerError instanceof Error ? providerError.name : typeof providerError,
+        });
+      }
+    }
+  }
+
+  // Content-free, and carrying no tenant identity: the durable provider ledger holds that.
+  console.info('[projectIntelligence] operator_guidance', operatorGuidanceTelemetry({
+    classified, context, recommendation, providerStatus, rejection, requestDigest,
+    model: providerStatus === 'accepted' || providerStatus === 'rejected' ? askModel.model : null,
+    observation, signalCategories: deriveProductImprovementSignals(assessment).map((signal) => signal.category),
+  }));
+
+  // The operator's answer only. Product signals are read on the internal route.
+  return NextResponse.json({
+    recommendation,
+    model: providerStatus === 'accepted' ? askModel.model : null,
+  });
+}
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -92,6 +232,17 @@ export async function POST(
   const project = data as ProjectRow;
   if (project.id !== projectId) {
     return NextResponse.json({ error: 'Project context scope mismatch' }, { status: 500 });
+  }
+
+  if (body?.mode === 'operator_guidance') {
+    const focusFindingId = typeof body?.findingId === 'string' && body.findingId.length > 0 && body.findingId.length <= 200
+      ? body.findingId : null;
+    try {
+      return await handleOperatorGuidance({ admin, actor: actor.actor, project, question, focusFindingId });
+    } catch (err) {
+      console.error('[projectAsk] guidance_failed', { errorClass: err instanceof Error ? err.name : typeof err });
+      return NextResponse.json({ error: 'Guidance could not be prepared right now.' }, { status: 500 });
+    }
   }
 
   // Ask sends customer content to a provider, so it passes the same gates as

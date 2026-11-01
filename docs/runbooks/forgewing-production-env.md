@@ -59,6 +59,7 @@ code, after a canonical qualification result explicitly qualifies another model
 | Workflow | Switch | Daily cap (per org, trailing 24 h) | Ceiling (code) | Content class | Output |
 |---|---|---|---|---|---|
 | Project Ask | `FORGEWING_PROJECT_ASK_ENABLED` | `FORGEWING_PROJECT_ASK_DAILY_CAP` (0-500) | `enabled` | `text_excerpts` | Read-only explanation |
+| Project Ask: operator guidance ([architecture](../architecture/forgewing-project-intelligence.md)) | `FORGEWING_PROJECT_ASK_GUIDANCE_ENABLED`, on top of every Project Ask gate | Spends `FORGEWING_PROJECT_ASK_DAILY_CAP` | `enabled` (Ask's), plus its own switch, default off | `text_excerpts` | Validated recommendation. With the switch off or any gate closed, the deterministic recommendation is returned and no provider is called |
 | Value reading | `FORGEWING_VALUE_READING_ENABLED` | `FORGEWING_VALUE_READING_DAILY_CAP` | **`disabled`**: B4.6 failed; B4.6.1 not qualified | `page_region_images` (+`text_excerpts`) | Immutable proposal; truth only via a human assertion |
 | Case investigation | `FORGEWING_CASE_INVESTIGATION_ENABLED` | `FORGEWING_CASE_INVESTIGATION_DAILY_CAP` | **`disabled`**: model-blocked / parked (v2 and v3 failed on Sonnet 4.6, v4 on Sonnet 5.5) | `text_excerpts` | Advisory |
 | Workflow Assessment (S3, #237) | `FORGEWING_WORKFLOW_ASSESSMENT_ENABLED` | `FORGEWING_WORKFLOW_ASSESSMENT_DAILY_CAP` | `enabled` | `text_excerpts` | Non-authoritative assessment; human review |

@@ -721,6 +721,7 @@ export function ValidatorEvidenceDrawer({
   }).flatMap((action) => (
     action.kind === 'open_linked_documents' || action.kind === 'upload_document' ? [action] : []
   ));
+  const askAboutFindingHref = `/platform/projects/${activeFinding.project_id}?askFinding=${encodeURIComponent(activeFinding.id)}#project-ask`;
   const documentEvidenceGroups = documentEvidence.reduce<Record<string, EvidenceEntry[]>>((groups, entry) => {
     const key = classifyDocumentEvidence(entry, activeFinding);
     groups[key] = [...(groups[key] ?? []), entry];
@@ -741,6 +742,9 @@ export function ValidatorEvidenceDrawer({
         <h3 className="mt-2 text-lg font-bold text-[var(--ef-text-primary)]">
           {issueCategoryLabel(activeFinding)} finding review
         </h3>
+        <a href={askAboutFindingHref} className="mt-1 inline-block text-[11px] font-semibold text-[var(--ef-text-secondary)] underline underline-offset-2">
+          Ask what this needs
+        </a>
       </div>
 
       <section className="mt-5 space-y-3" data-testid="subject-identity-summary">

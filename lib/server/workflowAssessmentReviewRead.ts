@@ -15,6 +15,7 @@
 
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { loadWorkflowIntakeSubmission } from '@/lib/server/workflowIntakeRead';
+import { buildFdeReadinessPlan, type FdeReadinessPlan, type FdeSuppliedFile } from '@/lib/projectIntelligence/fdeReadiness';
 
 /**
  * Table names, restated rather than imported.
@@ -79,6 +80,8 @@ export type WorkflowExistingReview = Readonly<{
 /** Everything the review surface needs, and nothing it does not. */
 export type WorkflowReviewPacket = Readonly<{
   attachmentCount: number;
+  /** Derived for the reviewer from this assessment; null when it has no steps. Never authoritative. */
+  readinessPlan: FdeReadinessPlan | null;
   assessmentId: string;
   assessmentVersion: number;
   sourceSubmissionId: string;
@@ -159,6 +162,33 @@ export async function readWorkflowReviewQueue(
  * completed review is evidence, and the page renders it rather than offering to
  * edit it.
  */
+async function loadSuppliedFiles(
+  admin: NonNullable<ReturnType<typeof getSupabaseAdmin>>,
+  submissionId: string,
+  organizationId: string | null | undefined,
+  manifest: unknown,
+): Promise<FdeSuppliedFile[]> {
+  // Attachments exist only on an organization's submission; a historic unassigned one has none to read.
+  if (!organizationId || !Array.isArray(manifest) || manifest.length === 0) return [];
+  const { data, error } = await admin.from('workflow_assessment_attachments')
+    .select('original_filename, status, removed_at, context')
+    .eq('draft_id', submissionId).eq('organization_id', organizationId);
+  // The plan is an aid to the review, so a failed read must not block it: it just names no files.
+  if (error || !Array.isArray(data)) return [];
+  return data.flatMap((file): FdeSuppliedFile[] => {
+    if (!isRecord(file) || file.removed_at != null || file.status !== 'processed') return [];
+    const filename = str(file.original_filename);
+    if (!filename) return [];
+    const context = isRecord(file.context) ? file.context : {};
+    return [{
+      filename,
+      truncated: context.truncated === true,
+      sectionLabels: (Array.isArray(context.sections) ? context.sections : [])
+        .flatMap((section) => (isRecord(section) && typeof section.label === 'string' ? [section.label] : [])),
+    }];
+  });
+}
+
 export async function readWorkflowReviewPacket(
   assessmentId: string,
   organizationId?: string,
@@ -189,6 +219,7 @@ export async function readWorkflowReviewPacket(
     && submission.organizationId !== organizationId)) return { status: 'assessment_not_found' };
 
   const assessmentVersion = num(row.assessment_version);
+  const suppliedFiles = await loadSuppliedFiles(admin, sourceSubmissionId, submission.organizationId, submission.attachmentManifest);
 
   const reviewRow = await admin
     .from(WORKFLOW_ASSESSMENT_REVIEW_TABLE)
@@ -241,6 +272,7 @@ export async function readWorkflowReviewPacket(
     status: 'ok',
     packet: {
       attachmentCount: Array.isArray(submission.attachmentManifest) ? submission.attachmentManifest.length : 0,
+      readinessPlan: buildFdeReadinessPlan(row.assessment, suppliedFiles),
       assessmentId,
       assessmentVersion,
       sourceSubmissionId,

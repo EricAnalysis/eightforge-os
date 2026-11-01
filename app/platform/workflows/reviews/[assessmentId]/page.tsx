@@ -23,7 +23,9 @@ import { useParams, useRouter } from 'next/navigation';
 import { redirectIfUnauthorized } from '@/lib/redirectIfUnauthorized';
 import { supabase } from '@/lib/supabaseClient';
 import { usePlatformSessionToken } from '@/components/platform/PlatformSessionContext';
+import { FdeReadinessCard } from '@/components/workflows/FdeReadinessCard';
 import { WorkflowAssessmentEvidenceFiles } from '@/components/workflows/WorkflowAssessmentAttachments';
+import type { FdeReadinessPlan } from '@/lib/projectIntelligence/fdeReadiness';
 import { workflowQualificationLabel } from '@/lib/workflowAssessmentPresentation';
 import {
   buildStepReviewPayload,
@@ -99,6 +101,7 @@ function FieldList({ record, generalized }: { record: Record<string, unknown>; g
 type Packet = {
   sourceSubmissionId: string;
   attachmentCount: number;
+  readinessPlan: FdeReadinessPlan | null;
   assessmentId: string;
   assessmentVersion: number;
   createdAt: string;
@@ -350,6 +353,8 @@ export default function WorkflowReviewDetailPage() {
           {state.packet.attachmentCount > 0 && sessionToken && (
             <WorkflowAssessmentEvidenceFiles accessToken={sessionToken} submissionId={state.packet.sourceSubmissionId} />
           )}
+
+          {state.packet.readinessPlan && <FdeReadinessCard plan={state.packet.readinessPlan} />}
 
           <div className="flex flex-wrap items-center gap-4 rounded-md border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] px-4 py-3">
             <span className="text-sm text-[var(--ef-text-primary)]">

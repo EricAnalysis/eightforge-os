@@ -182,6 +182,25 @@ describe('workflow review packet read', () => {
     });
   });
 
+  it('derives a non-authoritative readiness plan from the assessment, for the reviewer', async () => {
+    client();
+    const result = await readWorkflowReviewPacket(ASSESSMENT);
+    expect(result.status === 'ok' && result.packet.readinessPlan).toMatchObject({
+      authority: 'non_authoritative', requiresHumanReview: true,
+      steps: [{ stepId: 's1', startingRung: 'reusable_deterministic_rule' }],
+    });
+  });
+
+  it('never reads supplied files for an unassigned historic submission', async () => {
+    const from = client();
+    loadIntake.mockResolvedValue({
+      submissionId: SUBMISSION, submissionSchemaVersion: 'workflow_intake_v1', organizationId: null,
+      attachmentManifest: [{ attachmentId: 'a' }], answers: { workflowDescription: 'Historical.' },
+    });
+    expect((await readWorkflowReviewPacket(ASSESSMENT)).status).toBe('ok');
+    expect(from).not.toHaveBeenCalledWith('workflow_assessment_attachments');
+  });
+
   it('returns intake, assessment, and a null review when none exists', async () => {
     client();
     const result = await readWorkflowReviewPacket(ASSESSMENT);

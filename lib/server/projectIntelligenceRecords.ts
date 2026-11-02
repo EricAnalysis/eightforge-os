@@ -172,7 +172,6 @@ export async function recordGuidanceAnswer(
 
 export type StoredProjectSignal = Readonly<{
   id: string;
-  projectId: string;
   category: string;
   code: string;
   orchestratorRootCause: string | null;
@@ -195,7 +194,7 @@ export async function readStoredProjectSignals(
   params: Readonly<{ organizationId: string; projectId: string }>,
 ): Promise<readonly StoredProjectSignal[]> {
   const signals = await admin.from(SIGNALS_TABLE)
-    .select('id, project_id, category, signal_code, orchestrator_root_cause, rule_id, evidence_state, source_intent, finding_ref, record_refs, guidance_event_id, first_observed_at')
+    .select('id, category, signal_code, orchestrator_root_cause, rule_id, evidence_state, source_intent, finding_ref, record_refs, guidance_event_id, first_observed_at')
     .eq('organization_id', params.organizationId).eq('project_id', params.projectId)
     .order('first_observed_at', { ascending: false }).order('id', { ascending: true }).limit(STORED_SIGNAL_LIMIT);
   if (signals.error) throw new Error('Failed to read project intelligence signals.');
@@ -213,7 +212,7 @@ export async function readStoredProjectSignals(
   return rows.map((row) => {
     const review = latest.get(String(row.id));
     return {
-      id: String(row.id), projectId: String(row.project_id), category: String(row.category), code: String(row.signal_code),
+      id: String(row.id), category: String(row.category), code: String(row.signal_code),
       orchestratorRootCause: row.orchestrator_root_cause == null ? null : String(row.orchestrator_root_cause),
       ruleId: String(row.rule_id), evidenceState: String(row.evidence_state), sourceIntent: String(row.source_intent),
       findingRef: String(row.finding_ref), recordRefs: (row.record_refs as string[]) ?? [],

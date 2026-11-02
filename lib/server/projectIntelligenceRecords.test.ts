@@ -201,7 +201,7 @@ describe('recording an answer', () => {
 });
 
 describe('reading and reviewing signals', () => {
-  const stored = { id: 's-1', project_id: 'project-1', category: 'validator_logic', signal_code: 'source_present_linked_still_flagged', orchestrator_root_cause: null, rule_id: 'R', evidence_state: 'likely_system_issue', source_intent: 'why_flagged', finding_ref: FINDING, record_refs: [FINDING], guidance_event_id: null, first_observed_at: AT };
+  const stored = { id: 's-1', category: 'validator_logic', signal_code: 'source_present_linked_still_flagged', orchestrator_root_cause: null, rule_id: 'R', evidence_state: 'likely_system_issue', source_intent: 'why_flagged', finding_ref: FINDING, record_refs: [FINDING], guidance_event_id: null, first_observed_at: AT };
 
   it('reads by organization and project, and shows the latest review', async () => {
     const { admin, filters } = fakeAdmin({ rows: { project_intelligence_signals: [stored, { ...stored, id: 's-2' }], project_intelligence_signal_reviews: [
@@ -210,6 +210,7 @@ describe('reading and reviewing signals', () => {
     const read = await readStoredProjectSignals(admin, { organizationId: 'org-1', projectId: 'project-1' });
     expect(filters).toEqual(expect.arrayContaining([['project_intelligence_signals', 'organization_id', 'org-1'], ['project_intelligence_signals', 'project_id', 'project-1'], ['project_intelligence_signal_reviews', 'organization_id', 'org-1']]));
     expect(read.map((entry) => [entry.id, entry.reviewStatus, entry.reviewVersion])).toEqual([['s-1', 'accepted_for_triage', 2], ['s-2', 'unreviewed', 0]]);
+    expect(JSON.stringify(read)).not.toContain('project-1');
   });
 
   it('appends the next version, and writes only that row', async () => {

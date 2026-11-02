@@ -1,0 +1,183 @@
+import { hashCanonical } from '@/lib/extraction/domain/hash';
+import type { EvidenceState, NextStepKind } from '@/lib/projectIntelligence/evidenceAssessment';
+
+/**
+ * Expected outcomes, frozen before any provider call. Each comes from the case's
+ * fixture truth and the Validator rule that fired, stated in `derivation`. None came
+ * from a model. The grader reads this module; nothing that builds a request may
+ * import it (held by the qualification test).
+ *
+ * `allowedNextSteps` is what a correct answer may recommend for this case, and it can
+ * be narrower than what the evidence reading offers. `requiredEvidenceRefs` is a set
+ * of which an accepted answer must cite at least one: `finding:<rule>`, `doc:<key>`,
+ * or `project`.
+ */
+
+export type EvidenceClassification = EvidenceState | 'no_open_findings';
+
+export type GuidanceCaseLabel = Readonly<{
+  caseId: string;
+  expectedEvidenceClassification: EvidenceClassification;
+  /** The finding the answer must be about; several when any one is correct. Empty when none are open. */
+  expectedPrimaryRules: readonly string[];
+  allowedNextSteps: readonly NextStepKind[];
+  forbiddenNextSteps: readonly NextStepKind[];
+  requiredEvidenceRefs: readonly string[];
+  uncertaintyMustBeSurfaced: boolean;
+  deterministicFallbackSufficient: boolean;
+  /** The needed source is in the project, so telling the operator to obtain it is wrong. */
+  sourceAlreadyPresent: boolean;
+  derivation: string;
+}>;
+
+const SCHEDULE_RULE = 'FINANCIAL_RATE_BASED_SCHEDULE_REQUIRED';
+const CONFLICT_RULE = 'TRANSACTION_TICKET_GRAIN_CONFLICT';
+
+const NOT_UPLOAD_OR_CLEAR: readonly NextStepKind[] = ['upload_or_request_document', 'no_action_needed'];
+const NOT_LINK_OR_CLEAR: readonly NextStepKind[] = ['link_existing_document', 'no_action_needed'];
+
+function missingSchedule(caseId: string): GuidanceCaseLabel {
+  return {
+    caseId, expectedEvidenceClassification: 'source_missing', expectedPrimaryRules: [SCHEDULE_RULE],
+    allowedNextSteps: ['upload_or_request_document', 'review_existing_document'], forbiddenNextSteps: NOT_LINK_OR_CLEAR,
+    requiredEvidenceRefs: [`finding:${SCHEDULE_RULE}`, 'doc:contract'], uncertaintyMustBeSurfaced: true,
+    deterministicFallbackSufficient: true, sourceAlreadyPresent: false,
+    derivation: 'The project holds only the contract and the rate-based rule fired. No schedule exists, though the contract could still hold its pages, which is why reviewing it is also correct.',
+  };
+}
+
+function unlinkedSchedule(caseId: string): GuidanceCaseLabel {
+  return {
+    caseId, expectedEvidenceClassification: 'source_present_relationship_unresolved', expectedPrimaryRules: [SCHEDULE_RULE],
+    allowedNextSteps: ['link_existing_document', 'review_existing_document', 'operator_judgment_required'], forbiddenNextSteps: NOT_UPLOAD_OR_CLEAR,
+    requiredEvidenceRefs: ['doc:sheet', `finding:${SCHEDULE_RULE}`], uncertaintyMustBeSurfaced: true,
+    deterministicFallbackSufficient: true, sourceAlreadyPresent: true,
+    derivation: 'A read price sheet is in the project with no link to the contract, and the rate-based rule fired. The source exists; its relationship is what is open.',
+  };
+}
+
+function linkedStillFlagged(caseId: string): GuidanceCaseLabel {
+  return {
+    caseId, expectedEvidenceClassification: 'likely_system_issue', expectedPrimaryRules: [SCHEDULE_RULE],
+    allowedNextSteps: ['likely_system_issue', 'review_existing_document', 'operator_judgment_required'], forbiddenNextSteps: NOT_UPLOAD_OR_CLEAR,
+    requiredEvidenceRefs: ['doc:sheet', `finding:${SCHEDULE_RULE}`], uncertaintyMustBeSurfaced: true,
+    deterministicFallbackSufficient: true, sourceAlreadyPresent: true,
+    derivation: 'The price sheet is read and attached to the contract, and validation ran after it was read, yet the rule still fired because no rate facts reached validation. Nothing is missing from the project.',
+  };
+}
+
+function cleared(caseId: string): GuidanceCaseLabel {
+  return {
+    caseId, expectedEvidenceClassification: 'no_open_findings', expectedPrimaryRules: [],
+    allowedNextSteps: ['no_action_needed'], forbiddenNextSteps: ['upload_or_request_document', 'link_existing_document', 'correct_source_data'],
+    requiredEvidenceRefs: ['project', 'doc:contract'], uncertaintyMustBeSurfaced: false,
+    deterministicFallbackSufficient: true, sourceAlreadyPresent: false,
+    derivation: 'Validation ran on a ceiling contract with its amount on file and raised nothing.',
+  };
+}
+
+function ticketConflict(caseId: string): GuidanceCaseLabel {
+  return {
+    caseId, expectedEvidenceClassification: 'not_a_source_gap', expectedPrimaryRules: [CONFLICT_RULE],
+    allowedNextSteps: ['operator_judgment_required', 'review_existing_document'],
+    forbiddenNextSteps: ['upload_or_request_document', 'link_existing_document', 'no_action_needed'],
+    requiredEvidenceRefs: [`finding:${CONFLICT_RULE}`], uncertaintyMustBeSurfaced: false,
+    deterministicFallbackSufficient: true, sourceAlreadyPresent: false,
+    derivation: 'Repeated rows of one physical ticket carry conflicting quantities. EightForge will not choose between them, so a person must.',
+  };
+}
+
+function ticketGrain(caseId: string, rule: string): GuidanceCaseLabel {
+  return {
+    caseId, expectedEvidenceClassification: 'not_a_source_gap', expectedPrimaryRules: [rule],
+    allowedNextSteps: ['review_ticket_or_transaction', 'review_existing_document', 'operator_judgment_required'],
+    forbiddenNextSteps: ['upload_or_request_document', 'link_existing_document', 'no_action_needed'],
+    requiredEvidenceRefs: [`finding:${rule}`], uncertaintyMustBeSurfaced: false,
+    deterministicFallbackSufficient: true, sourceAlreadyPresent: false,
+    derivation: 'The invoice line and its ticket rows disagree. All the sources are in the project, so the rows are what to check.',
+  };
+}
+
+const LABELS: readonly GuidanceCaseLabel[] = Object.freeze([
+  missingSchedule('missing-01'),
+  unlinkedSchedule('missing-02'),
+  {
+    caseId: 'missing-03', expectedEvidenceClassification: 'source_missing',
+    expectedPrimaryRules: ['SOURCES_NO_INVOICE_DATA', 'SOURCES_NO_TICKET_DATA'],
+    allowedNextSteps: ['upload_or_request_document'], forbiddenNextSteps: NOT_LINK_OR_CLEAR,
+    requiredEvidenceRefs: ['finding:SOURCES_NO_INVOICE_DATA', 'finding:SOURCES_NO_TICKET_DATA'], uncertaintyMustBeSurfaced: false,
+    deterministicFallbackSufficient: true, sourceAlreadyPresent: false,
+    derivation: 'A billing-review project holding only its contract. Both the invoice and ticket rules fired and neither source exists; either is a correct lead.',
+  },
+  cleared('missing-04'),
+  ticketConflict('missing-05'),
+  linkedStillFlagged('missing-06'),
+
+  unlinkedSchedule('document-01'),
+  missingSchedule('document-02'),
+  {
+    caseId: 'document-03', expectedEvidenceClassification: 'source_present', expectedPrimaryRules: [SCHEDULE_RULE],
+    allowedNextSteps: ['review_existing_document', 'operator_judgment_required'], forbiddenNextSteps: NOT_UPLOAD_OR_CLEAR,
+    requiredEvidenceRefs: ['doc:sheet', `finding:${SCHEDULE_RULE}`], uncertaintyMustBeSurfaced: true,
+    deterministicFallbackSufficient: true, sourceAlreadyPresent: true,
+    derivation: 'The attached price sheet was read after the latest validation, so the finding predates it. No further document is needed.',
+  },
+  {
+    caseId: 'document-04', expectedEvidenceClassification: 'source_present', expectedPrimaryRules: ['SOURCES_NO_INVOICE_DATA'],
+    allowedNextSteps: ['review_existing_document', 'operator_judgment_required'], forbiddenNextSteps: NOT_UPLOAD_OR_CLEAR,
+    requiredEvidenceRefs: ['doc:invoice', 'finding:SOURCES_NO_INVOICE_DATA'], uncertaintyMustBeSurfaced: true,
+    deterministicFallbackSufficient: true, sourceAlreadyPresent: true,
+    derivation: 'The missing-invoice finding came from a run before the invoice arrived. The invoice is now in the project and read.',
+  },
+  {
+    caseId: 'document-05', expectedEvidenceClassification: 'source_present_unread', expectedPrimaryRules: [SCHEDULE_RULE],
+    allowedNextSteps: ['review_existing_document', 'likely_system_issue'], forbiddenNextSteps: NOT_UPLOAD_OR_CLEAR,
+    requiredEvidenceRefs: ['doc:sheet', `finding:${SCHEDULE_RULE}`], uncertaintyMustBeSurfaced: true,
+    deterministicFallbackSufficient: true, sourceAlreadyPresent: true,
+    derivation: 'The price sheet is in the project but its processing failed, so it was never read. It needs reprocessing or review, not a second copy.',
+  },
+  cleared('document-06'),
+
+  ticketConflict('flagged-01'),
+  ticketGrain('flagged-02', 'TRANSACTION_QUANTITY_MATCHES_INVOICE'),
+  {
+    caseId: 'flagged-03', expectedEvidenceClassification: 'likely_system_issue', expectedPrimaryRules: ['FINANCIAL_RATE_BASED_ROWS_REQUIRED'],
+    allowedNextSteps: ['likely_system_issue', 'review_existing_document', 'operator_judgment_required'], forbiddenNextSteps: NOT_UPLOAD_OR_CLEAR,
+    requiredEvidenceRefs: ['doc:contract', 'finding:FINANCIAL_RATE_BASED_ROWS_REQUIRED'], uncertaintyMustBeSurfaced: true,
+    deterministicFallbackSufficient: true, sourceAlreadyPresent: true,
+    derivation: 'The contract states a rate schedule is present, the rule itself says so, and no rows were read from it. The source is in hand; reading it is what fell short.',
+  },
+  {
+    caseId: 'flagged-04', expectedEvidenceClassification: 'source_present_relationship_unresolved', expectedPrimaryRules: [SCHEDULE_RULE],
+    allowedNextSteps: ['link_existing_document', 'review_existing_document', 'operator_judgment_required'], forbiddenNextSteps: NOT_UPLOAD_OR_CLEAR,
+    requiredEvidenceRefs: ['doc:sheet', `finding:${SCHEDULE_RULE}`], uncertaintyMustBeSurfaced: true,
+    deterministicFallbackSufficient: true, sourceAlreadyPresent: true,
+    derivation: 'The price sheet is attached but marked reference only. Whether it applies is an unsettled authority question for a person.',
+  },
+  {
+    caseId: 'flagged-05', expectedEvidenceClassification: 'source_missing', expectedPrimaryRules: ['SOURCES_NO_CONTRACT'],
+    allowedNextSteps: ['upload_or_request_document'], forbiddenNextSteps: NOT_LINK_OR_CLEAR,
+    requiredEvidenceRefs: ['finding:SOURCES_NO_CONTRACT'], uncertaintyMustBeSurfaced: false,
+    deterministicFallbackSufficient: true, sourceAlreadyPresent: false,
+    derivation: 'The project holds no documents and the rule fired on that.',
+  },
+  {
+    caseId: 'flagged-06', expectedEvidenceClassification: 'not_a_source_gap', expectedPrimaryRules: ['FINANCIAL_RATE_BASED_PRICING_APPLICABILITY_UNCLEAR'],
+    allowedNextSteps: ['review_existing_document', 'operator_judgment_required'],
+    forbiddenNextSteps: ['upload_or_request_document', 'link_existing_document', 'no_action_needed'],
+    requiredEvidenceRefs: ['finding:FINANCIAL_RATE_BASED_PRICING_APPLICABILITY_UNCLEAR'], uncertaintyMustBeSurfaced: false,
+    deterministicFallbackSufficient: true, sourceAlreadyPresent: false,
+    derivation: 'The contract\'s schedule is fully read. What is open is whether it applies to the billed work, which the contract must answer and a person must confirm.',
+  },
+
+  missingSchedule('action-01'),
+  unlinkedSchedule('action-02'),
+  linkedStillFlagged('action-03'),
+  ticketConflict('action-04'),
+  ticketGrain('action-05', 'TRANSACTION_TOTAL_MATCHES_INVOICE_LINE'),
+  cleared('action-06'),
+]);
+
+export const GUIDANCE_LABELS: readonly GuidanceCaseLabel[] = LABELS;
+export const GUIDANCE_LABEL_SET_VERSION = 'operator_guidance_labels_v1';
+export const guidanceLabelSetDigest = (): string => hashCanonical({ version: GUIDANCE_LABEL_SET_VERSION, labels: LABELS });

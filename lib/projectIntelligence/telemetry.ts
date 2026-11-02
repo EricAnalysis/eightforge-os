@@ -6,9 +6,8 @@ import type { ProjectIntelligenceContext } from '@/lib/projectIntelligence/proje
 /**
  * Content-free telemetry for one guidance answer: closed vocabularies, counts and
  * measurements only. Never a question, an answer, a title, a project or an
- * organization. Provider metrics also reach the durable ledger
- * (`forgewing_provider_call_observations`); the intent and section fields have no
- * column there yet, so this structured log carries them.
+ * organization. The durable record adds tenant scope and is built from this:
+ * lib/server/projectIntelligenceRecords.ts.
  */
 
 export type GuidanceProviderStatus =

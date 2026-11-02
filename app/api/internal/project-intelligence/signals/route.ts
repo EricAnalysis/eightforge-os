@@ -8,6 +8,7 @@ import { planProjectContext } from '@/lib/projectIntelligence/contextPlan';
 import { assessProjectEvidence } from '@/lib/projectIntelligence/evidenceAssessment';
 import { deriveProductImprovementSignals } from '@/lib/projectIntelligence/improvementSignal';
 import { readProjectIntelligenceSources } from '@/lib/server/projectIntelligenceRead';
+import { readStoredProjectSignals } from '@/lib/server/projectIntelligenceRecords';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { resolveWorkflowPlatformReviewAccess } from '@/lib/server/workflowPlatformReviewAccess';
 
@@ -37,7 +38,8 @@ export async function GET(request: Request): Promise<Response> {
     });
     if (read.status !== 'ok') return Response.json({ ok: false, error: 'project_not_found' }, { status: 404 });
     const assessment = assessProjectEvidence({ intent: plan.intent, focusFindingId: null, sources: read.sources });
-    return Response.json({ ok: true, signals: deriveProductImprovementSignals(assessment) });
+    const stored = await readStoredProjectSignals(admin, { organizationId: actor.actor.organizationId, projectId });
+    return Response.json({ ok: true, signals: deriveProductImprovementSignals(assessment), stored });
   } catch (err) {
     console.error('[projectIntelligenceSignals] read failed', { errorClass: err instanceof Error ? err.name : typeof err });
     return Response.json({ ok: false, error: 'signals_unavailable' }, { status: 500 });

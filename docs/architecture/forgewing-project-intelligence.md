@@ -129,9 +129,12 @@ person checks it before asking anyone. Everything stays non-authoritative and re
 ## Known gaps
 
 - The live provider path is unexercised, and no qualification has been run.
-- Intent and section telemetry is a structured log. A durable record needs a migration.
-- Signals are computed on request and not stored, so they do not yet reach the friction
-  report or triage. A durable signal kind needs a CHECK change.
+- Guidance answers and signals are stored as content-free rows
+  (`project_intelligence_guidance_events`, `project_intelligence_signals`), read only by the
+  platform-gated signals route. Cost is not stored: it is tokens at the price of the day.
+- A signal's review is a disposition and goes no further. Taking an accepted signal into
+  `improvement_signal_submissions` and triage is still a person's manual step, because that
+  table holds organization-level patterns and one signal is one observation.
 - Follow-up answers have nowhere to be stored, so the loop back into the plan is manual.
 - The capability catalogue matches a step's wording. A match is a candidate for a reviewer,
   not proof the step is covered.

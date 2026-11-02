@@ -135,7 +135,8 @@ person checks it before asking anyone. Everything stays non-authoritative and re
 - A signal's review is a disposition and goes no further. Taking an accepted signal into
   `improvement_signal_submissions` and triage is still a person's manual step, because that
   table holds organization-level patterns and one signal is one observation.
-- Follow-up answers have nowhere to be stored, so the loop back into the plan is manual.
+- Follow-up answers are stored beside the assessment and rebuild its readiness. They are not
+  fed back into a new assessment run, so a revised assessment still needs a person to weigh them.
 - The capability catalogue matches a step's wording. A match is a candidate for a reviewer,
   not proof the step is covered.
 - The relationship reading uses document links and precedence, not the canonical

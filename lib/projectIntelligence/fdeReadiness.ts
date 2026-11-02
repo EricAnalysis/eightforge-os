@@ -298,6 +298,12 @@ function followUpsFor(steps: readonly StepInput[], assessment: Record<string, un
   return [...gaps, ...assumptions];
 }
 
+/** Every follow-up an assessment asks, uncapped: what an answer may be recorded against. */
+export function allFdeFollowUps(assessment: unknown): readonly FdeFollowUp[] {
+  if (!isRecord(assessment)) return [];
+  return followUpsFor(records(assessment.workflowSteps) as StepInput[], assessment, []);
+}
+
 /** Null when the record has no steps to plan from. */
 export function buildFdeReadinessPlan(
   assessment: unknown,

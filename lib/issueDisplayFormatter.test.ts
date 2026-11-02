@@ -12,7 +12,7 @@ describe('deterministic source-rule explanations', () => {
       mobileTickets: [], loadTickets: [], invoices: [], invoiceLines: [], transactionData: null,
     } as unknown as Parameters<typeof runRequiredSourcesRules>[0];
     const findings = runRequiredSourcesRules(input);
-    expect(findings).toHaveLength(3);
+    expect(findings.map((finding) => finding.rule_id)).toEqual(['SOURCES_NO_INVOICE_DATA', 'SOURCES_NO_TICKET_DATA']);
     const before = JSON.stringify(findings);
     for (const finding of findings) {
       const display = getIssueDisplayLabel(finding.rule_id);

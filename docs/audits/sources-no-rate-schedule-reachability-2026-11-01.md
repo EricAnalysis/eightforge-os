@@ -90,8 +90,14 @@ severity. No production repair is needed.
 | `requiredSourcesFactsPath.test.ts` | 72 shapes through the real `runProjectValidation`, with real facts: never emitted. Everywhere a corrected rule would fire, the dedicated rule already does. A contract holding its own rates needs no separate schedule |
 | `approvalGate.test.ts` | A recorded finding keeps its gate reason |
 
-The hand-built case failed before the removal (it fired) and passes after it. That was the
-only assertion that changed, and no test expectation for a Golden or Validator count moved.
+The hand-built case failed before the removal (it fired) and passes after it.
+
+One existing test depended on the impossible input. `issueDisplayFormatter.test.ts` hand-built
+a contract with `pricing: []` and expected 3 required-source findings, one of them this rule.
+It now names the 2 remaining rules. The audit first missed this because the test counts
+findings without naming the rule ID, so it is the one test that did show the rule firing, and
+only on input production cannot build. No test expectation for a Golden count moved, and no
+other Validator count moved.
 
 ## Also noted
 

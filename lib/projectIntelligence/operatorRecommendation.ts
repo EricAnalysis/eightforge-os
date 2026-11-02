@@ -9,6 +9,7 @@ import {
   type ProjectEvidenceAssessment,
 } from '@/lib/projectIntelligence/evidenceAssessment';
 import { contextRecordIndex, type ProjectIntelligenceContext } from '@/lib/projectIntelligence/projectContext';
+import { transactionContextNote, type TransactionContextPayload } from '@/lib/projectIntelligence/transactionContext';
 import { resolveValidatorRuleActions } from '@/lib/validator/ruleActions';
 
 /**
@@ -166,11 +167,45 @@ function intentAnswerSuffix(assessment: ProjectEvidenceAssessment): string {
 }
 
 /**
+ * What a question about tickets adds to the answer: the aggregates on file and the
+ * upload they came from. It changes neither the reading nor the next step, and a
+ * plan that did not ask for ticket data gets the recommendation back untouched.
+ */
+function withTransactionContext(recommendation: OperatorRecommendation, context: ProjectIntelligenceContext): OperatorRecommendation {
+  const omission = context.omissions.find((entry) => entry.kind === 'transaction_context')?.reason;
+  if (omission === 'read_failed') {
+    return { ...recommendation, missingInformation: [...recommendation.missingInformation, "This project's ticket data, which could not be read just now."] };
+  }
+  if (omission === 'not_available') {
+    return { ...recommendation, answer: `${recommendation.answer} No ticket data has been read for this project.` };
+  }
+  const section = context.sections.find((entry) => entry.kind === 'transaction_context');
+  if (!section) return recommendation;
+  const payload = section.payload as TransactionContextPayload;
+  const note = transactionContextNote(payload);
+  const known = new Set(recommendation.evidenceRefs.map((ref) => ref.recordId));
+  const uploads = payload.datasets.slice(0, 1).map((dataset) => dataset.id).filter((id) => !known.has(id));
+  return {
+    ...recommendation,
+    answer: note ? `${recommendation.answer} ${note}` : recommendation.answer,
+    evidenceRefs: [...recommendation.evidenceRefs, ...resolveEvidenceRefs(context, uploads)],
+  };
+}
+
+/**
  * What to tell the operator from evidence alone. This is the floor: it needs no
  * provider, it is what a closed gate or a rejected model answer falls back to,
  * and it runs for a Core organization exactly as for an entitled one.
  */
 export function deterministicRecommendation(params: Readonly<{
+  context: ProjectIntelligenceContext;
+  assessment: ProjectEvidenceAssessment;
+  primaryFinding: Readonly<{ subjectId: string | null; evidenceDocumentIds: readonly string[]; page: number | null }> | null;
+}>): OperatorRecommendation {
+  return withTransactionContext(evidenceRecommendation(params), params.context);
+}
+
+function evidenceRecommendation(params: Readonly<{
   context: ProjectIntelligenceContext;
   assessment: ProjectEvidenceAssessment;
   primaryFinding: Readonly<{ subjectId: string | null; evidenceDocumentIds: readonly string[]; page: number | null }> | null;

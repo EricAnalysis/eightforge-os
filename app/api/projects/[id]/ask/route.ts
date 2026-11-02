@@ -89,7 +89,7 @@ async function handleOperatorGuidance(params: {
   if (!classified) {
     return NextResponse.json({ error: 'This question is not one guidance can answer.', code: 'intent_not_supported' }, { status: 422 });
   }
-  const plan = planProjectContext(classified.intent, { focusFindingId });
+  const plan = planProjectContext(classified.intent, { focusFindingId, question });
   const read = await readProjectIntelligenceSources({ admin, organizationId: actor.organizationId, project, question, plan });
   if (read.status === 'focus_finding_not_found') {
     return NextResponse.json({ error: 'That finding is not open on this project.' }, { status: 404 });

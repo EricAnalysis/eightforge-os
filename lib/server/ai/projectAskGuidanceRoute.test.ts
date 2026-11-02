@@ -120,6 +120,15 @@ afterEach(() => {
 });
 
 describe('POST /api/projects/[id]/ask in operator_guidance mode', () => {
+  it('plans ticket data from the words of the question, and only then', async () => {
+    delete process.env.FORGEWING_PROJECT_ASK_GUIDANCE_ENABLED;
+    await ask({ question: 'Why are these tickets flagged?' });
+    expect(readSourcesMock.mock.calls[0]![0].plan.sections).toContain('transaction_context');
+    readSourcesMock.mockClear();
+    await ask({ question: 'Do I need another rate schedule?' });
+    expect(readSourcesMock.mock.calls[0]![0].plan.sections).not.toContain('transaction_context');
+  });
+
   it('answers from evidence with no provider, budget or gate when guidance is switched off', async () => {
     delete process.env.FORGEWING_PROJECT_ASK_GUIDANCE_ENABLED;
     const response = await ask();

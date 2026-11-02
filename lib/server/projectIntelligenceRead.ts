@@ -11,8 +11,10 @@ import type { AskProjectRecord } from '@/lib/ask/types';
 import type { ContextSectionKind, ProjectContextPlan } from '@/lib/projectIntelligence/contextPlan';
 import { factKeysForFindings } from '@/lib/projectIntelligence/evidenceAssessment';
 import type { ProjectContextSources } from '@/lib/projectIntelligence/projectContext';
+import { TRANSACTION_CONTEXT_BOUNDS } from '@/lib/projectIntelligence/transactionContext';
 import { loadProjectDocumentPrecedenceSnapshot } from '@/lib/server/documentPrecedence';
 import { readProjectReviewedTruth } from '@/lib/server/reviewedTruthRead';
+import { readTransactionSummariesForProject } from '@/lib/server/transactionDataPersistence';
 
 /**
  * Server read of the sources one context plan names. Composes the existing
@@ -49,6 +51,7 @@ export type ProjectIntelligenceReadDependencies = Readonly<{
   loadFacts?: typeof loadFactsByFieldKeys;
   loadDecisions?: typeof loadDecisions;
   readReviewedTruth?: typeof readProjectReviewedTruth;
+  readTransactions?: typeof readTransactionSummariesForProject;
 }>;
 
 export type ProjectIntelligenceReadResult =
@@ -93,7 +96,7 @@ export async function readProjectIntelligenceSources(
     return { status: 'focus_finding_not_found' };
   }
 
-  const [documentsRead, precedence, decisions] = await Promise.all([
+  const [documentsRead, precedence, decisions, transactions] = await Promise.all([
     planned('documents')
       ? settled(() => (dependencies.loadDocuments ?? loadProjectDocuments)({ admin, projectId, orgId: organizationId, question }))
       : undefined,
@@ -108,6 +111,15 @@ export async function readProjectIntelligenceSources(
       : undefined,
     planned('operator_decisions')
       ? settled(() => (dependencies.loadDecisions ?? loadDecisions)({ admin, projectId, orgId: organizationId, question }))
+      : undefined,
+    planned('transaction_context')
+      ? settled(async () => {
+        const summaries = await (dependencies.readTransactions ?? readTransactionSummariesForProject)({
+          admin, projectId, limit: TRANSACTION_CONTEXT_BOUNDS.maxDatasets,
+        });
+        if (summaries.datasets.some((dataset) => dataset.projectId !== projectId)) throw new ProjectIntelligenceScopeError();
+        return summaries;
+      })
       : undefined,
   ]);
 
@@ -141,6 +153,7 @@ export async function readProjectIntelligenceSources(
       ...(facts !== undefined ? { facts } : {}),
       ...(reviewedTruth !== undefined ? { reviewedTruth } : {}),
       ...(decisions !== undefined ? { decisions } : {}),
+      ...(transactions !== undefined ? { transactions } : {}),
     },
   };
 }

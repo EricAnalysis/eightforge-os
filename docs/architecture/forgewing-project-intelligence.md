@@ -52,6 +52,12 @@ always lived on this side of that line, and this layer sits with it.
 Project identity is always included. Anything else, such as a fact lookup, stays on
 plain Ask. Asked from a finding, an unplaced question is about that finding.
 
+A question that names tickets, transactions, loads, trucks, trailers, CYD, tonnage or
+mileage also reads `transaction_context`, whatever its intent: the newest uploads'
+persisted aggregates and the open ticket findings, never a transaction row or grouped
+rollup. It goes by the question's words and not by the finding it was asked from.
+Ticket-grain totals stay per upload and are never added across uploads.
+
 ## The reading
 
 | Reading | Means | Leads with |
@@ -130,4 +136,8 @@ person checks it before asking anyone. Everything stays non-authoritative and re
 - A rung is a starting point: no capability catalogue proves a lower rung sufficient.
 - The relationship reading uses document links and precedence, not the canonical
   relationship assembly, which needs a full truth run.
-- Ticket and transaction summaries are not a section yet.
+- Ticket context reads what the upload persisted, not the row-backed summary that
+  `resolveCanonicalProjectTruthSections` prefers, because reading every row for one
+  question is too heavy. An older upload can differ until it is reprocessed.
+- A question asked from a ticket finding without ticket words reads no ticket data.
+  That keeps every frozen qualification request unchanged. Widening it needs a new contract.

@@ -11,6 +11,12 @@ import {
   type ContextSectionKind,
   type ProjectContextPlan,
 } from '@/lib/projectIntelligence/contextPlan';
+import {
+  TRANSACTION_CONTEXT_BOUNDS,
+  transactionFindingCounts,
+  type ProjectTransactionSummaries,
+  type TransactionContextPayload,
+} from '@/lib/projectIntelligence/transactionContext';
 
 /**
  * The unified project context: a read-only, request-scoped view over truth that
@@ -37,7 +43,8 @@ export type ProjectContextSectionSource =
   | 'document_precedence'
   | 'canonical_and_document_facts'
   | 'human_fact_assertions'
-  | 'decisions';
+  | 'decisions'
+  | 'transaction_data_datasets';
 
 export type ProjectContextSection = Readonly<{
   kind: ContextSectionKind;
@@ -96,6 +103,7 @@ export type ProjectContextSources = Readonly<{
     held: readonly Readonly<{ documentId: string; factKey: string; reason: string; assertionIds: readonly string[] }>[];
   }> | null;
   decisions?: readonly DecisionRecord[] | null;
+  transactions?: ProjectTransactionSummaries | null;
 }>;
 
 export type ProjectContextTransmissionPolicy = Readonly<{
@@ -253,6 +261,37 @@ function decisionsSection(decisions: readonly DecisionRecord[]): Candidate | nul
   };
 }
 
+function transactionSection(value: ProjectTransactionSummaries, open: readonly ValidatorFinding[]): Candidate | null {
+  if (value.datasets.length === 0) return null;
+  const datasets = value.datasets.slice(0, TRANSACTION_CONTEXT_BOUNDS.maxDatasets);
+  const counts = transactionFindingCounts(open);
+  const flagged = datasets.flatMap((dataset) => dataset.flaggedReviews.flatMap((review) =>
+    review.flaggedRecordIds.map((recordId) => ({ recordId, label: `${review.label}: flagged line`, documentId: dataset.documentId, page: null }))))
+    .slice(0, TRANSACTION_CONTEXT_BOUNDS.maxFlaggedRecords);
+  const findings = orderFindings(open.filter((finding) => counts.some((entry) => entry.findingIds.includes(finding.id))), null)
+    .slice(0, TRANSACTION_CONTEXT_BOUNDS.maxFindingRecords);
+  const citable = new Set(flagged.map((record) => record.recordId));
+  const payload: TransactionContextPayload = {
+    totalDatasetCount: value.totalDatasetCount,
+    datasets: datasets.map((dataset) => ({ ...dataset, flaggedReviews: dataset.flaggedReviews.map((review) => ({
+      ...review, flaggedRecordIds: review.flaggedRecordIds.filter((recordId) => citable.has(recordId)),
+    })) })),
+    openFindings: counts.map(({ group, count }) => ({ group, count })),
+  };
+  return {
+    kind: 'transaction_context', contentClass: 'text_excerpts', source: 'transaction_data_datasets',
+    records: [
+      ...datasets.map((dataset) => ({ recordId: dataset.id, label: 'Ticket data upload', documentId: dataset.documentId, page: null })),
+      ...findings.map((finding) => ({
+        recordId: finding.id, label: validatorRuleExplanation(finding.ruleId)?.title ?? finding.description,
+        documentId: finding.documentId ?? null, page: finding.page ?? null,
+      })),
+      ...flagged,
+    ],
+    payload,
+  };
+}
+
 function candidate(kind: ContextSectionKind, sources: ProjectContextSources, focus: string | null): Candidate | null | 'read_failed' {
   switch (kind) {
     case 'project_identity':
@@ -269,6 +308,8 @@ function candidate(kind: ContextSectionKind, sources: ProjectContextSources, foc
       return sources.reviewedTruth ? reviewedSection(sources.reviewedTruth) : 'read_failed';
     case 'operator_decisions':
       return sources.decisions ? decisionsSection(sources.decisions) : 'read_failed';
+    case 'transaction_context':
+      return sources.transactions ? transactionSection(sources.transactions, sources.findings?.open ?? []) : 'read_failed';
   }
 }
 

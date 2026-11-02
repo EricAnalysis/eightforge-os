@@ -133,7 +133,8 @@ person checks it before asking anyone. Everything stays non-authoritative and re
 - Signals are computed on request and not stored, so they do not yet reach the friction
   report or triage. A durable signal kind needs a CHECK change.
 - Follow-up answers have nowhere to be stored, so the loop back into the plan is manual.
-- A rung is a starting point: no capability catalogue proves a lower rung sufficient.
+- The capability catalogue matches a step's wording. A match is a candidate for a reviewer,
+  not proof the step is covered.
 - The relationship reading uses document links and precedence, not the canonical
   relationship assembly, which needs a full truth run.
 - Ticket context reads what the upload persisted, not the row-backed summary that

@@ -41,6 +41,117 @@ const ASSESSMENT = {
 
 const FILE: FdeSuppliedFile = { filename: 'vendor-rate-schedule.xlsx', sectionLabels: ['Rates 2026'], truncated: true };
 
+describe('deployment states', () => {
+  const deployment = (plan: ReturnType<typeof buildFdeReadinessPlan>, stepId: string) => plan!.steps.find((entry) => entry.stepId === stepId)?.deployment;
+
+  it('resolves a known capability, and says so only when nothing is open', () => {
+    const plan = buildFdeReadinessPlan({
+      workflowSteps: [step('s1', 'EXTRACT', { description: 'Read the rate schedule' })],
+      extractionRequirements: [{ stepId: 's1', sourceDocument: 'Vendor rate schedule PDF', deterministicExtractionPlausible: true }],
+    });
+    expect(deployment(plan, 's1')).toMatchObject({ state: 'ready_existing_capability', rung: 'existing_capability', capability: { capabilityId: 'document_text_extraction' } });
+    expect(plan!.deploymentState).toBe('ready_existing_capability');
+  });
+
+  it('does not repeat a guess of "already supported" that the catalogue does not back', () => {
+    const plan = buildFdeReadinessPlan({
+      workflowSteps: [step('s1', 'EXTRACT', { description: 'Read the bank report' })],
+      extractionRequirements: [{ stepId: 's1', sourceDocument: 'Bank report', deterministicExtractionPlausible: true }],
+    });
+    expect(plan!.steps[0]!.startingRung).toBe('existing_capability');
+    expect(deployment(plan, 's1')).toMatchObject({ state: 'needs_mapping', rung: 'mapping', capability: null });
+  });
+
+  it('prefers the lower rung: a named capability beats starting on a new rule', () => {
+    const covered = buildFdeReadinessPlan({ workflowSteps: [step('s1', 'VERIFY', { description: 'Check the billed rate against the contract' })] });
+    expect(deployment(covered, 's1')).toMatchObject({ state: 'ready_existing_capability', capability: { capabilityId: 'validator_contract_invoice_rules' } });
+    const uncovered = buildFdeReadinessPlan({ workflowSteps: [step('s1', 'VERIFY', { description: 'Check the mileage log signature' })] });
+    expect(deployment(uncovered, 's1')).toMatchObject({ state: 'needs_deterministic_rule', capability: null });
+  });
+
+  it('prefers configuration over product work', () => {
+    const plan = buildFdeReadinessPlan({ workflowSteps: [step('s1', 'ADVISORY', { description: 'Help a person read the project' })] });
+    expect(deployment(plan, 's1')).toMatchObject({ state: 'ready_with_configuration', rung: 'customer_configuration', capability: { capabilityId: 'ask_project' } });
+  });
+
+  it('does not let a file type overrule an assessment that says extraction falls short', () => {
+    const plan = buildFdeReadinessPlan({
+      workflowSteps: [step('s1', 'EXTRACT', { description: 'Read handwritten logs' })],
+      extractionRequirements: [{ stepId: 's1', sourceDocument: 'Scanned PDF of handwritten logs', deterministicExtractionPlausible: false }],
+    });
+    expect(deployment(plan, 's1')).toMatchObject({ state: 'needs_extraction_or_validator_improvement', capability: null });
+  });
+
+  it('blocks on an open question whatever the rung, and the plan takes the worst state', () => {
+    const plan = buildFdeReadinessPlan({
+      workflowSteps: [
+        step('s1', 'VERIFY', { description: 'Check the billed rate', unresolvedAssumptions: ['What tolerance applies?'] }),
+        step('s2', 'VERIFY', { description: 'Check the mileage log signature' }),
+      ],
+    });
+    expect(deployment(plan, 's1')).toMatchObject({ state: 'blocked_on_customer_information', unansweredQuestionCount: 1 });
+    expect(deployment(plan, 's2')!.state).toBe('needs_deterministic_rule');
+    expect(plan!.deploymentState).toBe('blocked_on_customer_information');
+  });
+
+  it('blocks when a described source has not been supplied', () => {
+    const plan = buildFdeReadinessPlan({
+      documents: [{ name: 'Payment approval log' }],
+      workflowSteps: [step('s1', 'VERIFY', { description: 'Check the billed rate' })],
+    });
+    expect(plan!.deploymentState).toBe('blocked_on_customer_information');
+  });
+
+  it('leaves the decision with the owner where activation is needed, and never for a person-held step', () => {
+    const plan = buildFdeReadinessPlan({ workflowSteps: [step('s1', 'ADVISORY', { description: 'Show an AI explanation' }), step('s2', 'HUMAN')] });
+    expect(deployment(plan, 's1')!.state).toBe('blocked_on_owner_decision');
+    expect(plan!.deploymentState).toBe('blocked_on_owner_decision');
+    expect(deployment(plan, 's2')).toBeNull();
+    expect(buildFdeReadinessPlan({ workflowSteps: [step('s1', 'HUMAN')] })!.deploymentState).toBeNull();
+  });
+
+  it('is deterministic and names the catalogue it was read against', () => {
+    expect(buildFdeReadinessPlan(ASSESSMENT, [FILE])).toEqual(buildFdeReadinessPlan(ASSESSMENT, [FILE]));
+    expect(buildFdeReadinessPlan(ASSESSMENT)!.capabilityCatalogue.version).toBe('fde_capability_catalogue_v1');
+  });
+});
+
+describe('follow-up answers', () => {
+  const assessment = { workflowSteps: [step('s1', 'VERIFY', { description: 'Check the billed rate', unresolvedAssumptions: ['What tolerance applies?', 'Who signs off?'] })] };
+
+  it('gives a question the same identity across assessment versions', () => {
+    const first = buildFdeReadinessPlan(assessment)!.followUps[0]!;
+    const later = buildFdeReadinessPlan({ ...assessment, assessmentVersion: 2, limitations: ['x'] })!.followUps[0]!;
+    expect(first.followUpId).toBe(later.followUpId);
+    expect(first.followUpId).toMatch(/^[0-9a-f]{64}$/u);
+  });
+
+  it('moves readiness only once every question on the step is answered', () => {
+    const open = buildFdeReadinessPlan(assessment)!;
+    const [tolerance, signOff] = open.followUps;
+    const one = buildFdeReadinessPlan(assessment, [], [{ answerId: 'a1', followUpId: tolerance!.followUpId }])!;
+    expect(one.followUps.map((entry) => entry.question)).toEqual(['Who signs off?']);
+    expect(one.answeredFollowUps).toMatchObject([{ answerId: 'a1', question: 'What tolerance applies?' }]);
+    expect(one.deploymentState).toBe('blocked_on_customer_information');
+    const both = buildFdeReadinessPlan(assessment, [], [{ answerId: 'a1', followUpId: tolerance!.followUpId }, { answerId: 'a2', followUpId: signOff!.followUpId }])!;
+    expect(both.followUps).toEqual([]);
+    expect(both.deploymentState).toBe('ready_existing_capability');
+    expect(both.executionReadiness.blockers).not.toContain('open_questions');
+  });
+
+  it('keeps the original questions and the newest answer, and reports an answer with no question', () => {
+    const [tolerance] = buildFdeReadinessPlan(assessment)!.followUps;
+    const plan = buildFdeReadinessPlan(assessment, [], [
+      { answerId: 'old', followUpId: tolerance!.followUpId },
+      { answerId: 'new', followUpId: tolerance!.followUpId },
+      { answerId: 'stranded', followUpId: 'a'.repeat(64) },
+    ])!;
+    expect(plan.answeredFollowUps.map((entry) => entry.answerId)).toEqual(['new']);
+    expect(plan.answersWithoutQuestion).toEqual(['stranded']);
+    expect(plan.steps[0]!.openQuestionCount).toBe(2);
+  });
+});
+
 describe('buildFdeReadinessPlan', () => {
   it('returns nothing to plan from a record with no steps', () => {
     expect(buildFdeReadinessPlan(null)).toBeNull();

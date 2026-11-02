@@ -64,6 +64,7 @@ describe('FdeReadinessCard', () => {
       humanDecisionPoints: [{ stepId: 'approve', description: 'Approve the exception' }],
     })!;
     const html = renderToStaticMarkup(<FdeReadinessCard plan={plan} />);
+    expect(html).toContain('Waiting on customer information');
     for (const text of ['Deployment readiness', 'Needs follow-up', 'Reusable rule', 'check-rates', 'What tolerance applies?', 'Approve the exception']) {
       expect(html).toContain(text);
     }

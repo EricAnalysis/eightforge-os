@@ -38,7 +38,12 @@ export async function GET(request: Request): Promise<Response> {
     });
     if (read.status !== 'ok') return Response.json({ ok: false, error: 'project_not_found' }, { status: 404 });
     const assessment = assessProjectEvidence({ intent: plan.intent, focusFindingId: null, sources: read.sources });
-    const stored = await readStoredProjectSignals(admin, { organizationId: actor.actor.organizationId, projectId });
+    // Null means the stored signals could not be read, which says nothing about whether any exist.
+    const stored = await readStoredProjectSignals(admin, { organizationId: actor.actor.organizationId, projectId })
+      .catch(() => {
+        console.warn('[projectIntelligenceSignals] stored_signals_unavailable');
+        return null;
+      });
     return Response.json({ ok: true, signals: deriveProductImprovementSignals(assessment), stored });
   } catch (err) {
     console.error('[projectIntelligenceSignals] read failed', { errorClass: err instanceof Error ? err.name : typeof err });

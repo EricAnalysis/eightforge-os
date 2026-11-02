@@ -15,10 +15,6 @@ export function runRequiredSourcesRules(
 
   const phase = input.validationPhase;
   const contractDocumentIds = input.truthCategoryDocumentIds.contract_identity;
-  const rateScheduleDocumentIds = [
-    ...input.truthCategoryDocumentIds.pricing,
-    ...input.familyDocumentIds.rate_sheet,
-  ];
   const hasContract = contractDocumentIds.length > 0;
   const hasTickets =
     input.mobileTickets.length > 0 || input.loadTickets.length > 0;
@@ -31,13 +27,6 @@ export function runRequiredSourcesRules(
     || input.invoiceLines.length > 0
     || input.governingDocumentIds.invoice.length > 0
     || input.familyDocumentIds.invoice.length > 0;
-  const requiresPricingSchedule =
-    input.factLookups.contractCeilingType === 'rate_based'
-    || input.factLookups.rateSchedulePresent === true
-    || (input.factLookups.rateRowCount ?? 0) > 0;
-  const hasPricingSchedule =
-    input.factLookups.hasRateScheduleFacts
-    || rateScheduleDocumentIds.length > 0;
   const requiresTicketData =
     phase === 'execution'
     || phase === 'billing_review'
@@ -76,36 +65,10 @@ export function runRequiredSourcesRules(
     );
   }
 
-  if (
-    hasContract &&
-    requiresPricingSchedule &&
-    !hasPricingSchedule &&
-    isRuleEnabled(input.ruleStateByRuleId, 'SOURCES_NO_RATE_SCHEDULE')
-  ) {
-    findings.push(
-      makeFinding({
-        projectId: input.project.id,
-        ruleId: 'SOURCES_NO_RATE_SCHEDULE',
-        category: CATEGORY,
-        severity: 'critical',
-        subjectType: 'project',
-        subjectId: input.project.id,
-        field: 'rate_schedule',
-        expected: 'extracted rate schedule facts',
-        actual: 'missing',
-        blockedReason: 'Governing contract requires pricing support but no pricing schedule is linked',
-        actionEligible: true,
-        evidence: rateScheduleDocumentIds.map((documentId) =>
-          makeEvidenceInput({
-            evidence_type: 'document',
-            source_document_id: documentId,
-            record_id: documentId,
-            note: 'The project needs pricing schedule support in the canonical contract context.',
-          }),
-        ),
-      }),
-    );
-  }
+  // SOURCES_NO_RATE_SCHEDULE is retired. It needed a contract and an empty pricing
+  // list, and a contract is always in its own pricing list, so it could never fire;
+  // FINANCIAL_RATE_BASED_SCHEDULE_REQUIRED covers the case. Its catalogue, gate and
+  // semantics entries stay so findings already recorded still display.
 
   if (
     requiresInvoiceData &&

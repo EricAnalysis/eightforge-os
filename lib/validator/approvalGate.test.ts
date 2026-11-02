@@ -209,6 +209,22 @@ describe('evaluateApprovalGate', () => {
       assert.ok(gate.project.finding_ids.includes('f-1'));
     });
 
+    it('keeps the gate reason of a recorded finding from the retired SOURCES_NO_RATE_SCHEDULE', () => {
+      const finding = makeFinding('f-old', 'SOURCES_NO_RATE_SCHEDULE', {
+        severity: 'critical',
+        status: 'open',
+        subjectType: 'project',
+      });
+      const gate = evaluateApprovalGate(makeResult({
+        findings: [finding],
+        reconciliation: makeReconciliation(),
+        exposure: makeExposure([makeInvoiceExposure('INV-001')]),
+      }));
+
+      assert.equal(gate.project.approval_status, 'blocked');
+      assert.ok(gate.project.reasons.includes('missing_contract_support'));
+    });
+
     it('blocks on overall MISMATCH reconciliation status', () => {
       const inv = makeInvoiceExposure('INV-001', { reconciliation_status: 'MISMATCH' });
       const result = makeResult({

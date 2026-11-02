@@ -23,6 +23,7 @@ export const CONTEXT_SECTION_KINDS = [
   'canonical_facts',
   'reviewed_truth',
   'operator_decisions',
+  'transaction_context',
 ] as const;
 export type ContextSectionKind = typeof CONTEXT_SECTION_KINDS[number];
 
@@ -48,6 +49,17 @@ export const PROJECT_CONTEXT_BOUNDS = Object.freeze({
   maxReviewedValues: 30,
   maxTransmittedTextChars: 24_000,
 });
+
+/**
+ * Whether a question is about tickets or transactions. Decided from its words
+ * alone, never from the finding it was asked from, so the same question always
+ * gets the same plan and a question about a rate schedule never reads ticket data.
+ */
+const ASKS_ABOUT_TRANSACTIONS = /\b(?:tickets?|transactions?|loads|hauls?|trucks?|trailers?|cyd|cubic yards?|tonnage|mileage)\b/u;
+
+export function questionConcernsTransactions(question: string): boolean {
+  return ASKS_ABOUT_TRANSACTIONS.test(question.toLowerCase());
+}
 
 export type ProjectContextPlan = Readonly<{
   intent: OperatorIntent;
@@ -97,10 +109,17 @@ export function classifyOperatorIntent(
   return options.hasFocusFinding ? { intent: 'why_flagged', basis: 'focus_finding' } : null;
 }
 
-export function planProjectContext(intent: OperatorIntent, options: Readonly<{ focusFindingId?: string | null }> = {}): ProjectContextPlan {
+export function planProjectContext(
+  intent: OperatorIntent,
+  options: Readonly<{ focusFindingId?: string | null; question?: string }> = {},
+): ProjectContextPlan {
+  const base = INTENT_CONTEXT_SECTIONS[intent];
   return Object.freeze({
     intent,
-    sections: INTENT_CONTEXT_SECTIONS[intent],
+    // After the findings, ahead of anything else competing for the transmission budget.
+    sections: options.question != null && questionConcernsTransactions(options.question)
+      ? [...base.slice(0, 2), 'transaction_context' as const, ...base.slice(2)]
+      : base,
     focusFindingId: options.focusFindingId ?? null,
   });
 }

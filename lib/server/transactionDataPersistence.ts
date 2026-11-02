@@ -1,5 +1,10 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import type {
+  ProjectTransactionSummaries,
+  TransactionDatasetSummary,
+  TransactionReviewBucketSummary,
+} from '@/lib/projectIntelligence/transactionContext';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { withStageTimeout } from '@/lib/server/stageTimeout';
 
@@ -87,6 +92,34 @@ export type ProjectTransactionData = {
 
 const TRANSACTION_DATASET_SELECT =
   'id, document_id, project_id, row_count, total_extended_cost, total_transaction_quantity, total_cyd_ticket_grain, total_cyd_ticket_grain_full, total_mileage_ticket_grain, total_mileage_ticket_grain_full, total_diameter, total_diameter_full, total_net_tonnage, total_net_tonnage_full, date_range_start, date_range_end, summary_json, created_at';
+// Named paths into summary_json, so a context read never carries its grouped rollups.
+const TRANSACTION_REVIEW_BUCKET_KEYS = [
+  'boundary_location_review',
+  'distance_from_feature_review',
+  'debris_class_at_disposal_site_review',
+  'mileage_review',
+  'load_call_review',
+  'linked_mobile_load_consistency_review',
+  'truck_trip_time_review',
+] as const;
+const TRANSACTION_SUMMARY_SCALAR_KEYS = [
+  'total_tickets',
+  'distinct_invoice_count',
+  'uninvoiced_line_count',
+  'rows_with_missing_rate_code',
+  'rows_with_missing_invoice_number',
+  'rows_with_missing_quantity',
+  'rows_with_missing_extended_cost',
+  'rows_with_zero_cost',
+  'rows_with_extreme_unit_rate',
+] as const;
+const TRANSACTION_SUMMARY_SELECT = [
+  'id, document_id, project_id, row_count, total_extended_cost, total_cyd_ticket_grain, total_cyd_ticket_grain_full, total_mileage_ticket_grain, total_mileage_ticket_grain_full, total_diameter, total_diameter_full, total_net_tonnage, total_net_tonnage_full, date_range_start, date_range_end, created_at',
+  'overview_total_tickets:summary_json->project_operations_overview->total_tickets',
+  ...TRANSACTION_SUMMARY_SCALAR_KEYS.map((key) => `${key}:summary_json->${key}`),
+  ...TRANSACTION_REVIEW_BUCKET_KEYS.map((key) => `${key}:summary_json->${key}`),
+].join(', ');
+
 const TRANSACTION_DATA_ROW_SELECT =
   'id, document_id, project_id, invoice_number, transaction_number, rate_code, billing_rate_key, description_match_key, site_material_key, invoice_rate_key, transaction_quantity, extended_cost, invoice_date, source_sheet_name, source_row_number, record_json, raw_row_json, created_at';
 
@@ -719,6 +752,76 @@ export async function getCanonicalTransactionDataForProject(params: {
     datasets: asRecordArray(datasetsResult.data).map(mapPersistedDataset),
     rows: rowsResult.data.map(mapPersistedRow),
   };
+}
+
+function transactionReviewBucket(value: unknown, fallbackKey: string): TransactionReviewBucketSummary | null {
+  const bucket = asRecord(value);
+  const flaggedRowCount = asInteger(bucket?.flagged_row_count) ?? 0;
+  if (!bucket || bucket.available !== true || flaggedRowCount <= 0) return null;
+  return {
+    reviewKey: asString(bucket.review_key) ?? fallbackKey,
+    label: asString(bucket.label) ?? fallbackKey,
+    status: asString(bucket.status),
+    reviewedRowCount: asInteger(bucket.reviewed_row_count),
+    flaggedRowCount,
+    summary: asString(bucket.summary),
+    flaggedRecordIds: Array.isArray(bucket.flagged_record_ids)
+      ? bucket.flagged_record_ids.flatMap((entry) => asString(entry) ?? [])
+      : [],
+  };
+}
+
+function mapTransactionSummary(row: Record<string, unknown>): TransactionDatasetSummary {
+  return {
+    id: String(row.id),
+    documentId: String(row.document_id),
+    projectId: String(row.project_id),
+    rowCount: asInteger(row.row_count),
+    totalExtendedCost: asNumber(row.total_extended_cost),
+    tickets: {
+      count: firstInteger(row.overview_total_tickets, row.total_tickets),
+      cyd: { invoiced: asNumber(row.total_cyd_ticket_grain), all: asNumber(row.total_cyd_ticket_grain_full) },
+      mileage: { invoiced: asNumber(row.total_mileage_ticket_grain), all: asNumber(row.total_mileage_ticket_grain_full) },
+      netTonnage: { invoiced: asNumber(row.total_net_tonnage), all: asNumber(row.total_net_tonnage_full) },
+      diameter: { invoiced: asNumber(row.total_diameter), all: asNumber(row.total_diameter_full) },
+    },
+    dateRangeStart: asDateString(row.date_range_start),
+    dateRangeEnd: asDateString(row.date_range_end),
+    distinctInvoiceCount: asInteger(row.distinct_invoice_count),
+    uninvoicedLineCount: asInteger(row.uninvoiced_line_count),
+    missingFields: {
+      rateCode: asInteger(row.rows_with_missing_rate_code),
+      invoiceNumber: asInteger(row.rows_with_missing_invoice_number),
+      quantity: asInteger(row.rows_with_missing_quantity),
+      extendedCost: asInteger(row.rows_with_missing_extended_cost),
+    },
+    zeroCostRowCount: asInteger(row.rows_with_zero_cost),
+    extremeUnitRateRowCount: asInteger(row.rows_with_extreme_unit_rate),
+    flaggedReviews: TRANSACTION_REVIEW_BUCKET_KEYS.flatMap((key) => transactionReviewBucket(row[key], key) ?? []),
+    createdAt: asString(row.created_at),
+  };
+}
+
+/**
+ * The newest uploads' persisted aggregates, without a single transaction row or
+ * grouped rollup. Any error throws, including a missing table: "could not read"
+ * must never look like "this project has no tickets".
+ */
+export async function readTransactionSummariesForProject(params: {
+  admin: SupabaseClient;
+  projectId: string;
+  limit: number;
+}): Promise<ProjectTransactionSummaries> {
+  const { data, error, count } = await params.admin
+    .from('transaction_data_datasets')
+    .select(TRANSACTION_SUMMARY_SELECT, { count: 'exact' })
+    .eq('project_id', params.projectId)
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: true })
+    .limit(params.limit);
+  if (error) throw new Error('Failed to load transaction summaries.');
+  const datasets = asRecordArray(data).map(mapTransactionSummary);
+  return { totalDatasetCount: count ?? datasets.length, datasets };
 }
 
 export async function getTransactionDataForProject(

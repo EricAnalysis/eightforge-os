@@ -97,6 +97,21 @@ npx vite-node --config vitest.config.ts scripts/evaluation/operator-guidance/qua
 npx vite-node --config vitest.config.ts scripts/evaluation/operator-guidance/qualify.ts -- grade --freeze scripts/evaluation/artifacts/operator-guidance-v1/freeze.json --run <evidence dir>
 ```
 
+## Where the paid run happens
+
+From frozen commit `9b5b97f`, in a checkout of exactly that commit. The contract pins its
+source files, and later work on `main` edits some of them, so `qualify.ts run` on `main`
+refuses by design. That refusal stays. Do not refreeze to get past it.
+
+The result still applies to `main` because `lib/evaluation/operatorGuidance/frozenRequests.test.ts`
+proves `main` builds all 24 requests and floors byte for byte as frozen. Ticket context is planned
+from a question's words only, and none of the 24 questions names tickets, so it never joins them.
+If that test ever fails, a result from `9b5b97f` no longer describes `main`.
+
+**What this does not cover:** answers to ticket questions. Their requests carry a section the
+contract never saw, so qualification does not speak for them and they need their own review
+before activation.
+
 ## After the run
 
 **If everything passes, nothing is switched on.** Verify the Ask model guard, entitlement,

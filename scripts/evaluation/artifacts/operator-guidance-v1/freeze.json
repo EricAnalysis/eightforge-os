@@ -1,0 +1,479 @@
+{
+  "contract": "operator_guidance_qualification_v1",
+  "fixtures": {
+    "north_setup": "Sample Project North",
+    "east_pricing": "Sample Project East",
+    "south_billing": "Sample Project South",
+    "west_cleared": "Sample Project West",
+    "ticket_conflict": "Sample Project Conflict",
+    "ticket_grain": "Sample Project Tickets"
+  },
+  "perIntent": {
+    "whats_missing": 6,
+    "need_document": 6,
+    "why_flagged": 6,
+    "what_to_do": 6
+  },
+  "perFixture": {
+    "north_setup": 7,
+    "south_billing": 3,
+    "west_cleared": 3,
+    "ticket_conflict": 3,
+    "east_pricing": 6,
+    "ticket_grain": 2
+  },
+  "census": [
+    {
+      "caseId": "missing-01",
+      "fixture": "north_setup",
+      "intent": "whats_missing",
+      "question": "What am I missing?",
+      "focusRule": null,
+      "classification": "source_missing",
+      "floorNextStep": "upload_or_request_document"
+    },
+    {
+      "caseId": "missing-02",
+      "fixture": "north_setup",
+      "intent": "whats_missing",
+      "question": "What else is missing on this project?",
+      "focusRule": null,
+      "classification": "source_present_relationship_unresolved",
+      "floorNextStep": "link_existing_document"
+    },
+    {
+      "caseId": "missing-03",
+      "fixture": "south_billing",
+      "intent": "whats_missing",
+      "question": "What am I missing before billing review?",
+      "focusRule": null,
+      "classification": "source_missing",
+      "floorNextStep": "upload_or_request_document"
+    },
+    {
+      "caseId": "missing-04",
+      "fixture": "west_cleared",
+      "intent": "whats_missing",
+      "question": "Am I missing anything?",
+      "focusRule": null,
+      "classification": "no_open_findings",
+      "floorNextStep": "no_action_needed"
+    },
+    {
+      "caseId": "missing-05",
+      "fixture": "ticket_conflict",
+      "intent": "whats_missing",
+      "question": "What is missing here?",
+      "focusRule": "TRANSACTION_TICKET_GRAIN_CONFLICT",
+      "classification": "not_a_source_gap",
+      "floorNextStep": "operator_judgment_required"
+    },
+    {
+      "caseId": "missing-06",
+      "fixture": "east_pricing",
+      "intent": "whats_missing",
+      "question": "What are we missing for pricing?",
+      "focusRule": null,
+      "classification": "likely_system_issue",
+      "floorNextStep": "likely_system_issue"
+    },
+    {
+      "caseId": "document-01",
+      "fixture": "north_setup",
+      "intent": "need_document",
+      "question": "Do I need another document?",
+      "focusRule": null,
+      "classification": "source_present_relationship_unresolved",
+      "floorNextStep": "link_existing_document"
+    },
+    {
+      "caseId": "document-02",
+      "fixture": "north_setup",
+      "intent": "need_document",
+      "question": "Do we need to upload a rate schedule?",
+      "focusRule": null,
+      "classification": "source_missing",
+      "floorNextStep": "upload_or_request_document"
+    },
+    {
+      "caseId": "document-03",
+      "fixture": "east_pricing",
+      "intent": "need_document",
+      "question": "Should I request another pricing document?",
+      "focusRule": null,
+      "classification": "source_present",
+      "floorNextStep": "review_existing_document"
+    },
+    {
+      "caseId": "document-04",
+      "fixture": "south_billing",
+      "intent": "need_document",
+      "question": "Do I need another invoice document?",
+      "focusRule": "SOURCES_NO_INVOICE_DATA",
+      "classification": "source_present",
+      "floorNextStep": "review_existing_document"
+    },
+    {
+      "caseId": "document-05",
+      "fixture": "east_pricing",
+      "intent": "need_document",
+      "question": "Do I need to upload the price sheet again?",
+      "focusRule": null,
+      "classification": "source_present_unread",
+      "floorNextStep": "review_existing_document"
+    },
+    {
+      "caseId": "document-06",
+      "fixture": "west_cleared",
+      "intent": "need_document",
+      "question": "Do I need any other documents?",
+      "focusRule": null,
+      "classification": "no_open_findings",
+      "floorNextStep": "no_action_needed"
+    },
+    {
+      "caseId": "flagged-01",
+      "fixture": "ticket_conflict",
+      "intent": "why_flagged",
+      "question": "Why is this flagged?",
+      "focusRule": "TRANSACTION_TICKET_GRAIN_CONFLICT",
+      "classification": "not_a_source_gap",
+      "floorNextStep": "operator_judgment_required"
+    },
+    {
+      "caseId": "flagged-02",
+      "fixture": "ticket_grain",
+      "intent": "why_flagged",
+      "question": "Why is this flagged?",
+      "focusRule": "TRANSACTION_QUANTITY_MATCHES_INVOICE",
+      "classification": "not_a_source_gap",
+      "floorNextStep": "review_ticket_or_transaction"
+    },
+    {
+      "caseId": "flagged-03",
+      "fixture": "east_pricing",
+      "intent": "why_flagged",
+      "question": "Why is this flagged?",
+      "focusRule": "FINANCIAL_RATE_BASED_ROWS_REQUIRED",
+      "classification": "likely_system_issue",
+      "floorNextStep": "likely_system_issue"
+    },
+    {
+      "caseId": "flagged-04",
+      "fixture": "north_setup",
+      "intent": "why_flagged",
+      "question": "Why is this still flagged?",
+      "focusRule": "FINANCIAL_RATE_BASED_SCHEDULE_REQUIRED",
+      "classification": "source_present_relationship_unresolved",
+      "floorNextStep": "link_existing_document"
+    },
+    {
+      "caseId": "flagged-05",
+      "fixture": "south_billing",
+      "intent": "why_flagged",
+      "question": "Why is this project blocked?",
+      "focusRule": "SOURCES_NO_CONTRACT",
+      "classification": "source_missing",
+      "floorNextStep": "upload_or_request_document"
+    },
+    {
+      "caseId": "flagged-06",
+      "fixture": "east_pricing",
+      "intent": "why_flagged",
+      "question": "Why is pricing flagged?",
+      "focusRule": "FINANCIAL_RATE_BASED_PRICING_APPLICABILITY_UNCLEAR",
+      "classification": "not_a_source_gap",
+      "floorNextStep": "review_existing_document"
+    },
+    {
+      "caseId": "action-01",
+      "fixture": "north_setup",
+      "intent": "what_to_do",
+      "question": "What should I do?",
+      "focusRule": null,
+      "classification": "source_missing",
+      "floorNextStep": "upload_or_request_document"
+    },
+    {
+      "caseId": "action-02",
+      "fixture": "north_setup",
+      "intent": "what_to_do",
+      "question": "What should I do next?",
+      "focusRule": null,
+      "classification": "source_present_relationship_unresolved",
+      "floorNextStep": "link_existing_document"
+    },
+    {
+      "caseId": "action-03",
+      "fixture": "east_pricing",
+      "intent": "what_to_do",
+      "question": "What is the next step?",
+      "focusRule": null,
+      "classification": "likely_system_issue",
+      "floorNextStep": "likely_system_issue"
+    },
+    {
+      "caseId": "action-04",
+      "fixture": "ticket_conflict",
+      "intent": "what_to_do",
+      "question": "What should we do about this?",
+      "focusRule": "TRANSACTION_TICKET_GRAIN_CONFLICT",
+      "classification": "not_a_source_gap",
+      "floorNextStep": "operator_judgment_required"
+    },
+    {
+      "caseId": "action-05",
+      "fixture": "ticket_grain",
+      "intent": "what_to_do",
+      "question": "What should I do?",
+      "focusRule": "TRANSACTION_TOTAL_MATCHES_INVOICE_LINE",
+      "classification": "not_a_source_gap",
+      "floorNextStep": "review_ticket_or_transaction"
+    },
+    {
+      "caseId": "action-06",
+      "fixture": "west_cleared",
+      "intent": "what_to_do",
+      "question": "What should I do next?",
+      "focusRule": null,
+      "classification": "no_open_findings",
+      "floorNextStep": "no_action_needed"
+    }
+  ],
+  "requests": [
+    {
+      "caseId": "missing-01",
+      "bodySha256": "177181073aa4f62eed90d1afc6f440f04c6c6cf841e7d736b17e740926cac127",
+      "floorDigest": "9e07fda1050fda38e9de70dcb5b41ddf3e9b10e5ce0f3ce9c5bbee8e0ba611f2",
+      "contextTransmittedDigest": "1070d702c84ab24896999981b78d563a55913f1b46800b7edb6d2f8cd1e3a4c9",
+      "chars": 3036
+    },
+    {
+      "caseId": "missing-02",
+      "bodySha256": "aa0bf250a1e3183b765cd42fddccb88fa07e8518bdd3d5dfb35ece54733ee393",
+      "floorDigest": "43d73644e9dfe1c37219966e4e8ea367208e9e0c8be830721539697b1708d95f",
+      "contextTransmittedDigest": "2eada0ea57a57d935d398c80f8ded194449fd31116949db678ca8183457e796b",
+      "chars": 3714
+    },
+    {
+      "caseId": "missing-03",
+      "bodySha256": "07f01115f91e35b50971e8674b947161237479e4026a52180f3d683db880f2a1",
+      "floorDigest": "df733f00da9743d42ce6f1b4283329a2ee725821b4c379052213da1eb8ce6db5",
+      "contextTransmittedDigest": "c619514c6bf3126c240ef9187a1fa20ec1d2b13f3fb5d0d847113998625564d9",
+      "chars": 4206
+    },
+    {
+      "caseId": "missing-04",
+      "bodySha256": "5a3605b125c713c25e9a022448b6f57d8bde37eb4a8d88b08f9dc4624fb3ac01",
+      "floorDigest": "72ca58106bccc31607b3ebb4f382c8c7d82a9813e8ad19c382eb23b2c3b0e37a",
+      "contextTransmittedDigest": "38f6cf1096e0cf41317c0b4190478b17d8bb5f4657b6da165295ac9df964d6f9",
+      "chars": 1766
+    },
+    {
+      "caseId": "missing-05",
+      "bodySha256": "6fc09af07ee7002e4e25494506aba7977fe201bff27d4138766b326e7f4d8c15",
+      "floorDigest": "07ff077efee35732cb9f26a4e3c0effb04ea74c6e76be584daf7e416109e6df4",
+      "contextTransmittedDigest": "b5c0d3e34c8c4e82ba0f6e1669441fedc7edac5eb5380e48318f7fbd4f850e54",
+      "chars": 11603
+    },
+    {
+      "caseId": "missing-06",
+      "bodySha256": "2a789f7a3050f76a16574badfe6247392eda1c416c2552650c4e4994a1fe32e8",
+      "floorDigest": "7cae6fcb39a49ef2383db6a33e1dbc253f84e875b50651c1a162e5fdc8ce7120",
+      "contextTransmittedDigest": "2852ba5d12732a5774bc4418c8057c12e7362392f1957f07a6800626447f3823",
+      "chars": 3941
+    },
+    {
+      "caseId": "document-01",
+      "bodySha256": "5d7b65ff79370038ae06788e61b0dc09799a2a222ce855f9b6636217f506bc66",
+      "floorDigest": "6a8318f8cd5905836ce55ec7de5e383674f1057c495fbee9581e0afdb79875c7",
+      "contextTransmittedDigest": "2eada0ea57a57d935d398c80f8ded194449fd31116949db678ca8183457e796b",
+      "chars": 3704
+    },
+    {
+      "caseId": "document-02",
+      "bodySha256": "b89d1b5ea9ab281f2f4869e886d85b6d86bc15b1157708df65183e645e792707",
+      "floorDigest": "61764ad3630dac3591cef2af3f4a3f467d3579101e604fe3ab12d5ddb18dd50c",
+      "contextTransmittedDigest": "1070d702c84ab24896999981b78d563a55913f1b46800b7edb6d2f8cd1e3a4c9",
+      "chars": 3055
+    },
+    {
+      "caseId": "document-03",
+      "bodySha256": "8168bd176dce9d6d0ac0f2c6ce5210c0714565516b87f0586435a30083cf68ab",
+      "floorDigest": "63efbd85589d7a12fce3b72a592707ae69a26c26c83a9c8a9076f527290fd560",
+      "contextTransmittedDigest": "cd321e27c26d5c699ad8d33d32938bead5f3e76171d6cb184699f6c205f68580",
+      "chars": 3948
+    },
+    {
+      "caseId": "document-04",
+      "bodySha256": "9a17af302c99c2e71cd7230c25bda8b34917a8abcb942e6844fae98668fc9c7c",
+      "floorDigest": "2020c35dfafcb157f352c80d44203bc5e295062b6864d4f1734c4dcda77d83fd",
+      "contextTransmittedDigest": "0ad5a1e9b8f7d1ad51417caf84ee1d185422053ad8ab85012af892214e2b6cd4",
+      "chars": 4904
+    },
+    {
+      "caseId": "document-05",
+      "bodySha256": "8399398f27402bc548795cc8293d8bacb038bcf3fa82376113fdd4a3b0f366a9",
+      "floorDigest": "cc5edee1f407fe318564401ea7b17c3b2ac3a1fd1ec3cbebd17f2f614b299450",
+      "contextTransmittedDigest": "47f62ad343d7d5ef23eba47061dc1b5fd1e97fd30ba08747089372d4640b1aaf",
+      "chars": 3659
+    },
+    {
+      "caseId": "document-06",
+      "bodySha256": "90b49feffe6d0a8d0383f30ce6541daa3de60f5683dbc922c79b7606818d93f3",
+      "floorDigest": "1ed1608afa59c7045094060158b8bebe2fe7e23e9418ce2822e1c21ed00011f1",
+      "contextTransmittedDigest": "38f6cf1096e0cf41317c0b4190478b17d8bb5f4657b6da165295ac9df964d6f9",
+      "chars": 1774
+    },
+    {
+      "caseId": "flagged-01",
+      "bodySha256": "4c04806cf7afa0c034b2c3188be2dfbe49b8d95456cabeef2f4fbf14ef7575a6",
+      "floorDigest": "d2030908e286cae1b9ea45fbd52549ac80ee773eb6a9481409abbe9a7daf5354",
+      "contextTransmittedDigest": "b5c0d3e34c8c4e82ba0f6e1669441fedc7edac5eb5380e48318f7fbd4f850e54",
+      "chars": 11600
+    },
+    {
+      "caseId": "flagged-02",
+      "bodySha256": "d4aa225917489d578866703dab00818d33d2a059910b6da9eb9b8b8d54ccd135",
+      "floorDigest": "29aae4772bdb7c8ce68025fc8e3c1280f767d915542bf46bc3b53ac784165bca",
+      "contextTransmittedDigest": "693567a794b8328ac7f3abb9a26a46810dc84b263fd219c689ea5b2a4e514595",
+      "chars": 5936
+    },
+    {
+      "caseId": "flagged-03",
+      "bodySha256": "3fc2722764d3e016969da628290e11069b8ea97e09ece893d22196ba4ff95fca",
+      "floorDigest": "d35770e2adab7e90ebbe1a7fc0c1cecb09212427298128097f45579f6ee50e3a",
+      "contextTransmittedDigest": "f2fa3915540ed26e0fdc91b79a6001ce1574fcb8b76d6c40c9e2a70fb2f0578f",
+      "chars": 6567
+    },
+    {
+      "caseId": "flagged-04",
+      "bodySha256": "4569fedc89ba6a6b6d51cbccae84d34a40d333e950d89d24c97cd510ed16cf5b",
+      "floorDigest": "64ed497d41b9f31d66666d6cd1a854bd4c19f3ddafbb886ce352b4455850f648",
+      "contextTransmittedDigest": "cd9362742178fe93f0cf6a0ab11c9bcc76850db29de8f4f1a03f4717aa2f6f3a",
+      "chars": 4060
+    },
+    {
+      "caseId": "flagged-05",
+      "bodySha256": "bf5e09074ce2c6976a2bc15d32a3eee18929eb4da6d954bebfe6056ef450427c",
+      "floorDigest": "de044b08c4430f79e59299dbe3c1fbc790c9bfbcdc45635ee54b9bd46f6aab6c",
+      "contextTransmittedDigest": "546603b56b9d2d1dc0fb86cd6b6e27bca67b900a5c7b8c485232c437fefc7ffd",
+      "chars": 2118
+    },
+    {
+      "caseId": "flagged-06",
+      "bodySha256": "4f0c5fbabc716529a2d4c35aee890c37dfff7caa46c7f3efa38b69f40474d868",
+      "floorDigest": "67a7e63be68553fac4241cefedfbcc57db70c939da1a4355e0da3a0f30453519",
+      "contextTransmittedDigest": "6797c6fc389cb67e5a992536559e4ae5b955479e1c53c9561f459b569ee9f15d",
+      "chars": 3125
+    },
+    {
+      "caseId": "action-01",
+      "bodySha256": "00b8d72d7b3846a65325f1978e54a88424c98ba37760c19afe069a2f302a80cd",
+      "floorDigest": "ffbeade541fe4a44a7b074f36a7a19e18e206d3f36438e69217e93783a8e4af1",
+      "contextTransmittedDigest": "1070d702c84ab24896999981b78d563a55913f1b46800b7edb6d2f8cd1e3a4c9",
+      "chars": 3032
+    },
+    {
+      "caseId": "action-02",
+      "bodySha256": "1c0c8c886b42f7650c4f78ee3f9736a800f3ff3f2f38ad515ab8d05f3f1287f6",
+      "floorDigest": "962b577dd98d834a801b58599ef8959ff84994e973df7875bfc3ba136e7114a4",
+      "contextTransmittedDigest": "2eada0ea57a57d935d398c80f8ded194449fd31116949db678ca8183457e796b",
+      "chars": 3696
+    },
+    {
+      "caseId": "action-03",
+      "bodySha256": "dedd0f33d4ce83440f0513fe8755efa6a5f4f6b5b8b63adbab6f375909a131ba",
+      "floorDigest": "f57a0e1b0ff9c088870c954db5f624bbd30a2c66838a24ecb0b914635d62d902",
+      "contextTransmittedDigest": "2852ba5d12732a5774bc4418c8057c12e7362392f1957f07a6800626447f3823",
+      "chars": 3928
+    },
+    {
+      "caseId": "action-04",
+      "bodySha256": "ab2b61083ef68e1c49eeca8aaebdaa9816e1dd5d44ab5f04cec7b5bbd82dc8c0",
+      "floorDigest": "ae2699c2622a33d2d9cc4a2de99da23754e5ac8eb0f58f2bbdff369aefebedc6",
+      "contextTransmittedDigest": "b5c0d3e34c8c4e82ba0f6e1669441fedc7edac5eb5380e48318f7fbd4f850e54",
+      "chars": 11608
+    },
+    {
+      "caseId": "action-05",
+      "bodySha256": "eb68c48a6deba20e44f0e006ca7785869a3bc45e431159d817968a50a5a1bcc7",
+      "floorDigest": "92108f74328e2fbad381328b4eb292f482c3fe33d6ed48114d44f643ce0af6d2",
+      "contextTransmittedDigest": "47ddba211c5a0033f2894295b3a822c397afa5c3361b900afc5cf972cba45533",
+      "chars": 5932
+    },
+    {
+      "caseId": "action-06",
+      "bodySha256": "717561583840f9ac7fa10cfefc5e3723c7a35e01deaf3c07a5ec024645f580c3",
+      "floorDigest": "c5d2874d49f969a8a91a541a4c4d5c6103be874bad1814e785fd7fd4c91265ca",
+      "contextTransmittedDigest": "38f6cf1096e0cf41317c0b4190478b17d8bb5f4657b6da165295ac9df964d6f9",
+      "chars": 1763
+    }
+  ],
+  "labelSet": {
+    "version": "operator_guidance_labels_v1",
+    "digest": "752b8a4d3e17092803a4f9f7e4e16482980f71cf43e8c60560c57e4ac6229bcc"
+  },
+  "bars": {
+    "scorer": "operator_guidance_scorecard_v1",
+    "cases": 24,
+    "casesPerIntent": 6,
+    "minimumFixtures": 3,
+    "maximumCasesPerFixture": 8,
+    "hardViolationsAllowed": 0,
+    "minimumAcceptedRate": 0.75,
+    "maximumFallbackRate": 0.25,
+    "spendCeilingUsd": 1,
+    "retries": 0,
+    "timeoutMs": 45000,
+    "worstCaseCharsPerToken": 3
+  },
+  "barsDigest": "24ceb1cff37eb54bb879e5f6f60a999a95628e7a1b2b1fe9f9a0e8ba8f3c5e8e",
+  "request": {
+    "requestContract": "project_ask_operator_guidance_v1",
+    "model": "claude-sonnet-4-6",
+    "temperature": 0,
+    "maxOutputTokens": 2400,
+    "timeoutMs": 45000,
+    "retries": 0,
+    "promptSha256": "18a5791440c1a9743eb7394d3e5bb5b02f93ebc07c03807b092e5578d83f92a0",
+    "outputSchemaDigest": "c767cb6f104dcd3d0420a579026eb4df0390e74f0c471473bf15fd93ba37295b",
+    "nextStepVocabularyDigest": "13a53449916c886326817a50e504e0078e2da392b6b3d1c30ba2b868296781ee",
+    "pricing": {
+      "model": "claude-sonnet-4-6",
+      "inputUsdPerMTok": 3,
+      "outputUsdPerMTok": 15
+    }
+  },
+  "pinnedSources": {
+    "app/api/projects/[id]/ask/route.ts": "f3042747cd4abb03eeae7747756372c4bf5ffbed3e9289757cd3958995079a30",
+    "lib/ask/classifier.ts": "218a6534c2cbbb0621871455b56347e9868ee73ed6007e13d05eae1523a90aea",
+    "lib/ask/retrieval.ts": "7c705bd7bd3da9437d5d2d72bdde89cf8f48856eb7aed36300f08ecdf36a81ab",
+    "lib/documentPrecedence.ts": "e2cd83683e24f56ae97573623188d721d85fcb2188bc682ded62ccd0744f1baf",
+    "lib/projectIntelligence/contextPlan.ts": "d5b84d46651e1c268f805b459ccecc6a617ab932335e5023794f8cbdc2dcf9e8",
+    "lib/projectIntelligence/evidenceAssessment.ts": "cbf155c90bb944125d0798175f86f00214916e3488554127199aa10259c0ac03",
+    "lib/projectIntelligence/operatorRecommendation.ts": "305aa47efc4fb8afebe795f4e2fe2670852fe4c130cfe8be6a855529475bdbaa",
+    "lib/projectIntelligence/projectContext.ts": "e5cb1b0a480af135db9daf92d801941feaa2c64d366aba3e8f4632cee6524a8e",
+    "lib/server/ai/askModel.ts": "78e8733c3c8fcaba57b81aeee84e3fbb3fd0f7a4a66dc34f78615260624c72c1",
+    "lib/server/ai/askProject.ts": "519fbce77862851c9940c271673378c9432c1c6c06a0efa63ac988aa5ba3a7e3",
+    "lib/server/ai/claudeRequestOptions.ts": "3e0d8cfb794a53974b434fc23d18a010d51364ab51c08e4a4b19824207f99dab",
+    "lib/server/ai/claudeSampling.ts": "08c3da6b6ff3f126d89bb5693f6165b3a323a683d9b8144bf9c80e9f33d76faa",
+    "lib/server/ai/operatorGuidance.ts": "9c9d27e64555c4a8b6a3eae7e6859b3e217ea65647f3e971da028aceb2e4671e",
+    "lib/server/caseInvestigationRunner.ts": "69292714b045a12fb2dfb90e18e702155055b3c3169244ba2bc335e1e6385b73",
+    "lib/server/documentPrecedence.ts": "7c8e871e43e83808a89001b9deea33c09667a4c2068891d48c84b4ea21b7da04",
+    "lib/server/projectIntelligenceRead.ts": "156939a71c071d37845543e910bb154edc00690f955b78da9c6bcb6420621cf7",
+    "lib/validator/projectValidator.ts": "200b43b96c65cd70266c4549e6048eba9df9234e3721f2d23507181b2bc7b36e",
+    "lib/validator/ruleExplanations.ts": "aecdb3168c6dd3dab905a266d492ed87679af29ffc6a170c526e89f184db5e03",
+    "scripts/evaluation/operator-guidance/contract.ts": "9b6cdab9c39c82958357d80d1bee53eccb820fce21d6d0f0152a8571bce4ba30",
+    "scripts/evaluation/operator-guidance/corpus.ts": "201e2f1003f0c2f341809faa7c24c5b073f05e31b6fd5a7b9a0942d076d45eef",
+    "scripts/evaluation/operator-guidance/harness.ts": "1fc22e8360e70c2559b06102032e98fc96c975449acdd84ccf1d7efb01778065",
+    "scripts/evaluation/operator-guidance/labels.ts": "caf4f371f0dd0a4f94765fb6f41315b28b6acc4e308930c4fc055b9e5b4d3cc2"
+  },
+  "worstCaseSpendUsd": 1.0102,
+  "pricing": {
+    "model": "claude-sonnet-4-6",
+    "inputUsdPerMTok": 3,
+    "outputUsdPerMTok": 15
+  },
+  "freezeSha256": "fb602e346d244c112bb195905d228445b8e3245f489ffd26972d1f006eea1cdf"
+}

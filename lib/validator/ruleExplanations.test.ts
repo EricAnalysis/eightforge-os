@@ -8,8 +8,8 @@ import { normalizeValidationFinding } from '@/lib/validator/findingSemantics';
 import { VALIDATOR_RULE_EXPLANATIONS } from '@/lib/validator/ruleExplanations';
 import type { ValidationFinding } from '@/types/validator';
 
-/** Still read by routing for findings recorded before the rule was renamed; never emitted now. */
-const LEGACY_RULE_IDS = new Set(['FINANCIAL_RATE_NOT_IN_SCHEDULE']);
+/** Still read for findings already recorded, whether the rule was renamed or retired; never emitted now. */
+const LEGACY_RULE_IDS = new Set(['FINANCIAL_RATE_NOT_IN_SCHEDULE', 'SOURCES_NO_RATE_SCHEDULE']);
 
 function validatorSources(directory: string): string[] {
   return readdirSync(directory).flatMap((name) => {

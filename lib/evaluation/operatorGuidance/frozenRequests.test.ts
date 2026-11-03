@@ -10,16 +10,21 @@ import { QUALIFICATION_CASES } from '@/scripts/evaluation/operator-guidance/corp
 import { materializeCase } from '@/scripts/evaluation/operator-guidance/harness';
 
 /**
- * The paid qualification runs from its frozen commit, and `main` has moved past
- * it. Its result only describes `main` while `main` still sends what was frozen.
- * This compares every request and floor with the sealed freeze, byte for byte.
+ * A qualification result only describes `main` while `main` still sends what was
+ * frozen. This compares every request and floor with the sealed freezes, byte for
+ * byte: v1 (voided, but where these bytes were first fixed) and its successor v2.
  */
 
 type FrozenRequest = { caseId: string; bodySha256: string; floorDigest: string; contextTransmittedDigest: string };
 
 const frozen = JSON.parse(readFileSync('scripts/evaluation/artifacts/operator-guidance-v1/freeze.json', 'utf8')) as { requests: FrozenRequest[] };
+const frozenV2 = JSON.parse(readFileSync('scripts/evaluation/artifacts/operator-guidance-v2/freeze.json', 'utf8')) as { requests: FrozenRequest[] };
 
 describe('main still sends what the qualification froze', () => {
+  it('v2 froze exactly what v1 froze', () => {
+    expect(frozenV2.requests).toEqual(frozen.requests);
+  });
+
   it('covers every frozen case', () => {
     expect(frozen.requests.map((entry) => entry.caseId).sort()).toEqual(QUALIFICATION_CASES.map((item) => item.caseId).sort());
     expect(frozen.requests).toHaveLength(24);

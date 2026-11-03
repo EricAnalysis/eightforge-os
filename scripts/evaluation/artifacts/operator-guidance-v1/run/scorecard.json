@@ -1,0 +1,24 @@
+{
+  "scorer": "operator_guidance_scorecard_v1",
+  "barsDigest": "24ceb1cff37eb54bb879e5f6f60a999a95628e7a1b2b1fe9f9a0e8ba8f3c5e8e",
+  "verdict": "FAIL_EXCESSIVE_FALLBACK",
+  "calls": 24,
+  "accepted": 0,
+  "fallback": 24,
+  "acceptedRate": 0,
+  "fallbackRate": 1,
+  "fallbackReasons": {
+    "Error": 24
+  },
+  "violations": [],
+  "spendUsd": 0.11269799999999999,
+  "latencyMs": {
+    "median": 131.4308000000019,
+    "p95": 221.66359999999986,
+    "max": 8344.1885
+  },
+  "tokens": {
+    "input": 0,
+    "output": 0
+  }
+}

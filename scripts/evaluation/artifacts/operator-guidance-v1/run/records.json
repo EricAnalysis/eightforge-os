@@ -1,0 +1,2123 @@
+{
+  "freezeSha256": "fb602e346d244c112bb195905d228445b8e3245f489ffd26972d1f006eea1cdf",
+  "records": [
+    {
+      "caseId": "missing-01",
+      "allowedNextSteps": [
+        "upload_or_request_document",
+        "review_existing_document"
+      ],
+      "requestBodySha256": "177181073aa4f62eed90d1afc6f440f04c6c6cf841e7d736b17e740926cac127",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "whats_missing",
+        "evidenceState": "source_missing",
+        "answer": "This project has no pricing schedule. It looks genuinely absent, not just unlinked.",
+        "recommendedNextStep": {
+          "kind": "upload_or_request_document",
+          "instruction": "Upload the pricing schedule, or request it from whoever holds it.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "7accdc2e-8e67-44d4-8a9e-1b550868b620",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          },
+          {
+            "recordId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "Whether the contract itself contains the schedule pages has not been confirmed."
+        ],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "whats_missing",
+        "evidenceState": "source_missing",
+        "answer": "This project has no pricing schedule. It looks genuinely absent, not just unlinked.",
+        "recommendedNextStep": {
+          "kind": "upload_or_request_document",
+          "instruction": "Upload the pricing schedule, or request it from whoever holds it.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "7accdc2e-8e67-44d4-8a9e-1b550868b620",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          },
+          {
+            "recordId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "Whether the contract itself contains the schedule pages has not been confirmed."
+        ],
+        "needsHumanReview": true
+      },
+      "rawOutput": null,
+      "stopReason": null,
+      "returnedModel": null,
+      "providerRequestId": null,
+      "inputTokens": null,
+      "outputTokens": null,
+      "latencyMs": 8344.1885,
+      "costUsd": 0.003036,
+      "status": "provider_failed",
+      "rejectionReason": "Error"
+    },
+    {
+      "caseId": "missing-02",
+      "allowedNextSteps": [
+        "link_existing_document",
+        "review_existing_document",
+        "operator_judgment_required"
+      ],
+      "requestBodySha256": "aa0bf250a1e3183b765cd42fddccb88fa07e8518bdd3d5dfb35ece54733ee393",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "whats_missing",
+        "evidenceState": "source_present_relationship_unresolved",
+        "answer": "The pricing schedule appears to already exist in this project as \"Sample Unit Price Sheet\". No additional document appears necessary.",
+        "recommendedNextStep": {
+          "kind": "link_existing_document",
+          "instruction": "Check whether \"Sample Unit Price Sheet\" is linked to the governing contract, \"Sample Debris Removal Contract\", and link it if it applies.",
+          "actionHref": "/platform/projects/d10e236a-cc74-40c8-8583-72b9142b45e7#project-documents"
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "7accdc2e-8e67-44d4-8a9e-1b550868b620",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          },
+          {
+            "recordId": "e9bdd44a-50ca-494f-89ff-a9bf2b4c2c5f",
+            "sectionKind": "documents",
+            "label": "Sample Unit Price Sheet",
+            "documentId": "e9bdd44a-50ca-494f-89ff-a9bf2b4c2c5f",
+            "page": null
+          },
+          {
+            "recordId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "Whether it covers everything the project needs has not been confirmed."
+        ],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "whats_missing",
+        "evidenceState": "source_present_relationship_unresolved",
+        "answer": "The pricing schedule appears to already exist in this project as \"Sample Unit Price Sheet\". No additional document appears necessary.",
+        "recommendedNextStep": {
+          "kind": "link_existing_document",
+          "instruction": "Check whether \"Sample Unit Price Sheet\" is linked to the governing contract, \"Sample Debris Removal Contract\", and link it if it applies.",
+          "actionHref": "/platform/projects/d10e236a-cc74-40c8-8583-72b9142b45e7#project-documents"
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "7accdc2e-8e67-44d4-8a9e-1b550868b620",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          },
+          {
+            "recordId": "e9bdd44a-50ca-494f-89ff-a9bf2b4c2c5f",
+            "sectionKind": "documents",
+            "label": "Sample Unit Price Sheet",
+            "documentId": "e9bdd44a-50ca-494f-89ff-a9bf2b4c2c5f",
+            "page": null
+          },
+          {
+            "recordId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "Whether it covers everything the project needs has not been confirmed."
+        ],
+        "needsHumanReview": true
+      },
+      "rawOutput": null,
+      "stopReason": null,
+      "returnedModel": null,
+      "providerRequestId": null,
+      "inputTokens": null,
+      "outputTokens": null,
+      "latencyMs": 221.66359999999986,
+      "costUsd": 0.003714,
+      "status": "provider_failed",
+      "rejectionReason": "Error"
+    },
+    {
+      "caseId": "missing-03",
+      "allowedNextSteps": [
+        "upload_or_request_document"
+      ],
+      "requestBodySha256": "07f01115f91e35b50971e8674b947161237479e4026a52180f3d683db880f2a1",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "whats_missing",
+        "evidenceState": "source_missing",
+        "answer": "This project has no invoice. It looks genuinely absent, not just unlinked. 1 other open finding is listed for this project as well.",
+        "recommendedNextStep": {
+          "kind": "upload_or_request_document",
+          "instruction": "Upload the invoice, or request it from whoever holds it.",
+          "actionHref": "/platform/documents"
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "36ca988a-a38b-4940-8688-4b7b3d0cab9d",
+            "sectionKind": "validator_findings",
+            "label": "Invoice data is missing",
+            "documentId": null,
+            "page": null
+          },
+          {
+            "recordId": "252a9554-3fa9-4364-8d92-8d5d835b53ba",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "252a9554-3fa9-4364-8d92-8d5d835b53ba",
+            "page": null
+          }
+        ],
+        "confidence": "high",
+        "missingInformation": [],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "whats_missing",
+        "evidenceState": "source_missing",
+        "answer": "This project has no invoice. It looks genuinely absent, not just unlinked. 1 other open finding is listed for this project as well.",
+        "recommendedNextStep": {
+          "kind": "upload_or_request_document",
+          "instruction": "Upload the invoice, or request it from whoever holds it.",
+          "actionHref": "/platform/documents"
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "36ca988a-a38b-4940-8688-4b7b3d0cab9d",
+            "sectionKind": "validator_findings",
+            "label": "Invoice data is missing",
+            "documentId": null,
+            "page": null
+          },
+          {
+            "recordId": "252a9554-3fa9-4364-8d92-8d5d835b53ba",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "252a9554-3fa9-4364-8d92-8d5d835b53ba",
+            "page": null
+          }
+        ],
+        "confidence": "high",
+        "missingInformation": [],
+        "needsHumanReview": true
+      },
+      "rawOutput": null,
+      "stopReason": null,
+      "returnedModel": null,
+      "providerRequestId": null,
+      "inputTokens": null,
+      "outputTokens": null,
+      "latencyMs": 123.6890999999996,
+      "costUsd": 0.004206,
+      "status": "provider_failed",
+      "rejectionReason": "Error"
+    },
+    {
+      "caseId": "missing-04",
+      "allowedNextSteps": [
+        "no_action_needed"
+      ],
+      "requestBodySha256": "5a3605b125c713c25e9a022448b6f57d8bde37eb4a8d88b08f9dc4624fb3ac01",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "whats_missing",
+        "evidenceState": "no_open_findings",
+        "answer": "Validation has run and this project has no open findings, so nothing currently indicates a missing document or a required action.",
+        "recommendedNextStep": {
+          "kind": "no_action_needed",
+          "instruction": "Nothing is required right now.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "c2bbbfea-0512-49c0-8968-f9d733000799",
+            "sectionKind": "project_identity",
+            "label": "Sample Project West",
+            "documentId": null,
+            "page": null
+          }
+        ],
+        "confidence": "high",
+        "missingInformation": [],
+        "needsHumanReview": false
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "whats_missing",
+        "evidenceState": "no_open_findings",
+        "answer": "Validation has run and this project has no open findings, so nothing currently indicates a missing document or a required action.",
+        "recommendedNextStep": {
+          "kind": "no_action_needed",
+          "instruction": "Nothing is required right now.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "c2bbbfea-0512-49c0-8968-f9d733000799",
+            "sectionKind": "project_identity",
+            "label": "Sample Project West",
+            "documentId": null,
+            "page": null
+          }
+        ],
+        "confidence": "high",
+        "missingInformation": [],
+        "needsHumanReview": false
+      },
+      "rawOutput": null,
+      "stopReason": null,
+      "returnedModel": null,
+      "providerRequestId": null,
+      "inputTokens": null,
+      "outputTokens": null,
+      "latencyMs": 138.04179999999906,
+      "costUsd": 0.001767,
+      "status": "provider_failed",
+      "rejectionReason": "Error"
+    },
+    {
+      "caseId": "missing-05",
+      "allowedNextSteps": [
+        "operator_judgment_required",
+        "review_existing_document"
+      ],
+      "requestBodySha256": "6fc09af07ee7002e4e25494506aba7977fe201bff27d4138766b326e7f4d8c15",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "whats_missing",
+        "evidenceState": "not_a_source_gap",
+        "answer": "This project is flagged for: Repeated ticket has conflicting values. 7 other open findings are listed for this project as well.",
+        "recommendedNextStep": {
+          "kind": "operator_judgment_required",
+          "instruction": "Review the cited records and decide on the finding through its own workflow.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "403f88a4-f7f3-40a7-8ead-dad1aeaef547",
+            "sectionKind": "validator_findings",
+            "label": "Repeated ticket has conflicting values",
+            "documentId": "fixture-tickets",
+            "page": null
+          },
+          {
+            "recordId": "fixture-tickets",
+            "sectionKind": "documents",
+            "label": "Sample Ticket Export",
+            "documentId": "fixture-tickets",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "whats_missing",
+        "evidenceState": "not_a_source_gap",
+        "answer": "This project is flagged for: Repeated ticket has conflicting values. 7 other open findings are listed for this project as well.",
+        "recommendedNextStep": {
+          "kind": "operator_judgment_required",
+          "instruction": "Review the cited records and decide on the finding through its own workflow.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "403f88a4-f7f3-40a7-8ead-dad1aeaef547",
+            "sectionKind": "validator_findings",
+            "label": "Repeated ticket has conflicting values",
+            "documentId": "fixture-tickets",
+            "page": null
+          },
+          {
+            "recordId": "fixture-tickets",
+            "sectionKind": "documents",
+            "label": "Sample Ticket Export",
+            "documentId": "fixture-tickets",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [],
+        "needsHumanReview": true
+      },
+      "rawOutput": null,
+      "stopReason": null,
+      "returnedModel": null,
+      "providerRequestId": null,
+      "inputTokens": null,
+      "outputTokens": null,
+      "latencyMs": 131.40639999999985,
+      "costUsd": 0.011604,
+      "status": "provider_failed",
+      "rejectionReason": "Error"
+    },
+    {
+      "caseId": "missing-06",
+      "allowedNextSteps": [
+        "likely_system_issue",
+        "review_existing_document",
+        "operator_judgment_required"
+      ],
+      "requestBodySha256": "2a789f7a3050f76a16574badfe6247392eda1c416c2552650c4e4994a1fe32e8",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "whats_missing",
+        "evidenceState": "likely_system_issue",
+        "answer": "The pricing schedule is in this project as \"Sample Unit Price Sheet\", and it has been read and linked, yet this is still flagged. This looks like an issue on the EightForge side rather than something missing from your project.",
+        "recommendedNextStep": {
+          "kind": "likely_system_issue",
+          "instruction": "Check that \"Sample Unit Price Sheet\" shows what you expect. If it does, report this to your EightForge contact.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "d73f3acf-1581-4970-8e42-c0ab2647fbf7",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          },
+          {
+            "recordId": "5022abf4-38ef-4bcd-857d-0c30b625ba28",
+            "sectionKind": "documents",
+            "label": "Sample Unit Price Sheet",
+            "documentId": "5022abf4-38ef-4bcd-857d-0c30b625ba28",
+            "page": null
+          },
+          {
+            "recordId": "553c242d-012e-4881-835b-da82334ffa45",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          }
+        ],
+        "confidence": "low",
+        "missingInformation": [
+          "The reason EightForge still flags this has not been established."
+        ],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "whats_missing",
+        "evidenceState": "likely_system_issue",
+        "answer": "The pricing schedule is in this project as \"Sample Unit Price Sheet\", and it has been read and linked, yet this is still flagged. This looks like an issue on the EightForge side rather than something missing from your project.",
+        "recommendedNextStep": {
+          "kind": "likely_system_issue",
+          "instruction": "Check that \"Sample Unit Price Sheet\" shows what you expect. If it does, report this to your EightForge contact.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "d73f3acf-1581-4970-8e42-c0ab2647fbf7",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          },
+          {
+            "recordId": "5022abf4-38ef-4bcd-857d-0c30b625ba28",
+            "sectionKind": "documents",
+            "label": "Sample Unit Price Sheet",
+            "documentId": "5022abf4-38ef-4bcd-857d-0c30b625ba28",
+            "page": null
+          },
+          {
+            "recordId": "553c242d-012e-4881-835b-da82334ffa45",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          }
+        ],
+        "confidence": "low",
+        "missingInformation": [
+          "The reason EightForge still flags this has not been established."
+        ],
+        "needsHumanReview": true
+      },
+      "rawOutput": null,
+      "stopReason": null,
+      "returnedModel": null,
+      "providerRequestId": null,
+      "inputTokens": null,
+      "outputTokens": null,
+      "latencyMs": 131.6996999999974,
+      "costUsd": 0.003942,
+      "status": "provider_failed",
+      "rejectionReason": "Error"
+    },
+    {
+      "caseId": "document-01",
+      "allowedNextSteps": [
+        "link_existing_document",
+        "review_existing_document",
+        "operator_judgment_required"
+      ],
+      "requestBodySha256": "5d7b65ff79370038ae06788e61b0dc09799a2a222ce855f9b6636217f506bc66",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "need_document",
+        "evidenceState": "source_present_relationship_unresolved",
+        "answer": "The pricing schedule appears to already exist in this project as \"Sample Unit Price Sheet\". No additional document appears necessary.",
+        "recommendedNextStep": {
+          "kind": "link_existing_document",
+          "instruction": "Check whether \"Sample Unit Price Sheet\" is linked to the governing contract, \"Sample Debris Removal Contract\", and link it if it applies.",
+          "actionHref": "/platform/projects/d10e236a-cc74-40c8-8583-72b9142b45e7#project-documents"
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "7accdc2e-8e67-44d4-8a9e-1b550868b620",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          },
+          {
+            "recordId": "e9bdd44a-50ca-494f-89ff-a9bf2b4c2c5f",
+            "sectionKind": "documents",
+            "label": "Sample Unit Price Sheet",
+            "documentId": "e9bdd44a-50ca-494f-89ff-a9bf2b4c2c5f",
+            "page": null
+          },
+          {
+            "recordId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "Whether it covers everything the project needs has not been confirmed."
+        ],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "need_document",
+        "evidenceState": "source_present_relationship_unresolved",
+        "answer": "The pricing schedule appears to already exist in this project as \"Sample Unit Price Sheet\". No additional document appears necessary.",
+        "recommendedNextStep": {
+          "kind": "link_existing_document",
+          "instruction": "Check whether \"Sample Unit Price Sheet\" is linked to the governing contract, \"Sample Debris Removal Contract\", and link it if it applies.",
+          "actionHref": "/platform/projects/d10e236a-cc74-40c8-8583-72b9142b45e7#project-documents"
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "7accdc2e-8e67-44d4-8a9e-1b550868b620",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          },
+          {
+            "recordId": "e9bdd44a-50ca-494f-89ff-a9bf2b4c2c5f",
+            "sectionKind": "documents",
+            "label": "Sample Unit Price Sheet",
+            "documentId": "e9bdd44a-50ca-494f-89ff-a9bf2b4c2c5f",
+            "page": null
+          },
+          {
+            "recordId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "Whether it covers everything the project needs has not been confirmed."
+        ],
+        "needsHumanReview": true
+      },
+      "rawOutput": null,
+      "stopReason": null,
+      "returnedModel": null,
+      "providerRequestId": null,
+      "inputTokens": null,
+      "outputTokens": null,
+      "latencyMs": 128.94059999999808,
+      "costUsd": 0.003705,
+      "status": "provider_failed",
+      "rejectionReason": "Error"
+    },
+    {
+      "caseId": "document-02",
+      "allowedNextSteps": [
+        "upload_or_request_document",
+        "review_existing_document"
+      ],
+      "requestBodySha256": "b89d1b5ea9ab281f2f4869e886d85b6d86bc15b1157708df65183e645e792707",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "need_document",
+        "evidenceState": "source_missing",
+        "answer": "This project has no pricing schedule. It looks genuinely absent, not just unlinked.",
+        "recommendedNextStep": {
+          "kind": "upload_or_request_document",
+          "instruction": "Upload the pricing schedule, or request it from whoever holds it.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "7accdc2e-8e67-44d4-8a9e-1b550868b620",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          },
+          {
+            "recordId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "Whether the contract itself contains the schedule pages has not been confirmed."
+        ],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "need_document",
+        "evidenceState": "source_missing",
+        "answer": "This project has no pricing schedule. It looks genuinely absent, not just unlinked.",
+        "recommendedNextStep": {
+          "kind": "upload_or_request_document",
+          "instruction": "Upload the pricing schedule, or request it from whoever holds it.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "7accdc2e-8e67-44d4-8a9e-1b550868b620",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          },
+          {
+            "recordId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "Whether the contract itself contains the schedule pages has not been confirmed."
+        ],
+        "needsHumanReview": true
+      },
+      "rawOutput": null,
+      "stopReason": null,
+      "returnedModel": null,
+      "providerRequestId": null,
+      "inputTokens": null,
+      "outputTokens": null,
+      "latencyMs": 112.34430000000066,
+      "costUsd": 0.003057,
+      "status": "provider_failed",
+      "rejectionReason": "Error"
+    },
+    {
+      "caseId": "document-03",
+      "allowedNextSteps": [
+        "review_existing_document",
+        "operator_judgment_required"
+      ],
+      "requestBodySha256": "8168bd176dce9d6d0ac0f2c6ce5210c0714565516b87f0586435a30083cf68ab",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "need_document",
+        "evidenceState": "source_present",
+        "answer": "The pricing schedule is in this project as \"Sample Unit Price Sheet\", and it was read after the latest validation. You probably do not need another document.",
+        "recommendedNextStep": {
+          "kind": "review_existing_document",
+          "instruction": "Run validation again, then review whether this is still flagged.",
+          "actionHref": "/platform/documents/553c242d-012e-4881-835b-da82334ffa45"
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "d73f3acf-1581-4970-8e42-c0ab2647fbf7",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          },
+          {
+            "recordId": "5022abf4-38ef-4bcd-857d-0c30b625ba28",
+            "sectionKind": "documents",
+            "label": "Sample Unit Price Sheet",
+            "documentId": "5022abf4-38ef-4bcd-857d-0c30b625ba28",
+            "page": null
+          },
+          {
+            "recordId": "553c242d-012e-4881-835b-da82334ffa45",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "Validation has not run since this document was read, so this finding may be out of date."
+        ],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "need_document",
+        "evidenceState": "source_present",
+        "answer": "The pricing schedule is in this project as \"Sample Unit Price Sheet\", and it was read after the latest validation. You probably do not need another document.",
+        "recommendedNextStep": {
+          "kind": "review_existing_document",
+          "instruction": "Run validation again, then review whether this is still flagged.",
+          "actionHref": "/platform/documents/553c242d-012e-4881-835b-da82334ffa45"
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "d73f3acf-1581-4970-8e42-c0ab2647fbf7",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          },
+          {
+            "recordId": "5022abf4-38ef-4bcd-857d-0c30b625ba28",
+            "sectionKind": "documents",
+            "label": "Sample Unit Price Sheet",
+            "documentId": "5022abf4-38ef-4bcd-857d-0c30b625ba28",
+            "page": null
+          },
+          {
+            "recordId": "553c242d-012e-4881-835b-da82334ffa45",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "Validation has not run since this document was read, so this finding may be out of date."
+        ],
+        "needsHumanReview": true
+      },
+      "rawOutput": null,
+      "stopReason": null,
+      "returnedModel": null,
+      "providerRequestId": null,
+      "inputTokens": null,
+      "outputTokens": null,
+      "latencyMs": 133.28640000000087,
+      "costUsd": 0.003948,
+      "status": "provider_failed",
+      "rejectionReason": "Error"
+    },
+    {
+      "caseId": "document-04",
+      "allowedNextSteps": [
+        "review_existing_document",
+        "operator_judgment_required"
+      ],
+      "requestBodySha256": "9a17af302c99c2e71cd7230c25bda8b34917a8abcb942e6844fae98668fc9c7c",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "need_document",
+        "evidenceState": "source_present",
+        "answer": "The invoice is in this project as \"Sample Invoice 7\", and it was read after the latest validation. You probably do not need another document. 1 other open finding is listed for this project as well.",
+        "recommendedNextStep": {
+          "kind": "review_existing_document",
+          "instruction": "Run validation again, then review whether this is still flagged.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "36ca988a-a38b-4940-8688-4b7b3d0cab9d",
+            "sectionKind": "validator_findings",
+            "label": "Invoice data is missing",
+            "documentId": null,
+            "page": null
+          },
+          {
+            "recordId": "0140f44d-45e0-4df9-8045-821c955a1efb",
+            "sectionKind": "documents",
+            "label": "Sample Invoice 7",
+            "documentId": "0140f44d-45e0-4df9-8045-821c955a1efb",
+            "page": null
+          },
+          {
+            "recordId": "252a9554-3fa9-4364-8d92-8d5d835b53ba",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "252a9554-3fa9-4364-8d92-8d5d835b53ba",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "Validation has not run since this document was read, so this finding may be out of date."
+        ],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "need_document",
+        "evidenceState": "source_present",
+        "answer": "The invoice is in this project as \"Sample Invoice 7\", and it was read after the latest validation. You probably do not need another document. 1 other open finding is listed for this project as well.",
+        "recommendedNextStep": {
+          "kind": "review_existing_document",
+          "instruction": "Run validation again, then review whether this is still flagged.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "36ca988a-a38b-4940-8688-4b7b3d0cab9d",
+            "sectionKind": "validator_findings",
+            "label": "Invoice data is missing",
+            "documentId": null,
+            "page": null
+          },
+          {
+            "recordId": "0140f44d-45e0-4df9-8045-821c955a1efb",
+            "sectionKind": "documents",
+            "label": "Sample Invoice 7",
+            "documentId": "0140f44d-45e0-4df9-8045-821c955a1efb",
+            "page": null
+          },
+          {
+            "recordId": "252a9554-3fa9-4364-8d92-8d5d835b53ba",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "252a9554-3fa9-4364-8d92-8d5d835b53ba",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "Validation has not run since this document was read, so this finding may be out of date."
+        ],
+        "needsHumanReview": true
+      },
+      "rawOutput": null,
+      "stopReason": null,
+      "returnedModel": null,
+      "providerRequestId": null,
+      "inputTokens": null,
+      "outputTokens": null,
+      "latencyMs": 137.7453999999998,
+      "costUsd": 0.004905,
+      "status": "provider_failed",
+      "rejectionReason": "Error"
+    },
+    {
+      "caseId": "document-05",
+      "allowedNextSteps": [
+        "review_existing_document",
+        "likely_system_issue"
+      ],
+      "requestBodySha256": "8399398f27402bc548795cc8293d8bacb038bcf3fa82376113fdd4a3b0f366a9",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "need_document",
+        "evidenceState": "source_present_unread",
+        "answer": "The pricing schedule appears to already be in this project as \"Sample Unit Price Sheet\", but it has not been read successfully. You probably do not need another document.",
+        "recommendedNextStep": {
+          "kind": "review_existing_document",
+          "instruction": "Open \"Sample Unit Price Sheet\" and check that it processed, then reprocess it if it did not.",
+          "actionHref": "/platform/documents/553c242d-012e-4881-835b-da82334ffa45"
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "d73f3acf-1581-4970-8e42-c0ab2647fbf7",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          },
+          {
+            "recordId": "5022abf4-38ef-4bcd-857d-0c30b625ba28",
+            "sectionKind": "documents",
+            "label": "Sample Unit Price Sheet",
+            "documentId": "5022abf4-38ef-4bcd-857d-0c30b625ba28",
+            "page": null
+          },
+          {
+            "recordId": "553c242d-012e-4881-835b-da82334ffa45",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "EightForge has not finished reading this document, so its contents are not confirmed."
+        ],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "need_document",
+        "evidenceState": "source_present_unread",
+        "answer": "The pricing schedule appears to already be in this project as \"Sample Unit Price Sheet\", but it has not been read successfully. You probably do not need another document.",
+        "recommendedNextStep": {
+          "kind": "review_existing_document",
+          "instruction": "Open \"Sample Unit Price Sheet\" and check that it processed, then reprocess it if it did not.",
+          "actionHref": "/platform/documents/553c242d-012e-4881-835b-da82334ffa45"
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "d73f3acf-1581-4970-8e42-c0ab2647fbf7",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          },
+          {
+            "recordId": "5022abf4-38ef-4bcd-857d-0c30b625ba28",
+            "sectionKind": "documents",
+            "label": "Sample Unit Price Sheet",
+            "documentId": "5022abf4-38ef-4bcd-857d-0c30b625ba28",
+            "page": null
+          },
+          {
+            "recordId": "553c242d-012e-4881-835b-da82334ffa45",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "EightForge has not finished reading this document, so its contents are not confirmed."
+        ],
+        "needsHumanReview": true
+      },
+      "rawOutput": null,
+      "stopReason": null,
+      "returnedModel": null,
+      "providerRequestId": null,
+      "inputTokens": null,
+      "outputTokens": null,
+      "latencyMs": 119.60350000000108,
+      "costUsd": 0.00366,
+      "status": "provider_failed",
+      "rejectionReason": "Error"
+    },
+    {
+      "caseId": "document-06",
+      "allowedNextSteps": [
+        "no_action_needed"
+      ],
+      "requestBodySha256": "90b49feffe6d0a8d0383f30ce6541daa3de60f5683dbc922c79b7606818d93f3",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "need_document",
+        "evidenceState": "no_open_findings",
+        "answer": "Validation has run and this project has no open findings, so nothing currently indicates a missing document or a required action.",
+        "recommendedNextStep": {
+          "kind": "no_action_needed",
+          "instruction": "Nothing is required right now.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "c2bbbfea-0512-49c0-8968-f9d733000799",
+            "sectionKind": "project_identity",
+            "label": "Sample Project West",
+            "documentId": null,
+            "page": null
+          }
+        ],
+        "confidence": "high",
+        "missingInformation": [],
+        "needsHumanReview": false
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "need_document",
+        "evidenceState": "no_open_findings",
+        "answer": "Validation has run and this project has no open findings, so nothing currently indicates a missing document or a required action.",
+        "recommendedNextStep": {
+          "kind": "no_action_needed",
+          "instruction": "Nothing is required right now.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "c2bbbfea-0512-49c0-8968-f9d733000799",
+            "sectionKind": "project_identity",
+            "label": "Sample Project West",
+            "documentId": null,
+            "page": null
+          }
+        ],
+        "confidence": "high",
+        "missingInformation": [],
+        "needsHumanReview": false
+      },
+      "rawOutput": null,
+      "stopReason": null,
+      "returnedModel": null,
+      "providerRequestId": null,
+      "inputTokens": null,
+      "outputTokens": null,
+      "latencyMs": 134.58030000000144,
+      "costUsd": 0.001776,
+      "status": "provider_failed",
+      "rejectionReason": "Error"
+    },
+    {
+      "caseId": "flagged-01",
+      "allowedNextSteps": [
+        "operator_judgment_required",
+        "review_existing_document"
+      ],
+      "requestBodySha256": "4c04806cf7afa0c034b2c3188be2dfbe49b8d95456cabeef2f4fbf14ef7575a6",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "why_flagged",
+        "evidenceState": "not_a_source_gap",
+        "answer": "This project is flagged for: Repeated ticket has conflicting values. 7 other open findings are listed for this project as well.",
+        "recommendedNextStep": {
+          "kind": "operator_judgment_required",
+          "instruction": "Review the cited records and decide on the finding through its own workflow.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "403f88a4-f7f3-40a7-8ead-dad1aeaef547",
+            "sectionKind": "validator_findings",
+            "label": "Repeated ticket has conflicting values",
+            "documentId": "fixture-tickets",
+            "page": null
+          },
+          {
+            "recordId": "fixture-tickets",
+            "sectionKind": "documents",
+            "label": "Sample Ticket Export",
+            "documentId": "fixture-tickets",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "why_flagged",
+        "evidenceState": "not_a_source_gap",
+        "answer": "This project is flagged for: Repeated ticket has conflicting values. 7 other open findings are listed for this project as well.",
+        "recommendedNextStep": {
+          "kind": "operator_judgment_required",
+          "instruction": "Review the cited records and decide on the finding through its own workflow.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "403f88a4-f7f3-40a7-8ead-dad1aeaef547",
+            "sectionKind": "validator_findings",
+            "label": "Repeated ticket has conflicting values",
+            "documentId": "fixture-tickets",
+            "page": null
+          },
+          {
+            "recordId": "fixture-tickets",
+            "sectionKind": "documents",
+            "label": "Sample Ticket Export",
+            "documentId": "fixture-tickets",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [],
+        "needsHumanReview": true
+      },
+      "rawOutput": null,
+      "stopReason": null,
+      "returnedModel": null,
+      "providerRequestId": null,
+      "inputTokens": null,
+      "outputTokens": null,
+      "latencyMs": 141.25499999999738,
+      "costUsd": 0.011601,
+      "status": "provider_failed",
+      "rejectionReason": "Error"
+    },
+    {
+      "caseId": "flagged-02",
+      "allowedNextSteps": [
+        "review_ticket_or_transaction",
+        "review_existing_document",
+        "operator_judgment_required"
+      ],
+      "requestBodySha256": "d4aa225917489d578866703dab00818d33d2a059910b6da9eb9b8b8d54ccd135",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "why_flagged",
+        "evidenceState": "not_a_source_gap",
+        "answer": "This project is flagged for: Billed quantity differs from transactions. 2 other open findings are listed for this project as well.",
+        "recommendedNextStep": {
+          "kind": "review_ticket_or_transaction",
+          "instruction": "Compare the flagged lines with their tickets or transactions.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "732ea745-50b8-4353-8876-0e2268c51b08",
+            "sectionKind": "validator_findings",
+            "label": "Billed quantity differs from transactions",
+            "documentId": "fixture-invoice",
+            "page": null
+          },
+          {
+            "recordId": "fixture-invoice",
+            "sectionKind": "documents",
+            "label": "Sample Invoice 7",
+            "documentId": "fixture-invoice",
+            "page": null
+          },
+          {
+            "recordId": "fixture-tickets",
+            "sectionKind": "documents",
+            "label": "Sample Ticket Export",
+            "documentId": "fixture-tickets",
+            "page": null
+          },
+          {
+            "recordId": "fixture-contract",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "fixture-contract",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "why_flagged",
+        "evidenceState": "not_a_source_gap",
+        "answer": "This project is flagged for: Billed quantity differs from transactions. 2 other open findings are listed for this project as well.",
+        "recommendedNextStep": {
+          "kind": "review_ticket_or_transaction",
+          "instruction": "Compare the flagged lines with their tickets or transactions.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "732ea745-50b8-4353-8876-0e2268c51b08",
+            "sectionKind": "validator_findings",
+            "label": "Billed quantity differs from transactions",
+            "documentId": "fixture-invoice",
+            "page": null
+          },
+          {
+            "recordId": "fixture-invoice",
+            "sectionKind": "documents",
+            "label": "Sample Invoice 7",
+            "documentId": "fixture-invoice",
+            "page": null
+          },
+          {
+            "recordId": "fixture-tickets",
+            "sectionKind": "documents",
+            "label": "Sample Ticket Export",
+            "documentId": "fixture-tickets",
+            "page": null
+          },
+          {
+            "recordId": "fixture-contract",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "fixture-contract",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [],
+        "needsHumanReview": true
+      },
+      "rawOutput": null,
+      "stopReason": null,
+      "returnedModel": null,
+      "providerRequestId": null,
+      "inputTokens": null,
+      "outputTokens": null,
+      "latencyMs": 135.6870999999992,
+      "costUsd": 0.005937,
+      "status": "provider_failed",
+      "rejectionReason": "Error"
+    },
+    {
+      "caseId": "flagged-03",
+      "allowedNextSteps": [
+        "likely_system_issue",
+        "review_existing_document",
+        "operator_judgment_required"
+      ],
+      "requestBodySha256": "3fc2722764d3e016969da628290e11069b8ea97e09ece893d22196ba4ff95fca",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "why_flagged",
+        "evidenceState": "likely_system_issue",
+        "answer": "The pricing schedule is in this project as \"Sample Debris Removal Contract\", and it has been read and linked, yet this is still flagged. This looks like an issue on the EightForge side rather than something missing from your project. 2 other open findings are listed for this project as well.",
+        "recommendedNextStep": {
+          "kind": "likely_system_issue",
+          "instruction": "Check that \"Sample Debris Removal Contract\" shows what you expect. If it does, report this to your EightForge contact.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "29968537-be62-4961-8919-de47b08d0e0f",
+            "sectionKind": "validator_findings",
+            "label": "Too few contract rate rows extracted",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          },
+          {
+            "recordId": "553c242d-012e-4881-835b-da82334ffa45",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          },
+          {
+            "recordId": "408d405d-f586-47dd-8546-1d7d0a89e1af",
+            "sectionKind": "canonical_facts",
+            "label": "rate schedule present (Sample Debris Removal Contract)",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          }
+        ],
+        "confidence": "low",
+        "missingInformation": [
+          "The reason EightForge still flags this has not been established."
+        ],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "why_flagged",
+        "evidenceState": "likely_system_issue",
+        "answer": "The pricing schedule is in this project as \"Sample Debris Removal Contract\", and it has been read and linked, yet this is still flagged. This looks like an issue on the EightForge side rather than something missing from your project. 2 other open findings are listed for this project as well.",
+        "recommendedNextStep": {
+          "kind": "likely_system_issue",
+          "instruction": "Check that \"Sample Debris Removal Contract\" shows what you expect. If it does, report this to your EightForge contact.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "29968537-be62-4961-8919-de47b08d0e0f",
+            "sectionKind": "validator_findings",
+            "label": "Too few contract rate rows extracted",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          },
+          {
+            "recordId": "553c242d-012e-4881-835b-da82334ffa45",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          },
+          {
+            "recordId": "408d405d-f586-47dd-8546-1d7d0a89e1af",
+            "sectionKind": "canonical_facts",
+            "label": "rate schedule present (Sample Debris Removal Contract)",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          }
+        ],
+        "confidence": "low",
+        "missingInformation": [
+          "The reason EightForge still flags this has not been established."
+        ],
+        "needsHumanReview": true
+      },
+      "rawOutput": null,
+      "stopReason": null,
+      "returnedModel": null,
+      "providerRequestId": null,
+      "inputTokens": null,
+      "outputTokens": null,
+      "latencyMs": 125.90460000000166,
+      "costUsd": 0.006567,
+      "status": "provider_failed",
+      "rejectionReason": "Error"
+    },
+    {
+      "caseId": "flagged-04",
+      "allowedNextSteps": [
+        "link_existing_document",
+        "review_existing_document",
+        "operator_judgment_required"
+      ],
+      "requestBodySha256": "4569fedc89ba6a6b6d51cbccae84d34a40d333e950d89d24c97cd510ed16cf5b",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "why_flagged",
+        "evidenceState": "source_present_relationship_unresolved",
+        "answer": "The pricing schedule appears to already exist in this project as \"Sample Unit Price Sheet\". No additional document appears necessary.",
+        "recommendedNextStep": {
+          "kind": "link_existing_document",
+          "instruction": "Check whether \"Sample Unit Price Sheet\" is linked to the governing contract, \"Sample Debris Removal Contract\", and link it if it applies.",
+          "actionHref": "/platform/projects/d10e236a-cc74-40c8-8583-72b9142b45e7#project-documents"
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "7accdc2e-8e67-44d4-8a9e-1b550868b620",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          },
+          {
+            "recordId": "e9bdd44a-50ca-494f-89ff-a9bf2b4c2c5f",
+            "sectionKind": "documents",
+            "label": "Sample Unit Price Sheet",
+            "documentId": "e9bdd44a-50ca-494f-89ff-a9bf2b4c2c5f",
+            "page": null
+          },
+          {
+            "recordId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "This document's authority has not been settled: a person decides whether it applies.",
+          "Whether it covers everything the project needs has not been confirmed."
+        ],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "why_flagged",
+        "evidenceState": "source_present_relationship_unresolved",
+        "answer": "The pricing schedule appears to already exist in this project as \"Sample Unit Price Sheet\". No additional document appears necessary.",
+        "recommendedNextStep": {
+          "kind": "link_existing_document",
+          "instruction": "Check whether \"Sample Unit Price Sheet\" is linked to the governing contract, \"Sample Debris Removal Contract\", and link it if it applies.",
+          "actionHref": "/platform/projects/d10e236a-cc74-40c8-8583-72b9142b45e7#project-documents"
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "7accdc2e-8e67-44d4-8a9e-1b550868b620",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          },
+          {
+            "recordId": "e9bdd44a-50ca-494f-89ff-a9bf2b4c2c5f",
+            "sectionKind": "documents",
+            "label": "Sample Unit Price Sheet",
+            "documentId": "e9bdd44a-50ca-494f-89ff-a9bf2b4c2c5f",
+            "page": null
+          },
+          {
+            "recordId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "This document's authority has not been settled: a person decides whether it applies.",
+          "Whether it covers everything the project needs has not been confirmed."
+        ],
+        "needsHumanReview": true
+      },
+      "rawOutput": null,
+      "stopReason": null,
+      "returnedModel": null,
+      "providerRequestId": null,
+      "inputTokens": null,
+      "outputTokens": null,
+      "latencyMs": 118.30210000000079,
+      "costUsd": 0.004062,
+      "status": "provider_failed",
+      "rejectionReason": "Error"
+    },
+    {
+      "caseId": "flagged-05",
+      "allowedNextSteps": [
+        "upload_or_request_document"
+      ],
+      "requestBodySha256": "bf5e09074ce2c6976a2bc15d32a3eee18929eb4da6d954bebfe6056ef450427c",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "why_flagged",
+        "evidenceState": "source_missing",
+        "answer": "This project has no contract. It looks genuinely absent, not just unlinked.",
+        "recommendedNextStep": {
+          "kind": "upload_or_request_document",
+          "instruction": "Upload the contract, or request it from whoever holds it.",
+          "actionHref": "/platform/documents"
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "29879437-50ca-4ce8-8155-3468cde40d13",
+            "sectionKind": "validator_findings",
+            "label": "Project contract is missing",
+            "documentId": null,
+            "page": null
+          }
+        ],
+        "confidence": "high",
+        "missingInformation": [],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "why_flagged",
+        "evidenceState": "source_missing",
+        "answer": "This project has no contract. It looks genuinely absent, not just unlinked.",
+        "recommendedNextStep": {
+          "kind": "upload_or_request_document",
+          "instruction": "Upload the contract, or request it from whoever holds it.",
+          "actionHref": "/platform/documents"
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "29879437-50ca-4ce8-8155-3468cde40d13",
+            "sectionKind": "validator_findings",
+            "label": "Project contract is missing",
+            "documentId": null,
+            "page": null
+          }
+        ],
+        "confidence": "high",
+        "missingInformation": [],
+        "needsHumanReview": true
+      },
+      "rawOutput": null,
+      "stopReason": null,
+      "returnedModel": null,
+      "providerRequestId": null,
+      "inputTokens": null,
+      "outputTokens": null,
+      "latencyMs": 110.91470000000118,
+      "costUsd": 0.002118,
+      "status": "provider_failed",
+      "rejectionReason": "Error"
+    },
+    {
+      "caseId": "flagged-06",
+      "allowedNextSteps": [
+        "review_existing_document",
+        "operator_judgment_required"
+      ],
+      "requestBodySha256": "4f0c5fbabc716529a2d4c35aee890c37dfff7caa46c7f3efa38b69f40474d868",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "why_flagged",
+        "evidenceState": "not_a_source_gap",
+        "answer": "This project is flagged for: Pricing schedule applicability unresolved.",
+        "recommendedNextStep": {
+          "kind": "review_existing_document",
+          "instruction": "Open the cited evidence and check it against the document.",
+          "actionHref": "/platform/documents/553c242d-012e-4881-835b-da82334ffa45"
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "f1bd40ff-b69a-4dc7-8571-875c6b71412c",
+            "sectionKind": "validator_findings",
+            "label": "Pricing schedule applicability unresolved",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          },
+          {
+            "recordId": "553c242d-012e-4881-835b-da82334ffa45",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "why_flagged",
+        "evidenceState": "not_a_source_gap",
+        "answer": "This project is flagged for: Pricing schedule applicability unresolved.",
+        "recommendedNextStep": {
+          "kind": "review_existing_document",
+          "instruction": "Open the cited evidence and check it against the document.",
+          "actionHref": "/platform/documents/553c242d-012e-4881-835b-da82334ffa45"
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "f1bd40ff-b69a-4dc7-8571-875c6b71412c",
+            "sectionKind": "validator_findings",
+            "label": "Pricing schedule applicability unresolved",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          },
+          {
+            "recordId": "553c242d-012e-4881-835b-da82334ffa45",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [],
+        "needsHumanReview": true
+      },
+      "rawOutput": null,
+      "stopReason": null,
+      "returnedModel": null,
+      "providerRequestId": null,
+      "inputTokens": null,
+      "outputTokens": null,
+      "latencyMs": 136.70180000000255,
+      "costUsd": 0.003126,
+      "status": "provider_failed",
+      "rejectionReason": "Error"
+    },
+    {
+      "caseId": "action-01",
+      "allowedNextSteps": [
+        "upload_or_request_document",
+        "review_existing_document"
+      ],
+      "requestBodySha256": "00b8d72d7b3846a65325f1978e54a88424c98ba37760c19afe069a2f302a80cd",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "what_to_do",
+        "evidenceState": "source_missing",
+        "answer": "This project has no pricing schedule. It looks genuinely absent, not just unlinked.",
+        "recommendedNextStep": {
+          "kind": "upload_or_request_document",
+          "instruction": "Upload the pricing schedule, or request it from whoever holds it.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "7accdc2e-8e67-44d4-8a9e-1b550868b620",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          },
+          {
+            "recordId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "Whether the contract itself contains the schedule pages has not been confirmed."
+        ],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "what_to_do",
+        "evidenceState": "source_missing",
+        "answer": "This project has no pricing schedule. It looks genuinely absent, not just unlinked.",
+        "recommendedNextStep": {
+          "kind": "upload_or_request_document",
+          "instruction": "Upload the pricing schedule, or request it from whoever holds it.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "7accdc2e-8e67-44d4-8a9e-1b550868b620",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          },
+          {
+            "recordId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "Whether the contract itself contains the schedule pages has not been confirmed."
+        ],
+        "needsHumanReview": true
+      },
+      "rawOutput": null,
+      "stopReason": null,
+      "returnedModel": null,
+      "providerRequestId": null,
+      "inputTokens": null,
+      "outputTokens": null,
+      "latencyMs": 129.9271000000008,
+      "costUsd": 0.003033,
+      "status": "provider_failed",
+      "rejectionReason": "Error"
+    },
+    {
+      "caseId": "action-02",
+      "allowedNextSteps": [
+        "link_existing_document",
+        "review_existing_document",
+        "operator_judgment_required"
+      ],
+      "requestBodySha256": "1c0c8c886b42f7650c4f78ee3f9736a800f3ff3f2f38ad515ab8d05f3f1287f6",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "what_to_do",
+        "evidenceState": "source_present_relationship_unresolved",
+        "answer": "The pricing schedule appears to already exist in this project as \"Sample Unit Price Sheet\". No additional document appears necessary.",
+        "recommendedNextStep": {
+          "kind": "link_existing_document",
+          "instruction": "Check whether \"Sample Unit Price Sheet\" is linked to the governing contract, \"Sample Debris Removal Contract\", and link it if it applies.",
+          "actionHref": "/platform/projects/d10e236a-cc74-40c8-8583-72b9142b45e7#project-documents"
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "7accdc2e-8e67-44d4-8a9e-1b550868b620",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          },
+          {
+            "recordId": "e9bdd44a-50ca-494f-89ff-a9bf2b4c2c5f",
+            "sectionKind": "documents",
+            "label": "Sample Unit Price Sheet",
+            "documentId": "e9bdd44a-50ca-494f-89ff-a9bf2b4c2c5f",
+            "page": null
+          },
+          {
+            "recordId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "Whether it covers everything the project needs has not been confirmed."
+        ],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "what_to_do",
+        "evidenceState": "source_present_relationship_unresolved",
+        "answer": "The pricing schedule appears to already exist in this project as \"Sample Unit Price Sheet\". No additional document appears necessary.",
+        "recommendedNextStep": {
+          "kind": "link_existing_document",
+          "instruction": "Check whether \"Sample Unit Price Sheet\" is linked to the governing contract, \"Sample Debris Removal Contract\", and link it if it applies.",
+          "actionHref": "/platform/projects/d10e236a-cc74-40c8-8583-72b9142b45e7#project-documents"
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "7accdc2e-8e67-44d4-8a9e-1b550868b620",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          },
+          {
+            "recordId": "e9bdd44a-50ca-494f-89ff-a9bf2b4c2c5f",
+            "sectionKind": "documents",
+            "label": "Sample Unit Price Sheet",
+            "documentId": "e9bdd44a-50ca-494f-89ff-a9bf2b4c2c5f",
+            "page": null
+          },
+          {
+            "recordId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "Whether it covers everything the project needs has not been confirmed."
+        ],
+        "needsHumanReview": true
+      },
+      "rawOutput": null,
+      "stopReason": null,
+      "returnedModel": null,
+      "providerRequestId": null,
+      "inputTokens": null,
+      "outputTokens": null,
+      "latencyMs": 131.67459999999846,
+      "costUsd": 0.003696,
+      "status": "provider_failed",
+      "rejectionReason": "Error"
+    },
+    {
+      "caseId": "action-03",
+      "allowedNextSteps": [
+        "likely_system_issue",
+        "review_existing_document",
+        "operator_judgment_required"
+      ],
+      "requestBodySha256": "dedd0f33d4ce83440f0513fe8755efa6a5f4f6b5b8b63adbab6f375909a131ba",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "what_to_do",
+        "evidenceState": "likely_system_issue",
+        "answer": "The pricing schedule is in this project as \"Sample Unit Price Sheet\", and it has been read and linked, yet this is still flagged. This looks like an issue on the EightForge side rather than something missing from your project.",
+        "recommendedNextStep": {
+          "kind": "likely_system_issue",
+          "instruction": "Check that \"Sample Unit Price Sheet\" shows what you expect. If it does, report this to your EightForge contact.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "d73f3acf-1581-4970-8e42-c0ab2647fbf7",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          },
+          {
+            "recordId": "5022abf4-38ef-4bcd-857d-0c30b625ba28",
+            "sectionKind": "documents",
+            "label": "Sample Unit Price Sheet",
+            "documentId": "5022abf4-38ef-4bcd-857d-0c30b625ba28",
+            "page": null
+          },
+          {
+            "recordId": "553c242d-012e-4881-835b-da82334ffa45",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          }
+        ],
+        "confidence": "low",
+        "missingInformation": [
+          "The reason EightForge still flags this has not been established."
+        ],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "what_to_do",
+        "evidenceState": "likely_system_issue",
+        "answer": "The pricing schedule is in this project as \"Sample Unit Price Sheet\", and it has been read and linked, yet this is still flagged. This looks like an issue on the EightForge side rather than something missing from your project.",
+        "recommendedNextStep": {
+          "kind": "likely_system_issue",
+          "instruction": "Check that \"Sample Unit Price Sheet\" shows what you expect. If it does, report this to your EightForge contact.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "d73f3acf-1581-4970-8e42-c0ab2647fbf7",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          },
+          {
+            "recordId": "5022abf4-38ef-4bcd-857d-0c30b625ba28",
+            "sectionKind": "documents",
+            "label": "Sample Unit Price Sheet",
+            "documentId": "5022abf4-38ef-4bcd-857d-0c30b625ba28",
+            "page": null
+          },
+          {
+            "recordId": "553c242d-012e-4881-835b-da82334ffa45",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          }
+        ],
+        "confidence": "low",
+        "missingInformation": [
+          "The reason EightForge still flags this has not been established."
+        ],
+        "needsHumanReview": true
+      },
+      "rawOutput": null,
+      "stopReason": null,
+      "returnedModel": null,
+      "providerRequestId": null,
+      "inputTokens": null,
+      "outputTokens": null,
+      "latencyMs": 155.07890000000043,
+      "costUsd": 0.00393,
+      "status": "provider_failed",
+      "rejectionReason": "Error"
+    },
+    {
+      "caseId": "action-04",
+      "allowedNextSteps": [
+        "operator_judgment_required",
+        "review_existing_document"
+      ],
+      "requestBodySha256": "ab2b61083ef68e1c49eeca8aaebdaa9816e1dd5d44ab5f04cec7b5bbd82dc8c0",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "what_to_do",
+        "evidenceState": "not_a_source_gap",
+        "answer": "This project is flagged for: Repeated ticket has conflicting values. 7 other open findings are listed for this project as well.",
+        "recommendedNextStep": {
+          "kind": "operator_judgment_required",
+          "instruction": "Review the cited records and decide on the finding through its own workflow.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "403f88a4-f7f3-40a7-8ead-dad1aeaef547",
+            "sectionKind": "validator_findings",
+            "label": "Repeated ticket has conflicting values",
+            "documentId": "fixture-tickets",
+            "page": null
+          },
+          {
+            "recordId": "fixture-tickets",
+            "sectionKind": "documents",
+            "label": "Sample Ticket Export",
+            "documentId": "fixture-tickets",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "what_to_do",
+        "evidenceState": "not_a_source_gap",
+        "answer": "This project is flagged for: Repeated ticket has conflicting values. 7 other open findings are listed for this project as well.",
+        "recommendedNextStep": {
+          "kind": "operator_judgment_required",
+          "instruction": "Review the cited records and decide on the finding through its own workflow.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "403f88a4-f7f3-40a7-8ead-dad1aeaef547",
+            "sectionKind": "validator_findings",
+            "label": "Repeated ticket has conflicting values",
+            "documentId": "fixture-tickets",
+            "page": null
+          },
+          {
+            "recordId": "fixture-tickets",
+            "sectionKind": "documents",
+            "label": "Sample Ticket Export",
+            "documentId": "fixture-tickets",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [],
+        "needsHumanReview": true
+      },
+      "rawOutput": null,
+      "stopReason": null,
+      "returnedModel": null,
+      "providerRequestId": null,
+      "inputTokens": null,
+      "outputTokens": null,
+      "latencyMs": 127.88940000000002,
+      "costUsd": 0.01161,
+      "status": "provider_failed",
+      "rejectionReason": "Error"
+    },
+    {
+      "caseId": "action-05",
+      "allowedNextSteps": [
+        "review_ticket_or_transaction",
+        "review_existing_document",
+        "operator_judgment_required"
+      ],
+      "requestBodySha256": "eb68c48a6deba20e44f0e006ca7785869a3bc45e431159d817968a50a5a1bcc7",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "what_to_do",
+        "evidenceState": "not_a_source_gap",
+        "answer": "This project is flagged for: Billed amount differs from transactions. 2 other open findings are listed for this project as well.",
+        "recommendedNextStep": {
+          "kind": "review_ticket_or_transaction",
+          "instruction": "Compare the flagged lines with their tickets or transactions.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "583f809d-1ecd-4eb3-8395-5631ebb69707",
+            "sectionKind": "validator_findings",
+            "label": "Billed amount differs from transactions",
+            "documentId": "fixture-invoice",
+            "page": null
+          },
+          {
+            "recordId": "fixture-invoice",
+            "sectionKind": "documents",
+            "label": "Sample Invoice 7",
+            "documentId": "fixture-invoice",
+            "page": null
+          },
+          {
+            "recordId": "fixture-tickets",
+            "sectionKind": "documents",
+            "label": "Sample Ticket Export",
+            "documentId": "fixture-tickets",
+            "page": null
+          },
+          {
+            "recordId": "fixture-contract",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "fixture-contract",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "what_to_do",
+        "evidenceState": "not_a_source_gap",
+        "answer": "This project is flagged for: Billed amount differs from transactions. 2 other open findings are listed for this project as well.",
+        "recommendedNextStep": {
+          "kind": "review_ticket_or_transaction",
+          "instruction": "Compare the flagged lines with their tickets or transactions.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "583f809d-1ecd-4eb3-8395-5631ebb69707",
+            "sectionKind": "validator_findings",
+            "label": "Billed amount differs from transactions",
+            "documentId": "fixture-invoice",
+            "page": null
+          },
+          {
+            "recordId": "fixture-invoice",
+            "sectionKind": "documents",
+            "label": "Sample Invoice 7",
+            "documentId": "fixture-invoice",
+            "page": null
+          },
+          {
+            "recordId": "fixture-tickets",
+            "sectionKind": "documents",
+            "label": "Sample Ticket Export",
+            "documentId": "fixture-tickets",
+            "page": null
+          },
+          {
+            "recordId": "fixture-contract",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "fixture-contract",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [],
+        "needsHumanReview": true
+      },
+      "rawOutput": null,
+      "stopReason": null,
+      "returnedModel": null,
+      "providerRequestId": null,
+      "inputTokens": null,
+      "outputTokens": null,
+      "latencyMs": 127.16400000000067,
+      "costUsd": 0.005934,
+      "status": "provider_failed",
+      "rejectionReason": "Error"
+    },
+    {
+      "caseId": "action-06",
+      "allowedNextSteps": [
+        "no_action_needed"
+      ],
+      "requestBodySha256": "717561583840f9ac7fa10cfefc5e3723c7a35e01deaf3c07a5ec024645f580c3",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "what_to_do",
+        "evidenceState": "no_open_findings",
+        "answer": "Validation has run and this project has no open findings, so nothing currently indicates a missing document or a required action.",
+        "recommendedNextStep": {
+          "kind": "no_action_needed",
+          "instruction": "Nothing is required right now.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "c2bbbfea-0512-49c0-8968-f9d733000799",
+            "sectionKind": "project_identity",
+            "label": "Sample Project West",
+            "documentId": null,
+            "page": null
+          }
+        ],
+        "confidence": "high",
+        "missingInformation": [],
+        "needsHumanReview": false
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "what_to_do",
+        "evidenceState": "no_open_findings",
+        "answer": "Validation has run and this project has no open findings, so nothing currently indicates a missing document or a required action.",
+        "recommendedNextStep": {
+          "kind": "no_action_needed",
+          "instruction": "Nothing is required right now.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "c2bbbfea-0512-49c0-8968-f9d733000799",
+            "sectionKind": "project_identity",
+            "label": "Sample Project West",
+            "documentId": null,
+            "page": null
+          }
+        ],
+        "confidence": "high",
+        "missingInformation": [],
+        "needsHumanReview": false
+      },
+      "rawOutput": null,
+      "stopReason": null,
+      "returnedModel": null,
+      "providerRequestId": null,
+      "inputTokens": null,
+      "outputTokens": null,
+      "latencyMs": 131.4308000000019,
+      "costUsd": 0.001764,
+      "status": "provider_failed",
+      "rejectionReason": "Error"
+    }
+  ]
+}

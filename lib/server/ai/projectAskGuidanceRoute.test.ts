@@ -90,10 +90,12 @@ function ask(body: Record<string, unknown> = {}) {
 }
 
 let ledger: Record<string, unknown>[];
+let events: Record<string, unknown>[];
 let logged: unknown[];
 
 beforeEach(() => {
   ledger = [];
+  events = [];
   logged = [];
   process.env = { ...ORIGINAL_ENV, ANTHROPIC_API_KEY: 'sk-test', FORGEWING_PROJECT_ASK_GUIDANCE_ENABLED: '1' };
   delete process.env.ANTHROPIC_MODEL;
@@ -103,7 +105,8 @@ beforeEach(() => {
     select: vi.fn(() => query),
     eq: vi.fn(() => query),
     maybeSingle: vi.fn().mockResolvedValue({ data: { id: 'project-1', name: 'Goodlettsville', validation_status: 'BLOCKED', validation_summary_json: null }, error: null }),
-    insert: vi.fn(async (row: Record<string, unknown>) => { ledger.push(row); return { error: null }; }),
+    insert: vi.fn(async (row: Record<string, unknown>) => { ('workflow' in row ? ledger : events).push(row); return { error: null }; }),
+    upsert: vi.fn(async () => ({ error: null })),
   };
   getSupabaseAdminMock.mockReturnValue({ from: vi.fn(() => query) });
   readSourcesMock.mockResolvedValue({ status: 'ok', sources: sources() });
@@ -120,6 +123,15 @@ afterEach(() => {
 });
 
 describe('POST /api/projects/[id]/ask in operator_guidance mode', () => {
+  it('records every answer durably, with no text', async () => {
+    delete process.env.FORGEWING_PROJECT_ASK_GUIDANCE_ENABLED;
+    expect((await ask()).status).toBe(200);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ organization_id: 'org-1', project_id: 'project-1', intent: 'need_document', provider_status: 'switch_off', model_attempted: false, answer_source: 'deterministic' });
+    expect(JSON.stringify(events[0])).not.toContain(SECRET_TITLE);
+    expect(JSON.stringify(events[0])).not.toContain('Do I need another document?');
+  });
+
   it('plans ticket data from the words of the question, and only then', async () => {
     delete process.env.FORGEWING_PROJECT_ASK_GUIDANCE_ENABLED;
     await ask({ question: 'Why are these tickets flagged?' });

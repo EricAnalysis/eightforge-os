@@ -19,6 +19,7 @@ import { deterministicRecommendation, type OperatorRecommendation } from '@/lib/
 import { assembleProjectContext, LOCAL_ONLY_POLICY } from '@/lib/projectIntelligence/projectContext';
 import { operatorGuidanceTelemetry, type GuidanceProviderStatus } from '@/lib/projectIntelligence/telemetry';
 import { primaryFindingActionContext, readProjectIntelligenceSources } from '@/lib/server/projectIntelligenceRead';
+import { recordGuidanceAnswer } from '@/lib/server/projectIntelligenceRecords';
 import { recordForgewingProviderCallObservation } from '@/lib/server/forgewingProviderTelemetry';
 import { isProjectAskGuidanceProviderEnabled, resolveProjectAskModel } from '@/lib/server/ai/askModel';
 import { buildAskProjectContext } from '@/lib/server/ai/askProjectContext';
@@ -107,6 +108,7 @@ async function handleOperatorGuidance(params: {
   let rejection: GuidanceRejectionReason | null = null;
   let observation: Awaited<ReturnType<typeof askOperatorGuidanceWithClaude>>['observation'] | null = null;
   let requestDigest: string | null = null;
+  let reservationId: string | null = null;
   const askModel = resolveProjectAskModel();
 
   const switchOn = isProjectAskGuidanceProviderEnabled();
@@ -134,6 +136,7 @@ async function handleOperatorGuidance(params: {
     if (reservation.status !== 'reserved') {
       providerStatus = reservation.status === 'budget_exhausted' ? 'budget_exhausted' : 'reservation_failed';
     } else {
+      reservationId = reservation.reservationId;
       const startedAt = performance.now();
       const telemetry = {
         workflow: 'project_ask' as const, organizationId: actor.organizationId, reservationId: reservation.reservationId,
@@ -177,11 +180,18 @@ async function handleOperatorGuidance(params: {
   }
 
   // Content-free, and carrying no tenant identity: the durable provider ledger holds that.
-  console.info('[projectIntelligence] operator_guidance', operatorGuidanceTelemetry({
+  const signals = deriveProductImprovementSignals(assessment);
+  const answerTelemetry = operatorGuidanceTelemetry({
     classified, context, recommendation, providerStatus, rejection, requestDigest,
     model: providerStatus === 'accepted' || providerStatus === 'rejected' ? askModel.model : null,
-    observation, signalCategories: deriveProductImprovementSignals(assessment).map((signal) => signal.category),
-  }));
+    observation, signalCategories: signals.map((signal) => signal.category),
+  });
+  console.info('[projectIntelligence] operator_guidance', answerTelemetry);
+  // The durable, tenant-scoped record of the same facts. Best effort: the answer does not depend on it.
+  await recordGuidanceAnswer(admin, {
+    context, telemetry: answerTelemetry, signals, rejection, reservationId,
+    requestContract: OPERATOR_GUIDANCE_REQUEST_CONTRACT,
+  });
 
   // The operator's answer only. Product signals are read on the internal route.
   return NextResponse.json({

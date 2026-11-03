@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
@@ -20,6 +20,17 @@ const pureFiles = readdirSync(PURE_ROOT)
   .map((name) => path.posix.join(PURE_ROOT, name));
 
 const WRITES = ['.insert(', '.update(', '.upsert(', '.delete(', '.rpc('];
+
+function walk(dir: string): string[] {
+  if (!existsSync(dir)) return [];
+  if (!statSync(dir).isDirectory()) return /\.(ts|tsx)$/.test(dir) ? [dir] : [];
+  return readdirSync(dir).flatMap((name) => {
+    if (name === 'node_modules' || name.startsWith('.')) return [];
+    const full = path.join(dir, name);
+    if (statSync(full).isDirectory()) return walk(full);
+    return /\.(ts|tsx)$/.test(name) && !/\.test\.tsx?$/.test(name) ? [full.split(path.sep).join('/')] : [];
+  });
+}
 
 describe('project intelligence boundaries', () => {
   it('the pure layer reaches no database, provider, gate or authority writer', () => {
@@ -73,6 +84,36 @@ describe('project intelligence boundaries', () => {
     expect(internal).toContain('resolveWorkflowPlatformReviewAccess(actor.actor)');
     expect(internal.indexOf('access.allowed')).toBeLessThan(internal.indexOf('deriveProductImprovementSignals(assessment)'));
     expect(internal).toContain(".eq('organization_id', actor.actor.organizationId)");
+  });
+
+  it('durable records are written and read only through their seam, and no truth path reads them', () => {
+    const named = /project_intelligence_(?:guidance_events|signals|signal_reviews)|projectIntelligenceRecords'/;
+    const users = ['app', 'components', 'lib', 'scripts'].flatMap(walk).filter((file) => named.test(code(file)));
+    expect(users.sort()).toEqual([
+      'app/api/internal/project-intelligence/signals/[signalId]/review/route.ts',
+      'app/api/internal/project-intelligence/signals/route.ts',
+      'app/api/projects/[id]/ask/route.ts',
+      'lib/server/projectIntelligenceRecords.ts',
+    ]);
+  }, 120_000);
+
+  it('the record seam appends to its own tables and can touch nothing else', () => {
+    const source = code('lib/server/projectIntelligenceRecords.ts');
+    for (const term of ['.update(', '.delete(', '.rpc(', 'forgewingGates', '@/lib/server/ai', '@/lib/validator', 'orchestrator_']) {
+      expect(`${term}:${source.includes(term)}`).toBe(`${term}:${term === 'orchestrator_'}`);
+    }
+    const tables = [...source.matchAll(/\.from\(([^)]+)\)/g)].map((match) => match[1]);
+    expect([...new Set(tables)].sort()).toEqual(['GUIDANCE_EVENTS_TABLE', 'SIGNALS_TABLE', 'SIGNAL_REVIEWS_TABLE']);
+    expect(source).not.toContain('question');
+  });
+
+  it('a signal review is platform-gated before it reads a body or writes', () => {
+    const review = code('app/api/internal/project-intelligence/signals/[signalId]/review/route.ts');
+    expect(review.indexOf('access.allowed')).toBeGreaterThan(-1);
+    expect(review.indexOf('access.allowed')).toBeLessThan(review.indexOf('request.json()'));
+    expect(review.indexOf('access.allowed')).toBeLessThan(review.indexOf('recordSignalReview(admin'));
+    expect(review).toContain('organizationId: actor.actor.organizationId');
+    for (const term of ['improvement_signal', 'orchestrator', 'validator']) expect(review.toLowerCase()).not.toContain(term);
   });
 
   it('a recommendation and a signal share no type: neither contains the other', () => {

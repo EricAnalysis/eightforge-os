@@ -377,8 +377,9 @@ describe('product signal stays separate and content-free (proof 6)', () => {
   it('has no field that could act on anything', () => {
     const [signal] = deriveProductImprovementSignals(read('need_document', sources()).assessment);
     expect(Object.keys(signal!).sort()).toEqual(['audience', 'authority', 'category', 'code', 'evidenceState',
-      'orchestratorRootCause', 'recordRefs', 'reviewRequired', 'ruleId', 'schemaVersion']);
+      'findingRef', 'orchestratorRootCause', 'recordRefs', 'reviewRequired', 'ruleId', 'schemaVersion']);
     expect(PRODUCT_SIGNAL_CATEGORIES).toContain(signal!.category);
+    expect(signal!.findingRef).toMatch(/^(?:sha256:[0-9a-f]{64}|[0-9a-f-]{36})$/u);
   });
 
   it('digests a record id it cannot prove is not customer text', () => {

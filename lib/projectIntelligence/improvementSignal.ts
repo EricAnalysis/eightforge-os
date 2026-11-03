@@ -53,9 +53,22 @@ export type ProductImprovementSignal = Readonly<{
   /** A catalogue rule id or the sentinel. */
   ruleId: string;
   evidenceState: EvidenceState;
+  /** The finding that raised it, as a typed reference. */
+  findingRef: string;
   /** Typed references: a UUID, or the digest of anything else. */
   recordRefs: readonly string[];
 }>;
+
+/** Stored under a CHECK, so a new code here needs a migration too. A test holds them together. */
+export const PRODUCT_SIGNAL_CODES = [
+  'source_absent_from_project',
+  'source_present_not_read',
+  'source_present_relationship_may_block_validator',
+  'source_present_linked_still_flagged',
+  'billing_code_not_mapped_to_schedule',
+  'source_data_needs_correction',
+  'finding_without_catalogue_explanation',
+] as const;
 
 const SIGNAL_BY_STATE: Readonly<Partial<Record<EvidenceState, Readonly<{ category: ProductSignalCategory; code: string }>>>> = Object.freeze({
   source_missing: { category: 'missing_source', code: 'source_absent_from_project' },
@@ -93,6 +106,7 @@ export function deriveProductImprovementSignals(assessment: ProjectEvidenceAsses
       orchestratorRootCause: ROOT_CAUSE_BY_CATEGORY[signal.category],
       ruleId: allowlistRuleId(entry.ruleId ?? ''),
       evidenceState: entry.state,
+      findingRef: recordRef(entry.findingId),
       recordRefs: entry.evidenceRecordIds.slice(0, 10).map(recordRef),
     }];
   });

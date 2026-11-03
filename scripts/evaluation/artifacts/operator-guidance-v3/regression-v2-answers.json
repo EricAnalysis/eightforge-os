@@ -8,7 +8,7 @@
       "validatorFailuresUnderV3": [],
       "scorerHitsUnderV3": [],
       "floorLinkInV2": null,
-      "floorLinkInV3": null
+      "floorLinkInV3": "/platform/documents"
     },
     {
       "caseId": "missing-02",
@@ -79,7 +79,7 @@
       "validatorFailuresUnderV3": [],
       "scorerHitsUnderV3": [],
       "floorLinkInV2": null,
-      "floorLinkInV3": null
+      "floorLinkInV3": "/platform/documents"
     },
     {
       "caseId": "document-03",
@@ -198,7 +198,7 @@
       "validatorFailuresUnderV3": [],
       "scorerHitsUnderV3": [],
       "floorLinkInV2": null,
-      "floorLinkInV3": null
+      "floorLinkInV3": "/platform/documents"
     },
     {
       "caseId": "action-02",

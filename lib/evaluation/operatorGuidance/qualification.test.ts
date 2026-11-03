@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
@@ -7,8 +8,8 @@ import { PROJECT_ASK_GUIDANCE_ENABLED_ENV, PROJECT_ASK_QUALIFIED_MODELS, isProje
 import { hashCanonical } from '@/lib/extraction/domain/hash';
 
 import {
-  authorityEscalationIn, costUsd, GUIDANCE_BARS, GUIDANCE_QUALIFICATION_MODEL, guidanceBarsDigest, hardViolations, scoreGuidanceQualification,
-  tellsOperatorToObtainSource, worstCaseCallUsd, type CaseEvidence, type GuidanceRunRecord,
+  authorityEscalationIn, costUsd, GUIDANCE_BARS, GUIDANCE_QUALIFICATION_MODEL, guidanceBarsDigest, hardViolations, reservedCallUsd, scoreGuidanceQualification,
+  tellsOperatorToObtainSource, type CaseEvidence, type GuidanceRunRecord,
 } from '@/scripts/evaluation/operator-guidance/contract';
 import { HELDOUT_CASES, HELDOUT_PROJECT_FIXTURES, PROJECT_FIXTURES, V2_REGRESSION_CASES } from '@/scripts/evaluation/operator-guidance/corpus';
 import { createFixtureDatabase, DECOY_MARKER, materializeCase, type MaterializedCase } from '@/scripts/evaluation/operator-guidance/harness';
@@ -16,6 +17,7 @@ import { guidanceLabelSetDigest, HELDOUT_LABELS, V2_REGRESSION_LABELS, v2Regress
 
 const ALL_CASES = [...V2_REGRESSION_CASES, ...HELDOUT_CASES];
 const ALL_LABELS = [...V2_REGRESSION_LABELS, ...HELDOUT_LABELS];
+const bodySha256 = (item: MaterializedCase) => createHash('sha256').update(JSON.stringify(item.request)).digest('hex');
 const labelFor = (caseId: string): GuidanceCaseLabel => ALL_LABELS.find((label) => label.caseId === caseId)!;
 
 let built: ReadonlyMap<string, MaterializedCase> | null = null;
@@ -68,7 +70,7 @@ describe('census', () => {
   });
 
   it('holds no customer names and no project-specific logic', () => {
-    const source = ['corpus.ts', 'labels.ts', 'harness.ts', 'contract.ts'].map((file) => readFileSync(path.join('scripts/evaluation/operator-guidance', file), 'utf8')).join('\n');
+    const source = ['corpus.ts', 'labels.ts', 'harness.ts', 'runner.ts', 'regression.ts'].map((file) => readFileSync(path.join('scripts/evaluation/operator-guidance', file), 'utf8')).join('\n');
     expect(source).not.toMatch(/goodlettsville|williamson|hillsdale|tdot|mdot/iu);
   });
 });
@@ -192,13 +194,12 @@ describe('frozen identities', () => {
     expect(frozen.freezeSha256).toMatch(/^[0-9a-f]{64}$/u);
   });
 
-  it('prices by the published list, and the check before each call is what enforces the ceiling', async () => {
+  it('prices by the published list, and a reservation before each call is what enforces the ceiling', async () => {
     expect(costUsd(1_000_000, 1_000_000)).toBe(18);
     const cases = await allCases();
-    const worst = HELDOUT_CASES.map((item) => worstCaseCallUsd(JSON.stringify(cases.get(item.caseId)!.request).length));
-    expect(worst.reduce((sum, usd) => sum + usd, 0)).toBeLessThan(1.1);
-    expect(Math.max(...worst)).toBeLessThan(0.06);
-    expect(readFileSync('scripts/evaluation/operator-guidance/qualify.ts', 'utf8')).toContain('> GUIDANCE_BARS.spendCeilingUsd');
+    const reserved = HELDOUT_CASES.map((item) => reservedCallUsd(cases.get(item.caseId)!.request));
+    expect(Math.max(...reserved)).toBeLessThan(0.15);
+    expect(readFileSync('scripts/evaluation/operator-guidance/runner.ts', 'utf8')).toContain('spent + reserved > GUIDANCE_BARS.spendCeilingUsd');
   });
 });
 
@@ -208,7 +209,7 @@ describe('scoring', () => {
     const record: GuidanceRunRecord = {
       caseId, status: 'accepted', rejectionReason: null, rawOutput: '{}', stopReason: 'end_turn', returnedModel: GUIDANCE_QUALIFICATION_MODEL,
       providerRequestId: 'req', inputTokens: 1000, outputTokens: 300, latencyMs: 2000, costUsd: costUsd(1000, 300),
-      allowedNextSteps: item.request.allowedNextSteps, requestBodySha256: 'x', floor: item.floor,
+      allowedNextSteps: item.request.allowedNextSteps, requestBodySha256: bodySha256(item), floor: item.floor,
       shown: { ...item.floor, method: 'model_reasoned', answer: 'The cited records show where this stands.',
         recommendedNextStep: { ...item.floor.recommendedNextStep, instruction: 'Review the cited records and take the next step.' }, ...overrides },
       ...recordOverrides,
@@ -262,6 +263,7 @@ describe('scoring', () => {
       records.push(tamper ? tamper(next) : next);
     }
     return scoreGuidanceQualification({ records, labels: HELDOUT_LABELS,
+      frozenRequests: HELDOUT_CASES.map((item) => ({ caseId: item.caseId, bodySha256: bodySha256(cases.get(item.caseId)!) })),
       evidenceByCase: new Map([...cases].map(([caseId, item]) => [caseId, evidenceOf(item)])) });
   }
 

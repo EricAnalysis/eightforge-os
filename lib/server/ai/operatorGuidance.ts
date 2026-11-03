@@ -62,6 +62,7 @@ function assessmentForModel(entry: FindingAssessment) {
     governingContract: entry.governingContract,
     openDecisionAlreadyCoversThis: entry.linkedOpenDecisionId != null,
     stillUncertain: entry.uncertainties,
+    ...(entry.unclassifiedDocuments?.length ? { documentsNotYetClassified: entry.unclassifiedDocuments.map((document) => ({ id: document.id, title: document.title, read: document.read })) } : {}),
   };
 }
 
@@ -114,6 +115,16 @@ const LONG_HASH = /\b[0-9a-f]{16,}\b/giu;
 /** Letters and digits joined into one token (`LOAD-884`, `INV1001::HAUL015`, `F-04`). An identifier, whatever digits it holds. */
 const IDENTIFIER_TOKEN = /\b(?=[a-z0-9._:-]*[a-z])(?=[a-z0-9._:-]*\d)[a-z0-9]+(?:[-_:.]+[a-z0-9]+)*\b/giu;
 const ORDINAL_WORD = /\b\d{1,2}(?:st|nd|rd|th)\b/giu;
+const WRITTEN_PERCENT = /(\d[\d,]*(?:\.\d+)?)\s*(?:%|percent\b)/giu;
+const UNIT_WORDS = 'cubic|yards?|cy|tons?|miles?|hours?|loads?|gallons?|feet|ft|acres?';
+const MEASURE_AFTER = new RegExp(`^\\s*(?:${UNIT_WORDS})\\b`, 'iu');
+const NUMBER_WORD_VALUES: Readonly<Record<string, number>> = Object.freeze({
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16,
+  seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90,
+});
+const NUMBER_WORD = new RegExp(`\\b(?:(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)(?:[- ](?:one|two|three|four|five|six|seven|eight|nine))?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen)\\b(?=\\s+(?:percent|dollars?|tickets?|rows?|items?|lines?|transactions?|${UNIT_WORDS}|(?:other\\s+|open\\s+|additional\\s+|more\\s+|remaining\\s+)*(?:critical|warnings?|findings?|issues?))\\b)`, 'giu');
+/** Written-out scale is never in a context as words, so it is never supported. */
+const NUMBER_WORD_AT_SCALE = /\b(?:one|two|three|four|five|six|seven|eight|nine|ten|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)\s+(?:hundred|thousand|million|billion)\b/giu;
 const ISO_DATE = /\b(\d{4})-(\d{2})-(\d{2})(?:T[\d:.]+Z?)?\b/gu;
 const MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
 const MONTH_NAME = `(${MONTHS.join('|')}|${MONTHS.map((month) => month.slice(0, 3)).join('|')})\\.?`;
@@ -131,26 +142,75 @@ const TITLE_VALUE_KEYS: ReadonlySet<string> = new Set(['title', 'name', 'documen
 const isoDate = (year: string, month: number, day: string) => `${year}-${String(month).padStart(2, '0')}-${day.padStart(2, '0')}`;
 const monthNumber = (name: string) => MONTHS.findIndex((month) => month.startsWith(name.slice(0, 3).toLowerCase())) + 1;
 
+type NumberSource = 'page' | 'count' | 'percent' | 'value';
+
+/** What a sent number is, from the field that holds it. An unnamed value stays general. */
+function sourceOfNumber(fieldName: string): Exclude<NumberSource, 'percent'> {
+  if (/page/iu.test(fieldName)) return 'page';
+  if (/count|rows?\b|findingsBySeverity/iu.test(fieldName)) return 'count';
+  return 'value';
+}
+
 /** What the payloads carry as values: digits inside an identifier, a title or a date support no quantity. */
 function sentValues(transmitted: readonly Readonly<{ payload: unknown }>[]) {
-  const numbers = new Set<string>();
+  const numbers = new Map<string, Set<NumberSource>>();
   const dates = new Set<string>();
   const titles = new Set<string>();
-  const visit = (value: unknown, key: string | null): void => {
-    if (Array.isArray(value)) return value.forEach((entry) => visit(entry, key));
-    if (value && typeof value === 'object') return Object.entries(value).forEach(([entryKey, entry]) => visit(entry, entryKey));
-    if (typeof value === 'number') return numericTokens(String(value)).forEach((token) => numbers.add(token));
+  const add = (token: string, source: NumberSource) => { numbers.set(token, (numbers.get(token) ?? new Set()).add(source)); };
+  const visit = (value: unknown, key: string | null, field: string): void => {
+    if (Array.isArray(value)) return value.forEach((entry) => visit(entry, key, field));
+    if (value && typeof value === 'object') {
+      const record = value as Record<string, unknown>;
+      // A fact's value is named by its field key: `{ fieldKey: 'rate row count', value: 9 }`.
+      const named = typeof record.fieldKey === 'string' ? record.fieldKey : null;
+      return Object.entries(record).forEach(([entryKey, entry]) => visit(entry, entryKey, entryKey === 'value' && named ? named : key === 'findingsBySeverity' ? key : entryKey));
+    }
+    if (typeof value === 'number') return numericTokens(String(value)).forEach((token) => add(token, /percent|pct/iu.test(field) ? 'percent' : sourceOfNumber(field)));
     if (typeof value !== 'string' || (key != null && IDENTIFYING_KEY.test(key))) return;
     if (key != null && TITLE_VALUE_KEYS.has(key)) {
       if (/\d/u.test(value)) titles.add(value);
       return;
     }
     for (const match of value.matchAll(ISO_DATE)) dates.add(`${match[1]}-${match[2]}-${match[3]}`);
-    numericTokens(value.replace(ISO_DATE, ' ').replace(UUID, ' ').replace(LONG_HASH, ' ').replace(IDENTIFIER_TOKEN, ' '))
-      .forEach((token) => numbers.add(token));
+    const clean = value.replace(ISO_DATE, ' ').replace(UUID, ' ').replace(LONG_HASH, ' ').replace(IDENTIFIER_TOKEN, ' ');
+    for (const match of clean.matchAll(WRITTEN_PERCENT)) numericTokens(match[1]!).forEach((token) => add(token, 'percent'));
+    numericTokens(clean).forEach((token) => add(token, sourceOfNumber(field)));
   };
-  for (const slice of transmitted) visit(slice.payload, null);
+  for (const slice of transmitted) visit(slice.payload, null, '');
   return { numbers, dates, titles: [...titles].sort((left, right) => right.length - left.length) };
+}
+
+type NumberMention = 'percent' | 'money' | 'page' | 'measure' | 'other';
+
+function mentionAt(text: string, start: number, end: number): NumberMention {
+  const before = text.slice(Math.max(0, start - 8), start);
+  const after = text.slice(end, end + 12);
+  if (/^\s*(?:%|percent\b)/iu.test(after)) return 'percent';
+  if (/\$\s*$/u.test(before) || /^\s*(?:dollars?\b|usd\b)/iu.test(after)) return 'money';
+  if (/\b(?:pages?|pp?\.)\s*$/iu.test(before)) return 'page';
+  if (MEASURE_AFTER.test(after)) return 'measure';
+  return 'other';
+}
+
+/** A page number is no rate, a count is no percentage, and nothing but a percentage is one. */
+const SOURCES_FOR_MENTION: Readonly<Record<NumberMention, readonly NumberSource[]>> = Object.freeze({
+  percent: ['percent'], money: ['value'], measure: ['value'], page: ['page', 'value'], other: ['value', 'count', 'percent'],
+});
+
+function unsupportedQuantities(text: string, sent: ReadonlyMap<string, ReadonlySet<NumberSource>>): string[] {
+  return [...text.matchAll(/\d[\d,]*(?:\.\d+)?/gu)].flatMap((match) => numericTokens(match[0]).filter((token) => {
+    const sources = sent.get(token);
+    const allowed = SOURCES_FOR_MENTION[mentionAt(text, match.index, match.index + match[0].length)];
+    return !sources || !allowed.some((source) => sources.has(source));
+  }));
+}
+
+/** A written-out number before a unit is the same claim as its digits. */
+function withNumberWordsAsDigits(text: string): string {
+  return text.replace(NUMBER_WORD, (written) => {
+    const parts = written.toLowerCase().split(/[-\s]+/u);
+    return String(parts.reduce((sum, part) => sum + (NUMBER_WORD_VALUES[part] ?? 0), 0));
+  });
 }
 
 /** A list marker is not a quantity, but only as part of a run 1, 2, 3 in order of appearance. */
@@ -198,13 +258,16 @@ function wrongCountClaims(text: string, counts: SentCounts): string[] {
  * What the answer writes that the transmitted context never carried. The guidance path's
  * own check: `unsupportedNumbers` stays as Case Investigation's records used it.
  *
- * A quantity must be a value the context sent: digits inside a UUID, hash, identifier,
- * title or timestamp support nothing. An identifier or UUID must have been sent whole, and
- * a date must equal a sent date in any safe format. Structure is not quantity, so a
- * sequential list marker, an ordinal word and `Finding N` up to the open count are ignored.
- * Rates, costs, percentages, measurements and calculated numbers all stay rejected, and a
- * count stated about the findings must equal the count sent. Numbers written as words are
- * not read here, as they never were; reviewers read every accepted answer.
+ * A number must be a value the context sent, and sent as that kind of thing: a page number
+ * or a count supports no rate, cost or measurement, and only a percentage supports a
+ * percentage. Digits inside a UUID, hash, identifier, title or timestamp support nothing. An
+ * identifier or UUID must have been sent whole, and a date must equal a sent date in any safe
+ * format. Structure is not quantity, so a sequential list marker, an ordinal word and
+ * `Finding N` up to the open count are ignored. A number written as a word before a unit is
+ * read as its digits, and a count stated about the findings must equal the count sent.
+ *
+ * It proves a number's kind, not its meaning: "12 rows" and a rate of 12 are told apart only
+ * where the context names the field. Reviewers still read every accepted answer.
  */
 export function guidanceUnsupportedNumbers(
   texts: readonly string[],
@@ -217,14 +280,16 @@ export function guidanceUnsupportedNumbers(
     const withoutUuids = text.replace(UUID, ' ');
     const withoutTitles = sent.titles.reduce((rest, title) => rest.split(new RegExp(title.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'iu')).join(' '), withoutUuids);
     const undated = withoutSentDates(withoutTitles, sent.dates);
-    const words = undated.replace(ORDINAL_WORD, ' ');
+    const atScale = [...undated.matchAll(NUMBER_WORD_AT_SCALE)].map((match) => match[0]);
+    const words = withNumberWordsAsDigits(undated.replace(NUMBER_WORD_AT_SCALE, ' ')).replace(ORDINAL_WORD, ' ');
     const quantities = withoutListMarkers(words.replace(IDENTIFIER_TOKEN, ' ')).replace(FINDING_ORDINAL, (ordinal, digits: string) => (
       Number(digits) >= 1 && Number(digits) <= counts.open ? 'finding' : ordinal
     ));
     return [
       ...[...text.matchAll(UUID)].map((match) => match[0].toLowerCase()).filter((id) => !sentIdentifiers.includes(id)),
       ...[...words.matchAll(IDENTIFIER_TOKEN)].map((match) => match[0]).filter((id) => !sentIdentifiers.includes(id.toLowerCase())),
-      ...numericTokens(quantities).filter((token) => !sent.numbers.has(token)),
+      ...atScale,
+      ...unsupportedQuantities(quantities, sent.numbers),
       ...wrongCountClaims(quantities, counts),
     ];
   });

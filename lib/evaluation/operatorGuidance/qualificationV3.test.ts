@@ -19,13 +19,14 @@ import { acceptModelRecommendation, guidanceRejectionReasons, guidanceTransmitte
 import { unsupportedNumbers } from '@/lib/server/caseInvestigationRunner';
 
 import {
-  authorityEscalationIn, GUIDANCE_BARS, GUIDANCE_QUALIFICATION_CONTRACT, GUIDANCE_QUALIFICATION_MODEL, GUIDANCE_RUN_DIR, GUIDANCE_SUPERSEDED_CONTRACT, GUIDANCE_V2_ARTIFACT_DIR,
-  internalVocabularyInPayload, pinnedSourceDigests, promisedOutcomeIn, requestShapeIdentity, tellsOperatorToObtainSource, unsupportedRelationshipAdviceIn,
+  authorityEscalationIn, customerContentIn, GUIDANCE_BARS, GUIDANCE_QUALIFICATION_CONTRACT, GUIDANCE_QUALIFICATION_MODEL, GUIDANCE_RUN_DIR, GUIDANCE_SUPERSEDED_CONTRACT, GUIDANCE_V2_ARTIFACT_DIR,
+  GUIDANCE_WITHDRAWN_FREEZE_FILE, hardViolations, internalVocabularyInPayload, pinnedSourceDigests, promisedOutcomeIn, requestShapeIdentity, tellsOperatorToObtainSource, unsupportedRelationshipAdviceIn,
+  type GuidanceRunRecord,
 } from '@/scripts/evaluation/operator-guidance/contract';
-import { HELDOUT_CASES, HELDOUT_PROJECT_FIXTURES, V2_REGRESSION_CASES, type QualificationCase } from '@/scripts/evaluation/operator-guidance/corpus';
+import { heldoutStateSignature, HELDOUT_CASES, HELDOUT_PROJECT_FIXTURES, V2_REGRESSION_CASES, type QualificationCase } from '@/scripts/evaluation/operator-guidance/corpus';
 import { materializeCase, type MaterializedCase } from '@/scripts/evaluation/operator-guidance/harness';
 import { HELDOUT_LABELS } from '@/scripts/evaluation/operator-guidance/labels';
-import { replayV2Answers, type V2ReplayRow } from '@/scripts/evaluation/operator-guidance/regression';
+import { caseEvidenceFor, replayV2Answers, type V2ReplayRow } from '@/scripts/evaluation/operator-guidance/regression';
 
 const json = (file: string) => JSON.parse(readFileSync(file, 'utf8'));
 const ALL_CASES: readonly QualificationCase[] = [...V2_REGRESSION_CASES, ...HELDOUT_CASES];
@@ -62,10 +63,21 @@ describe('v3 has its own identity and keeps the terms it did not set out to chan
 
   it('keeps every bar', () => {
     const v2 = json(path.join(GUIDANCE_V2_ARTIFACT_DIR, 'freeze.json')).bars;
-    const { scorer: v3Scorer, ...v3Bars } = GUIDANCE_BARS;
-    const { scorer: v2Scorer, ...v2Bars } = v2;
+    const { scorer: v3Scorer, reservedTokensPerUtf8Byte, reservedOverheadTokens, ...v3Bars } = GUIDANCE_BARS;
+    const { scorer: v2Scorer, worstCaseCharsPerToken, ...v2Bars } = v2;
     expect(v3Bars).toEqual(v2Bars);
     expect(v3Scorer).not.toBe(v2Scorer);
+    // Only the estimate behind the ceiling is replaced, by a reservation that does not rest on an average.
+    expect(reservedTokensPerUtf8Byte).toBe(1);
+    expect(reservedOverheadTokens).toBeGreaterThan(0);
+    expect(worstCaseCharsPerToken).toBe(3);
+  });
+
+  it('keeps the withdrawn freeze byte for byte, as failed pre-run evidence', () => {
+    const withdrawn = readFileSync(GUIDANCE_WITHDRAWN_FREEZE_FILE);
+    const record = json('scripts/evaluation/artifacts/operator-guidance-v3/WITHDRAWN.json');
+    expect(createHash('sha256').update(withdrawn).digest('hex')).toBe('4bb943c9f5572feab58a755c8373cf7ab80f50a9a658c6b10c12ecbf00d3e0cd');
+    expect(record).toMatchObject({ status: 'withdrawn_before_any_run', fileSha256: '4bb943c9f5572feab58a755c8373cf7ab80f50a9a658c6b10c12ecbf00d3e0cd', freezeSha256: json(GUIDANCE_WITHDRAWN_FREEZE_FILE).freezeSha256 });
   });
 });
 
@@ -95,10 +107,31 @@ describe('the 24 held-out cases', () => {
     }
   });
 
-  it('carry a written derivation each, and name where truth is genuinely open', () => {
+  it('carry a written derivation each, and record the owner\'s two adjudications', () => {
     expect(HELDOUT_LABELS.map((label) => label.caseId).sort()).toEqual(HELDOUT_CASES.map((item) => item.caseId).sort());
     for (const label of HELDOUT_LABELS) expect(label.derivation.length).toBeGreaterThan(20);
-    expect(HELDOUT_LABELS.filter((label) => label.openForAdjudication).map((label) => label.caseId)).toEqual(['heldout-missing-02', 'heldout-document-04']);
+    expect(HELDOUT_LABELS.filter((label) => label.ownerAdjudication).map((label) => label.caseId)).toEqual(['heldout-missing-02', 'heldout-document-04']);
+  });
+
+  it('stand on 24 different operational states', () => {
+    expect(new Set(HELDOUT_CASES.map(heldoutStateSignature)).size).toBe(24);
+  });
+
+  it('use no customer or Golden-derived content, in the fixture, the request or the floor', async () => {
+    expect(customerContentIn('the known authored Williamson display correction')).toBe('Williamson');
+    expect(customerContentIn('from Unincorporated Neighborhood ROW to DMS 0 to 15 Miles')).not.toBeNull();
+    for (const item of HELDOUT_CASES) {
+      const built = await materializeCase(item);
+      expect(customerContentIn(heldoutStateSignature(item)), `${item.caseId} fixture`).toBeNull();
+      expect(customerContentIn(JSON.stringify(built.request)), `${item.caseId} request`).toBeNull();
+      expect(customerContentIn(JSON.stringify(built.floor)), `${item.caseId} floor`).toBeNull();
+    }
+  });
+
+  it('build their snapshots from nothing that spreads the Golden row', () => {
+    const corpus = readFileSync('scripts/evaluation/operator-guidance/corpus.ts', 'utf8');
+    const heldout = corpus.slice(corpus.indexOf('const AGREEMENT: DocumentSpec'));
+    expect(heldout).not.toMatch(/pricingAssemblyRow|goldenProfile|exactParityProfile|sourceGapProfile|cleanProfile|crossDocumentProfile|ticketGrainProfile|ticketGrainConflictProfile|loadGoldenPricingFixture/u);
   });
 
   it.each([
@@ -109,21 +142,21 @@ describe('the 24 held-out cases', () => {
     ['heldout-missing-05', 'source_missing', 'SOURCES_NO_CONTRACT', 'upload_or_request_document', 1],
     ['heldout-missing-06', 'source_missing', 'SOURCES_NO_INVOICE_DATA', 'upload_or_request_document', 2],
     ['heldout-document-01', 'source_present_unread', 'FINANCIAL_RATE_BASED_SCHEDULE_REQUIRED', 'review_existing_document', 1],
-    ['heldout-document-02', 'source_missing', 'SOURCES_NO_TICKET_DATA', 'upload_or_request_document', 1],
+    ['heldout-document-02', 'source_present_unread', 'SOURCES_NO_TICKET_DATA', 'review_existing_document', 1],
     ['heldout-document-03', 'source_present', 'FINANCIAL_RATE_BASED_SCHEDULE_REQUIRED', 'review_existing_document', 1],
-    ['heldout-document-04', 'source_missing', 'FINANCIAL_RATE_BASED_SCHEDULE_REQUIRED', 'upload_or_request_document', 1],
+    ['heldout-document-04', 'source_missing', 'FINANCIAL_RATE_BASED_SCHEDULE_REQUIRED', 'review_existing_document', 1],
     ['heldout-document-05', 'no_open_findings', null, 'no_action_needed', 0],
     ['heldout-document-06', 'source_present_unread', 'SOURCES_NO_CONTRACT', 'review_existing_document', 1],
     ['heldout-flagged-01', 'source_present_relationship_unresolved', 'FINANCIAL_RATE_BASED_SCHEDULE_REQUIRED', 'link_existing_document', 1],
     ['heldout-flagged-02', 'not_a_source_gap', 'TRANSACTION_TICKET_GRAIN_CONFLICT', 'operator_judgment_required', 8],
-    ['heldout-flagged-03', 'not_a_source_gap', 'FINANCIAL_AUTHORED_RATE_ROW_UNVERIFIED', 'correct_source_data', 8],
+    ['heldout-flagged-03', 'not_a_source_gap', 'FINANCIAL_AUTHORED_RATE_ROW_UNVERIFIED', 'correct_source_data', 4],
     ['heldout-flagged-04', 'likely_system_issue', 'FINANCIAL_RATE_BASED_SCHEDULE_REQUIRED', 'likely_system_issue', 1],
     ['heldout-flagged-05', 'not_a_source_gap', 'FINANCIAL_RATE_BASED_PRICING_APPLICABILITY_UNCLEAR', 'review_existing_document', 1],
-    ['heldout-flagged-06', 'not_a_source_gap', 'TRANSACTION_QUANTITY_MATCHES_INVOICE', 'review_ticket_or_transaction', 3],
+    ['heldout-flagged-06', 'not_a_source_gap', 'TRANSACTION_QUANTITY_MATCHES_INVOICE', 'review_ticket_or_transaction', 6],
     ['heldout-action-01', 'source_present_relationship_unresolved', 'FINANCIAL_RATE_BASED_SCHEDULE_REQUIRED', 'link_existing_document', 1],
     ['heldout-action-02', 'likely_system_issue', 'FINANCIAL_RATE_BASED_ROWS_REQUIRED', 'likely_system_issue', 3],
     ['heldout-action-03', 'not_a_source_gap', 'FINANCIAL_AUTHORED_RATE_ROW_UNVERIFIED', 'correct_source_data', 2],
-    ['heldout-action-04', 'not_a_source_gap', 'TRANSACTION_TOTAL_MATCHES_INVOICE_LINE', 'review_ticket_or_transaction', 3],
+    ['heldout-action-04', 'not_a_source_gap', 'TRANSACTION_TOTAL_MATCHES_INVOICE_LINE', 'review_ticket_or_transaction', 2],
     ['heldout-action-05', 'no_open_findings', null, 'no_action_needed', 0],
     ['heldout-action-06', 'source_present_unread', 'SOURCES_NO_INVOICE_DATA', 'review_existing_document', 2],
   ])('%s reads %s from the real Validator', async (caseId, state, rule, step, open) => {
@@ -135,11 +168,11 @@ describe('the 24 held-out cases', () => {
     expect(built.databaseWrites).toEqual([]);
   });
 
-  it('give the variant conflict case its own ticket and values', async () => {
+  it('give the conflict case its own ticket and values', async () => {
     const request = JSON.stringify((await materializeCase(caseById('heldout-flagged-02'))).request);
     expect(request).toContain('LOAD-884');
     expect(request).not.toContain('TKT-1');
-    expect(request).toMatch(/\b310\b/u);
+    expect(request).toMatch(/\b4417\.5\b/u);
   });
 
   it('build without touching a provider', async () => {
@@ -188,6 +221,16 @@ describe('the deterministic action link follows what the recommendation names', 
     expect(nextStepActionHref('review_existing_document', sheet, context, finding(['price-sheet'], 7))).toBe('/platform/documents/price-sheet?page=7');
   });
 
+  it('sends a missing schedule to upload: the route its rule text describes', async () => {
+    const built = await materializeCase(caseById('heldout-missing-04'));
+    expect(built.floor.recommendedNextStep).toMatchObject({ kind: 'upload_or_request_document', actionHref: '/platform/documents' });
+  });
+
+  it('opens an unclassified document first, when it could hold what is needed', () => {
+    const open = reading({ state: 'source_missing', unclassifiedDocuments: [document('rate-information')], nextSteps: ['review_existing_document'] });
+    expect(nextStepActionHref('review_existing_document', open, context, finding(['governing-contract']))).toBe('/platform/documents/rate-information');
+  });
+
   it('sends a missing source to upload, never to an unrelated document', () => {
     const missing = reading({ ruleId: 'SOURCES_NO_CONTRACT', state: 'source_missing', neededSource: 'contract', nextSteps: ['upload_or_request_document'] });
     expect(nextStepActionHref('upload_or_request_document', missing, context, finding(['unrelated-document']))).toBe('/platform/documents');
@@ -200,6 +243,7 @@ describe('the deterministic action link follows what the recommendation names', 
   it.each([
     ['heldout-document-01', 'doc:sheet'],
     ['heldout-document-03', 'doc:sheet'],
+    ['heldout-document-04', 'doc:sheet'],
     ['heldout-flagged-05', 'doc:contract'],
   ])('%s opens %s, across document families', async (caseId, symbol) => {
     const built = await materializeCase(caseById(caseId));
@@ -228,9 +272,15 @@ describe('operator terms: one seam, in the sent copy alone', () => {
     expect(operatorTextForSystemText('A canonical value differs.')).toBe('A value differs.');
   });
 
+  it('is closed: an enum value it does not know stays byte for byte, and fails safe', () => {
+    expect(operatorTermForEnum('future_internal_code')).toBe('future_internal_code');
+    expect(operatorPresentation({ field: 'TKT_001' })).toEqual({ field: 'TKT_001' });
+    expect(internalVocabularyInPayload(presented({ reading: 'future_internal_code' }))).toEqual(['reading: future_internal_code']);
+  });
+
   it('changes enum values and the closed list of system terms', () => {
     expect(presented({ type: 'attached_to', field: 'rate_row_count', authorityStatus: 'reference_only', reading: 'source_present_unread' }))
-      .toEqual({ type: 'attached to', field: 'rate row count', authorityStatus: 'reference only', reading: 'source present unread' });
+      .toEqual({ type: 'attached to', field: 'rate row count', authorityStatus: 'reference only', reading: 'source present, not read' });
     expect(presented({ description: 'extended_cost differs from transaction_quantity' })).toEqual({ description: 'extended cost differs from transaction quantity' });
   });
 
@@ -313,6 +363,37 @@ describe('the reading gains what the floor already worked out', () => {
 });
 
 describe('the guidance number check', () => {
+  it('ties a number to what it is: a page or a count supports no rate, cost, measure or percentage', () => {
+    expect(guidanceUnsupportedNumbers(['The rate is $15 per yard.'], sent(0, { page: 15 }))).toEqual(['15']);
+    expect(guidanceUnsupportedNumbers(['The cost is $1.'], sent(0, { page: 1 }))).toEqual(['1']);
+    expect(guidanceUnsupportedNumbers(['The unsupported share is 37%.'], sent(0, { rowCount: 37 }))).toEqual(['37']);
+    expect(guidanceUnsupportedNumbers(['It covers 37 cubic yards.'], sent(0, { rowCount: 37 }))).toEqual(['37']);
+    expect(guidanceUnsupportedNumbers(['There are 15 of them.'], sent(0, { page: 15 }))).toEqual(['15']);
+    expect(guidanceUnsupportedNumbers(['See page 15.'], sent(0, { page: 15 }))).toEqual([]);
+    expect(guidanceUnsupportedNumbers(['It read 37 rows.'], sent(0, { rowCount: 37 }))).toEqual([]);
+    expect(guidanceUnsupportedNumbers(['The rate is $15.'], sent(0, { rate: 15 }))).toEqual([]);
+    expect(guidanceUnsupportedNumbers(['About 37% is open.'], sent(0, { note: '37% remains open' }))).toEqual([]);
+    expect(guidanceUnsupportedNumbers(['About 37% is open.'], sent(0, { percentOpen: 37 }))).toEqual([]);
+  });
+
+  it('names a fact\'s number by its field', () => {
+    const fact = (fieldKey: string, value: unknown) => sent(0, { facts: [{ fieldKey, value }] });
+    expect(guidanceUnsupportedNumbers(['The rate is $9.'], fact('rate row count', 9))).toEqual(['9']);
+    expect(guidanceUnsupportedNumbers(['It has 9 rows.'], fact('rate row count', 9))).toEqual([]);
+    expect(guidanceUnsupportedNumbers(['The cap is $125,000.'], fact('not-to-exceed amount', 125000))).toEqual([]);
+    expect(guidanceUnsupportedNumbers(['The rate is $12.'], fact('rate schedule pages', '12'))).toEqual(['12']);
+  });
+
+  it('reads a number written as a word as its digits', () => {
+    expect(guidanceUnsupportedNumbers(['There are forty-four tickets.'], sent(0))).toEqual(['44']);
+    expect(guidanceUnsupportedNumbers(['It comes to fifteen dollars per yard.'], sent(0))).toEqual(['15']);
+    expect(guidanceUnsupportedNumbers(['It comes to two hundred dollars.'], sent(0))).toEqual(['two hundred']);
+    expect(guidanceUnsupportedNumbers(['There are two critical findings.'], sent(2, {}, { critical: 2, warning: 0 }))).toEqual([]);
+    expect(guidanceUnsupportedNumbers(['There are three critical findings.'], sent(2, {}, { critical: 2, warning: 0 }))).toContain('3 critical');
+    // Ordinary words are not quantities.
+    expect(guidanceUnsupportedNumbers(['One of the two documents needs review.'], sent(0))).toEqual([]);
+  });
+
   it('closes the UUID hole: digits inside an identifier support nothing', () => {
     expect(guidanceUnsupportedNumbers(['There are 62 critical findings.'], sent(3))).toContain('62');
     expect(guidanceUnsupportedNumbers(['About 8961 tons were billed.'], sent(3))).toEqual(['8961']);
@@ -500,6 +581,90 @@ describe('advice that a link is needed, on a reading that never asked for one', 
   });
 });
 
+describe('whether a source is present is about one requirement', () => {
+  const answerRecord = (built: MaterializedCase, answer: string, instruction = 'Review the cited records.'): GuidanceRunRecord => ({
+    caseId: built.caseId, status: 'accepted', rejectionReason: null, rawOutput: '{}', stopReason: 'end_turn', returnedModel: GUIDANCE_QUALIFICATION_MODEL, providerRequestId: 'req', inputTokens: 1, outputTokens: 1, latencyMs: 1, costUsd: 0,
+    allowedNextSteps: built.request.allowedNextSteps, requestBodySha256: 'x', floor: built.floor,
+    shown: { ...built.floor, method: 'model_reasoned', answer, recommendedNextStep: { ...built.floor.recommendedNextStep, instruction } },
+  });
+  const hits = async (caseId: string, answer: string) => {
+    const built = await materializeCase(caseById(caseId));
+    return hardViolations(answerRecord(built, answer), HELDOUT_LABELS.find((label) => label.caseId === caseId)!, caseEvidenceFor(built));
+  };
+
+  it.each(['heldout-flagged-02', 'heldout-flagged-03', 'heldout-flagged-05', 'heldout-flagged-06', 'heldout-action-03', 'heldout-action-04'])('%s, Codex\'s correction: an allowed step with advice to obtain another document fails', async (caseId) => {
+    expect(HELDOUT_LABELS.find((label) => label.caseId === caseId)!.sourceAlreadyPresent).toBe(true);
+    expect(await hits(caseId, 'Please upload another copy of the document.')).toContain('obtain_source_already_present');
+    expect(await hits(caseId, 'Review the records on file.')).not.toContain('obtain_source_already_present');
+  });
+
+  it.each(HELDOUT_LABELS.map((label) => [label.caseId, label] as const))('%s says present only where its reading finds the source, or leaves it unsettled', async (caseId, label) => {
+    const built = await materializeCase(caseById(caseId));
+    const reading = built.floor.evidenceState;
+    const absent = reading === 'no_open_findings' || (reading === 'source_missing' && !built.assessment.primary?.unclassifiedDocuments?.length);
+    expect(label.sourceAlreadyPresent).toBe(!absent);
+  });
+
+  it('does not stop the operator obtaining what is genuinely missing because something else is on file', async () => {
+    expect(await hits('heldout-missing-01', 'Please upload the ticket document.')).not.toContain('obtain_source_already_present');
+    expect(await hits('heldout-action-06', 'Please provide the ticket documents as well.')).not.toContain('obtain_source_already_present');
+    expect(await hits('heldout-action-06', 'Please upload the pay application document again.')).toContain('obtain_source_already_present');
+  });
+
+  it('allows a request only on a condition, where sufficiency is unsettled', async () => {
+    for (const caseId of ['heldout-missing-02', 'heldout-document-04']) {
+      expect(await hits(caseId, 'If it is insufficient, request the schedule document.'), caseId).not.toContain('obtain_source_already_present');
+      expect(await hits(caseId, 'Request another schedule document.'), caseId).toContain('obtain_source_already_present');
+    }
+    expect(await hits('heldout-document-01', 'If it fails again, request another copy of the exhibit.')).toContain('obtain_source_already_present');
+  });
+
+  it('accepts an explicit human-review recommendation as a correct answer', async () => {
+    for (const caseId of ['heldout-missing-02', 'heldout-document-04', 'heldout-flagged-02', 'heldout-flagged-05']) {
+      expect(await hits(caseId, 'The records on file do not settle this, so a person needs to decide.'), caseId).toEqual([]);
+      expect(HELDOUT_LABELS.find((label) => label.caseId === caseId)!.allowedNextSteps, caseId).toContain('operator_judgment_required');
+    }
+  });
+
+  it('keeps tellsOperatorToObtainSource strict by default', () => {
+    expect(tellsOperatorToObtainSource('If it fails, request another schedule.')).toBe(true);
+    expect(tellsOperatorToObtainSource('Provide the ticket documents.')).toBe(true);
+  });
+});
+
+describe('the owner\'s adjudications', () => {
+  it('heldout-missing-02: reviews what is on file, stays uncertain, and points to a person', async () => {
+    const built = await materializeCase(caseById('heldout-missing-02'));
+    expect(built.floor.evidenceState).toBe('not_a_source_gap');
+    expect(built.request.allowedNextSteps).not.toContain('upload_or_request_document');
+    expect(built.floor.recommendedNextStep.instruction).toMatch(/tickets and transactions on file/u);
+    expect(built.floor.recommendedNextStep.instruction).toMatch(/person/u);
+    expect(built.floor.missingInformation).toContain('Whether the tickets on file cover this billed line, or more support is needed, has not been established.');
+    expect(JSON.stringify(built.tables.documents)).toContain('Harbor Field Export');
+    const snapshot = (caseById('heldout-missing-02').validated as { build(): { transactionData: { rows: { rate_code: string }[] } } }).build();
+    expect(snapshot.transactionData.rows.map((row) => row.rate_code)).toEqual(['DREDGE-02']);
+  });
+
+  it('heldout-document-04: inspects first, infers nothing from the title, and requests only if absent', async () => {
+    const built = await materializeCase(caseById('heldout-document-04'));
+    expect(built.floor.recommendedNextStep.kind).toBe('review_existing_document');
+    expect(built.request.allowedNextSteps).toEqual(['review_existing_document', 'operator_judgment_required']);
+    expect(built.floor.answer).not.toMatch(/genuinely absent/u);
+    expect(built.floor.recommendedNextStep.instruction).toMatch(/^Open "Rate Information" and check whether it holds/u);
+    expect(built.floor.recommendedNextStep.instruction).toMatch(/If it does not, request/u);
+    expect(built.floor.missingInformation.join(' ')).toMatch(/its title does not settle it/u);
+    expect(assessmentPayload(built).primary).toMatchObject({ documentsNotYetClassified: [{ title: 'Rate Information' }] });
+  });
+
+  it('heldout-document-04: goes by the record, not the title: a differently named file reads the same', async () => {
+    const built = await materializeCase({ ...caseById('heldout-document-04'), validated: { kind: 'rows', phase: 'contract_setup', relationships: [],
+      documents: [{ key: 'contract', title: 'Harbor Dredging Services Agreement', documentType: 'contract' }, { key: 'sheet', title: 'Site Photos', documentType: 'other' }],
+      facts: [{ documentKey: 'contract', fieldKey: 'contract_ceiling_type', value: 'rate_based' }] } });
+    expect(built.floor.recommendedNextStep.kind).toBe('review_existing_document');
+    expect(built.floor.answer).toContain('"Site Photos" is on file but has not been classified');
+  });
+});
+
 describe('every failed check is recorded, and acceptance does not change', () => {
   const parts = async (raw: object) => {
     const built = await materializeCase(caseById('document-01'));
@@ -575,8 +740,11 @@ describe('v2\'s saved answers under v3: regression evidence only', () => {
     }
   });
 
-  it('only the two wrong links change, and they open the source', () => {
-    expect(rows.filter((entry) => entry.floorLinkInV2 !== entry.floorLinkInV3).map((entry) => entry.caseId)).toEqual(['document-03', 'document-05']);
+  it('only the wrong or missing links change', () => {
+    expect(rows.filter((entry) => entry.floorLinkInV2 !== entry.floorLinkInV3).map((entry) => entry.caseId)).toEqual(['missing-01', 'document-02', 'document-03', 'document-05', 'action-01']);
+    for (const caseId of ['missing-01', 'document-02', 'action-01']) {
+      expect(row(caseId)).toMatchObject({ floorLinkInV2: null, floorLinkInV3: '/platform/documents' });
+    }
   });
 
   it('the accepted answers gain no new hit beyond the two genuine errors', () => {

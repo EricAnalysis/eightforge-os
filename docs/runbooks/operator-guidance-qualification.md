@@ -36,6 +36,57 @@ A read-only replay reads the failure as `MIXED`, and that does not change the ve
 
 Any correction needs a new contract and new held-out cases, because these answers informed it.
 
+## Where v3 stands
+
+**Not final, and not run.** The first v3 freeze (`59c0431a…`) was withdrawn before any run, after an
+independent review of #295 found defects in it. It stays byte for byte in `freeze.json`, with the reasons
+in `WITHDRAWN.json`. The candidate is `freeze-r2.json`.
+
+`preflight` marks a freeze `final` only when `label-verification.json` names an independent verifier of
+exactly these labels, and `run` refuses otherwise. A verification record looks like this, and changes no
+byte sent:
+
+```json
+{ "status": "verified", "labelSetDigest": "<labelSet.digest>", "verifiedBy": "<who>", "verifiedOn": "<date>", "independentOfAuthor": true }
+```
+
+## Evidence sufficiency (owner, 2026-11-03)
+
+The question is whether there is enough trusted information to validate this requirement. A document being
+on file does not answer it, and a link does not make a document authoritative. Where the evidence cannot
+settle it, asking a person is a correct outcome, and not a model failure. Unsupported facts, invented
+authority, wrong source recommendations and guaranteed outcomes remain hard failures.
+
+`sourceAlreadyPresent` speaks to one requirement's source. `absentSources` names what the project genuinely
+lacks for another finding, so advice about that is not advice to obtain this source again.
+`obtainOnlyIfInsufficient` marks where sufficiency is unsettled, so "if it does not hold it, request it" is
+correct and an outright request is not.
+
+Two labels carry the owner's adjudication:
+
+- **`heldout-missing-02`:** a ticket is on file under another billing code. Review the evidence and its
+  grouping, keep open whether more support is needed, and take it to a person if that does not settle it.
+- **`heldout-document-04`:** a document titled "Rate Information" is on file, unclassified. Inspect it first,
+  infer nothing from the title, and request the source only if it is genuinely absent. Any unclassified
+  document gets this reading, whatever its title.
+
+**How the readings map, and what is unresolved.** The reading has seven states, and the durable records'
+`evidence_state` check allows only those, so a new state needs a migration.
+
+| Owner's distinction | Today's reading |
+| --- | --- |
+| Required source absent | `source_missing` |
+| Present but unread | `source_present_unread` |
+| Extraction incomplete | **Folded into** `likely_system_issue` |
+| Relationship unresolved | `source_present_relationship_unresolved` |
+| Authority uncertain | **Folded into** `source_present_relationship_unresolved` |
+| Required information present and supported | No finding open, so `no_open_findings` |
+| Conflicting information | `not_a_source_gap`, leading with human judgment |
+| Inconclusive, needs a person | `operator_judgment_required` is a step, not a state |
+| Likely EightForge limitation | `likely_system_issue` |
+| Unclassified document that could hold it | `source_missing`, with `unclassifiedDocuments` and inspection first |
+| No action required | `no_open_findings` |
+
 ## What v3 changes
 
 v3 fixes concrete defects found in v2. No bar is lowered. The prompt, model, temperature, timeout,
@@ -45,16 +96,19 @@ production vocabulary, authority-claim and obtain-source patterns.
 | Phase | Correction | Where |
 | --- | --- | --- |
 | B | The action link opens what the recommendation names: a source reading's own source, or otherwise the finding's evidence. **Not behind the switch** | `nextStepActionHref` |
-| C | The copy sent to the model uses operator terms, from one seam. Canonical values, stored records and telemetry keep their codes, and validation stays as strict, so an uncovered identifier still falls back. The bare word `canonical` stays rejected, and the fix is that the model is no longer sent it | `operatorTerms.ts` |
+| C | The copy sent to the model uses operator terms, from one closed list. Canonical values, stored records and telemetry keep their codes, and an unknown value stays byte for byte, so an answer repeating it still falls back. The bare word `canonical` stays rejected, and the fix is that the model is no longer sent it | `operatorTerms.ts` |
 | D | The reading sends the real production next step as `deterministicNextStep`. Its `kind` stays in the vocabulary the model must answer in | `guidanceTransmittedContext` |
-| E | Guidance's own number check. Digits inside a UUID, hash, identifier, title or timestamp support nothing. List markers, ordinal words and `Finding N` up to the open count are ignored, and dates match across safe formats. Critical, warning and total counts are sent, and a count stated about the findings must equal them. Anything else not sent is rejected. Case Investigation's helper is not edited | `guidanceUnsupportedNumbers` |
+| E | Guidance's own number check. A number must be sent, and sent as that kind of thing: a page or a count supports no rate, cost, measure or percentage. Digits inside a UUID, hash, identifier, title or timestamp support nothing. List markers, ordinal words and `Finding N` up to the open count are ignored, and dates match across safe formats. A number written as a word before a unit is read as its digits. Critical, warning and total counts are sent, and a count stated about the findings must equal them. Case Investigation's helper is not edited | `guidanceUnsupportedNumbers` |
 | F | `authority_escalation` reads actual claims ("this is approved", "the finding is cleared", "I approved this") and ignores conditions ("check whether it is resolved", "before the invoice can be approved") | `authorityEscalationIn` |
 | G | New hard bar `promised_outcome`, apart from authority | `promisedOutcomeIn` |
 | I | New hard bar `unsupported_relationship_advice`: advice that a link is needed, where the reading never offered linking | `unsupportedRelationshipAdviceIn` |
 | H | The run record and scorecard gain `allRejectionReasons`. Accept or reject behaviour does not change | `guidanceRejectionReasons` |
+| Review | The freeze body is authenticated whole. Spend is reserved in full before each call. Scoring requires one record per frozen case, as frozen. An answer must name the frozen model. A regrade checks the seal first | `runner.ts`, `contract.ts` |
+| Review | `FINANCIAL_RATE_BASED_SCHEDULE_REQUIRED` gains the upload route its text describes, which adds a link for operators without the switch | `ruleExplanations.ts` |
 
 **The scorer patterns stay out of production for v3 and must move there before activation** (owner
-decision). A passing sample does not stop a future hit from being shown.
+decision). A passing sample does not stop a future hit from being shown. Returned-model equality, the number
+check's limits and required-uncertainty are in the same position: an activation gate, not a qualification one.
 
 ## What is being tested
 
@@ -68,12 +122,13 @@ directly, so the switch is never read or set.
 
 ## Corpus
 
-24 new cases, six per intent, all synthetic with no customer data, on six project fixtures of their
-own, none above eight cases. They cover a source genuinely missing, present, unread, and with an open
-relationship, a likely EightForge issue, human judgment, no action needed, several open findings, ticket
-evidence, source-family ambiguity and an already-correct project. Findings always come from the real
-Validator, never by hand. Each request also has decoy rows from another project and another organization
-in its database, which must never reach it.
+24 new cases, six per intent, on six project fixtures of their own, none above eight cases. They are wholly
+synthetic: their snapshots are built in `corpus.ts`, and `preflight` stops if a fixture, request or floor
+carries a customer name or anything from the Golden corpus row file. No two stand on one operational state.
+They cover a source genuinely missing, present, unread, and with an open relationship, a likely EightForge
+issue, human judgment, no action needed, several open findings, ticket evidence, source-family ambiguity and
+an already-correct project. Findings always come from the real Validator, never by hand. Each request also
+has decoy rows from another project and another organization in its database, which must never reach it.
 
 **v1 and v2's 24 cases are regression evidence only.** v3's corrections were derived from their answers,
 so they are never called in a run and never count towards a result.
@@ -84,9 +139,9 @@ under v3, and `qualify.ts regression` rebuilds it with zero calls.
 ticket evidence is covered through ticket findings, with questions that do not name tickets.
 
 **Disclosure:** the author of these cases had read v2's answers, and `heldout-document-01` deliberately
-tests the re-upload class again, with a different fixture and wording. The model has seen none of them,
-and the prompt is unchanged. `heldout-missing-02` and `heldout-document-04` carry `openForAdjudication`,
-where deterministic truth alone leaves a real question. Their labels follow the reading.
+tests the re-upload class again, with a different fixture and wording. The model has seen none of them, and
+the prompt is unchanged. Three no-action cases differ only in their ceiling amount or an amendment on file,
+so they are one operational class, with different facts.
 
 ## Labels
 
@@ -137,7 +192,12 @@ without reducing correctness?
 
 - **Spend ceiling $1.00**, enforced before every call: a call that could cross it is not made,
   and the run then fails as incomplete. Priced at $3 / $15 per million tokens. `preflight` projects
-  spend from what v2 actually cost, scaled by request size. The maximum is the ceiling.
+  spend from what v2 actually cost, scaled by request size.
+- **The reservation** is every byte sent at a token each, 2,000 tokens of provider overhead, and the full
+  output ceiling. A call starts only if its whole reservation fits. Actual cost replaces it only when the
+  provider reports usage, so a failed call or missing usage is charged in full. If one call ever costs more
+  than its reservation, the run halts. The reservation rests on a token being at least a byte, which is not
+  a term the provider states, so that check is what catches it being wrong.
 - **No retries.** Timeout is Project Ask's existing 45 s; no stricter bound is invented.
 - Latency and tokens are preserved per call, with no bar on them.
 
@@ -204,9 +264,10 @@ From the commit that merged the v3 freeze, in a checkout of exactly that commit.
 its source files, so once later work on `main` edits one, `qualify.ts run` refuses there by design.
 That refusal stays. Do not refreeze to get past it.
 
-`preflight` proves what v3 did not set out to change: before its corrections, v2's 24 requests are
-byte for byte the same, 22 floors are identical, the other two differ only in their action link, the
-v1 and v2 evidence matches its digests, and the Case Investigation runner is the one v2 froze.
+`preflight` proves what v3 did not set out to change. Before its corrections, v2's 24 requests are byte for
+byte the same, but for the billed-line uncertainty where that finding is open. 19 floors are identical, and
+the other five differ only in their action link. The v1 and v2 evidence matches its digests, and the Case
+Investigation runner is the one v2 froze.
 `lib/evaluation/operatorGuidance/frozenRequests.test.ts` holds the same on `main`, and holds the 24
 held-out requests to the freeze. Ticket context is planned from a question's words only, and none of
 these questions names tickets, so it never joins them.

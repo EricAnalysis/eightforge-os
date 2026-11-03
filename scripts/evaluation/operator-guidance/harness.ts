@@ -236,9 +236,11 @@ export async function materializeCase(item: QualificationCase): Promise<Material
   if (item.validated.kind === 'cohort') {
     const snapshot = item.validated.build();
     const titles = item.validated.titles;
+    const types = item.validated.documentTypes ?? {};
     documents = snapshot.documents.map((document) => {
       symbols[`doc:${document.id}`] = document.id;
       return { ...document, project_id: projectId, organization_id: QUALIFICATION_ORGANIZATION_ID, title: titles[document.id] ?? document.title,
+        document_type: types[document.id] ?? document.document_type,
         name: `${document.id}.pdf`, processing_status: 'decisioned', processed_at: QUALIFICATION_AT };
     });
     relationships = [];

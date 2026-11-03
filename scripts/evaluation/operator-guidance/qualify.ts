@@ -14,27 +14,27 @@
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { HELDOUT_CASES, HELDOUT_PROJECT_FIXTURES, PROJECT_FIXTURES, V2_REGRESSION_CASES, type QualificationCase } from './corpus';
+import { heldoutStateSignature, HELDOUT_CASES, HELDOUT_PROJECT_FIXTURES, PROJECT_FIXTURES, V2_REGRESSION_CASES, type QualificationCase } from './corpus';
 import {
-  costUsd, GUIDANCE_BARS, GUIDANCE_PRICING, GUIDANCE_QUALIFICATION_CONTRACT, GUIDANCE_QUALIFICATION_MODEL, GUIDANCE_RUN_DIR,
+  customerContentIn, GUIDANCE_BARS, GUIDANCE_PRICING, GUIDANCE_QUALIFICATION_CONTRACT, GUIDANCE_QUALIFICATION_MODEL, GUIDANCE_RUN_DIR,
   GUIDANCE_SUPERSEDED_CONTRACT, GUIDANCE_V1_ARTIFACT_DIR, GUIDANCE_V2_ARTIFACT_DIR, GUIDANCE_V2_FLOORS_ALLOWED_TO_CHANGE, GUIDANCE_V2_PINS_ALLOWED_TO_CHANGE,
-  guidanceBarsDigest, internalVocabularyInPayload, pinnedSourceDigests, requestShapeIdentity, scoreGuidanceQualification, worstCaseCallUsd,
-  type CaseEvidence, type GuidanceRunRecord,
+  guidanceBarsDigest, internalVocabularyInPayload, pinnedSourceDigests, requestShapeIdentity, reservedCallUsd,
+  type CaseEvidence,
 } from './contract';
-import { classifyGuidanceCallFailure, guidanceStatusForFailure } from './failureClass';
 import { DECOY_MARKER, materializeCase, type MaterializedCase } from './harness';
 import {
   GUIDANCE_LABEL_SET_VERSION, guidanceLabelSetDigest, HELDOUT_LABELS, V2_REGRESSION_LABEL_SET_VERSION, v2RegressionLabelSetDigest,
 } from './labels';
 import { caseEvidenceFor, replayV2Answers } from './regression';
+import { authenticateFreezeForRun, executeGuidanceRun, labelVerificationProblem, regradeSealedRun, type FrozenGuidance } from './runner';
 import { hashCanonical } from '@/lib/extraction/domain/hash';
 import { questionConcernsTransactions } from '@/lib/projectIntelligence/contextPlan';
+import { BILLED_LINE_SUPPORT_UNCERTAINTY } from '@/lib/projectIntelligence/evidenceAssessment';
 import { askOperatorGuidanceWithClaude } from '@/lib/server/ai/askProject';
 import { PROJECT_ASK_GUIDANCE_ENABLED_ENV, PROJECT_ASK_QUALIFIED_MODELS } from '@/lib/server/ai/askModel';
-import { acceptModelRecommendation, guidanceRejectionReasons } from '@/lib/server/ai/operatorGuidance';
 
 const sha256 = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 const writeJson = (file: string, value: unknown) => writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
@@ -57,7 +57,10 @@ type FrozenV2 = Readonly<{
   pinnedSources: Readonly<Record<string, string>>;
 }>;
 
-type CarriedBuild = Readonly<{ caseId: string; sourceBodySha256: string; floor: MaterializedCase['floor']; contextTransmittedDigest: string }>;
+type CarriedBuild = Readonly<{ caseId: string; sourceBody: string; floor: MaterializedCase['floor']; contextTransmittedDigest: string }>;
+
+/** The one thing v3 adds to a v2 request before its corrections: an uncertainty on the billed-line rule, where that finding is open. */
+const withoutBilledLineUncertainty = (body: string) => body.split(`"stillUncertain":[${JSON.stringify(BILLED_LINE_SUPPORT_UNCERTAINTY)}]`).join('"stillUncertain":[]');
 
 /** The request-shape terms v3 keeps. Its request contract is the one that moves. */
 const CARRIED_REQUEST_TERMS = ['model', 'temperature', 'maxOutputTokens', 'timeoutMs', 'retries', 'promptSha256', 'outputSchemaDigest', 'nextStepVocabularyDigest', 'pricing'] as const;
@@ -97,11 +100,13 @@ function parityWithV2(current: Readonly<{ carried: readonly CarriedBuild[]; held
 
   const v2Records = JSON.parse(readFileSync(path.join(GUIDANCE_V2_ARTIFACT_DIR, 'run/records.json'), 'utf8')) as { records: readonly Readonly<{ caseId: string; floor: MaterializedCase['floor'] }>[] };
   const floorsChanged: string[] = [];
+  const bodiesGainingUncertainty: string[] = [];
   if (current.carried.length !== v2.requests.length) stop('requests', 'a different number of cases');
   for (const entry of current.carried) {
     const frozen = v2.requests.find((request) => request.caseId === entry.caseId);
     if (!frozen) throw new Error(`PARITY_FAILED: requests: unknown case ${entry.caseId}`);
-    if (entry.sourceBodySha256 !== frozen.bodySha256) stop('request before corrections', entry.caseId);
+    if (sha256(withoutBilledLineUncertainty(entry.sourceBody)) !== frozen.bodySha256) stop('request before corrections', entry.caseId);
+    if (sha256(entry.sourceBody) !== frozen.bodySha256) bodiesGainingUncertainty.push(entry.caseId);
     if (entry.contextTransmittedDigest !== frozen.contextTransmittedDigest) stop('transmitted context', entry.caseId);
     if (hashCanonical(entry.floor) === frozen.floorDigest) continue;
     const oldHref = v2Records.records.find((record) => record.caseId === entry.caseId)?.floor.recommendedNextStep.actionHref ?? null;
@@ -117,7 +122,9 @@ function parityWithV2(current: Readonly<{ carried: readonly CarriedBuild[]; held
     supersedes: { contract: GUIDANCE_SUPERSEDED_CONTRACT, freezeSha256: v2.freezeSha256, classification: 'FAIL_HARD_CORRECTNESS',
       resultRecordSha256: sha256(readFileSync(path.join(GUIDANCE_V2_ARTIFACT_DIR, 'RESULT.json'), 'utf8').replace(/\r\n/gu, '\n')) },
     parityWithV2: {
-      requestBodiesBeforeCorrectionsIdentical: v2.requests.length, transmittedContextsIdentical: v2.requests.length,
+      requestBodiesBeforeCorrectionsIdentical: v2.requests.length - bodiesGainingUncertainty.length,
+      requestBodiesGainingOnlyTheBilledLineUncertainty: bodiesGainingUncertainty.sort(),
+      transmittedContextsIdentical: v2.requests.length,
       floorsIdentical: v2.requests.length - floorsChanged.length, floorsChangedInActionLinkOnly: floorsChanged.sort(),
       identical: ['regressionFixtures', 'regressionLabelSet', 'pricing', ...CARRIED_REQUEST_TERMS],
       caseInvestigationRunnerUnchanged: true,
@@ -136,6 +143,7 @@ async function buildFreeze() {
   assertThat(PROJECT_ASK_QUALIFIED_MODELS.includes(GUIDANCE_QUALIFICATION_MODEL), 'the model is not Ask-qualified');
   assertThat(HELDOUT_CASES.length === GUIDANCE_BARS.cases, 'exactly 24 cases');
   assertThat(new Set(HELDOUT_CASES.map((item) => item.caseId)).size === HELDOUT_CASES.length, 'case ids are unique');
+  assertThat(new Set(HELDOUT_CASES.map(heldoutStateSignature)).size === HELDOUT_CASES.length, 'no two cases stand on one operational state');
   const countsBy = (cases: readonly QualificationCase[], key: 'intent' | 'fixture') => {
     const counts: Record<string, number> = {};
     for (const item of cases) counts[item[key]] = (counts[item[key]] ?? 0) + 1;
@@ -152,7 +160,7 @@ async function buildFreeze() {
 
   const census: unknown[] = [];
   const requests: { caseId: string; bodySha256: string; floorDigest: string; contextTransmittedDigest: string; chars: number }[] = [];
-  let worstCaseUsd = 0;
+  let reservedUsd = 0;
   for (const item of HELDOUT_CASES) {
     const built = await materializeCase(item);
     const again = await materializeCase(item);
@@ -175,17 +183,21 @@ async function buildFreeze() {
     assertThat(built.databaseWrites.length === 0, `${item.caseId}: a write was attempted`);
     const leaks = built.transmitted.flatMap((section) => internalVocabularyInPayload(section.payload));
     assertThat(leaks.length === 0, `${item.caseId}: raw identifiers in the request: ${leaks.join('; ')}`);
-    worstCaseUsd += worstCaseCallUsd(text.length);
+    for (const [what, content] of [['request', text], ['floor', JSON.stringify(built.floor)], ['fixture', heldoutStateSignature(item)]] as const) {
+      const leaked = customerContentIn(content);
+      assertThat(leaked == null, `${item.caseId}: customer or corpus content in the ${what}: ${leaked}`);
+    }
+    reservedUsd += reservedCallUsd(built.request);
     census.push({ caseId: item.caseId, fixture: item.fixture, intent: item.intent, question: item.question, focusRule: item.focusRule,
       classification: label.expectedEvidenceClassification, floorNextStep: built.floor.recommendedNextStep.kind, openFindings: built.assessment.openFindingCount,
-      openForAdjudication: label.openForAdjudication ?? null });
+      sourceAlreadyPresent: label.sourceAlreadyPresent, ownerAdjudicated: label.ownerAdjudication != null });
     requests.push({ caseId: item.caseId, bodySha256: requestBodySha256(built), floorDigest: hashCanonical(built.floor),
       contextTransmittedDigest: built.approvedContext.transmittedDigest, chars: text.length });
   }
   const carried: CarriedBuild[] = [];
   for (const item of V2_REGRESSION_CASES) {
     const built = await materializeCase(item);
-    carried.push({ caseId: item.caseId, sourceBodySha256: sha256(JSON.stringify(built.sourceRequest)), floor: built.floor, contextTransmittedDigest: built.approvedContext.transmittedDigest });
+    carried.push({ caseId: item.caseId, sourceBody: JSON.stringify(built.sourceRequest), floor: built.floor, contextTransmittedDigest: built.approvedContext.transmittedDigest });
   }
   const v2Card = JSON.parse(readFileSync(path.join(GUIDANCE_V2_ARTIFACT_DIR, 'run/scorecard.json'), 'utf8')) as { spendUsd: number };
   const v2Frozen = JSON.parse(readFileSync(path.join(GUIDANCE_V2_ARTIFACT_DIR, 'freeze.json'), 'utf8')) as { requests: readonly { chars: number }[] };
@@ -204,7 +216,8 @@ async function buildFreeze() {
     request: requestShapeIdentity(),
     pinnedSources: pinnedSourceDigests(),
     projectedSpendUsd,
-    worstCaseSpendUsd: Number(worstCaseUsd.toFixed(4)),
+    sumOfReservationsUsd: Number(reservedUsd.toFixed(4)),
+    maximumSpendUsd: GUIDANCE_BARS.spendCeilingUsd,
     pricing: GUIDANCE_PRICING,
   };
   const withParity = { ...body, ...parityWithV2({ ...body, carried, heldoutBodies: requests.map((request) => request.bodySha256), regressionFixtures: PROJECT_FIXTURES }) };
@@ -225,86 +238,17 @@ async function preflight() {
   // A record of where this was cut, outside the hash: a squash merge gives the same sources another commit.
   if (execFileSync('git', ['status', '--porcelain', '--', ...pinned], { encoding: 'utf8' }).trim() !== '') throw new Error('PREFLIGHT_FAILED: a pinned source has uncommitted changes');
   const implementationCommit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
-  writeJson(path.resolve(flag('out')), { ...freeze, implementationCommit });
+  // Verification is what makes it final, and it is deliberately outside the hash: verifying these labels changes no byte sent.
+  const unverified = labelVerificationProblem(freeze.labelSet.digest);
+  writeJson(path.resolve(flag('out')), { ...freeze, implementationCommit, status: unverified ? 'candidate_not_final' : 'final' });
   console.log(`[preflight] pass: ${GUIDANCE_BARS.cases} cases, 0 provider calls, 0 writes`);
-  console.log(`[preflight] v2 parity: ${freeze.parityWithV2.requestBodiesBeforeCorrectionsIdentical} request bodies before corrections, ${freeze.parityWithV2.floorsIdentical} floors identical, ${freeze.parityWithV2.floorsChangedInActionLinkOnly.join(' and ')} differ in their action link only; pins changed: ${freeze.parityWithV2.pinsChanged.length}`);
+  console.log(`[preflight] v2 parity: ${freeze.parityWithV2.requestBodiesBeforeCorrectionsIdentical} request bodies identical before corrections, ${freeze.parityWithV2.requestBodiesGainingOnlyTheBilledLineUncertainty.join(', ')} gain only the billed-line uncertainty; ${freeze.parityWithV2.floorsIdentical} floors identical, ${freeze.parityWithV2.floorsChangedInActionLinkOnly.join(', ')} differ in their action link only; pins changed: ${freeze.parityWithV2.pinsChanged.length}`);
   console.log(`[preflight] run directory unused: ${GUIDANCE_RUN_DIR}`);
   console.log(`[preflight] freeze ${freeze.freezeSha256}`);
   console.log(`[preflight] Case Investigation runner unchanged; held-out reuse of v1 or v2: ${freeze.parityWithV2.heldoutReuse}`);
-  console.log(`[preflight] projected spend $${freeze.projectedSpendUsd}; sum of worst cases $${freeze.worstCaseSpendUsd}; the $${GUIDANCE_BARS.spendCeilingUsd} ceiling is enforced before every call`);
+  console.log(`[preflight] projected spend $${freeze.projectedSpendUsd}; sum of reservations $${freeze.sumOfReservationsUsd}; each call's whole reservation must fit under the $${GUIDANCE_BARS.spendCeilingUsd} ceiling before it starts`);
+  console.log(`[preflight] status: ${unverified ? `CANDIDATE, NOT FINAL: ${unverified}` : 'final'}`);
   console.log(`[preflight] implementation commit ${implementationCommit}`);
-}
-
-function caseById(caseId: string): QualificationCase {
-  const item = HELDOUT_CASES.find((entry) => entry.caseId === caseId);
-  if (!item) throw new Error(`unknown case ${caseId}`);
-  return item;
-}
-
-function sha256Sums(dir: string) {
-  const lines = readdirSync(dir).filter((name) => name !== 'SHA256SUMS.txt').sort()
-    .map((name) => `${sha256(readFileSync(path.join(dir, name)))}  ${name}`);
-  writeFileSync(path.join(dir, 'SHA256SUMS.txt'), `${lines.join('\n')}\n`);
-}
-
-const REVIEW_INSTRUCTIONS = [
-  'Review each answer on your own. Do not look at another reviewer\'s grades.',
-  'The operator would see "modelAnswer" instead of "deterministicAnswer". The model is not expected to be more correct than the deterministic answer.',
-  'For each case, record in your copy of the grade file:',
-  '1. inventedFact: does the answer state anything as fact that "contextSent" does not support? (true / false, quote it if true). Any true fails the qualification.',
-  '2. clearerForOperator: does it make the deterministic guidance materially easier to understand and act on, without reducing correctness? (yes / same / worse)',
-  '3. plainLanguage, clearFinding, clearNextStep, uncertaintySurfaced, evidenceReferenced: true or false each.',
-  'The author adjudicates only genuine disagreements.',
-];
-
-/** Accepted answers only, blind to labels and to any other reviewer. */
-function writeReviewPacket(dir: string, records: readonly GuidanceRunRecord[], byCase: ReadonlyMap<string, MaterializedCase>) {
-  const cases = records.filter((record) => record.status === 'accepted').map((record) => {
-    const built = byCase.get(record.caseId)!;
-    return {
-      reviewId: sha256(`review:${record.caseId}`).slice(0, 12), question: built.request.question,
-      deterministicAnswer: { answer: record.floor.answer, nextStep: record.floor.recommendedNextStep },
-      modelAnswer: { answer: record.shown.answer, nextStep: record.shown.recommendedNextStep, stillUncertain: record.shown.missingInformation,
-        basedOn: record.shown.evidenceRefs.map((ref) => ref.label) },
-      contextSent: built.request.context,
-    };
-  }).sort((left, right) => left.reviewId.localeCompare(right.reviewId));
-  writeJson(path.join(dir, 'human-review-packet.json'), { instructions: REVIEW_INSTRUCTIONS, cases });
-}
-
-const LOCAL_VALIDATION_ERROR = 'local_validation_error' as const;
-
-/** The production validator, unchanged. If it throws, that is this machine's failure, not the provider's. */
-function validated(raw: string, built: MaterializedCase) {
-  try {
-    return acceptModelRecommendation({ raw, context: built.approvedContext, assessment: built.assessment, floor: built.floor, transmitted: built.transmitted });
-  } catch {
-    return { ok: false as const, reason: LOCAL_VALIDATION_ERROR };
-  }
-}
-
-/** Everything the answer failed. For the record only: it never changes acceptance. */
-function allReasons(raw: string, built: MaterializedCase, first: string): readonly string[] {
-  try {
-    const all: readonly string[] = guidanceRejectionReasons({ raw, context: built.approvedContext, assessment: built.assessment, floor: built.floor, transmitted: built.transmitted });
-    return all.length > 0 ? all : [first];
-  } catch {
-    return [first];
-  }
-}
-
-/** Did any model answer at all? A scorecard with none says nothing about the model. */
-function runHealth(records: readonly GuidanceRunRecord[]) {
-  const failureClasses: Record<string, number> = {};
-  for (const record of records) {
-    if (record.failure) failureClasses[record.failure.failureClass] = (failureClasses[record.failure.failureClass] ?? 0) + 1;
-  }
-  return {
-    calls: records.filter((record) => record.status !== 'not_called').length,
-    modelAnswers: records.filter((record) => record.rawOutput != null).length,
-    reachedProvider: records.filter((record) => record.rawOutput != null || record.failure?.reachedProvider === true).length,
-    failureClasses,
-  };
 }
 
 async function run() {
@@ -317,79 +261,16 @@ async function run() {
   if (out !== path.resolve(GUIDANCE_RUN_DIR)) throw new Error(`this contract's single run writes only to ${GUIDANCE_RUN_DIR}`);
   if (existsSync(out)) throw new Error(`refusing to reuse an evidence directory: exactly one run per contract: ${out}`);
 
-  const frozen = JSON.parse(readFileSync(flag('freeze'), 'utf8')) as Record<string, unknown> & { freezeSha256: string };
-  const current = await buildFreeze();
-  if (current.freezeSha256 !== frozen.freezeSha256) {
-    throw new Error(`run identity differs from the freeze: ${current.freezeSha256} against ${frozen.freezeSha256}`);
-  }
-  mkdirSync(out, { recursive: true });
-  writeJson(path.join(out, 'freeze.json'), frozen);
-  writeJson(path.join(out, 'started.json'), { contract: GUIDANCE_QUALIFICATION_CONTRACT, freezeSha256: frozen.freezeSha256, startedAt: new Date().toISOString(), model: GUIDANCE_QUALIFICATION_MODEL });
-
-  const records: GuidanceRunRecord[] = [];
-  const byCase = new Map<string, MaterializedCase>();
-  let spent = 0;
-  for (const item of HELDOUT_CASES) {
-    const built = await materializeCase(item);
-    byCase.set(item.caseId, built);
-    const base = { caseId: item.caseId, allowedNextSteps: built.request.allowedNextSteps, requestBodySha256: requestBodySha256(built), floor: built.floor, shown: built.floor };
-    const empty = { rawOutput: null, stopReason: null, returnedModel: null, providerRequestId: null, inputTokens: null, outputTokens: null, latencyMs: null, costUsd: 0 };
-    // Spend ceiling: never start a call that could cross it.
-    if (spent + worstCaseCallUsd(JSON.stringify(built.request).length) > GUIDANCE_BARS.spendCeilingUsd) {
-      records.push({ ...base, ...empty, status: 'not_called', rejectionReason: 'spend_ceiling' });
-      continue;
-    }
-    const startedAt = performance.now();
-    let record: GuidanceRunRecord;
-    try {
-      const answered = await askOperatorGuidanceWithClaude({ ...built.request, model: GUIDANCE_QUALIFICATION_MODEL });
-      const accepted = answered.truncated ? { ok: false as const, reason: 'truncated' }
-        : answered.refused ? { ok: false as const, reason: 'refused' }
-        : validated(answered.raw, built);
-      const cost = costUsd(answered.observation.inputTokens, answered.observation.outputTokens);
-      spent += cost;
-      record = {
-        ...base, status: accepted.ok ? 'accepted' : 'rejected', rejectionReason: accepted.ok ? null : accepted.reason,
-        rawOutput: answered.raw, stopReason: answered.observation.stopReason, returnedModel: answered.observation.returnedModel,
-        providerRequestId: answered.observation.providerRequestId, inputTokens: answered.observation.inputTokens, outputTokens: answered.observation.outputTokens,
-        latencyMs: answered.observation.latencyMs, costUsd: cost, shown: accepted.ok ? accepted.recommendation : built.floor,
-        ...(accepted.ok ? {} : { allRejectionReasons: answered.truncated || answered.refused ? [accepted.reason] : allReasons(answered.raw, built, accepted.reason), failure: {
-          failureClass: accepted.reason === LOCAL_VALIDATION_ERROR ? LOCAL_VALIDATION_ERROR : 'output_rejected' as const,
-          reachedProvider: true, httpStatus: null, providerErrorType: null, providerRequestId: answered.observation.providerRequestId,
-        } }),
-      };
-    } catch (error) {
-      const failure = classifyGuidanceCallFailure(error);
-      // A failed call may still be billed for what was sent; charge its input to stay conservative.
-      const cost = costUsd(Math.ceil(JSON.stringify(built.request).length / GUIDANCE_BARS.worstCaseCharsPerToken), 0);
-      spent += cost;
-      record = { ...base, ...empty, status: guidanceStatusForFailure(failure), rejectionReason: failure.failureClass,
-        providerRequestId: failure.providerRequestId, latencyMs: performance.now() - startedAt, costUsd: cost, failure };
-    }
-    records.push(record);
-    writeJson(path.join(out, 'records.json'), { freezeSha256: frozen.freezeSha256, records });
-    console.log(`[run] ${record.caseId} ${record.status}${record.rejectionReason ? ` (${record.rejectionReason})` : ''} spent $${spent.toFixed(4)}`);
-  }
-  writeJson(path.join(out, 'records.json'), { freezeSha256: frozen.freezeSha256, records });
-  const evidenceByCase = new Map([...byCase].map(([caseId, built]) => [caseId, caseEvidence(built)]));
-  const card = scoreGuidanceQualification({ records, labels: HELDOUT_LABELS, evidenceByCase });
-  writeJson(path.join(out, 'scorecard.json'), card);
-  const health = runHealth(records);
-  writeJson(path.join(out, 'run-health.json'), health);
-  console.log(`[run] ${health.modelAnswers} model answers, failure classes ${JSON.stringify(health.failureClasses)}`);
-  if (health.modelAnswers === 0) console.log('[run] NO MODEL ANSWERED: this run says nothing about the model. Do not read its verdict as a model result.');
-  if (card.verdict === 'PENDING_HUMAN_REVIEW') writeReviewPacket(out, records, byCase);
-  sha256Sums(out);
-  console.log(`[run] ${card.verdict}: ${card.accepted}/${GUIDANCE_BARS.cases} accepted, $${card.spendUsd.toFixed(4)} spent, ${card.violations.length} cases with hard violations`);
+  const frozen = JSON.parse(readFileSync(flag('freeze'), 'utf8')) as FrozenGuidance;
+  authenticateFreezeForRun(frozen, await buildFreeze());
+  const unverified = labelVerificationProblem(frozen.labelSet.digest);
+  if (unverified) throw new Error(`LABELS_NOT_VERIFIED: ${unverified}`);
+  await executeGuidanceRun({ out, frozen, ask: (request) => askOperatorGuidanceWithClaude(request) });
 }
 
 async function grade() {
-  const frozen = JSON.parse(readFileSync(flag('freeze'), 'utf8')) as { freezeSha256: string };
-  const dir = path.resolve(flag('run'));
-  const run = JSON.parse(readFileSync(path.join(dir, 'records.json'), 'utf8')) as { freezeSha256: string; records: GuidanceRunRecord[] };
-  if (run.freezeSha256 !== frozen.freezeSha256) throw new Error('run and freeze differ');
-  const entries = await Promise.all(run.records.map(async (record) => [record.caseId, caseEvidence(await materializeCase(caseById(record.caseId)))] as const));
-  console.log(JSON.stringify(scoreGuidanceQualification({ records: run.records, labels: HELDOUT_LABELS, evidenceByCase: new Map(entries) }), null, 2));
+  const frozen = JSON.parse(readFileSync(flag('freeze'), 'utf8')) as FrozenGuidance;
+  console.log(JSON.stringify(await regradeSealedRun(path.resolve(flag('run')), frozen), null, 2));
 }
 
 /** Regression evidence only. It computes no rate and no verdict. */

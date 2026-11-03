@@ -54,8 +54,10 @@ export const GUIDANCE_BARS = Object.freeze({
   retries: 0,
   /** Project Ask's existing bound. No stricter bound is invented for this qualification. */
   timeoutMs: CLAUDE_REQUEST_OPTIONS.budgeted.timeout,
-  /** Characters per token when bounding input cost. Deliberately pessimistic. */
-  worstCaseCharsPerToken: 3,
+  /** Reserved before every call. A token is at least a byte, so this does not rest on an average. */
+  reservedTokensPerUtf8Byte: 1,
+  /** What the provider adds around a request, including the output schema's own system text. */
+  reservedOverheadTokens: 2_000,
 });
 
 export const guidanceBarsDigest = (): string => hashCanonical(GUIDANCE_BARS);
@@ -90,19 +92,22 @@ export const GUIDANCE_PINNED_SOURCES = Object.freeze([
   'scripts/evaluation/operator-guidance/labels.ts',
   'scripts/evaluation/operator-guidance/qualify.ts',
   'scripts/evaluation/operator-guidance/regression.ts',
+  'scripts/evaluation/operator-guidance/runner.ts',
 ]);
 
 /**
  * The v2 pins this contract changes, each named by a correction. Any other pin moving
- * stops the freeze: the Validator, the rule explanations, the read seam and the shared
- * number helper all stay as v2 ran them.
+ * stops the freeze: the Validator, the read seam and the shared number helper all stay as
+ * v2 ran them. Of the rule explanations, one rule gains the upload route its text describes.
  */
 export const GUIDANCE_V2_PINS_ALLOWED_TO_CHANGE: readonly string[] = Object.freeze([
   'app/api/projects/[id]/ask/route.ts',
+  'lib/projectIntelligence/evidenceAssessment.ts',
   'lib/projectIntelligence/operatorRecommendation.ts',
   'lib/server/ai/askModel.ts',
   'lib/server/ai/askProject.ts',
   'lib/server/ai/operatorGuidance.ts',
+  'lib/validator/ruleExplanations.ts',
   'scripts/evaluation/operator-guidance/contract.ts',
   'scripts/evaluation/operator-guidance/corpus.ts',
   'scripts/evaluation/operator-guidance/harness.ts',
@@ -110,8 +115,31 @@ export const GUIDANCE_V2_PINS_ALLOWED_TO_CHANGE: readonly string[] = Object.free
   'scripts/evaluation/operator-guidance/qualify.ts',
 ]);
 
-/** Floors this contract changes, and only in their action link (correction C6). */
-export const GUIDANCE_V2_FLOORS_ALLOWED_TO_CHANGE: readonly string[] = Object.freeze(['document-03', 'document-05']);
+/** Floors this contract changes, and only in their action link: two open the named source, three gain the upload route. */
+export const GUIDANCE_V2_FLOORS_ALLOWED_TO_CHANGE: readonly string[] = Object.freeze(['action-01', 'document-02', 'document-03', 'document-05', 'missing-01']);
+
+/** A freeze cannot be final until someone other than the labels' author has verified them. */
+export const GUIDANCE_LABEL_VERIFICATION_FILE = 'scripts/evaluation/artifacts/operator-guidance-v3/label-verification.json';
+/** Withdrawn before any run, and kept byte for byte: see WITHDRAWN.json beside it. */
+export const GUIDANCE_WITHDRAWN_FREEZE_FILE = 'scripts/evaluation/artifacts/operator-guidance-v3/freeze.json';
+
+const GOLDEN_FIXTURE_FILE = 'lib/evaluation/fixtures/goldenAuthoredTransportPricingRows.json';
+const CUSTOMER_MARKERS = /williamson|goodlettsville|hillsdale|tdot|mdot|horner|custom tree|looks great|spirtas|pinellas|golden/iu;
+
+/** What in this text names a real project or was taken from the Golden corpus row file's prose. Held-out cases carry neither. */
+export function customerContentIn(text: string): string | null {
+  const marker = CUSTOMER_MARKERS.exec(text)?.[0];
+  if (marker) return marker;
+  const strings = new Set<string>();
+  const walk = (value: unknown): void => {
+    // Prose only: a shared enum such as a source kind says nothing about where a row came from.
+    if (typeof value === 'string' && value.length >= 10 && /\s/u.test(value)) strings.add(value);
+    else if (Array.isArray(value)) value.forEach(walk);
+    else if (value && typeof value === 'object') Object.values(value).forEach(walk);
+  };
+  walk((JSON.parse(readFileSync(GOLDEN_FIXTURE_FILE, 'utf8')) as { rows: unknown }).rows);
+  return [...strings].find((value) => text.includes(value)) ?? null;
+}
 
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 
@@ -140,9 +168,15 @@ export function costUsd(inputTokens: number | null, outputTokens: number | null)
   return ((inputTokens ?? 0) * GUIDANCE_PRICING.inputUsdPerMTok + (outputTokens ?? 0) * GUIDANCE_PRICING.outputUsdPerMTok) / 1_000_000;
 }
 
-/** The most one call can cost, from what it would send and the output ceiling. */
-export function worstCaseCallUsd(requestChars: number): number {
-  return costUsd(Math.ceil((requestChars + OPERATOR_GUIDANCE_SYSTEM_PROMPT.length) / GUIDANCE_BARS.worstCaseCharsPerToken), OPERATOR_GUIDANCE_MAX_OUTPUT_TOKENS);
+/**
+ * What to hold back for one call before starting it: every byte sent at a token each, the
+ * provider's own overhead, and the full output ceiling. Actual usage replaces it only when
+ * the provider reports it, so a failure or missing usage is charged the whole reservation.
+ */
+export function reservedCallUsd(request: unknown): number {
+  const sent = JSON.stringify({ system: OPERATOR_GUIDANCE_SYSTEM_PROMPT, schema: OPERATOR_GUIDANCE_OUTPUT_JSON_SCHEMA, request });
+  const inputTokens = Buffer.byteLength(sent, 'utf8') * GUIDANCE_BARS.reservedTokensPerUtf8Byte + GUIDANCE_BARS.reservedOverheadTokens;
+  return costUsd(inputTokens, OPERATOR_GUIDANCE_MAX_OUTPUT_TOKENS);
 }
 
 export type GuidanceCallStatus = 'accepted' | 'rejected' | 'provider_failed' | 'provider_timeout' | 'not_called';
@@ -192,15 +226,22 @@ export type HardBarCode = typeof HARD_BAR_CODES[number];
 const OBTAIN = /\b(?:upload|request|obtain|attach|provide|submit|get)\b/iu;
 const SOURCE_NOUN = /\b(?:document|documents|schedule|sheet|exhibit|invoice|contract|file|amendment|copy)\b/iu;
 const NEGATED = /\b(?:no|not|don't|do not|without|needn't|need not|unnecessary|isn't|aren't|already|rather than|instead of)\b/iu;
+const CONDITIONAL = /\b(?:if|unless|only if|in case|should it|where)\b/iu;
 
 /**
  * A sentence telling the operator to obtain a source: an obtaining verb and a source
  * noun, with no negation. "You do not need to upload another schedule" passes. A
  * pre-registered rule, so it can be wrong in both directions; any hit stands as a
  * violation, because this is the one mistake the whole path exists to prevent.
+ *
+ * It is about one requirement's source. Advice about a source the project genuinely lacks
+ * for another finding is not this, and where whether what is on file suffices is unsettled,
+ * "if it does not hold it, request it" is correct.
  */
-export function tellsOperatorToObtainSource(text: string): boolean {
-  return text.split(/(?<=[.!?])\s+|\n+/u).some((sentence) => OBTAIN.test(sentence) && SOURCE_NOUN.test(sentence) && !NEGATED.test(sentence));
+export function tellsOperatorToObtainSource(text: string, options: Readonly<{ absentSources?: readonly string[]; onlyIfInsufficient?: boolean }> = {}): boolean {
+  return text.split(/(?<=[.!?])\s+|\n+/u).some((sentence) => OBTAIN.test(sentence) && SOURCE_NOUN.test(sentence) && !NEGATED.test(sentence)
+    && !(options.absentSources ?? []).some((source) => sentence.toLowerCase().includes(source))
+    && !(options.onlyIfInsufficient && CONDITIONAL.test(sentence)));
 }
 
 const ESCALATION = /\b(?:now|hereby)\s+(?:approved|authoritative|binding|cleared|compliant|resolved)\b|\bsafe to (?:approve|pay)\b|\b(?:can|may|should)\s+(?:now\s+)?(?:be\s+)?(?:approved?|paid|pay)\b|\b(?:i|we|forgewing|eightforge)\s+(?:have\s+|has\s+)?approved\b/giu;
@@ -279,7 +320,8 @@ export type CaseEvidence = Readonly<{
 /** Re-checks an accepted answer against the frozen label, independently of the production validator. */
 export function hardViolations(record: GuidanceRunRecord, label: GuidanceCaseLabel, evidence: CaseEvidence): HardBarCode[] {
   const violations = new Set<HardBarCode>();
-  if (record.returnedModel && record.returnedModel !== GUIDANCE_QUALIFICATION_MODEL) violations.add('wrong_model');
+  // Every answer must say which model gave it, and an unknown one fails closed.
+  if ((record.rawOutput != null || record.status === 'accepted' || record.status === 'rejected') && record.returnedModel !== GUIDANCE_QUALIFICATION_MODEL) violations.add('wrong_model');
   if (record.status !== 'accepted') return [...violations];
   const shown = record.shown;
   const kind = shown.recommendedNextStep.kind;
@@ -302,7 +344,7 @@ export function hardViolations(record: GuidanceRunRecord, label: GuidanceCaseLab
     .reduce((rest, text) => (text ? rest.split(text).join(' ') : rest), prose);
   if (internalVocabularyIn(withoutLabels)) violations.add('internal_recommendation_as_answer');
   if (label.sourceAlreadyPresent && (kind === 'upload_or_request_document'
-    || tellsOperatorToObtainSource([shown.answer, shown.recommendedNextStep.instruction].join(' ')))) {
+    || tellsOperatorToObtainSource([shown.answer, shown.recommendedNextStep.instruction].join(' '), { absentSources: label.absentSources, onlyIfInsufficient: label.obtainOnlyIfInsufficient }))) {
     violations.add('obtain_source_already_present');
   }
   if (label.uncertaintyMustBeSurfaced && shown.missingInformation.length === 0) violations.add('uncertainty_not_surfaced');
@@ -339,12 +381,28 @@ function percentile(sorted: readonly number[], fraction: number): number | null 
   return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * fraction) - 1)] ?? null;
 }
 
+/** One record for each frozen case, sent as frozen. Anything else is not this qualification's run, and throws rather than scores. */
+export function assertExactCohort(records: readonly GuidanceRunRecord[], frozenRequests: readonly Readonly<{ caseId: string; bodySha256: string }>[]): void {
+  const stop = (what: string): never => { throw new Error(`COHORT_INVALID: ${what}`); };
+  if (frozenRequests.length !== GUIDANCE_BARS.cases) stop(`${frozenRequests.length} frozen requests`);
+  if (records.length !== frozenRequests.length) stop(`${records.length} records`);
+  if (new Set(records.map((record) => record.caseId)).size !== records.length) stop('a case appears twice');
+  if (new Set(records.map((record) => record.requestBodySha256)).size !== records.length) stop('a request appears twice');
+  for (const frozen of frozenRequests) {
+    const record = records.find((entry) => entry.caseId === frozen.caseId);
+    if (!record) throw new Error(`COHORT_INVALID: ${frozen.caseId} has no record`);
+    if (record.requestBodySha256 !== frozen.bodySha256) stop(`${frozen.caseId} sent another request`);
+  }
+}
+
 /** Mechanical bars first, in the frozen order. Any accepted violation fails it outright. */
 export function scoreGuidanceQualification(params: Readonly<{
   records: readonly GuidanceRunRecord[];
   labels: readonly GuidanceCaseLabel[];
   evidenceByCase: ReadonlyMap<string, CaseEvidence>;
+  frozenRequests: readonly Readonly<{ caseId: string; bodySha256: string }>[];
 }>): GuidanceScorecard {
+  assertExactCohort(params.records, params.frozenRequests);
   const labelByCase = new Map(params.labels.map((label) => [label.caseId, label]));
   const violations = params.records.flatMap((record) => {
     const label = labelByCase.get(record.caseId);

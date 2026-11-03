@@ -9,6 +9,7 @@ import {
 } from '@/lib/projectIntelligence/operatorRecommendation';
 import { citableRecords, numericTokens, providerRequestContext } from '@/lib/server/caseInvestigationRunner';
 import type { AssessmentConfidence } from '@/lib/projectIntelligence/evidenceAssessment';
+import { operatorPresentation } from '@/lib/projectIntelligence/operatorTerms';
 import type { ProjectIntelligenceContext } from '@/lib/projectIntelligence/projectContext';
 
 /**
@@ -85,49 +86,20 @@ export function guidanceSourceContext(context: ProjectIntelligenceContext, asses
   return { sections, request: providerRequestContext(sections) };
 }
 
-/** Values that are only ever system enums. Underscores become spaces. */
-const ENUM_VALUE_KEYS: ReadonlySet<string> = new Set(['field', 'fieldKey', 'type', 'family', 'subtype', 'reason', 'reading', 'projectState', 'authorityStatus', 'sourceKind', 'validationStatus']);
-/** Text the system wrote, not a person or a source document. Only the closed list below changes in it. */
-const SYSTEM_TEXT_KEYS: ReadonlySet<string> = new Set(['description', 'expected', 'actual', 'snippet', 'whatItChecks', 'requiredAction']);
-const OPERATOR_TERMS: ReadonlyArray<readonly [RegExp, string]> = Object.freeze(([
-  ['extended_cost', 'extended cost'],
-  ['transaction_quantity', 'transaction quantity'],
-  ['mobile_tickets', 'mobile tickets'],
-  ['load_tickets', 'load tickets'],
-  ['transaction_data', 'transaction data'],
-  ['requires_activation_scope_or_eligibility_resolution', 'scope or eligibility not yet decided'],
-] as const).map(([term, words]) => [new RegExp(`\\b${term}\\b`, 'gu'), words] as const));
-
-const withoutInternalWord = (text: string) => text.replace(/\bcanonical\b\s*/giu, '').trim();
-
-function presentedValue(value: unknown, key: string | null): unknown {
-  if (Array.isArray(value)) return value.map((entry) => presentedValue(entry, key));
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(Object.entries(value).map(([entryKey, entry]) => [entryKey, presentedValue(entry, entryKey)]));
-  }
-  if (typeof value !== 'string' || key == null) return value;
-  if (ENUM_VALUE_KEYS.has(key)) return withoutInternalWord(value.replace(/_/gu, ' '));
-  if (SYSTEM_TEXT_KEYS.has(key)) return withoutInternalWord(OPERATOR_TERMS.reduce((text, [term, words]) => text.replace(term, words), value));
-  return value;
-}
-
 /**
- * What the provider receives. The reading gains what the floor already worked out, so
- * the model need not calculate counts or guess the step: the full open list's counts, not
- * the bounded one's, and the floor's own next step. System identifiers are put in operator
- * terms in this copy alone, and validation stays as strict as ever: an identifier this
- * does not cover stays raw, so an answer repeating it falls back. Stored records,
- * citations and the floor are untouched. Ids, titles, names, numbers and dates are never
- * rewritten, because a value like `TKT_001` could be real data.
+ * What the provider receives. EightForge determines the safe action and the model explains
+ * it, so the reading gains what the floor already worked out: the real next step, and the
+ * counts of the full open list, not the bounded one, so nothing needs calculating. The copy
+ * is put in operator terms (operatorTerms.ts), and validation stays as strict as ever.
  */
 export function guidanceTransmittedContext(context: ProjectIntelligenceContext, assessment: ProjectEvidenceAssessment, floor: OperatorRecommendation) {
-  const findingsBySeverity: Record<string, number> = {};
+  const findingsBySeverity: Record<string, number> = { critical: 0, warning: 0 };
   for (const finding of [...(assessment.primary ? [assessment.primary] : []), ...assessment.others]) {
     findingsBySeverity[finding.severity] = (findingsBySeverity[finding.severity] ?? 0) + 1;
   }
   const sections = guidanceSourceContext(context, assessment).sections.map((section) => ({
     ...section,
-    payload: presentedValue(section.kind === 'evidence_assessment' ? {
+    payload: operatorPresentation(section.kind === 'evidence_assessment' ? {
       ...section.payload as object,
       findingsBySeverity,
       otherOpenFindingCount: Math.max(assessment.openFindingCount - 1, 0),
@@ -138,11 +110,48 @@ export function guidanceTransmittedContext(context: ProjectIntelligenceContext, 
 }
 
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/giu;
+const LONG_HASH = /\b[0-9a-f]{16,}\b/giu;
+/** Letters and digits joined into one token (`LOAD-884`, `INV1001::HAUL015`, `F-04`). An identifier, whatever digits it holds. */
+const IDENTIFIER_TOKEN = /\b(?=[a-z0-9._:-]*[a-z])(?=[a-z0-9._:-]*\d)[a-z0-9]+(?:[-_:.]+[a-z0-9]+)*\b/giu;
+const ORDINAL_WORD = /\b\d{1,2}(?:st|nd|rd|th)\b/giu;
 const ISO_DATE = /\b(\d{4})-(\d{2})-(\d{2})(?:T[\d:.]+Z?)?\b/gu;
-const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-const LONG_DATE = new RegExp(`\\b(${MONTHS.join('|')})\\s+(\\d{1,2}),\\s+(\\d{4})\\b`, 'gu');
+const MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+const MONTH_NAME = `(${MONTHS.join('|')}|${MONTHS.map((month) => month.slice(0, 3)).join('|')})\\.?`;
+const MONTH_FIRST_DATE = new RegExp(`\\b${MONTH_NAME}\\s+(\\d{1,2}),?\\s+(\\d{4})\\b`, 'giu');
+const DAY_FIRST_DATE = new RegExp(`\\b(\\d{1,2})\\s+${MONTH_NAME}\\s+(\\d{4})\\b`, 'giu');
+const SLASH_DATE = /\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/gu;
 const LIST_MARKER = /^[ \t>*_#-]*(\d{1,2})[.)](?=[\s*_])/gmu;
 const FINDING_ORDINAL = /\bfinding\s+(\d{1,2})\b/giu;
+/** A claim about how many findings are open: "5 warnings", "3 critical", "2 other open findings". */
+const COUNT_CLAIM = /\b(\d{1,4})\s+((?:(?:other|open|additional|more|remaining|further|total)\s+)*)(?:(critical|warnings?|info)\b|(?:findings?|issues?)\b)/giu;
+/** Whose values name a record, not a quantity. */
+const IDENTIFYING_KEY = /^(?:id|.*Id|.*Sha256|.*Digest|.*Hash)$/u;
+const TITLE_VALUE_KEYS: ReadonlySet<string> = new Set(['title', 'name', 'documentName']);
+
+const isoDate = (year: string, month: number, day: string) => `${year}-${String(month).padStart(2, '0')}-${day.padStart(2, '0')}`;
+const monthNumber = (name: string) => MONTHS.findIndex((month) => month.startsWith(name.slice(0, 3).toLowerCase())) + 1;
+
+/** What the payloads carry as values: digits inside an identifier, a title or a date support no quantity. */
+function sentValues(transmitted: readonly Readonly<{ payload: unknown }>[]) {
+  const numbers = new Set<string>();
+  const dates = new Set<string>();
+  const titles = new Set<string>();
+  const visit = (value: unknown, key: string | null): void => {
+    if (Array.isArray(value)) return value.forEach((entry) => visit(entry, key));
+    if (value && typeof value === 'object') return Object.entries(value).forEach(([entryKey, entry]) => visit(entry, entryKey));
+    if (typeof value === 'number') return numericTokens(String(value)).forEach((token) => numbers.add(token));
+    if (typeof value !== 'string' || (key != null && IDENTIFYING_KEY.test(key))) return;
+    if (key != null && TITLE_VALUE_KEYS.has(key)) {
+      if (/\d/u.test(value)) titles.add(value);
+      return;
+    }
+    for (const match of value.matchAll(ISO_DATE)) dates.add(`${match[1]}-${match[2]}-${match[3]}`);
+    numericTokens(value.replace(ISO_DATE, ' ').replace(UUID, ' ').replace(LONG_HASH, ' ').replace(IDENTIFIER_TOKEN, ' '))
+      .forEach((token) => numbers.add(token));
+  };
+  for (const slice of transmitted) visit(slice.payload, null);
+  return { numbers, dates, titles: [...titles].sort((left, right) => right.length - left.length) };
+}
 
 /** A list marker is not a quantity, but only as part of a run 1, 2, 3 in order of appearance. */
 function withoutListMarkers(text: string): string {
@@ -154,36 +163,69 @@ function withoutListMarkers(text: string): string {
   });
 }
 
+function withoutSentDates(text: string, sentDates: ReadonlySet<string>): string {
+  const ifSent = (date: string, iso: string) => (sentDates.has(iso) ? ' ' : date);
+  return text
+    .replace(ISO_DATE, (date, year: string, month: string, day: string) => ifSent(date, `${year}-${month}-${day}`))
+    .replace(MONTH_FIRST_DATE, (date, month: string, day: string, year: string) => ifSent(date, isoDate(year, monthNumber(month), day)))
+    .replace(DAY_FIRST_DATE, (date, day: string, month: string, year: string) => ifSent(date, isoDate(year, monthNumber(month), day)))
+    .replace(SLASH_DATE, (date, month: string, day: string, year: string) => ifSent(date, isoDate(year, Number(month), day)));
+}
+
+type SentCounts = Readonly<{ open: number; other: number; bySeverity: Readonly<Record<string, number>> }>;
+
+function sentCounts(transmitted: readonly Readonly<{ kind: string; payload: unknown }>[]): SentCounts {
+  const reading = transmitted.find((slice) => slice.kind === 'evidence_assessment')?.payload as
+    { openFindingCount?: number; otherOpenFindingCount?: number; findingsBySeverity?: Record<string, number> } | undefined;
+  const open = reading?.openFindingCount ?? 0;
+  return { open, other: reading?.otherOpenFindingCount ?? Math.max(open - 1, 0), bySeverity: reading?.findingsBySeverity ?? {} };
+}
+
+/** A count stated about the findings must be the count EightForge sent, even where that number appears elsewhere. */
+function wrongCountClaims(text: string, counts: SentCounts): string[] {
+  return [...text.matchAll(COUNT_CLAIM)].flatMap((match) => {
+    const stated = Number(match[1]);
+    const severity = match[3]?.toLowerCase().replace(/s$/u, '');
+    const onlyOthers = /\b(?:other|additional|more|remaining|further)\b/iu.test(match[2] ?? '');
+    const right = severity ? stated === (counts.bySeverity[severity] ?? 0)
+      : onlyOthers ? stated === counts.other
+      : [counts.open, counts.other, ...Object.values(counts.bySeverity)].includes(stated);
+    return right ? [] : [match[0]];
+  });
+}
+
 /**
- * What the answer writes that the transmitted context never carried. A number counts as
- * sent only when it stands in a payload as a value: digits inside a UUID or a timestamp
- * are not a number anyone sent. A UUID must have been sent whole, and a date must equal a
- * sent date. Three things are not quantities and are ignored: a sequential list marker,
- * `Finding N` up to the open finding count, and a matching date. Everything else must be
- * in the context, so a calculated number stays rejected.
+ * What the answer writes that the transmitted context never carried. The guidance path's
+ * own check: `unsupportedNumbers` stays as Case Investigation's records used it.
+ *
+ * A quantity must be a value the context sent: digits inside a UUID, hash, identifier,
+ * title or timestamp support nothing. An identifier or UUID must have been sent whole, and
+ * a date must equal a sent date in any safe format. Structure is not quantity, so a
+ * sequential list marker, an ordinal word and `Finding N` up to the open count are ignored.
+ * Rates, costs, percentages, measurements and calculated numbers all stay rejected, and a
+ * count stated about the findings must equal the count sent. Numbers written as words are
+ * not read here, as they never were; reviewers read every accepted answer.
  */
 export function guidanceUnsupportedNumbers(
   texts: readonly string[],
   transmitted: readonly Readonly<{ kind: string; provenance: unknown; payload: unknown }>[],
 ): string[] {
-  const payloads = JSON.stringify(transmitted.map((slice) => slice.payload));
+  const sent = sentValues(transmitted);
+  const counts = sentCounts(transmitted);
   const sentIdentifiers = JSON.stringify(transmitted.map((slice) => [slice.provenance, slice.payload])).toLowerCase();
-  const sentDates = new Set([...payloads.matchAll(ISO_DATE)].map((match) => `${match[1]}-${match[2]}-${match[3]}`));
-  const sentNumbers = new Set(numericTokens(payloads.replace(UUID, ' ').replace(ISO_DATE, ' ')));
-  const assessment = transmitted.find((slice) => slice.kind === 'evidence_assessment')?.payload as { openFindingCount?: number } | undefined;
-  const openFindingCount = assessment?.openFindingCount ?? 0;
   return texts.flatMap((text) => {
-    const undated = text.replace(UUID, ' ')
-      .replace(ISO_DATE, (date, year: string, month: string, day: string) => (sentDates.has(`${year}-${month}-${day}`) ? ' ' : date))
-      .replace(LONG_DATE, (date, month: string, day: string, year: string) => (
-        sentDates.has(`${year}-${String(MONTHS.indexOf(month) + 1).padStart(2, '0')}-${day.padStart(2, '0')}`) ? ' ' : date
-      ));
-    const quantities = withoutListMarkers(undated).replace(FINDING_ORDINAL, (ordinal, digits: string) => (
-      Number(digits) >= 1 && Number(digits) <= openFindingCount ? 'finding' : ordinal
+    const withoutUuids = text.replace(UUID, ' ');
+    const withoutTitles = sent.titles.reduce((rest, title) => rest.split(new RegExp(title.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'iu')).join(' '), withoutUuids);
+    const undated = withoutSentDates(withoutTitles, sent.dates);
+    const words = undated.replace(ORDINAL_WORD, ' ');
+    const quantities = withoutListMarkers(words.replace(IDENTIFIER_TOKEN, ' ')).replace(FINDING_ORDINAL, (ordinal, digits: string) => (
+      Number(digits) >= 1 && Number(digits) <= counts.open ? 'finding' : ordinal
     ));
     return [
       ...[...text.matchAll(UUID)].map((match) => match[0].toLowerCase()).filter((id) => !sentIdentifiers.includes(id)),
-      ...numericTokens(quantities).filter((token) => !sentNumbers.has(token)),
+      ...[...words.matchAll(IDENTIFIER_TOKEN)].map((match) => match[0]).filter((id) => !sentIdentifiers.includes(id.toLowerCase())),
+      ...numericTokens(quantities).filter((token) => !sent.numbers.has(token)),
+      ...wrongCountClaims(quantities, counts),
     ];
   });
 }

@@ -131,6 +131,24 @@ function actionForStep(step: NextStepKind): 'upload_document' | 'open_linked_doc
 }
 
 /**
+ * The documents a recommendation is about, first the one to open. A source reading is
+ * about the source it found, which the finding's own evidence need not be: reading the
+ * contract can raise a finding about its price sheet. When a source has been read, the
+ * one the reading rests on comes first. Any other finding is about its own evidence.
+ */
+function documentsTheStepNames(
+  primary: FindingAssessment,
+  finding: Readonly<{ evidenceDocumentIds: readonly string[] }>,
+): readonly string[] {
+  if (primary.neededSource == null) return [...finding.evidenceDocumentIds, ...primary.candidates.map((document) => document.id)];
+  const restsOn = (document: AssessedDocument) => document.read && document.linkedToContract && !document.authorityUnsettled;
+  const named = primary.state === 'source_present'
+    ? [...primary.candidates.filter(restsOn), ...primary.candidates.filter((document) => !restsOn(document))]
+    : primary.candidates;
+  return [...named.map((document) => document.id), ...finding.evidenceDocumentIds];
+}
+
+/**
  * The existing route for a step, resolved by the catalogue's own resolver. A
  * step the rule does not offer, or that does not apply to this finding, has no
  * link rather than an approximate one.
@@ -143,12 +161,9 @@ export function nextStepActionHref(
 ): string | null {
   const wanted = actionForStep(step);
   if (!wanted || !primary?.ruleId || !finding) return null;
-  const candidateIds = primary.candidates.map((document) => document.id);
-  const pagedDocumentId = [...finding.evidenceDocumentIds, ...candidateIds][0];
-  // Reviewing a source means opening that source, which the finding's own evidence need not be.
-  const evidenceIds = step === 'review_existing_document'
-    ? [...candidateIds, ...finding.evidenceDocumentIds]
-    : [...finding.evidenceDocumentIds, ...candidateIds];
+  // A page number belongs to the finding's own document, wherever that now sorts.
+  const pagedDocumentId = finding.evidenceDocumentIds[0] ?? primary.candidates[0]?.id;
+  const evidenceIds = documentsTheStepNames(primary, finding);
   const resolved = resolveValidatorRuleActions({
     ruleId: primary.ruleId, projectId: context.projectId, findingId: primary.findingId, subjectId: finding.subjectId ?? '',
     evidence: evidenceIds.map((documentId) => ({ documentId, page: documentId === pagedDocumentId ? finding.page : null })),

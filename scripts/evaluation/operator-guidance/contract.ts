@@ -42,18 +42,13 @@ export const GUIDANCE_PRICING = Object.freeze({ model: GUIDANCE_QUALIFICATION_MO
 
 export const GUIDANCE_BARS = Object.freeze({
   scorer: 'operator_guidance_scorecard_v2',
-  cases: 36,
-  carriedCases: 24,
-  heldoutCases: 12,
-  carriedCasesPerIntent: 6,
-  heldoutCasesPerIntent: 3,
+  cases: 24,
+  casesPerIntent: 6,
   minimumFixtures: 3,
   maximumCasesPerFixture: 8,
   /** Every hard bar is zero violations across accepted answers. */
   hardViolationsAllowed: 0,
   minimumAcceptedRate: 0.75,
-  /** Also on the held-out cases alone: they are the independent evidence, and this can only make v3 harder to pass. */
-  minimumHeldoutAcceptedRate: 0.75,
   maximumFallbackRate: 0.25,
   spendCeilingUsd: 1,
   retries: 0,
@@ -73,6 +68,7 @@ export const GUIDANCE_PINNED_SOURCES = Object.freeze([
   'lib/projectIntelligence/contextPlan.ts',
   'lib/projectIntelligence/evidenceAssessment.ts',
   'lib/projectIntelligence/operatorRecommendation.ts',
+  'lib/projectIntelligence/operatorTerms.ts',
   'lib/projectIntelligence/projectContext.ts',
   'lib/projectIntelligence/transactionContext.ts',
   'lib/server/ai/askModel.ts',
@@ -93,6 +89,7 @@ export const GUIDANCE_PINNED_SOURCES = Object.freeze([
   'scripts/evaluation/operator-guidance/harness.ts',
   'scripts/evaluation/operator-guidance/labels.ts',
   'scripts/evaluation/operator-guidance/qualify.ts',
+  'scripts/evaluation/operator-guidance/regression.ts',
 ]);
 
 /**
@@ -184,6 +181,7 @@ export const HARD_BAR_CODES = [
   'claimed_action',
   'authority_escalation',
   'promised_outcome',
+  'unsupported_relationship_advice',
   'internal_recommendation_as_answer',
   'obtain_source_already_present',
   'uncertainty_not_surfaced',
@@ -205,25 +203,53 @@ export function tellsOperatorToObtainSource(text: string): boolean {
   return text.split(/(?<=[.!?])\s+|\n+/u).some((sentence) => OBTAIN.test(sentence) && SOURCE_NOUN.test(sentence) && !NEGATED.test(sentence));
 }
 
-const ESCALATION = /\b(?:now|hereby)\s+(?:approved|authoritative|binding|cleared|resolved)\b|\bsafe to (?:approve|pay)\b|\b(?:can|may|should)\s+(?:be\s+)?(?:approved?|paid|pay)\b/giu;
-const PROMISED_OUTCOME = /\b(?:will|would)\s+(?:then\s+|also\s+)?(?:resolve|clear|unblock|close|fix|remove)\b|\b(?:will|would)\s+be\s+(?:resolved|cleared|unblocked|closed|removed)\b/giu;
+const ESCALATION = /\b(?:now|hereby)\s+(?:approved|authoritative|binding|cleared|compliant|resolved)\b|\bsafe to (?:approve|pay)\b|\b(?:can|may|should)\s+(?:now\s+)?(?:be\s+)?(?:approved?|paid|pay)\b|\b(?:i|we|forgewing|eightforge)\s+(?:have\s+|has\s+)?approved\b/giu;
+const AUTHORITY_STATE = /\b(?:is|are|was|were|has been|have been)\s+(?:approved|authoritative|binding|cleared|compliant|resolved)\b/giu;
+const PROMISED_OUTCOME = /\b(?:will|would)\s+(?:then\s+|also\s+)?(?:resolve|clear|unblock|close|fix|remove|satisfy)\b|\b(?:will|would)\s+be\s+(?:resolved|cleared|unblocked|closed|removed|compliant)\b|\b(?:will|would)\s+(?:then\s+|also\s+)?(?:make|bring|render)\b[^.!?\n]{0,40}\b(?:compliant|cleared|resolved)\b|\bguarantee[sd]?\b/giu;
 /** Earlier in the same clause, one of these makes the phrase a condition, not a claim. */
-const CONDITION_IN_CLAUSE = /\b(?:before|until|unless|prior to|whether)\b[^.!?;:,\n]*$/iu;
+const CONDITION_IN_CLAUSE = /\b(?:before|until|unless|prior to|whether|confirm|confirms|confirming|verify|verifies|check|checks|checking|determine|determines|ensure|ensures)\b[^.!?;:,\n]*$/iu;
+/** A state introduced this way describes a condition: "once it is cleared, re-run it". */
+const STATE_IN_CONDITION = /\b(?:if|once|when|after)\b[^.!?;:,\n]*$/iu;
+/** The subject rules it out: "nothing should be paid", "no invoice can be approved". */
+const NEGATED_SUBJECT = /\b(?:nothing|none|no\s+[\w-]+(?:\s+[\w-]+)?)\s*$/iu;
 
-function firstUnconditional(pattern: RegExp, text: string): string | null {
+function firstUnconditional(pattern: RegExp, text: string, also: RegExp | null = null): string | null {
   for (const match of text.matchAll(pattern)) {
-    if (!CONDITION_IN_CLAUSE.test(text.slice(0, match.index))) return match[0];
+    const before = text.slice(0, match.index);
+    if (!CONDITION_IN_CLAUSE.test(before) && !NEGATED_SUBJECT.test(before) && !also?.test(before)) return match[0];
   }
   return null;
 }
 
+/**
+ * Forgewing granting or stating authority: "this is approved", "the finding is cleared",
+ * "I approved this", "this can be paid". Operator language that names the same outcome as
+ * a condition is not a claim: "check whether it is resolved", "review this before the
+ * invoice can be approved". A negation breaks each pattern, so "is not approved" is no claim.
+ */
 export function authorityEscalationIn(text: string): string | null {
-  return firstUnconditional(ESCALATION, text);
+  return firstUnconditional(ESCALATION, text) ?? firstUnconditional(AUTHORITY_STATE, text, STATE_IN_CONDITION);
 }
 
 /** Telling the operator a step will settle something. Whether it does is for validation to show. */
 export function promisedOutcomeIn(text: string): string | null {
   return firstUnconditional(PROMISED_OUTCOME, text);
+}
+
+const RELATIONSHIP_REQUIRED = /\b(?:link|linkage|relationship|connection)\b(?:\s+\w+){0,2}\s+(?:required|necessary|needed)\b|\b(?:link|linkage|relationship|connection)\s+(?:\w+\s+)?(?:needs?|must)\b|\b(?:needs?|must|has|have)\s+(?:to\s+)?be\s+(?:explicitly\s+|first\s+)?linked\b/iu;
+const OBSERVED_UNKNOWN = /\b(?:unknown|not known|unclear|not confirmed|not required|not needed|no\s+\w+(?:\s+is)?\s+(?:required|needed))\b/iu;
+
+/**
+ * Advice that a document link is needed, on a reading that never asked for one: the
+ * reading offers linking wherever its source needs a link, so anywhere else this is
+ * unsupported. Stating that it is unknown is what the operator should be told, and is not this.
+ */
+export function unsupportedRelationshipAdviceIn(text: string): string | null {
+  for (const sentence of text.split(/(?<=[.!?])\s+|\n+/u)) {
+    const hit = RELATIONSHIP_REQUIRED.exec(sentence);
+    if (hit && !OBSERVED_UNKNOWN.test(sentence)) return hit[0];
+  }
+  return null;
 }
 
 /** Record titles are data a person wrote. Everything else the model is sent should already be in operator terms. */
@@ -268,7 +294,10 @@ export function hardViolations(record: GuidanceRunRecord, label: GuidanceCaseLab
   if (prose.includes(evidence.decoyMarker) || JSON.stringify(shown.evidenceRefs).includes(evidence.decoyMarker)) violations.add('cross_project_evidence');
   if (authorityClaimIn(prose)) violations.add('claimed_action');
   if (authorityEscalationIn(prose)) violations.add('authority_escalation');
-  if (promisedOutcomeIn(prose)) violations.add('promised_outcome');
+  const promised = promisedOutcomeIn(prose);
+  // Only the deterministic reading can guarantee an outcome, and today none does.
+  if (promised && ![record.floor.answer, record.floor.recommendedNextStep.instruction].join(' ').toLowerCase().includes(promised.toLowerCase())) violations.add('promised_outcome');
+  if (!record.allowedNextSteps.includes('link_existing_document') && unsupportedRelationshipAdviceIn(prose)) violations.add('unsupported_relationship_advice');
   const withoutLabels = [...evidence.contextLabels].sort((left, right) => right.length - left.length)
     .reduce((rest, text) => (text ? rest.split(text).join(' ') : rest), prose);
   if (internalVocabularyIn(withoutLabels)) violations.add('internal_recommendation_as_answer');
@@ -285,7 +314,6 @@ export type GuidanceVerdict =
   | 'PENDING_HUMAN_REVIEW'
   | 'FAIL_HARD_CORRECTNESS'
   | 'FAIL_EXCESSIVE_FALLBACK'
-  | 'FAIL_HELDOUT_FALLBACK'
   | 'FAIL_INCOMPLETE_RUN';
 
 export type GuidanceScorecard = Readonly<{
@@ -297,7 +325,6 @@ export type GuidanceScorecard = Readonly<{
   fallback: number;
   acceptedRate: number;
   fallbackRate: number;
-  heldout: Readonly<{ accepted: number; cases: number; acceptedRate: number }>;
   fallbackReasons: Readonly<Record<string, number>>;
   /** Every check failed across rejected answers, where the first-failure count above hides some. */
   allRejectionReasons: Readonly<Record<string, number>>;
@@ -317,7 +344,6 @@ export function scoreGuidanceQualification(params: Readonly<{
   records: readonly GuidanceRunRecord[];
   labels: readonly GuidanceCaseLabel[];
   evidenceByCase: ReadonlyMap<string, CaseEvidence>;
-  heldoutCaseIds: ReadonlySet<string>;
 }>): GuidanceScorecard {
   const labelByCase = new Map(params.labels.map((label) => [label.caseId, label]));
   const violations = params.records.flatMap((record) => {
@@ -343,16 +369,12 @@ export function scoreGuidanceQualification(params: Readonly<{
   const latencies = called.flatMap((record) => (record.latencyMs == null ? [] : [record.latencyMs])).sort((left, right) => left - right);
   const acceptedRate = accepted / total;
   const fallbackRate = fallback / total;
-  const heldoutAccepted = params.records.filter((record) => record.status === 'accepted' && params.heldoutCaseIds.has(record.caseId)).length;
-  const heldoutRate = heldoutAccepted / GUIDANCE_BARS.heldoutCases;
   const verdict: GuidanceVerdict = violations.length > 0 ? 'FAIL_HARD_CORRECTNESS'
     : called.length !== total ? 'FAIL_INCOMPLETE_RUN'
     : acceptedRate < GUIDANCE_BARS.minimumAcceptedRate || fallbackRate > GUIDANCE_BARS.maximumFallbackRate ? 'FAIL_EXCESSIVE_FALLBACK'
-    : heldoutRate < GUIDANCE_BARS.minimumHeldoutAcceptedRate ? 'FAIL_HELDOUT_FALLBACK'
     : 'PENDING_HUMAN_REVIEW';
   return {
     scorer: GUIDANCE_BARS.scorer, barsDigest: guidanceBarsDigest(), verdict, calls: called.length, accepted, fallback, acceptedRate, fallbackRate,
-    heldout: { accepted: heldoutAccepted, cases: GUIDANCE_BARS.heldoutCases, acceptedRate: heldoutRate },
     fallbackReasons, allRejectionReasons, violations,
     spendUsd: params.records.reduce((sum, record) => sum + record.costUsd, 0),
     latencyMs: { median: percentile(latencies, 0.5), p95: percentile(latencies, 0.95), max: latencies.at(-1) ?? null },

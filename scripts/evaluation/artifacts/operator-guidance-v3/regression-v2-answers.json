@@ -1,0 +1,267 @@
+{
+  "evidenceOnly": "v2 saved answers under v3. Not a qualification result.",
+  "rows": [
+    {
+      "caseId": "missing-01",
+      "v2Status": "accepted",
+      "v2FirstRejection": null,
+      "validatorFailuresUnderV3": [],
+      "scorerHitsUnderV3": [],
+      "floorLinkInV2": null,
+      "floorLinkInV3": null
+    },
+    {
+      "caseId": "missing-02",
+      "v2Status": "rejected",
+      "v2FirstRejection": "internal_vocabulary",
+      "validatorFailuresUnderV3": [
+        "internal_vocabulary"
+      ],
+      "scorerHitsUnderV3": [
+        "internal_recommendation_as_answer"
+      ],
+      "floorLinkInV2": "/platform/projects/d10e236a-cc74-40c8-8583-72b9142b45e7#project-documents",
+      "floorLinkInV3": "/platform/projects/d10e236a-cc74-40c8-8583-72b9142b45e7#project-documents"
+    },
+    {
+      "caseId": "missing-03",
+      "v2Status": "accepted",
+      "v2FirstRejection": null,
+      "validatorFailuresUnderV3": [],
+      "scorerHitsUnderV3": [],
+      "floorLinkInV2": "/platform/documents",
+      "floorLinkInV3": "/platform/documents"
+    },
+    {
+      "caseId": "missing-04",
+      "v2Status": "accepted",
+      "v2FirstRejection": null,
+      "validatorFailuresUnderV3": [],
+      "scorerHitsUnderV3": [],
+      "floorLinkInV2": null,
+      "floorLinkInV3": null
+    },
+    {
+      "caseId": "missing-05",
+      "v2Status": "rejected",
+      "v2FirstRejection": "unsupported_number",
+      "validatorFailuresUnderV3": [
+        "internal_vocabulary"
+      ],
+      "scorerHitsUnderV3": [
+        "internal_recommendation_as_answer"
+      ],
+      "floorLinkInV2": null,
+      "floorLinkInV3": null
+    },
+    {
+      "caseId": "missing-06",
+      "v2Status": "accepted",
+      "v2FirstRejection": null,
+      "validatorFailuresUnderV3": [],
+      "scorerHitsUnderV3": [],
+      "floorLinkInV2": null,
+      "floorLinkInV3": null
+    },
+    {
+      "caseId": "document-01",
+      "v2Status": "accepted",
+      "v2FirstRejection": null,
+      "validatorFailuresUnderV3": [],
+      "scorerHitsUnderV3": [],
+      "floorLinkInV2": "/platform/projects/d10e236a-cc74-40c8-8583-72b9142b45e7#project-documents",
+      "floorLinkInV3": "/platform/projects/d10e236a-cc74-40c8-8583-72b9142b45e7#project-documents"
+    },
+    {
+      "caseId": "document-02",
+      "v2Status": "accepted",
+      "v2FirstRejection": null,
+      "validatorFailuresUnderV3": [],
+      "scorerHitsUnderV3": [],
+      "floorLinkInV2": null,
+      "floorLinkInV3": null
+    },
+    {
+      "caseId": "document-03",
+      "v2Status": "accepted",
+      "v2FirstRejection": null,
+      "validatorFailuresUnderV3": [],
+      "scorerHitsUnderV3": [],
+      "floorLinkInV2": "/platform/documents/553c242d-012e-4881-835b-da82334ffa45",
+      "floorLinkInV3": "/platform/documents/5022abf4-38ef-4bcd-857d-0c30b625ba28"
+    },
+    {
+      "caseId": "document-04",
+      "v2Status": "accepted",
+      "v2FirstRejection": null,
+      "validatorFailuresUnderV3": [],
+      "scorerHitsUnderV3": [
+        "unsupported_relationship_advice"
+      ],
+      "floorLinkInV2": null,
+      "floorLinkInV3": null
+    },
+    {
+      "caseId": "document-05",
+      "v2Status": "accepted",
+      "v2FirstRejection": null,
+      "validatorFailuresUnderV3": [],
+      "scorerHitsUnderV3": [
+        "obtain_source_already_present"
+      ],
+      "floorLinkInV2": "/platform/documents/553c242d-012e-4881-835b-da82334ffa45",
+      "floorLinkInV3": "/platform/documents/5022abf4-38ef-4bcd-857d-0c30b625ba28"
+    },
+    {
+      "caseId": "document-06",
+      "v2Status": "accepted",
+      "v2FirstRejection": null,
+      "validatorFailuresUnderV3": [],
+      "scorerHitsUnderV3": [],
+      "floorLinkInV2": null,
+      "floorLinkInV3": null
+    },
+    {
+      "caseId": "flagged-01",
+      "v2Status": "rejected",
+      "v2FirstRejection": "unsupported_number",
+      "validatorFailuresUnderV3": [
+        "internal_vocabulary"
+      ],
+      "scorerHitsUnderV3": [
+        "internal_recommendation_as_answer"
+      ],
+      "floorLinkInV2": null,
+      "floorLinkInV3": null
+    },
+    {
+      "caseId": "flagged-02",
+      "v2Status": "rejected",
+      "v2FirstRejection": "unsupported_number",
+      "validatorFailuresUnderV3": [
+        "internal_vocabulary"
+      ],
+      "scorerHitsUnderV3": [
+        "internal_recommendation_as_answer"
+      ],
+      "floorLinkInV2": null,
+      "floorLinkInV3": null
+    },
+    {
+      "caseId": "flagged-03",
+      "v2Status": "rejected",
+      "v2FirstRejection": "unsupported_number",
+      "validatorFailuresUnderV3": [
+        "internal_vocabulary"
+      ],
+      "scorerHitsUnderV3": [
+        "internal_recommendation_as_answer"
+      ],
+      "floorLinkInV2": null,
+      "floorLinkInV3": null
+    },
+    {
+      "caseId": "flagged-04",
+      "v2Status": "rejected",
+      "v2FirstRejection": "internal_vocabulary",
+      "validatorFailuresUnderV3": [
+        "internal_vocabulary"
+      ],
+      "scorerHitsUnderV3": [
+        "internal_recommendation_as_answer"
+      ],
+      "floorLinkInV2": "/platform/projects/d10e236a-cc74-40c8-8583-72b9142b45e7#project-documents",
+      "floorLinkInV3": "/platform/projects/d10e236a-cc74-40c8-8583-72b9142b45e7#project-documents"
+    },
+    {
+      "caseId": "flagged-05",
+      "v2Status": "accepted",
+      "v2FirstRejection": null,
+      "validatorFailuresUnderV3": [],
+      "scorerHitsUnderV3": [],
+      "floorLinkInV2": "/platform/documents",
+      "floorLinkInV3": "/platform/documents"
+    },
+    {
+      "caseId": "flagged-06",
+      "v2Status": "accepted",
+      "v2FirstRejection": null,
+      "validatorFailuresUnderV3": [],
+      "scorerHitsUnderV3": [],
+      "floorLinkInV2": "/platform/documents/553c242d-012e-4881-835b-da82334ffa45",
+      "floorLinkInV3": "/platform/documents/553c242d-012e-4881-835b-da82334ffa45"
+    },
+    {
+      "caseId": "action-01",
+      "v2Status": "accepted",
+      "v2FirstRejection": null,
+      "validatorFailuresUnderV3": [],
+      "scorerHitsUnderV3": [],
+      "floorLinkInV2": null,
+      "floorLinkInV3": null
+    },
+    {
+      "caseId": "action-02",
+      "v2Status": "rejected",
+      "v2FirstRejection": "internal_vocabulary",
+      "validatorFailuresUnderV3": [
+        "internal_vocabulary"
+      ],
+      "scorerHitsUnderV3": [
+        "promised_outcome",
+        "internal_recommendation_as_answer"
+      ],
+      "floorLinkInV2": "/platform/projects/d10e236a-cc74-40c8-8583-72b9142b45e7#project-documents",
+      "floorLinkInV3": "/platform/projects/d10e236a-cc74-40c8-8583-72b9142b45e7#project-documents"
+    },
+    {
+      "caseId": "action-03",
+      "v2Status": "rejected",
+      "v2FirstRejection": "internal_vocabulary",
+      "validatorFailuresUnderV3": [
+        "internal_vocabulary"
+      ],
+      "scorerHitsUnderV3": [
+        "internal_recommendation_as_answer",
+        "obtain_source_already_present"
+      ],
+      "floorLinkInV2": null,
+      "floorLinkInV3": null
+    },
+    {
+      "caseId": "action-04",
+      "v2Status": "rejected",
+      "v2FirstRejection": "unsupported_number",
+      "validatorFailuresUnderV3": [
+        "internal_vocabulary"
+      ],
+      "scorerHitsUnderV3": [
+        "internal_recommendation_as_answer"
+      ],
+      "floorLinkInV2": null,
+      "floorLinkInV3": null
+    },
+    {
+      "caseId": "action-05",
+      "v2Status": "rejected",
+      "v2FirstRejection": "unsupported_number",
+      "validatorFailuresUnderV3": [
+        "internal_vocabulary"
+      ],
+      "scorerHitsUnderV3": [
+        "internal_recommendation_as_answer"
+      ],
+      "floorLinkInV2": null,
+      "floorLinkInV3": null
+    },
+    {
+      "caseId": "action-06",
+      "v2Status": "accepted",
+      "v2FirstRejection": null,
+      "validatorFailuresUnderV3": [],
+      "scorerHitsUnderV3": [],
+      "floorLinkInV2": null,
+      "floorLinkInV3": null
+    }
+  ]
+}

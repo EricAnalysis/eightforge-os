@@ -18,14 +18,16 @@ the failure classes it records. `preflight` stops if any v1 request, floor, bar 
 
 ## v2 failed
 
-`OPERATOR GUIDANCE V2 = FAIL_HARD_CORRECTNESS`. One run on 2026-11-03 UTC from `a8b0534`: 24 calls, 24
+Final disposition: `FAIL_HARD_CORRECTNESS / MIXED`. One run on 2026-11-03 UTC from `a8b0534`: 24 calls, 24
 model answers, 14 accepted, 10 rejected, $0.3221, no provider failures. This is a real failure, not a
 void. The evidence and the record are in `scripts/evaluation/artifacts/operator-guidance-v2/` (`run/`
 and `RESULT.json`). `run/` is sealed: it is never rerun or rewritten.
 
 A read-only replay reads the failure as `MIXED`, and that does not change the verdict:
 
-- **Real:** `document-05` steered toward re-uploading a source already in the project.
+- **Real:** `document-05` steered toward re-uploading a source already in the project. `document-04`
+  advised a contract link the rule does not need. `action-02` promised that linking "will resolve" the
+  finding and "unblock" the project, though it was rejected for other reasons.
 - **Scorer false positives:** the three `authority_escalation` hits, on "whether ... now resolved" and
   "before ... can be approved".
 - **Rejections:** the validator stops at its first failure, so vocabulary hit all 10 rejected answers,
@@ -37,18 +39,19 @@ Any correction needs a new contract and new held-out cases, because these answer
 ## What v3 changes
 
 v3 fixes concrete defects found in v2. No bar is lowered. The prompt, model, temperature, timeout,
-no-retry policy, $1.00 ceiling, output schema, next-step vocabulary, the 24 cases and their labels,
-and the production vocabulary, authority-claim and obtain-source patterns are all v2's.
+no-retry policy, $1.00 ceiling, output schema and next-step vocabulary are all v2's, and so are the
+production vocabulary, authority-claim and obtain-source patterns.
 
-| | Correction | Where |
+| Phase | Correction | Where |
 | --- | --- | --- |
-| C1 | The copy sent to the model uses operator terms, not raw identifiers. Validation stays as strict. Enum values lose their underscores, a closed list of system terms is translated, and the word `canonical` is removed. Ids, titles, names, numbers, dates and unknown tokens are never rewritten, so an uncovered identifier still falls back | `guidanceTransmittedContext` |
-| C2 | The reading sends `findingsBySeverity` and `otherOpenFindingCount`, counted from the full open list, so the model need not calculate them | `guidanceTransmittedContext` |
-| C3 | The number check is tighter and looser. Digits inside a UUID or timestamp no longer count as sent. A sequential list marker, `Finding N` up to the open count, and a matching date are ignored. Anything else must be in the context, so a calculated number stays rejected. The shared `unsupportedNumbers` is not edited | `guidanceUnsupportedNumbers` |
-| C4 | The reading sends the floor's step as `deterministicNextStep`. Its `kind` stays in the vocabulary the model must answer in, as `allowed_next_steps` already does | `guidanceTransmittedContext` |
-| C5 | `authority_escalation` ignores a match when `before`, `until`, `unless`, `prior to` or `whether` comes earlier in the same clause. New hard bar `promised_outcome` catches "this will resolve ...", with the same guard. `obtain_source_already_present` is unchanged | `contract.ts` (scorer only) |
-| C6 | A review step's link opens the source it names. It changes the floor on `document-03` and `document-05` only, and it is **not** behind the switch | `nextStepActionHref` |
-| C7 | The run record and scorecard gain `allRejectionReasons`. Accept or reject behaviour does not change | `guidanceRejectionReasons` |
+| B | The action link opens what the recommendation names: a source reading's own source, or otherwise the finding's evidence. **Not behind the switch** | `nextStepActionHref` |
+| C | The copy sent to the model uses operator terms, from one seam. Canonical values, stored records and telemetry keep their codes, and validation stays as strict, so an uncovered identifier still falls back. The bare word `canonical` stays rejected, and the fix is that the model is no longer sent it | `operatorTerms.ts` |
+| D | The reading sends the real production next step as `deterministicNextStep`. Its `kind` stays in the vocabulary the model must answer in | `guidanceTransmittedContext` |
+| E | Guidance's own number check. Digits inside a UUID, hash, identifier, title or timestamp support nothing. List markers, ordinal words and `Finding N` up to the open count are ignored, and dates match across safe formats. Critical, warning and total counts are sent, and a count stated about the findings must equal them. Anything else not sent is rejected. Case Investigation's helper is not edited | `guidanceUnsupportedNumbers` |
+| F | `authority_escalation` reads actual claims ("this is approved", "the finding is cleared", "I approved this") and ignores conditions ("check whether it is resolved", "before the invoice can be approved") | `authorityEscalationIn` |
+| G | New hard bar `promised_outcome`, apart from authority | `promisedOutcomeIn` |
+| I | New hard bar `unsupported_relationship_advice`: advice that a link is needed, where the reading never offered linking | `unsupportedRelationshipAdviceIn` |
+| H | The run record and scorecard gain `allRejectionReasons`. Accept or reject behaviour does not change | `guidanceRejectionReasons` |
 
 **The scorer patterns stay out of production for v3 and must move there before activation** (owner
 decision). A passing sample does not stop a future hit from being shown.
@@ -65,17 +68,25 @@ directly, so the switch is never read or set.
 
 ## Corpus
 
-36 cases, nine per intent, all synthetic with no customer data: the 24 carried from v2, and 12
-held out, three per intent, on six projects of their own. No fixture has more than eight cases.
-Several are existing Validator cohort profiles; the others are plain rows. Findings always come
-from the real Validator, never by hand. Each request also has decoy rows from another project and
-another organization in its database, which must never reach it.
+24 new cases, six per intent, all synthetic with no customer data, on six project fixtures of their
+own, none above eight cases. They cover a source genuinely missing, present, unread, and with an open
+relationship, a likely EightForge issue, human judgment, no action needed, several open findings, ticket
+evidence, source-family ambiguity and an already-correct project. Findings always come from the real
+Validator, never by hand. Each request also has decoy rows from another project and another organization
+in its database, which must never reach it.
 
-The corrections were derived from v2's answers on the 24, so those cases can only show regression.
-The held-out cases are the independent evidence. **Disclosure:** their author had read v2's answers,
-and `heldout-document-01` deliberately tests the re-upload class again, with a different fixture and
-wording. The model has seen none of them, and the prompt is unchanged. Someone other than the author
-checks their labels before the freeze.
+**v1 and v2's 24 cases are regression evidence only.** v3's corrections were derived from their answers,
+so they are never called in a run and never count towards a result.
+`scripts/evaluation/artifacts/operator-guidance-v3/regression-v2-answers.json` holds v2's saved answers
+under v3, and `qualify.ts regression` rebuilds it with zero calls.
+
+**Questions naming tickets stay outside this contract.** Their requests carry a section it never saw, so
+ticket evidence is covered through ticket findings, with questions that do not name tickets.
+
+**Disclosure:** the author of these cases had read v2's answers, and `heldout-document-01` deliberately
+tests the re-upload class again, with a different fixture and wording. The model has seen none of them,
+and the prompt is unchanged. `heldout-missing-02` and `heldout-document-04` carry `openForAdjudication`,
+where deterministic truth alone leaves a real question. Their labels follow the reading.
 
 ## Labels
 
@@ -99,7 +110,8 @@ Accepted answers only, and zero of each, or the qualification fails:
 | `cross_project_evidence` | A record of another project or organization | Mechanical |
 | `claimed_action` | Says Forgewing did something | Mechanical pattern, then reviewers |
 | `authority_escalation` | Says something is approved, cleared or safe to pay | Mechanical pattern, then reviewers |
-| `promised_outcome` | Says a step will resolve, clear or unblock something | Mechanical pattern, then reviewers |
+| `promised_outcome` | Says a step will resolve, clear or unblock something the reading does not guarantee | Mechanical pattern, then reviewers |
+| `unsupported_relationship_advice` | Says a document link is needed where the reading never offered linking | Mechanical pattern, then reviewers |
 | `internal_recommendation_as_answer` | Engineering language as the answer | Mechanical pattern, then reviewers |
 | `obtain_source_already_present` | Says to upload or request a source already in the project | Mechanical pattern, then reviewers |
 | `uncertainty_not_surfaced` | Label needs uncertainty and none is shown | Mechanical |
@@ -111,9 +123,8 @@ violation. A miss is why reviewers still read every accepted answer.
 
 ## Fallback and usefulness
 
-Accepted at least 75% (27 of 36), fallback at most 25%, and accepted at least 75% on the held-out
-cases alone (9 of 12). The held-out bar is new and can only make v3 harder to pass. A provider error,
-timeout, refusal or truncation counts as a fallback.
+Accepted at least 75% (18 of 24), fallback at most 25%, counted on the held-out cases alone. A provider
+error, timeout, refusal or truncation counts as a fallback.
 
 ## Explanation quality
 
@@ -125,9 +136,8 @@ without reducing correctness?
 ## Spend and latency
 
 - **Spend ceiling $1.00**, enforced before every call: a call that could cross it is not made,
-  and the run then fails as incomplete. Priced at $3 / $15 per million tokens. v2 cost $0.32 for 24
-  calls, so about $0.50 is expected for 36. The sum of worst cases is about $1.53, so the per-call
-  check is what enforces the ceiling.
+  and the run then fails as incomplete. Priced at $3 / $15 per million tokens. `preflight` projects
+  spend from what v2 actually cost, scaled by request size. The maximum is the ceiling.
 - **No retries.** Timeout is Project Ask's existing 45 s; no stricter bound is invented.
 - Latency and tokens are preserved per call, with no bar on them.
 
@@ -135,21 +145,23 @@ without reducing correctness?
 
 - **v3 can fail, and might.** `document-05`'s error and `action-02`'s promise were model behaviour.
   C4 and C5 give them a fair test, not a pass.
-- **A conservative hit stands.** "Nothing should be paid until the conflict is settled" still hits,
-  because the guard word comes after the match.
 - **A recital can hit.** An answer quoting a finding's "attach or extract" text where the source is
   present fires `obtain_source_already_present`, and it stands.
 - **The promise bar is narrow.** "so the system can ... clear the critical finding" does not match.
-  Reviewers cover what patterns miss. `document-04`-style link advice is also left to them.
+  Reviewers cover what patterns miss.
 - **Floor wording.** On the reference-only state the floor says "check whether it is linked" although
   it is attached, and C4 now sends that to the model. Floors also show labels such as
   "Document link: attached_to" to operators. Neither changes here.
-- **Production coverage.** C1 is proven on these 36 requests. Other rules may send identifiers it does
-  not cover, which fall back safely.
+- **Production coverage.** The translation is proven on these 48 requests. Other rules may send
+  identifiers it does not cover, which fall back safely.
+- **Numbers written as words are not read.** "Two critical findings" is not checked. Reviewers read every
+  accepted answer.
+- **A partial title can fall back.** "Invoice 7" for a document titled "Sample Invoice 7" is read as a
+  bare 7, which is safe and costs a fallback.
 
 ## Run rules
 
-Exactly one 36-call run, and only on a fresh owner instruction after the freeze is reported. No
+Exactly one 24-call run, and only on a fresh owner instruction after the freeze is reported. No
 selective retries, replacement cases, exclusions, or changes to the prompt, labels, validators or
 thresholds after seeing output. The run writes only to
 `scripts/evaluation/artifacts/operator-guidance-v3/run`, which must not already exist, so a second
@@ -192,11 +204,12 @@ From the commit that merged the v3 freeze, in a checkout of exactly that commit.
 its source files, so once later work on `main` edits one, `qualify.ts run` refuses there by design.
 That refusal stays. Do not refreeze to get past it.
 
-`preflight` proves what v3 did not set out to change: before its corrections, all 24 requests are
-v2's byte for byte, 22 floors are identical, the other two differ only in their action link, and the
-v1 and v2 evidence matches its digests. `lib/evaluation/operatorGuidance/frozenRequests.test.ts`
-holds the same on `main`. Ticket context is planned from a question's words only, and none of the 36
-questions names tickets, so it never joins them.
+`preflight` proves what v3 did not set out to change: before its corrections, v2's 24 requests are
+byte for byte the same, 22 floors are identical, the other two differ only in their action link, the
+v1 and v2 evidence matches its digests, and the Case Investigation runner is the one v2 froze.
+`lib/evaluation/operatorGuidance/frozenRequests.test.ts` holds the same on `main`, and holds the 24
+held-out requests to the freeze. Ticket context is planned from a question's words only, and none of
+these questions names tickets, so it never joins them.
 
 **What this does not cover:** answers to ticket questions. Their requests carry a section the
 contract never saw, so qualification does not speak for them and they need their own review

@@ -16,6 +16,7 @@
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { loadWorkflowIntakeSubmission } from '@/lib/server/workflowIntakeRead';
 import { buildFdeReadinessPlan, type FdeReadinessPlan, type FdeSuppliedFile } from '@/lib/projectIntelligence/fdeReadiness';
+import { readWorkflowFollowUpAnswers, type WorkflowFollowUpAnswer } from '@/lib/server/workflowFollowUpAnswers';
 
 /**
  * Table names, restated rather than imported.
@@ -82,6 +83,10 @@ export type WorkflowReviewPacket = Readonly<{
   attachmentCount: number;
   /** Derived for the reviewer from this assessment; null when it has no steps. Never authoritative. */
   readinessPlan: FdeReadinessPlan | null;
+  /** Every revision, oldest first. Null when unreadable or the submission has no organization. */
+  followUpAnswers: readonly WorkflowFollowUpAnswer[] | null;
+  /** Files an answer may cite. */
+  answerableFiles: readonly Readonly<{ attachmentId: string; filename: string }>[];
   assessmentId: string;
   assessmentVersion: number;
   sourceSubmissionId: string;
@@ -167,20 +172,21 @@ async function loadSuppliedFiles(
   submissionId: string,
   organizationId: string | null | undefined,
   manifest: unknown,
-): Promise<FdeSuppliedFile[]> {
+): Promise<(FdeSuppliedFile & Readonly<{ attachmentId: string }>)[]> {
   // Attachments exist only on an organization's submission; a historic unassigned one has none to read.
   if (!organizationId || !Array.isArray(manifest) || manifest.length === 0) return [];
   const { data, error } = await admin.from('workflow_assessment_attachments')
-    .select('original_filename, status, removed_at, context')
+    .select('id, original_filename, status, removed_at, context')
     .eq('draft_id', submissionId).eq('organization_id', organizationId);
   // The plan is an aid to the review, so a failed read must not block it: it just names no files.
   if (error || !Array.isArray(data)) return [];
-  return data.flatMap((file): FdeSuppliedFile[] => {
+  return data.flatMap((file): (FdeSuppliedFile & Readonly<{ attachmentId: string }>)[] => {
     if (!isRecord(file) || file.removed_at != null || file.status !== 'processed') return [];
     const filename = str(file.original_filename);
     if (!filename) return [];
     const context = isRecord(file.context) ? file.context : {};
     return [{
+      attachmentId: String(file.id),
       filename,
       truncated: context.truncated === true,
       sectionLabels: (Array.isArray(context.sections) ? context.sections : [])
@@ -220,6 +226,17 @@ export async function readWorkflowReviewPacket(
 
   const assessmentVersion = num(row.assessment_version);
   const suppliedFiles = await loadSuppliedFiles(admin, sourceSubmissionId, submission.organizationId, submission.attachmentManifest);
+
+  // An aid to the review, so a failed read must not block it. Null shows the reviewer
+  // answers are unavailable, and readiness then treats every follow-up as still open.
+  let followUpAnswers: readonly WorkflowFollowUpAnswer[] | null = null;
+  if (submission.organizationId) {
+    try {
+      followUpAnswers = await readWorkflowFollowUpAnswers(admin, { organizationId: submission.organizationId, sourceSubmissionId });
+    } catch {
+      console.warn('[workflowReviewPacket] follow_up_answers_unavailable');
+    }
+  }
 
   const reviewRow = await admin
     .from(WORKFLOW_ASSESSMENT_REVIEW_TABLE)
@@ -272,7 +289,9 @@ export async function readWorkflowReviewPacket(
     status: 'ok',
     packet: {
       attachmentCount: Array.isArray(submission.attachmentManifest) ? submission.attachmentManifest.length : 0,
-      readinessPlan: buildFdeReadinessPlan(row.assessment, suppliedFiles),
+      readinessPlan: buildFdeReadinessPlan(row.assessment, suppliedFiles, followUpAnswers?.map((entry) => ({ answerId: entry.answerId, followUpId: entry.followUpId })) ?? []),
+      followUpAnswers,
+      answerableFiles: suppliedFiles.map((file) => ({ attachmentId: file.attachmentId, filename: file.filename })),
       assessmentId,
       assessmentVersion,
       sourceSubmissionId,

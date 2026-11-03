@@ -23,9 +23,11 @@ import { useParams, useRouter } from 'next/navigation';
 import { redirectIfUnauthorized } from '@/lib/redirectIfUnauthorized';
 import { supabase } from '@/lib/supabaseClient';
 import { usePlatformSessionToken } from '@/components/platform/PlatformSessionContext';
+import { FdeFollowUpAnswers } from '@/components/workflows/FdeFollowUpAnswers';
 import { FdeReadinessCard } from '@/components/workflows/FdeReadinessCard';
 import { WorkflowAssessmentEvidenceFiles } from '@/components/workflows/WorkflowAssessmentAttachments';
 import type { FdeReadinessPlan } from '@/lib/projectIntelligence/fdeReadiness';
+import type { WorkflowFollowUpAnswer } from '@/lib/server/workflowFollowUpAnswers';
 import { workflowQualificationLabel } from '@/lib/workflowAssessmentPresentation';
 import {
   buildStepReviewPayload,
@@ -102,6 +104,8 @@ type Packet = {
   sourceSubmissionId: string;
   attachmentCount: number;
   readinessPlan: FdeReadinessPlan | null;
+  followUpAnswers: readonly WorkflowFollowUpAnswer[] | null;
+  answerableFiles: readonly Readonly<{ attachmentId: string; filename: string }>[];
   assessmentId: string;
   assessmentVersion: number;
   createdAt: string;
@@ -355,6 +359,16 @@ export default function WorkflowReviewDetailPage() {
           )}
 
           {state.packet.readinessPlan && <FdeReadinessCard plan={state.packet.readinessPlan} />}
+          {state.packet.readinessPlan && sessionToken && (
+            <FdeFollowUpAnswers
+              followUps={state.packet.readinessPlan.followUps}
+              answers={state.packet.followUpAnswers}
+              files={state.packet.answerableFiles}
+              assessmentId={state.packet.assessmentId}
+              accessToken={sessionToken}
+              onSaved={() => void load()}
+            />
+          )}
 
           <div className="flex flex-wrap items-center gap-4 rounded-md border border-[var(--ef-border-subtle)] bg-[var(--ef-background-secondary)] px-4 py-3">
             <span className="text-sm text-[var(--ef-text-primary)]">

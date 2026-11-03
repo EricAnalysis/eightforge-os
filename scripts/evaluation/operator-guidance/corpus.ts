@@ -1,15 +1,19 @@
 import { type ValidatorSourceSnapshot } from '@/lib/validator/projectValidator';
 import {
+  exactParityProfile,
+  goldenProfile,
+  sourceGapProfile,
   ticketGrainConflictProfile,
   ticketGrainProfile,
 } from '@/lib/canonical/comparison/__fixtures__/authorityComparisonFixtures';
 import type { OperatorIntent } from '@/lib/projectIntelligence/contextPlan';
 
 /**
- * The 24 pre-registered operator guidance qualification cases. All synthetic: no
- * customer data, so nothing here is a new data exposure. Two project fixtures are
- * the repository's existing Validator cohort profiles; the others are plain document
- * and fact rows run through the real Validator. Findings are never written by hand.
+ * The pre-registered operator guidance qualification cases: the 24 carried from v2, and
+ * 12 held out because v3's corrections were derived from v2's answers on those 24. All
+ * synthetic: no customer data, so nothing here is a new data exposure. Some project
+ * fixtures are the repository's existing Validator cohort profiles; the others are plain
+ * document and fact rows run through the real Validator. Findings are never written by hand.
  *
  * This module holds what a case IS. What a correct answer looks like lives in
  * labels.ts, which nothing that builds a request may import.
@@ -56,7 +60,16 @@ export const PROJECT_FIXTURES = Object.freeze({
   ticket_conflict: 'Sample Project Conflict',
   ticket_grain: 'Sample Project Tickets',
 });
-export type ProjectFixture = keyof typeof PROJECT_FIXTURES;
+/** Held-out cases are other projects, with other documents. */
+export const HELDOUT_PROJECT_FIXTURES = Object.freeze({
+  harbor_setup: 'Sample Project Harbor',
+  harbor_pricing: 'Sample Project Inlet',
+  harbor_billing: 'Sample Project Marina',
+  harbor_cleared: 'Sample Project Pier',
+  harbor_conflict: 'Sample Project Dock',
+  harbor_tickets: 'Sample Project Wharf',
+});
+export type ProjectFixture = keyof typeof PROJECT_FIXTURES | keyof typeof HELDOUT_PROJECT_FIXTURES;
 
 export type QualificationCase = Readonly<{
   caseId: string;
@@ -162,3 +175,59 @@ export const QUALIFICATION_CASES: readonly QualificationCase[] = Object.freeze([
   { caseId: 'action-05', fixture: 'ticket_grain', intent: 'what_to_do', question: 'What should I do?', focusRule: 'TRANSACTION_TOTAL_MATCHES_INVOICE_LINE', validated: TICKET_GRAIN },
   { caseId: 'action-06', fixture: 'west_cleared', intent: 'what_to_do', question: 'What should I do next?', focusRule: null, validated: CLEARED },
 ] satisfies readonly QualificationCase[]);
+
+const AGREEMENT: DocumentSpec = { key: 'contract', title: 'Harbor Dredging Services Agreement', documentType: 'contract' };
+const EXHIBIT: DocumentSpec = { key: 'sheet', title: 'Exhibit B Unit Rates', documentType: 'price sheet' };
+const PAY_APPLICATION: DocumentSpec = { key: 'invoice', title: 'Pay Application 3', documentType: 'invoice' };
+const EXHIBIT_LINK: RelationshipSpec = { key: 'sheet-link', sourceKey: 'sheet', targetKey: 'contract', type: 'attached_to' };
+
+const HARBOR_TITLES = Object.freeze({
+  'fixture-contract': 'Harbor Dredging Services Agreement',
+  'fixture-rate-exhibit': 'Exhibit B Unit Rates',
+  'fixture-invoice': 'Pay Application 3',
+  'fixture-tickets': 'Harbor Field Export',
+});
+
+// The conflict cohort with another ticket and other disagreeing values, so its numbers are new.
+function withOtherConflict(value: unknown): unknown {
+  if (typeof value === 'string') return value.split('TKT-1').join('LOAD-884');
+  if (value === 250) return 310;
+  if (value === 3125) return 3875;
+  if (Array.isArray(value)) return value.map(withOtherConflict);
+  if (value instanceof Map) return new Map([...value].map(([key, entry]) => [withOtherConflict(key), withOtherConflict(entry)]));
+  if (value instanceof Set) return new Set([...value].map(withOtherConflict));
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, withOtherConflict(entry)]));
+  return value;
+}
+const otherConflictProfile = () => withOtherConflict(ticketGrainConflictProfile()) as ValidatorSourceSnapshot;
+
+const harborCohort = (build: CohortState['build']): CohortState => ({ kind: 'cohort', build, authorityMode: 'canonical', titles: HARBOR_TITLES });
+const AGREEMENT_RATE_BASED: FactSpec = RATE_BASED;
+const BILLING_NO_TICKETS = rows('billing_review', [AGREEMENT, PAY_APPLICATION]);
+
+export const HELDOUT_CASES: readonly QualificationCase[] = Object.freeze([
+  { caseId: 'heldout-missing-01', fixture: 'harbor_billing', intent: 'whats_missing', question: 'What is still missing for billing review?', focusRule: null, validated: BILLING_NO_TICKETS },
+  { caseId: 'heldout-missing-02', fixture: 'harbor_setup', intent: 'whats_missing', question: 'What is missing from this project?', focusRule: null, validated: harborCohort(sourceGapProfile) },
+  { caseId: 'heldout-missing-03', fixture: 'harbor_cleared', intent: 'whats_missing', question: 'Is anything missing?', focusRule: null,
+    validated: rows('contract_setup', [AGREEMENT], [{ documentKey: 'contract', fieldKey: 'contract_ceiling_type', value: 'nte' }, { documentKey: 'contract', fieldKey: 'nte_amount', value: 480000 }]) },
+
+  { caseId: 'heldout-document-01', fixture: 'harbor_pricing', intent: 'need_document', question: 'Do I need to upload the rate exhibit again?', focusRule: null,
+    validated: rows('contract_setup', [AGREEMENT, { ...EXHIBIT, processingStatus: 'failed', processedAt: null }], [AGREEMENT_RATE_BASED]) },
+  { caseId: 'heldout-document-02', fixture: 'harbor_billing', intent: 'need_document', question: 'Do I need another document for billing?', focusRule: null, validated: BILLING_NO_TICKETS },
+  { caseId: 'heldout-document-03', fixture: 'harbor_pricing', intent: 'need_document', question: 'Do we need a separate rate schedule?', focusRule: null,
+    validated: rows('contract_setup', [AGREEMENT, { ...EXHIBIT, processedAt: READ_AFTER_VALIDATION_AT }], [AGREEMENT_RATE_BASED], [EXHIBIT_LINK]) },
+
+  { caseId: 'heldout-flagged-01', fixture: 'harbor_setup', intent: 'why_flagged', question: 'Why has this not cleared?', focusRule: 'FINANCIAL_RATE_BASED_SCHEDULE_REQUIRED',
+    validated: rows('contract_setup', [AGREEMENT, { ...EXHIBIT, authorityStatus: 'reference_only' }], [AGREEMENT_RATE_BASED], [EXHIBIT_LINK]) },
+  { caseId: 'heldout-flagged-02', fixture: 'harbor_conflict', intent: 'why_flagged', question: 'Why is this flagged?', focusRule: CONFLICT_RULE, validated: harborCohort(otherConflictProfile) },
+  { caseId: 'heldout-flagged-03', fixture: 'harbor_tickets', intent: 'why_flagged', question: 'Why is this project blocked?', focusRule: null, validated: harborCohort(goldenProfile) },
+
+  { caseId: 'heldout-action-01', fixture: 'harbor_setup', intent: 'what_to_do', question: 'What is my next step?', focusRule: null,
+    validated: rows('contract_setup', [AGREEMENT, EXHIBIT], [AGREEMENT_RATE_BASED]) },
+  { caseId: 'heldout-action-02', fixture: 'harbor_pricing', intent: 'what_to_do', question: 'What do I do now?', focusRule: 'FINANCIAL_RATE_BASED_ROWS_REQUIRED',
+    validated: rows('contract_setup', [AGREEMENT], [AGREEMENT_RATE_BASED, { documentKey: 'contract', fieldKey: 'rate_schedule_present', value: true }]) },
+  { caseId: 'heldout-action-03', fixture: 'harbor_tickets', intent: 'what_to_do', question: 'What should we do first?', focusRule: null, validated: harborCohort(exactParityProfile) },
+] satisfies readonly QualificationCase[]);
+
+/** Everything the run calls, in order. */
+export const GUIDANCE_RUN_CASES: readonly QualificationCase[] = Object.freeze([...QUALIFICATION_CASES, ...HELDOUT_CASES]);

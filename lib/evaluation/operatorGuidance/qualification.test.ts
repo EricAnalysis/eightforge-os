@@ -10,16 +10,17 @@ import {
   authorityEscalationIn, costUsd, GUIDANCE_BARS, GUIDANCE_QUALIFICATION_MODEL, guidanceBarsDigest, hardViolations, scoreGuidanceQualification,
   tellsOperatorToObtainSource, worstCaseCallUsd, type CaseEvidence, type GuidanceRunRecord,
 } from '@/scripts/evaluation/operator-guidance/contract';
-import { PROJECT_FIXTURES, QUALIFICATION_CASES } from '@/scripts/evaluation/operator-guidance/corpus';
+import { GUIDANCE_RUN_CASES, HELDOUT_CASES, PROJECT_FIXTURES, QUALIFICATION_CASES } from '@/scripts/evaluation/operator-guidance/corpus';
 import { createFixtureDatabase, DECOY_MARKER, materializeCase, type MaterializedCase } from '@/scripts/evaluation/operator-guidance/harness';
-import { GUIDANCE_LABELS, guidanceLabelSetDigest, type GuidanceCaseLabel } from '@/scripts/evaluation/operator-guidance/labels';
+import { GUIDANCE_LABELS, GUIDANCE_RUN_LABELS, guidanceHeldoutLabelSetDigest, guidanceLabelSetDigest, HELDOUT_LABELS, type GuidanceCaseLabel } from '@/scripts/evaluation/operator-guidance/labels';
 
-const labelFor = (caseId: string): GuidanceCaseLabel => GUIDANCE_LABELS.find((label) => label.caseId === caseId)!;
+const labelFor = (caseId: string): GuidanceCaseLabel => GUIDANCE_RUN_LABELS.find((label) => label.caseId === caseId)!;
+const HELDOUT_CASE_IDS: ReadonlySet<string> = new Set(HELDOUT_CASES.map((item) => item.caseId));
 
 let built: ReadonlyMap<string, MaterializedCase> | null = null;
 async function allCases(): Promise<ReadonlyMap<string, MaterializedCase>> {
   if (!built) {
-    const entries = await Promise.all(QUALIFICATION_CASES.map(async (item) => [item.caseId, await materializeCase(item)] as const));
+    const entries = await Promise.all(GUIDANCE_RUN_CASES.map(async (item) => [item.caseId, await materializeCase(item)] as const));
     built = new Map(entries);
   }
   return built;
@@ -36,7 +37,7 @@ function evidenceOf(item: MaterializedCase): CaseEvidence {
 }
 
 describe('census', () => {
-  it('has exactly 24 cases, six per intent', () => {
+  it('carries exactly 24 cases, six per intent', () => {
     expect(QUALIFICATION_CASES).toHaveLength(24);
     const perIntent = new Map<string, number>();
     for (const item of QUALIFICATION_CASES) perIntent.set(item.intent, (perIntent.get(item.intent) ?? 0) + 1);
@@ -70,7 +71,8 @@ describe('census', () => {
 describe('labels', () => {
   it('cover every case once, with every field frozen', () => {
     expect(GUIDANCE_LABELS.map((label) => label.caseId).sort()).toEqual(QUALIFICATION_CASES.map((item) => item.caseId).sort());
-    for (const label of GUIDANCE_LABELS) {
+    expect(HELDOUT_LABELS.map((label) => label.caseId).sort()).toEqual(HELDOUT_CASES.map((item) => item.caseId).sort());
+    for (const label of GUIDANCE_RUN_LABELS) {
       expect(label.allowedNextSteps.length).toBeGreaterThan(0);
       expect(label.requiredEvidenceRefs.length).toBeGreaterThan(0);
       expect(label.derivation.length).toBeGreaterThan(20);
@@ -80,13 +82,15 @@ describe('labels', () => {
 
   it('agree with the deterministic floor on every case', async () => {
     const cases = await allCases();
-    for (const label of GUIDANCE_LABELS) {
+    for (const label of GUIDANCE_RUN_LABELS) {
       const item = cases.get(label.caseId)!;
       expect(`${label.caseId}:${item.floor.evidenceState}`).toBe(`${label.caseId}:${label.expectedEvidenceClassification}`);
       expect(label.allowedNextSteps).toContain(item.floor.recommendedNextStep.kind);
       expect(item.request.allowedNextSteps.filter((step) => label.forbiddenNextSteps.includes(step as never))).toEqual([]);
       expect(item.floor.missingInformation.length > 0).toBe(label.uncertaintyMustBeSurfaced);
       expect(label.deterministicFallbackSufficient).toBe(true);
+      const required = label.requiredEvidenceRefs.map((ref) => item.symbols[ref]);
+      expect(item.floor.evidenceRefs.filter((ref) => required.includes(ref.recordId)).length, `${label.caseId} floor cites required evidence`).toBeGreaterThan(0);
     }
   });
 
@@ -103,7 +107,7 @@ describe('labels', () => {
 
   it('do not appear in a request', async () => {
     const cases = await allCases();
-    for (const label of GUIDANCE_LABELS) {
+    for (const label of GUIDANCE_RUN_LABELS) {
       const request = JSON.stringify(cases.get(label.caseId)!.request);
       expect(request).not.toContain(label.derivation);
       expect(request).not.toContain('forbiddenNextSteps');
@@ -141,7 +145,7 @@ describe('zero-call preflight proofs', () => {
 
   it('builds the same request every time', async () => {
     const cases = await allCases();
-    for (const item of QUALIFICATION_CASES) {
+    for (const item of GUIDANCE_RUN_CASES) {
       const again = await materializeCase(item);
       expect(hashCanonical(again.request)).toBe(hashCanonical(cases.get(item.caseId)!.request));
       expect(hashCanonical(again.floor)).toBe(hashCanonical(cases.get(item.caseId)!.floor));
@@ -171,33 +175,24 @@ describe('zero-call preflight proofs', () => {
   });
 });
 
-describe('a known risk, pre-registered', () => {
-  it('the floor can state a count the model is not sent, so a model repeating it falls back', async () => {
-    const cases = await allCases();
-    const flagged = cases.get('flagged-02')!;
-    expect(flagged.floor.answer).toContain('2 other open findings');
-    const { unsupportedNumbers } = await import('@/lib/server/caseInvestigationRunner');
-    expect(flagged.assessment.openFindingCount).toBe(3);
-    expect(unsupportedNumbers('2 other open findings', flagged.transmitted)).toEqual(['2']);
-  });
-});
-
 describe('frozen identities', () => {
-  it('pins the bars and the label set', () => {
-    expect(GUIDANCE_BARS).toMatchObject({ cases: 24, minimumAcceptedRate: 0.75, maximumFallbackRate: 0.25, spendCeilingUsd: 1, retries: 0, hardViolationsAllowed: 0, timeoutMs: 45_000 });
-    const frozen = JSON.parse(readFileSync('scripts/evaluation/artifacts/operator-guidance-v1/freeze.json', 'utf8')) as {
-      barsDigest: string; labelSet: { digest: string }; perIntent: Record<string, number>; freezeSha256: string };
-    expect(guidanceBarsDigest()).toBe(frozen.barsDigest);
+  it('keeps every bar, adds the held-out one, and carries the 24 labels unchanged', () => {
+    expect(GUIDANCE_BARS).toMatchObject({ cases: 36, carriedCases: 24, heldoutCases: 12, minimumAcceptedRate: 0.75, minimumHeldoutAcceptedRate: 0.75, maximumFallbackRate: 0.25, spendCeilingUsd: 1, retries: 0, hardViolationsAllowed: 0, timeoutMs: 45_000 });
+    const frozen = JSON.parse(readFileSync('scripts/evaluation/artifacts/operator-guidance-v2/freeze.json', 'utf8')) as {
+      barsDigest: string; labelSet: { digest: string }; freezeSha256: string };
+    expect(guidanceBarsDigest()).not.toBe(frozen.barsDigest);
     expect(guidanceLabelSetDigest()).toBe(frozen.labelSet.digest);
-    expect(Object.values(frozen.perIntent)).toEqual([6, 6, 6, 6]);
+    expect(guidanceHeldoutLabelSetDigest()).toMatch(/^[0-9a-f]{64}$/u);
     expect(frozen.freezeSha256).toMatch(/^[0-9a-f]{64}$/u);
   });
 
-  it('prices by the published list and bounds the worst case below the ceiling', async () => {
+  it('prices by the published list, and the check before each call is what enforces the ceiling', async () => {
     expect(costUsd(1_000_000, 1_000_000)).toBe(18);
     const cases = await allCases();
-    const worst = [...cases.values()].reduce((sum, item) => sum + worstCaseCallUsd(JSON.stringify(item.request).length), 0);
-    expect(worst).toBeLessThan(1.1);
+    const worst = [...cases.values()].map((item) => worstCaseCallUsd(JSON.stringify(item.request).length));
+    expect(worst.reduce((sum, usd) => sum + usd, 0)).toBeLessThan(1.6);
+    expect(Math.max(...worst)).toBeLessThan(0.06);
+    expect(readFileSync('scripts/evaluation/operator-guidance/qualify.ts', 'utf8')).toContain('> GUIDANCE_BARS.spendCeilingUsd');
   });
 });
 
@@ -234,6 +229,7 @@ describe('scoring', () => {
     expect(await score('document-01', { answer: `See ${DECOY_MARKER}.` })).toContain('cross_project_evidence');
     expect(await score('document-01', { answer: 'I have linked the schedule to the contract.' })).toContain('claimed_action');
     expect(await score('document-01', { answer: 'The invoice is now approved.' })).toContain('authority_escalation');
+    expect(await score('document-01', { answer: 'Linking it will clear this finding.' })).toContain('promised_outcome');
     expect(await score('document-01', { answer: 'The Validator needs traversal to reach this exhibit.' })).toContain('internal_recommendation_as_answer');
     expect(await score('document-01', { answer: 'Please upload another pricing schedule.' })).toContain('obtain_source_already_present');
     expect(await score('document-01', { missingInformation: [] })).toContain('uncertainty_not_surfaced');
@@ -248,40 +244,49 @@ describe('scoring', () => {
     expect(authorityEscalationIn('It is safe to pay this invoice.')).not.toBeNull();
   });
 
-  async function fullRun(acceptedCount: number, tamper?: (record: GuidanceRunRecord) => GuidanceRunRecord) {
+  async function fullRun(accepted: Readonly<{ carried: number; heldout: number }>, tamper?: (record: GuidanceRunRecord) => GuidanceRunRecord) {
     const cases = await allCases();
     const records: GuidanceRunRecord[] = [];
-    for (const [index, item] of QUALIFICATION_CASES.entries()) {
-      const { record } = await acceptedRecord(item.caseId);
-      const next = index < acceptedCount ? record
-        : { ...record, status: 'rejected' as const, rejectionReason: 'unsupported_number', shown: record.floor };
-      records.push(tamper ? tamper(next) : next);
+    for (const group of [{ cases: QUALIFICATION_CASES, count: accepted.carried }, { cases: HELDOUT_CASES, count: accepted.heldout }]) {
+      for (const [index, item] of group.cases.entries()) {
+        const { record } = await acceptedRecord(item.caseId);
+        const next = index < group.count ? record
+          : { ...record, status: 'rejected' as const, rejectionReason: 'unsupported_number', allRejectionReasons: ['unsupported_number', 'internal_vocabulary'], shown: record.floor };
+        records.push(tamper ? tamper(next) : next);
+      }
     }
-    return scoreGuidanceQualification({ records, labels: GUIDANCE_LABELS,
+    return scoreGuidanceQualification({ records, labels: GUIDANCE_RUN_LABELS, heldoutCaseIds: HELDOUT_CASE_IDS,
       evidenceByCase: new Map([...cases].map(([caseId, item]) => [caseId, evidenceOf(item)])) });
   }
 
-  it('passes the mechanical bars at exactly 18 of 24, then waits for people', async () => {
-    const card = await fullRun(18);
-    expect(card).toMatchObject({ verdict: 'PENDING_HUMAN_REVIEW', accepted: 18, fallback: 6, fallbackRate: 0.25, violations: [] });
-    expect(card.fallbackReasons).toEqual({ unsupported_number: 6 });
+  it('passes the mechanical bars at exactly 27 of 36 with 9 of 12 held out, then waits for people', async () => {
+    const card = await fullRun({ carried: 18, heldout: 9 });
+    expect(card).toMatchObject({ verdict: 'PENDING_HUMAN_REVIEW', accepted: 27, fallback: 9, fallbackRate: 0.25, violations: [], heldout: { accepted: 9, cases: 12, acceptedRate: 0.75 } });
+    expect(card.fallbackReasons).toEqual({ unsupported_number: 9 });
+    expect(card.allRejectionReasons).toEqual({ unsupported_number: 9, internal_vocabulary: 9 });
   });
 
-  it('fails for fallback at 17 of 24, and a fallback is never a correctness failure', async () => {
-    const card = await fullRun(17);
+  it('fails for fallback at 26 of 36, and a fallback is never a correctness failure', async () => {
+    const card = await fullRun({ carried: 17, heldout: 9 });
     expect(card.verdict).toBe('FAIL_EXCESSIVE_FALLBACK');
     expect(card.violations).toEqual([]);
   });
 
+  it('fails on the held-out cases alone, however well the 24 carried cases do', async () => {
+    const card = await fullRun({ carried: 24, heldout: 8 });
+    expect(card).toMatchObject({ verdict: 'FAIL_HELDOUT_FALLBACK', accepted: 32, heldout: { accepted: 8 } });
+    expect(card.acceptedRate).toBeGreaterThan(GUIDANCE_BARS.minimumAcceptedRate);
+  });
+
   it('fails on one wrong accepted answer, however many others are right', async () => {
-    const card = await fullRun(24, (record) => record.caseId === 'document-01'
+    const card = await fullRun({ carried: 24, heldout: 12 }, (record) => record.caseId === 'document-01'
       ? { ...record, shown: { ...record.shown, answer: 'I have linked it.' } } : record);
     expect(card.verdict).toBe('FAIL_HARD_CORRECTNESS');
     expect(card.violations).toEqual([{ caseId: 'document-01', codes: ['claimed_action'] }]);
   });
 
   it('fails an incomplete run, with no replacement cases', async () => {
-    const card = await fullRun(24, (record) => record.caseId === 'action-06'
+    const card = await fullRun({ carried: 24, heldout: 12 }, (record) => record.caseId === 'action-06'
       ? { ...record, status: 'not_called', rejectionReason: 'spend_ceiling', shown: record.floor, costUsd: 0 } : record);
     expect(card.verdict).toBe('FAIL_INCOMPLETE_RUN');
   });

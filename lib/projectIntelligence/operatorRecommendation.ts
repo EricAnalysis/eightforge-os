@@ -143,10 +143,15 @@ export function nextStepActionHref(
 ): string | null {
   const wanted = actionForStep(step);
   if (!wanted || !primary?.ruleId || !finding) return null;
-  const evidenceIds = [...finding.evidenceDocumentIds, ...primary.candidates.map((document) => document.id)];
+  const candidateIds = primary.candidates.map((document) => document.id);
+  const pagedDocumentId = [...finding.evidenceDocumentIds, ...candidateIds][0];
+  // Reviewing a source means opening that source, which the finding's own evidence need not be.
+  const evidenceIds = step === 'review_existing_document'
+    ? [...candidateIds, ...finding.evidenceDocumentIds]
+    : [...finding.evidenceDocumentIds, ...candidateIds];
   const resolved = resolveValidatorRuleActions({
     ruleId: primary.ruleId, projectId: context.projectId, findingId: primary.findingId, subjectId: finding.subjectId ?? '',
-    evidence: evidenceIds.map((documentId, index) => ({ documentId, page: index === 0 ? finding.page : null })),
+    evidence: evidenceIds.map((documentId) => ({ documentId, page: documentId === pagedDocumentId ? finding.page : null })),
   }).find((action) => action.kind === wanted);
   return resolved && 'href' in resolved ? resolved.href : null;
 }

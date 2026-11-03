@@ -7,11 +7,12 @@ import { classifyOperatorIntent, planProjectContext, type ClassifiedOperatorInte
 import { assessProjectEvidence, type ProjectEvidenceAssessment } from '@/lib/projectIntelligence/evidenceAssessment';
 import { deterministicRecommendation, type OperatorRecommendation } from '@/lib/projectIntelligence/operatorRecommendation';
 import { assembleProjectContext, LOCAL_ONLY_POLICY, type ProjectIntelligenceContext } from '@/lib/projectIntelligence/projectContext';
-import { guidanceTransmittedContext } from '@/lib/server/ai/operatorGuidance';
+import { guidanceSourceContext, guidanceTransmittedContext } from '@/lib/server/ai/operatorGuidance';
 import { primaryFindingActionContext, readProjectIntelligenceSources } from '@/lib/server/projectIntelligenceRead';
 import { buildValidatorInputFromSourceSnapshot, deriveValidatorSourceSnapshot, executeProjectValidation } from '@/lib/validator/projectValidator';
 
 import {
+  HELDOUT_PROJECT_FIXTURES,
   PROJECT_FIXTURES,
   QUALIFICATION_AT,
   VALIDATION_RUN_AT,
@@ -209,14 +210,16 @@ export type MaterializedCase = Readonly<{
   floor: OperatorRecommendation;
   transmitted: ReturnType<typeof guidanceTransmittedContext>['sections'];
   request: GuidanceProviderRequest;
-  /** `finding:<rule>`, `doc:<key>`, `project` to record id: how labels resolve, without labels here. */
+  /** The same request before any wording or added reading: what v2 froze for its 24 cases. */
+  sourceRequest: GuidanceProviderRequest;
+  /** `finding:<rule>`, `finding:primary`, `doc:<key>`, `project` to record id: how labels resolve, without labels here. */
   symbols: Readonly<Record<string, string>>;
   databaseWrites: readonly string[];
 }>;
 
 export async function materializeCase(item: QualificationCase): Promise<MaterializedCase> {
   const projectId = deterministicUuid(`project:${item.fixture}`);
-  const projectName = PROJECT_FIXTURES[item.fixture];
+  const projectName = { ...PROJECT_FIXTURES, ...HELDOUT_PROJECT_FIXTURES }[item.fixture];
   const validation = item.validated.kind === 'rows'
     ? validateRows(item.fixture, projectId, projectName, item.validated)
     : validateCohort(item.validated);
@@ -276,6 +279,7 @@ export async function materializeCase(item: QualificationCase): Promise<Material
 
   // From here on, the route's own sequence (handleOperatorGuidance).
   const assessment = assessProjectEvidence({ intent: plan.intent, focusFindingId, sources: read.sources });
+  if (assessment.primary) symbols['finding:primary'] = assessment.primary.findingId;
   const assemble = (approved: boolean) => assembleProjectContext({
     organizationId: QUALIFICATION_ORGANIZATION_ID, plan, sources: read.sources,
     policy: approved ? { approvedContentClasses: ['text_excerpts'] } : LOCAL_ONLY_POLICY,
@@ -284,15 +288,16 @@ export async function materializeCase(item: QualificationCase): Promise<Material
   const floor = deterministicRecommendation({ context: localContext, assessment,
     primaryFinding: primaryFindingActionContext(read.sources, assessment.primary?.findingId ?? null) });
   const approvedContext = assemble(true);
-  const transmitted = guidanceTransmittedContext(approvedContext, assessment);
+  const transmitted = guidanceTransmittedContext(approvedContext, assessment, floor);
+  const shell = {
+    question: item.question, intent: plan.intent,
+    allowedNextSteps: assessment.primary?.nextSteps ?? [floor.recommendedNextStep.kind],
+  };
   return {
     caseId: item.caseId, projectId, projectRow, focusFindingId, tables, classified, assessment, localContext, approvedContext, floor,
     transmitted: transmitted.sections,
-    request: {
-      question: item.question, intent: plan.intent,
-      allowedNextSteps: assessment.primary?.nextSteps ?? [floor.recommendedNextStep.kind],
-      context: transmitted.request,
-    },
+    request: { ...shell, context: transmitted.request },
+    sourceRequest: { ...shell, context: guidanceSourceContext(approvedContext, assessment).request },
     symbols, databaseWrites: database.writes,
   };
 }

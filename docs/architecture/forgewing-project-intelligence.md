@@ -75,8 +75,9 @@ These words are routing for one answer. They are not stored, and no rule reads t
 ## Why a model cannot repeat Case Investigation's failure
 
 Case Investigation stays parked. This path does not use its workflow, prompt or
-budget, and it borrows only two pure helpers (citation refs and the invented-number
-check). It avoids the two ways that workflow failed:
+budget, and it borrows only pure helpers (citation refs and number tokens). Its own
+number check is stricter about what counts as sent. It avoids the two ways that workflow
+failed:
 
 - **Ranking:** the model does not rank. It may only pick from the next steps the
   evidence reading already allows, so it cannot turn "already in the project" into
@@ -95,7 +96,7 @@ proven against a live model, which is why the provider switch ships off.
 | Cost ceiling | `FORGEWING_PROJECT_ASK_DAILY_CAP` | Shared with Ask |
 | Retrieval and context bounds | `PROJECT_CONTEXT_BOUNDS` | 24,000 characters sent |
 | Formatting | Output schema | 4,000-character answer |
-| Factual validation | `acceptModelRecommendation` | Citations, numbers, allowed step |
+| Factual validation | `acceptModelRecommendation` | Citations, numbers (`guidanceUnsupportedNumbers`), allowed step |
 | Authority validation | `authorityClaimIn`, closed step list, no write path | Refused, never repaired |
 
 ## Authority

@@ -6,20 +6,10 @@ import { APIConnectionError, APIConnectionTimeoutError, APIError, APIUserAbortEr
 import { describe, expect, it } from 'vitest';
 
 import {
-  GUIDANCE_BARS,
-  GUIDANCE_QUALIFICATION_CONTRACT,
-  GUIDANCE_QUALIFICATION_MODEL,
-  GUIDANCE_RUN_DIR,
-  GUIDANCE_SUPERSEDED_CONTRACT,
-  guidanceBarsDigest,
-  requestShapeIdentity,
-} from '@/scripts/evaluation/operator-guidance/contract';
-import {
   classifyGuidanceCallFailure,
   GUIDANCE_FAILURE_CLASSES,
   guidanceStatusForFailure,
 } from '@/scripts/evaluation/operator-guidance/failureClass';
-import { guidanceLabelSetDigest } from '@/scripts/evaluation/operator-guidance/labels';
 
 const V1 = 'scripts/evaluation/artifacts/operator-guidance-v1';
 const V2 = 'scripts/evaluation/artifacts/operator-guidance-v2';
@@ -32,8 +22,8 @@ describe('the v1 attempt is void, and its evidence is intact', () => {
   it('is classified void, and not as a model fail', () => {
     expect(record.classification).toBe('OPERATOR GUIDANCE V1 = VOID / PRE-PROVIDER FAILURE');
     expect(record.isModelQualificationFail).toBe(false);
-    expect(record.contract).toBe(GUIDANCE_SUPERSEDED_CONTRACT);
-    expect(record.successor).toBe(GUIDANCE_QUALIFICATION_CONTRACT);
+    expect(record.contract).toBe('operator_guidance_qualification_v1');
+    expect(record.successor).toBe('operator_guidance_qualification_v2');
     expect(record.freezeSha256).toBe(json(path.join(V1, 'freeze.json')).freezeSha256);
   });
 
@@ -64,28 +54,19 @@ describe('the v1 attempt is void, and its evidence is intact', () => {
   });
 });
 
-describe('v2 is the same benchmark', () => {
+describe('v2 was the same benchmark', () => {
   const v1 = json(path.join(V1, 'freeze.json'));
   const v2 = json(path.join(V2, 'freeze.json'));
 
   it('has its own identity', () => {
     expect(v2.contract).toBe('operator_guidance_qualification_v2');
-    expect(GUIDANCE_QUALIFICATION_CONTRACT).toBe(v2.contract);
     expect(v2.freezeSha256).toMatch(/^[0-9a-f]{64}$/u);
     expect(v2.freezeSha256).not.toBe(v1.freezeSha256);
-    expect(v2.supersedes).toMatchObject({ contract: GUIDANCE_SUPERSEDED_CONTRACT, freezeSha256: v1.freezeSha256 });
+    expect(v2.supersedes).toMatchObject({ contract: 'operator_guidance_qualification_v1', freezeSha256: v1.freezeSha256 });
   });
 
   it.each(['barsDigest', 'bars', 'census', 'fixtures', 'labelSet', 'perFixture', 'perIntent', 'pricing', 'request', 'requests'])('carries %s forward unchanged', (key) => {
     expect(v2[key]).toEqual(v1[key]);
-  });
-
-  it('pins the carried-forward terms', () => {
-    expect(GUIDANCE_QUALIFICATION_MODEL).toBe('claude-sonnet-4-6');
-    expect(GUIDANCE_BARS).toMatchObject({ cases: 24, minimumAcceptedRate: 0.75, maximumFallbackRate: 0.25, spendCeilingUsd: 1, retries: 0, hardViolationsAllowed: 0, timeoutMs: 45_000 });
-    expect(guidanceBarsDigest()).toBe(v1.barsDigest);
-    expect(guidanceLabelSetDigest()).toBe(v1.labelSet.digest);
-    expect(requestShapeIdentity()).toEqual(v1.request);
   });
 
   it('moved only pins that cannot reach the 24 requests, and left the validators and adapter alone', () => {
@@ -115,8 +96,7 @@ describe('the v2 run failed, and its evidence is intact', () => {
   const run = path.join(V2, 'run');
 
   it('used its one run directory', () => {
-    expect(GUIDANCE_RUN_DIR).toBe(run.replace(/\\/gu, '/'));
-    expect(existsSync(GUIDANCE_RUN_DIR)).toBe(true);
+    expect(existsSync(run)).toBe(true);
   });
 
   it('is a real failure, with the verdict the scorecard gave', () => {

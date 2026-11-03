@@ -15,7 +15,7 @@ import {
   OPERATOR_GUIDANCE_SYSTEM_PROMPT,
 } from '@/lib/server/ai/askProject';
 import { CLAUDE_REQUEST_OPTIONS } from '@/lib/server/ai/claudeRequestOptions';
-import { unsupportedNumbers } from '@/lib/server/caseInvestigationRunner';
+import { guidanceUnsupportedNumbers } from '@/lib/server/ai/operatorGuidance';
 
 import type { GuidanceFailure } from './failureClass';
 import type { GuidanceCaseLabel } from './labels';
@@ -28,26 +28,32 @@ import type { GuidanceCaseLabel } from './labels';
  * stays the floor. A rejected answer is a reliability cost, never a wrong answer.
  */
 
-export const GUIDANCE_QUALIFICATION_CONTRACT = 'operator_guidance_qualification_v2';
-/** Voided without evidence about the model: see its VOID.json. Everything measured carries forward unchanged. */
-export const GUIDANCE_SUPERSEDED_CONTRACT = 'operator_guidance_qualification_v1';
+export const GUIDANCE_QUALIFICATION_CONTRACT = 'operator_guidance_qualification_v3';
+/** Failed for real: see its RESULT.json. v3 corrects concrete defects and keeps every bar. */
+export const GUIDANCE_SUPERSEDED_CONTRACT = 'operator_guidance_qualification_v2';
 export const GUIDANCE_V1_ARTIFACT_DIR = 'scripts/evaluation/artifacts/operator-guidance-v1';
+export const GUIDANCE_V2_ARTIFACT_DIR = 'scripts/evaluation/artifacts/operator-guidance-v2';
 /** The one place this contract's single run may write. */
-export const GUIDANCE_RUN_DIR = 'scripts/evaluation/artifacts/operator-guidance-v2/run';
+export const GUIDANCE_RUN_DIR = 'scripts/evaluation/artifacts/operator-guidance-v3/run';
 export const GUIDANCE_QUALIFICATION_MODEL = 'claude-sonnet-4-6';
 
 /** Published Claude Sonnet 4.6 list prices, USD per million tokens. */
 export const GUIDANCE_PRICING = Object.freeze({ model: GUIDANCE_QUALIFICATION_MODEL, inputUsdPerMTok: 3, outputUsdPerMTok: 15 });
 
 export const GUIDANCE_BARS = Object.freeze({
-  scorer: 'operator_guidance_scorecard_v1',
-  cases: 24,
-  casesPerIntent: 6,
+  scorer: 'operator_guidance_scorecard_v2',
+  cases: 36,
+  carriedCases: 24,
+  heldoutCases: 12,
+  carriedCasesPerIntent: 6,
+  heldoutCasesPerIntent: 3,
   minimumFixtures: 3,
   maximumCasesPerFixture: 8,
   /** Every hard bar is zero violations across accepted answers. */
   hardViolationsAllowed: 0,
   minimumAcceptedRate: 0.75,
+  /** Also on the held-out cases alone: they are the independent evidence, and this can only make v3 harder to pass. */
+  minimumHeldoutAcceptedRate: 0.75,
   maximumFallbackRate: 0.25,
   spendCeilingUsd: 1,
   retries: 0,
@@ -90,18 +96,25 @@ export const GUIDANCE_PINNED_SOURCES = Object.freeze([
 ]);
 
 /**
- * The v1 pins main may have moved past, each because of work that cannot reach the 24
- * requests: the ticket section and the durable records. Any other pin moving stops the
- * freeze, and the harness files here carry only the new identity and failure classes.
+ * The v2 pins this contract changes, each named by a correction. Any other pin moving
+ * stops the freeze: the Validator, the rule explanations, the read seam and the shared
+ * number helper all stay as v2 ran them.
  */
-export const GUIDANCE_V1_PINS_ALLOWED_TO_CHANGE: readonly string[] = Object.freeze([
+export const GUIDANCE_V2_PINS_ALLOWED_TO_CHANGE: readonly string[] = Object.freeze([
   'app/api/projects/[id]/ask/route.ts',
-  'lib/projectIntelligence/contextPlan.ts',
   'lib/projectIntelligence/operatorRecommendation.ts',
-  'lib/projectIntelligence/projectContext.ts',
-  'lib/server/projectIntelligenceRead.ts',
+  'lib/server/ai/askModel.ts',
+  'lib/server/ai/askProject.ts',
+  'lib/server/ai/operatorGuidance.ts',
   'scripts/evaluation/operator-guidance/contract.ts',
+  'scripts/evaluation/operator-guidance/corpus.ts',
+  'scripts/evaluation/operator-guidance/harness.ts',
+  'scripts/evaluation/operator-guidance/labels.ts',
+  'scripts/evaluation/operator-guidance/qualify.ts',
 ]);
+
+/** Floors this contract changes, and only in their action link (correction C6). */
+export const GUIDANCE_V2_FLOORS_ALLOWED_TO_CHANGE: readonly string[] = Object.freeze(['document-03', 'document-05']);
 
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 
@@ -142,6 +155,8 @@ export type GuidanceRunRecord = Readonly<{
   status: GuidanceCallStatus;
   /** The validator's or the adapter's fixed code when not accepted. */
   rejectionReason: string | null;
+  /** Every check the answer failed. The validator stops at the first, so this is what measures them. */
+  allRejectionReasons?: readonly string[];
   rawOutput: string | null;
   stopReason: string | null;
   returnedModel: string | null;
@@ -168,6 +183,7 @@ export const HARD_BAR_CODES = [
   'cross_project_evidence',
   'claimed_action',
   'authority_escalation',
+  'promised_outcome',
   'internal_recommendation_as_answer',
   'obtain_source_already_present',
   'uncertainty_not_surfaced',
@@ -189,14 +205,43 @@ export function tellsOperatorToObtainSource(text: string): boolean {
   return text.split(/(?<=[.!?])\s+|\n+/u).some((sentence) => OBTAIN.test(sentence) && SOURCE_NOUN.test(sentence) && !NEGATED.test(sentence));
 }
 
-const ESCALATION = /\b(?:now|hereby)\s+(?:approved|authoritative|binding|cleared|resolved)\b|\bsafe to (?:approve|pay)\b|\b(?:can|may|should)\s+(?:be\s+)?(?:approved?|paid|pay)\b/iu;
+const ESCALATION = /\b(?:now|hereby)\s+(?:approved|authoritative|binding|cleared|resolved)\b|\bsafe to (?:approve|pay)\b|\b(?:can|may|should)\s+(?:be\s+)?(?:approved?|paid|pay)\b/giu;
+const PROMISED_OUTCOME = /\b(?:will|would)\s+(?:then\s+|also\s+)?(?:resolve|clear|unblock|close|fix|remove)\b|\b(?:will|would)\s+be\s+(?:resolved|cleared|unblocked|closed|removed)\b/giu;
+/** Earlier in the same clause, one of these makes the phrase a condition, not a claim. */
+const CONDITION_IN_CLAUSE = /\b(?:before|until|unless|prior to|whether)\b[^.!?;:,\n]*$/iu;
+
+function firstUnconditional(pattern: RegExp, text: string): string | null {
+  for (const match of text.matchAll(pattern)) {
+    if (!CONDITION_IN_CLAUSE.test(text.slice(0, match.index))) return match[0];
+  }
+  return null;
+}
 
 export function authorityEscalationIn(text: string): string | null {
-  return ESCALATION.exec(text)?.[0] ?? null;
+  return firstUnconditional(ESCALATION, text);
+}
+
+/** Telling the operator a step will settle something. Whether it does is for validation to show. */
+export function promisedOutcomeIn(text: string): string | null {
+  return firstUnconditional(PROMISED_OUTCOME, text);
+}
+
+/** Record titles are data a person wrote. Everything else the model is sent should already be in operator terms. */
+const TITLE_KEYS: ReadonlySet<string> = new Set(['title', 'name', 'documentName']);
+
+/** Each sent value, outside record titles, that a repeating answer would be rejected for. */
+export function internalVocabularyInPayload(value: unknown, key: string | null = null): readonly string[] {
+  if (Array.isArray(value)) return value.flatMap((entry) => internalVocabularyInPayload(entry, key));
+  if (value && typeof value === 'object') return Object.entries(value).flatMap(([entryKey, entry]) => internalVocabularyInPayload(entry, entryKey));
+  if (typeof value !== 'string' || (key != null && TITLE_KEYS.has(key))) return [];
+  // The vocabulary the model must answer in, exactly as allowed_next_steps sends it.
+  if (key === 'kind' && (NEXT_STEP_KINDS as readonly string[]).includes(value)) return [];
+  const hit = internalVocabularyIn(value);
+  return hit ? [`${key}: ${hit}`] : [];
 }
 
 export type CaseEvidence = Readonly<{
-  transmitted: readonly Readonly<{ provenance: unknown; payload: unknown }>[];
+  transmitted: readonly Readonly<{ kind: string; provenance: unknown; payload: unknown }>[];
   /** Every record id the case's context carried. */
   recordIds: ReadonlySet<string>;
   /** Label reference to record id. */
@@ -214,14 +259,16 @@ export function hardViolations(record: GuidanceRunRecord, label: GuidanceCaseLab
   const kind = shown.recommendedNextStep.kind;
   if (!label.allowedNextSteps.includes(kind) || label.forbiddenNextSteps.includes(kind)) violations.add('wrong_operator_recommendation');
   if (!record.allowedNextSteps.includes(kind)) violations.add('next_step_outside_evidence');
-  const prose = [shown.answer, shown.recommendedNextStep.instruction, ...shown.missingInformation].join(' ');
-  if (unsupportedNumbers(prose, evidence.transmitted).length > 0) violations.add('invented_number');
+  const texts = [shown.answer, shown.recommendedNextStep.instruction, ...shown.missingInformation];
+  const prose = texts.join(' ');
+  if (guidanceUnsupportedNumbers(texts, evidence.transmitted).length > 0) violations.add('invented_number');
   if (shown.evidenceRefs.length === 0 || shown.evidenceRefs.some((ref) => !evidence.recordIds.has(ref.recordId))) violations.add('unresolved_citation');
   const required = label.requiredEvidenceRefs.map((ref) => evidence.symbols[ref]);
   if (!shown.evidenceRefs.some((ref) => required.includes(ref.recordId))) violations.add('required_evidence_not_cited');
   if (prose.includes(evidence.decoyMarker) || JSON.stringify(shown.evidenceRefs).includes(evidence.decoyMarker)) violations.add('cross_project_evidence');
   if (authorityClaimIn(prose)) violations.add('claimed_action');
   if (authorityEscalationIn(prose)) violations.add('authority_escalation');
+  if (promisedOutcomeIn(prose)) violations.add('promised_outcome');
   const withoutLabels = [...evidence.contextLabels].sort((left, right) => right.length - left.length)
     .reduce((rest, text) => (text ? rest.split(text).join(' ') : rest), prose);
   if (internalVocabularyIn(withoutLabels)) violations.add('internal_recommendation_as_answer');
@@ -238,6 +285,7 @@ export type GuidanceVerdict =
   | 'PENDING_HUMAN_REVIEW'
   | 'FAIL_HARD_CORRECTNESS'
   | 'FAIL_EXCESSIVE_FALLBACK'
+  | 'FAIL_HELDOUT_FALLBACK'
   | 'FAIL_INCOMPLETE_RUN';
 
 export type GuidanceScorecard = Readonly<{
@@ -249,7 +297,10 @@ export type GuidanceScorecard = Readonly<{
   fallback: number;
   acceptedRate: number;
   fallbackRate: number;
+  heldout: Readonly<{ accepted: number; cases: number; acceptedRate: number }>;
   fallbackReasons: Readonly<Record<string, number>>;
+  /** Every check failed across rejected answers, where the first-failure count above hides some. */
+  allRejectionReasons: Readonly<Record<string, number>>;
   violations: readonly Readonly<{ caseId: string; codes: readonly HardBarCode[] }>[];
   spendUsd: number;
   latencyMs: Readonly<{ median: number | null; p95: number | null; max: number | null }>;
@@ -266,6 +317,7 @@ export function scoreGuidanceQualification(params: Readonly<{
   records: readonly GuidanceRunRecord[];
   labels: readonly GuidanceCaseLabel[];
   evidenceByCase: ReadonlyMap<string, CaseEvidence>;
+  heldoutCaseIds: ReadonlySet<string>;
 }>): GuidanceScorecard {
   const labelByCase = new Map(params.labels.map((label) => [label.caseId, label]));
   const violations = params.records.flatMap((record) => {
@@ -280,22 +332,28 @@ export function scoreGuidanceQualification(params: Readonly<{
   const total = GUIDANCE_BARS.cases;
   const fallback = total - accepted;
   const fallbackReasons: Record<string, number> = {};
+  const allRejectionReasons: Record<string, number> = {};
   for (const record of params.records) {
     if (record.status !== 'accepted') {
       const reason = record.rejectionReason ?? record.status;
       fallbackReasons[reason] = (fallbackReasons[reason] ?? 0) + 1;
+      for (const each of record.allRejectionReasons ?? [reason]) allRejectionReasons[each] = (allRejectionReasons[each] ?? 0) + 1;
     }
   }
   const latencies = called.flatMap((record) => (record.latencyMs == null ? [] : [record.latencyMs])).sort((left, right) => left - right);
   const acceptedRate = accepted / total;
   const fallbackRate = fallback / total;
+  const heldoutAccepted = params.records.filter((record) => record.status === 'accepted' && params.heldoutCaseIds.has(record.caseId)).length;
+  const heldoutRate = heldoutAccepted / GUIDANCE_BARS.heldoutCases;
   const verdict: GuidanceVerdict = violations.length > 0 ? 'FAIL_HARD_CORRECTNESS'
     : called.length !== total ? 'FAIL_INCOMPLETE_RUN'
     : acceptedRate < GUIDANCE_BARS.minimumAcceptedRate || fallbackRate > GUIDANCE_BARS.maximumFallbackRate ? 'FAIL_EXCESSIVE_FALLBACK'
+    : heldoutRate < GUIDANCE_BARS.minimumHeldoutAcceptedRate ? 'FAIL_HELDOUT_FALLBACK'
     : 'PENDING_HUMAN_REVIEW';
   return {
     scorer: GUIDANCE_BARS.scorer, barsDigest: guidanceBarsDigest(), verdict, calls: called.length, accepted, fallback, acceptedRate, fallbackRate,
-    fallbackReasons, violations,
+    heldout: { accepted: heldoutAccepted, cases: GUIDANCE_BARS.heldoutCases, acceptedRate: heldoutRate },
+    fallbackReasons, allRejectionReasons, violations,
     spendUsd: params.records.reduce((sum, record) => sum + record.costUsd, 0),
     latencyMs: { median: percentile(latencies, 0.5), p95: percentile(latencies, 0.95), max: latencies.at(-1) ?? null },
     tokens: {

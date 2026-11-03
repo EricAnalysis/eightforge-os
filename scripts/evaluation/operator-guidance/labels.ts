@@ -9,8 +9,8 @@ import type { EvidenceState, NextStepKind } from '@/lib/projectIntelligence/evid
  *
  * `allowedNextSteps` is what a correct answer may recommend for this case, and it can
  * be narrower than what the evidence reading offers. `requiredEvidenceRefs` is a set
- * of which an accepted answer must cite at least one: `finding:<rule>`, `doc:<key>`,
- * or `project`.
+ * of which an accepted answer must cite at least one: `finding:<rule>`, `finding:primary`
+ * (the finding the reading leads with), `doc:<key>`, or `project`.
  */
 
 export type EvidenceClassification = EvidenceState | 'no_open_findings';
@@ -181,3 +181,84 @@ const LABELS: readonly GuidanceCaseLabel[] = Object.freeze([
 export const GUIDANCE_LABELS: readonly GuidanceCaseLabel[] = LABELS;
 export const GUIDANCE_LABEL_SET_VERSION = 'operator_guidance_labels_v1';
 export const guidanceLabelSetDigest = (): string => hashCanonical({ version: GUIDANCE_LABEL_SET_VERSION, labels: LABELS });
+
+function absentTickets(caseId: string): GuidanceCaseLabel {
+  return {
+    caseId, expectedEvidenceClassification: 'source_missing', expectedPrimaryRules: ['SOURCES_NO_TICKET_DATA'],
+    allowedNextSteps: ['upload_or_request_document'], forbiddenNextSteps: NOT_LINK_OR_CLEAR,
+    requiredEvidenceRefs: ['finding:SOURCES_NO_TICKET_DATA'], uncertaintyMustBeSurfaced: false,
+    deterministicFallbackSufficient: true, sourceAlreadyPresent: false,
+    derivation: 'A billing-review project holding a contract and an invoice, with no ticket data, and the ticket rule fired. That source does not exist in the project.',
+  };
+}
+
+function unverifiedRateRow(caseId: string, derivation: string): GuidanceCaseLabel {
+  const rule = 'FINANCIAL_AUTHORED_RATE_ROW_UNVERIFIED';
+  return {
+    caseId, expectedEvidenceClassification: 'not_a_source_gap', expectedPrimaryRules: [rule],
+    allowedNextSteps: ['correct_source_data', 'review_existing_document', 'operator_judgment_required'],
+    forbiddenNextSteps: ['upload_or_request_document', 'link_existing_document', 'no_action_needed'],
+    // Several rows can fire this rule, and the reading leads with one of them.
+    requiredEvidenceRefs: ['finding:primary', `finding:${rule}`, 'doc:fixture-contract'], uncertaintyMustBeSurfaced: false,
+    deterministicFallbackSufficient: true, sourceAlreadyPresent: false, derivation,
+  };
+}
+
+/**
+ * Labels for the held-out cases, from fixture truth and the rule that fired, like the 24.
+ * Their author had read v2's answers, which is why someone else checks them before the freeze.
+ */
+export const HELDOUT_LABELS: readonly GuidanceCaseLabel[] = Object.freeze([
+  absentTickets('heldout-missing-01'),
+  {
+    caseId: 'heldout-missing-02', expectedEvidenceClassification: 'not_a_source_gap', expectedPrimaryRules: ['TRANSACTION_GROUP_EXISTS_FOR_INVOICE_LINE'],
+    allowedNextSteps: ['review_ticket_or_transaction', 'review_existing_document', 'operator_judgment_required'],
+    forbiddenNextSteps: ['upload_or_request_document', 'link_existing_document', 'no_action_needed'],
+    requiredEvidenceRefs: ['finding:TRANSACTION_GROUP_EXISTS_FOR_INVOICE_LINE'], uncertaintyMustBeSurfaced: false,
+    deterministicFallbackSufficient: true, sourceAlreadyPresent: false,
+    derivation: 'A billed line has no ticket rows behind it, while a ticket export is in the project. The evidence reading offers checking the line against tickets, not uploading, so what is on file is checked first.',
+  },
+  { ...cleared('heldout-missing-03'), derivation: 'Validation ran on a ceiling contract with its $480,000 amount on file and raised nothing.' },
+
+  {
+    caseId: 'heldout-document-01', expectedEvidenceClassification: 'source_present_unread', expectedPrimaryRules: [SCHEDULE_RULE],
+    allowedNextSteps: ['review_existing_document', 'likely_system_issue'], forbiddenNextSteps: NOT_UPLOAD_OR_CLEAR,
+    requiredEvidenceRefs: ['doc:sheet', `finding:${SCHEDULE_RULE}`], uncertaintyMustBeSurfaced: true,
+    deterministicFallbackSufficient: true, sourceAlreadyPresent: true,
+    derivation: 'The rate exhibit is in the project but its processing failed, so it was never read. It needs reprocessing or review, not a second copy.',
+  },
+  absentTickets('heldout-document-02'),
+  {
+    caseId: 'heldout-document-03', expectedEvidenceClassification: 'source_present', expectedPrimaryRules: [SCHEDULE_RULE],
+    allowedNextSteps: ['review_existing_document', 'operator_judgment_required'], forbiddenNextSteps: NOT_UPLOAD_OR_CLEAR,
+    requiredEvidenceRefs: ['doc:sheet', `finding:${SCHEDULE_RULE}`], uncertaintyMustBeSurfaced: true,
+    deterministicFallbackSufficient: true, sourceAlreadyPresent: true,
+    derivation: 'The attached rate exhibit was read after the latest validation, so the finding predates it. No further document is needed.',
+  },
+
+  {
+    caseId: 'heldout-flagged-01', expectedEvidenceClassification: 'source_present_relationship_unresolved', expectedPrimaryRules: [SCHEDULE_RULE],
+    allowedNextSteps: ['link_existing_document', 'review_existing_document', 'operator_judgment_required'], forbiddenNextSteps: NOT_UPLOAD_OR_CLEAR,
+    requiredEvidenceRefs: ['doc:sheet', `finding:${SCHEDULE_RULE}`], uncertaintyMustBeSurfaced: true,
+    deterministicFallbackSufficient: true, sourceAlreadyPresent: true,
+    derivation: 'The rate exhibit is attached but marked reference only. Whether it applies is an unsettled authority question for a person.',
+  },
+  ticketConflict('heldout-flagged-02'),
+  unverifiedRateRow('heldout-flagged-03', 'The project is blocked first by a contract rate row with no source verification. The contract rows are held, so the row is what to check and correct.'),
+
+  { ...unlinkedSchedule('heldout-action-01'), requiredEvidenceRefs: ['doc:sheet', `finding:${SCHEDULE_RULE}`],
+    derivation: 'A read rate exhibit is in the project with no link to the contract, and the rate-based rule fired. The source exists; its relationship is what is open.' },
+  {
+    caseId: 'heldout-action-02', expectedEvidenceClassification: 'likely_system_issue', expectedPrimaryRules: ['FINANCIAL_RATE_BASED_ROWS_REQUIRED'],
+    allowedNextSteps: ['likely_system_issue', 'review_existing_document', 'operator_judgment_required'], forbiddenNextSteps: NOT_UPLOAD_OR_CLEAR,
+    requiredEvidenceRefs: ['doc:contract', 'finding:FINANCIAL_RATE_BASED_ROWS_REQUIRED'], uncertaintyMustBeSurfaced: true,
+    deterministicFallbackSufficient: true, sourceAlreadyPresent: true,
+    derivation: 'The contract states a rate schedule is present, the rule itself says so, and no rows were read from it. The source is in hand; reading it is what fell short.',
+  },
+  unverifiedRateRow('heldout-action-03', 'A contract rate row has no source verification. The contract is held, so checking the row against it comes first.'),
+]);
+
+export const GUIDANCE_HELDOUT_LABEL_SET_VERSION = 'operator_guidance_heldout_labels_v1';
+export const guidanceHeldoutLabelSetDigest = (): string => hashCanonical({ version: GUIDANCE_HELDOUT_LABEL_SET_VERSION, labels: HELDOUT_LABELS });
+/** Every label the run grades against, the carried 24 unchanged. */
+export const GUIDANCE_RUN_LABELS: readonly GuidanceCaseLabel[] = Object.freeze([...LABELS, ...HELDOUT_LABELS]);

@@ -1,0 +1,8 @@
+{
+  "calls": 24,
+  "modelAnswers": 24,
+  "reachedProvider": 24,
+  "failureClasses": {
+    "output_rejected": 10
+  }
+}

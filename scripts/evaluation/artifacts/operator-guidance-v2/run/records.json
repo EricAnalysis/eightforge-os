@@ -1,0 +1,2313 @@
+{
+  "freezeSha256": "6cf9635567ef5f4278f3604134dd2e96ec0257446fd2c1e1b9f714aa64556f0c",
+  "records": [
+    {
+      "caseId": "missing-01",
+      "allowedNextSteps": [
+        "upload_or_request_document",
+        "review_existing_document"
+      ],
+      "requestBodySha256": "177181073aa4f62eed90d1afc6f440f04c6c6cf841e7d736b17e740926cac127",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "whats_missing",
+        "evidenceState": "source_missing",
+        "answer": "This project has no pricing schedule. It looks genuinely absent, not just unlinked.",
+        "recommendedNextStep": {
+          "kind": "upload_or_request_document",
+          "instruction": "Upload the pricing schedule, or request it from whoever holds it.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "7accdc2e-8e67-44d4-8a9e-1b550868b620",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          },
+          {
+            "recordId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "Whether the contract itself contains the schedule pages has not been confirmed."
+        ],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "model_reasoned",
+        "intent": "whats_missing",
+        "evidenceState": "source_missing",
+        "answer": "Your project 'Sample Project North' is currently blocked by one critical finding: the contract rate schedule is missing.\n\nHere is what was found:\n\n**What is blocked and why**\nThe governing contract on file — 'Sample Debris Removal Contract' — is priced by unit rates, but no rate schedule has been found within it. Because billed rates cannot be checked against contract pricing without a rate schedule, the project cannot move forward. This is the only open finding, and it is marked critical.\n\n**What the record shows**\nThe contract was processed on 2026-01-01 and is recognized as the governing document for this project. However, when the contract's pricing facts were extracted, the rate schedule was recorded as missing rather than present. No candidate documents that might supply the rate schedule were identified, and no decision already on file covers this gap.\n\n**What is still uncertain**\nIt has not been confirmed whether the rate schedule pages are actually embedded somewhere within the 'Sample Debris Removal Contract' itself but were not successfully extracted, or whether the rate schedule was never included in the document that was uploaded.",
+        "recommendedNextStep": {
+          "kind": "upload_or_request_document",
+          "instruction": "Locate the rate schedule for the 'Sample Debris Removal Contract' — either as a separate exhibit, amendment, or attachment — and upload it to this project so the pricing facts can be extracted and billed rates can be verified against contract pricing.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "d10e236a-cc74-40c8-8583-72b9142b45e7",
+            "sectionKind": "project_identity",
+            "label": "Sample Project North",
+            "documentId": null,
+            "page": null
+          },
+          {
+            "recordId": "7accdc2e-8e67-44d4-8a9e-1b550868b620",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          },
+          {
+            "recordId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "Whether the contract itself contains the schedule pages has not been confirmed.",
+          "Whether the rate schedule pages are embedded within the 'Sample Debris Removal Contract' as uploaded but were not extracted, or whether the rate schedule was never included in the uploaded file and must be sourced separately."
+        ],
+        "needsHumanReview": true
+      },
+      "status": "accepted",
+      "rejectionReason": null,
+      "rawOutput": "{\"answer\":\"Your project 'Sample Project North' is currently blocked by one critical finding: the contract rate schedule is missing.\\n\\nHere is what was found:\\n\\n**What is blocked and why**\\nThe governing contract on file — 'Sample Debris Removal Contract' — is priced by unit rates, but no rate schedule has been found within it. Because billed rates cannot be checked against contract pricing without a rate schedule, the project cannot move forward. This is the only open finding, and it is marked critical.\\n\\n**What the record shows**\\nThe contract was processed on 2026-01-01 and is recognized as the governing document for this project. However, when the contract's pricing facts were extracted, the rate schedule was recorded as missing rather than present. No candidate documents that might supply the rate schedule were identified, and no decision already on file covers this gap.\\n\\n**What is still uncertain**\\nIt has not been confirmed whether the rate schedule pages are actually embedded somewhere within the 'Sample Debris Removal Contract' itself but were not successfully extracted, or whether the rate schedule was never included in the document that was uploaded.\",\"nextStepKind\":\"upload_or_request_document\",\"nextStepInstruction\":\"Locate the rate schedule for the 'Sample Debris Removal Contract' — either as a separate exhibit, amendment, or attachment — and upload it to this project so the pricing facts can be extracted and billed rates can be verified against contract pricing.\",\"citations\":[\"A\",\"B\",\"C\"],\"missingInformation\":[\"Whether the rate schedule pages are embedded within the 'Sample Debris Removal Contract' as uploaded but were not extracted, or whether the rate schedule was never included in the uploaded file and must be sourced separately.\"],\"confidence\":\"high\"}",
+      "stopReason": "end_turn",
+      "returnedModel": "claude-sonnet-4-6",
+      "providerRequestId": "req_011CgfDuANeQh74Vk5RM6mM7",
+      "inputTokens": 1728,
+      "outputTokens": 395,
+      "latencyMs": 9651.1886,
+      "costUsd": 0.011109
+    },
+    {
+      "caseId": "missing-02",
+      "allowedNextSteps": [
+        "link_existing_document",
+        "review_existing_document",
+        "operator_judgment_required"
+      ],
+      "requestBodySha256": "aa0bf250a1e3183b765cd42fddccb88fa07e8518bdd3d5dfb35ece54733ee393",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "whats_missing",
+        "evidenceState": "source_present_relationship_unresolved",
+        "answer": "The pricing schedule appears to already exist in this project as \"Sample Unit Price Sheet\". No additional document appears necessary.",
+        "recommendedNextStep": {
+          "kind": "link_existing_document",
+          "instruction": "Check whether \"Sample Unit Price Sheet\" is linked to the governing contract, \"Sample Debris Removal Contract\", and link it if it applies.",
+          "actionHref": "/platform/projects/d10e236a-cc74-40c8-8583-72b9142b45e7#project-documents"
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "7accdc2e-8e67-44d4-8a9e-1b550868b620",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          },
+          {
+            "recordId": "e9bdd44a-50ca-494f-89ff-a9bf2b4c2c5f",
+            "sectionKind": "documents",
+            "label": "Sample Unit Price Sheet",
+            "documentId": "e9bdd44a-50ca-494f-89ff-a9bf2b4c2c5f",
+            "page": null
+          },
+          {
+            "recordId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "Whether it covers everything the project needs has not been confirmed."
+        ],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "whats_missing",
+        "evidenceState": "source_present_relationship_unresolved",
+        "answer": "The pricing schedule appears to already exist in this project as \"Sample Unit Price Sheet\". No additional document appears necessary.",
+        "recommendedNextStep": {
+          "kind": "link_existing_document",
+          "instruction": "Check whether \"Sample Unit Price Sheet\" is linked to the governing contract, \"Sample Debris Removal Contract\", and link it if it applies.",
+          "actionHref": "/platform/projects/d10e236a-cc74-40c8-8583-72b9142b45e7#project-documents"
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "7accdc2e-8e67-44d4-8a9e-1b550868b620",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          },
+          {
+            "recordId": "e9bdd44a-50ca-494f-89ff-a9bf2b4c2c5f",
+            "sectionKind": "documents",
+            "label": "Sample Unit Price Sheet",
+            "documentId": "e9bdd44a-50ca-494f-89ff-a9bf2b4c2c5f",
+            "page": null
+          },
+          {
+            "recordId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "Whether it covers everything the project needs has not been confirmed."
+        ],
+        "needsHumanReview": true
+      },
+      "status": "rejected",
+      "rejectionReason": "internal_vocabulary",
+      "rawOutput": "{\"answer\":\"Sample Project North is currently blocked by one critical finding: the rate schedule for the Sample Debris Removal Contract has not been connected to that contract.\\n\\nHere is what the project records show:\\n\\n**What is in the project**\\nTwo documents have been processed: the Sample Debris Removal Contract (C) and the Sample Unit Price Sheet (D). Both are marked as governing documents in their respective families.\\n\\n**What the finding says**\\nThe contract is priced by unit rates, but no rate schedule has been found attached to it as its canonical pricing source (B). Because of this, billed rates cannot be checked against contract pricing, and the project is blocked from moving forward.\\n\\n**What the evidence assessment shows**\\nThe Sample Unit Price Sheet (D) is already in the project and has been read, but it has not been linked to the Sample Debris Removal Contract (C) as its rate schedule. The relationship between these two documents is unresolved. This means the pricing schedule is likely already present in the project — it just has not been formally connected to the contract.\\n\\n**What is still uncertain**\\nEven if the Sample Unit Price Sheet is linked to the contract, it has not been confirmed whether it covers everything the project needs.\\n\\n**Summary**\\nThe one open item blocking this project is resolving the relationship between the Sample Unit Price Sheet and the Sample Debris Removal Contract so that the contract's rate schedule is recognized.\",\"nextStepKind\":\"link_existing_document\",\"nextStepInstruction\":\"Open the Sample Unit Price Sheet and link it to the Sample Debris Removal Contract as its rate schedule, so the contract's pricing source is recognized and the critical finding can be resolved.\",\"citations\":[\"A\",\"B\",\"C\",\"D\"],\"missingInformation\":[\"Whether the Sample Unit Price Sheet covers all unit rates and pricing terms that the Sample Debris Removal Contract requires has not been confirmed — this should be reviewed after the link is made.\"],\"confidence\":\"high\"}",
+      "stopReason": "end_turn",
+      "returnedModel": "claude-sonnet-4-6",
+      "providerRequestId": "req_011CgfDusHXP3poDXYBwCNtG",
+      "inputTokens": 2003,
+      "outputTokens": 445,
+      "latencyMs": 10485.7013,
+      "costUsd": 0.012684,
+      "failure": {
+        "failureClass": "output_rejected",
+        "reachedProvider": true,
+        "httpStatus": null,
+        "providerErrorType": null,
+        "providerRequestId": "req_011CgfDusHXP3poDXYBwCNtG"
+      }
+    },
+    {
+      "caseId": "missing-03",
+      "allowedNextSteps": [
+        "upload_or_request_document"
+      ],
+      "requestBodySha256": "07f01115f91e35b50971e8674b947161237479e4026a52180f3d683db880f2a1",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "whats_missing",
+        "evidenceState": "source_missing",
+        "answer": "This project has no invoice. It looks genuinely absent, not just unlinked. 1 other open finding is listed for this project as well.",
+        "recommendedNextStep": {
+          "kind": "upload_or_request_document",
+          "instruction": "Upload the invoice, or request it from whoever holds it.",
+          "actionHref": "/platform/documents"
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "36ca988a-a38b-4940-8688-4b7b3d0cab9d",
+            "sectionKind": "validator_findings",
+            "label": "Invoice data is missing",
+            "documentId": null,
+            "page": null
+          },
+          {
+            "recordId": "252a9554-3fa9-4364-8d92-8d5d835b53ba",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "252a9554-3fa9-4364-8d92-8d5d835b53ba",
+            "page": null
+          }
+        ],
+        "confidence": "high",
+        "missingInformation": [],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "model_reasoned",
+        "intent": "whats_missing",
+        "evidenceState": "source_missing",
+        "answer": "Sample Project South is currently BLOCKED from billing review by two critical open issues. Neither has any candidate documents on file to resolve them.\n\n**1. Invoice data is missing (B)**\nThe project has no linked invoice documents and no extracted invoice rows. Billing and closeout validation require invoice source data before billed work can be reviewed. You need to attach the invoice documents for the work performed under the Sample Debris Removal Contract (D).\n\n**2. Work support data is missing (C)**\nThe project has no structured ticket or transaction data — no mobile tickets, load tickets, or transaction-data rows have been loaded. This supporting documentation is required alongside invoices to validate billed quantities and work performed under the Sample Debris Removal Contract (D).\n\nRight now, the only document on file is the Sample Debris Removal Contract (D), which is the governing contract. No invoices and no field tickets or load tickets have been uploaded at all. Both gaps must be filled before the project can move forward to billing review.",
+        "recommendedNextStep": {
+          "kind": "upload_or_request_document",
+          "instruction": "Upload the invoice documents for work performed on this project, along with the corresponding field tickets, load tickets, or transaction records that support the billed quantities. Both are required to clear the two critical blocks.",
+          "actionHref": "/platform/documents"
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "517fffc2-0c1a-472b-88a3-b45e9df68922",
+            "sectionKind": "project_identity",
+            "label": "Sample Project South",
+            "documentId": null,
+            "page": null
+          },
+          {
+            "recordId": "36ca988a-a38b-4940-8688-4b7b3d0cab9d",
+            "sectionKind": "validator_findings",
+            "label": "Invoice data is missing",
+            "documentId": null,
+            "page": null
+          },
+          {
+            "recordId": "efb3ae19-0fb4-4184-85cd-013164c02234",
+            "sectionKind": "validator_findings",
+            "label": "Work support data is missing",
+            "documentId": null,
+            "page": null
+          },
+          {
+            "recordId": "252a9554-3fa9-4364-8d92-8d5d835b53ba",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "252a9554-3fa9-4364-8d92-8d5d835b53ba",
+            "page": null
+          }
+        ],
+        "confidence": "high",
+        "missingInformation": [
+          "No invoice documents have been uploaded or identified for this project — it is unknown which invoices exist or what amounts are being billed.",
+          "No ticket or transaction data (mobile tickets, load tickets, or transaction records) has been loaded — it is unknown what field documentation exists to support the billed work."
+        ],
+        "needsHumanReview": true
+      },
+      "status": "accepted",
+      "rejectionReason": null,
+      "rawOutput": "{\"answer\":\"Sample Project South is currently BLOCKED from billing review by two critical open issues. Neither has any candidate documents on file to resolve them.\\n\\n**1. Invoice data is missing (B)**\\nThe project has no linked invoice documents and no extracted invoice rows. Billing and closeout validation require invoice source data before billed work can be reviewed. You need to attach the invoice documents for the work performed under the Sample Debris Removal Contract (D).\\n\\n**2. Work support data is missing (C)**\\nThe project has no structured ticket or transaction data — no mobile tickets, load tickets, or transaction-data rows have been loaded. This supporting documentation is required alongside invoices to validate billed quantities and work performed under the Sample Debris Removal Contract (D).\\n\\nRight now, the only document on file is the Sample Debris Removal Contract (D), which is the governing contract. No invoices and no field tickets or load tickets have been uploaded at all. Both gaps must be filled before the project can move forward to billing review.\",\"nextStepKind\":\"upload_or_request_document\",\"nextStepInstruction\":\"Upload the invoice documents for work performed on this project, along with the corresponding field tickets, load tickets, or transaction records that support the billed quantities. Both are required to clear the two critical blocks.\",\"citations\":[\"A\",\"B\",\"C\",\"D\"],\"missingInformation\":[\"No invoice documents have been uploaded or identified for this project — it is unknown which invoices exist or what amounts are being billed.\",\"No ticket or transaction data (mobile tickets, load tickets, or transaction records) has been loaded — it is unknown what field documentation exists to support the billed work.\"],\"confidence\":\"high\"}",
+      "stopReason": "end_turn",
+      "returnedModel": "claude-sonnet-4-6",
+      "providerRequestId": "req_011CgfDve9H4aWuo58h5oars",
+      "inputTokens": 2020,
+      "outputTokens": 380,
+      "latencyMs": 9566.2971,
+      "costUsd": 0.01176
+    },
+    {
+      "caseId": "missing-04",
+      "allowedNextSteps": [
+        "no_action_needed"
+      ],
+      "requestBodySha256": "5a3605b125c713c25e9a022448b6f57d8bde37eb4a8d88b08f9dc4624fb3ac01",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "whats_missing",
+        "evidenceState": "no_open_findings",
+        "answer": "Validation has run and this project has no open findings, so nothing currently indicates a missing document or a required action.",
+        "recommendedNextStep": {
+          "kind": "no_action_needed",
+          "instruction": "Nothing is required right now.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "c2bbbfea-0512-49c0-8968-f9d733000799",
+            "sectionKind": "project_identity",
+            "label": "Sample Project West",
+            "documentId": null,
+            "page": null
+          }
+        ],
+        "confidence": "high",
+        "missingInformation": [],
+        "needsHumanReview": false
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "model_reasoned",
+        "intent": "whats_missing",
+        "evidenceState": "no_open_findings",
+        "answer": "Your project, Sample Project West, is in good shape. It has been validated with no open findings as of the latest validation run on January 2, 2026. The one document on file — the Sample Debris Removal Contract — has been fully processed and is serving as the governing contract for the project. There are no outstanding issues flagged at this time.",
+        "recommendedNextStep": {
+          "kind": "no_action_needed",
+          "instruction": "No action is required right now. Continue monitoring the project as work progresses and upload any new documents (such as amendments or task orders) as they become available.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "c2bbbfea-0512-49c0-8968-f9d733000799",
+            "sectionKind": "project_identity",
+            "label": "Sample Project West",
+            "documentId": null,
+            "page": null
+          },
+          {
+            "recordId": "bcabeb2c-47e1-4f9b-8bff-a25e807eb970",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "bcabeb2c-47e1-4f9b-8bff-a25e807eb970",
+            "page": null
+          }
+        ],
+        "confidence": "high",
+        "missingInformation": [],
+        "needsHumanReview": false
+      },
+      "status": "accepted",
+      "rejectionReason": null,
+      "rawOutput": "{\"answer\":\"Your project, Sample Project West, is in good shape. It has been validated with no open findings as of the latest validation run on January 2, 2026. The one document on file — the Sample Debris Removal Contract — has been fully processed and is serving as the governing contract for the project. There are no outstanding issues flagged at this time.\",\"nextStepKind\":\"no_action_needed\",\"nextStepInstruction\":\"No action is required right now. Continue monitoring the project as work progresses and upload any new documents (such as amendments or task orders) as they become available.\",\"citations\":[\"A\",\"B\"],\"missingInformation\":[],\"confidence\":\"high\"}",
+      "stopReason": "end_turn",
+      "returnedModel": "claude-sonnet-4-6",
+      "providerRequestId": "req_011CgfDwM49Uxocvzzy1JEwA",
+      "inputTokens": 1318,
+      "outputTokens": 153,
+      "latencyMs": 4754.168099999995,
+      "costUsd": 0.006249
+    },
+    {
+      "caseId": "missing-05",
+      "allowedNextSteps": [
+        "operator_judgment_required",
+        "review_existing_document"
+      ],
+      "requestBodySha256": "6fc09af07ee7002e4e25494506aba7977fe201bff27d4138766b326e7f4d8c15",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "whats_missing",
+        "evidenceState": "not_a_source_gap",
+        "answer": "This project is flagged for: Repeated ticket has conflicting values. 7 other open findings are listed for this project as well.",
+        "recommendedNextStep": {
+          "kind": "operator_judgment_required",
+          "instruction": "Review the cited records and decide on the finding through its own workflow.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "403f88a4-f7f3-40a7-8ead-dad1aeaef547",
+            "sectionKind": "validator_findings",
+            "label": "Repeated ticket has conflicting values",
+            "documentId": "fixture-tickets",
+            "page": null
+          },
+          {
+            "recordId": "fixture-tickets",
+            "sectionKind": "documents",
+            "label": "Sample Ticket Export",
+            "documentId": "fixture-tickets",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "whats_missing",
+        "evidenceState": "not_a_source_gap",
+        "answer": "This project is flagged for: Repeated ticket has conflicting values. 7 other open findings are listed for this project as well.",
+        "recommendedNextStep": {
+          "kind": "operator_judgment_required",
+          "instruction": "Review the cited records and decide on the finding through its own workflow.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "403f88a4-f7f3-40a7-8ead-dad1aeaef547",
+            "sectionKind": "validator_findings",
+            "label": "Repeated ticket has conflicting values",
+            "documentId": "fixture-tickets",
+            "page": null
+          },
+          {
+            "recordId": "fixture-tickets",
+            "sectionKind": "documents",
+            "label": "Sample Ticket Export",
+            "documentId": "fixture-tickets",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [],
+        "needsHumanReview": true
+      },
+      "status": "rejected",
+      "rejectionReason": "unsupported_number",
+      "rawOutput": "{\"answer\":\"This project (Sample Project Conflict) is currently BLOCKED with 8 open findings — 3 critical and 5 warnings. None of them are caused by missing source documents; all require you to review and correct data or make a judgment call.\\n\\n**Critical findings (block the project):**\\n\\n1. **Conflicting extended_cost on TKT-1** — The same ticket appears twice with two different extended_cost values: 3125 vs 5000. Neither value has been selected as correct. (B)\\n\\n2. **Conflicting transaction_quantity on TKT-1** — The same ticket also shows two different quantities: 250 vs 400. Again, no winner has been chosen. (C)\\n\\n3. **No transaction support for billed line INV1001::HAUL015** — Sample Invoice 7 includes a billed line for rate group INV1001::HAUL015, but no matching transaction records exist to back it up. (D)\\n\\n**Warning findings (do not block, but leave dollars at risk):**\\n\\n4. **Project billing not fully supported** — The total fully reconciled amount is 0 against an expected 5000. (E)\\n\\n5. **Invoice has billed dollars at risk** — The at-risk amount on Sample Invoice 7 is 5000 against an expected 0. (F)\\n\\n6. **Work category unresolved** — The canonical work category for a billed line on Sample Invoice 7 could not be determined, so automated rate comparison cannot proceed. (G)\\n\\n7. **Project has billed dollars at risk** — Total at-risk amount across the project is 5000 against an expected 0. (H)\\n\\n8. **Invoice not fully supported** — The supported amount on Sample Invoice 7 is 0 against an expected 5000. (I)\\n\\n**What needs to happen:**\\nThe two TKT-1 conflicts in Sample Ticket Export must be resolved first — compare the two rows against your source documents and correct the wrong record. The missing transaction support for INV1001::HAUL015 also needs to be addressed, either by attaching matching work records or adjusting the invoice. The warning findings will likely clear once the critical data conflicts are resolved, but the unresolved work category will need a separate judgment call.\",\"nextStepKind\":\"review_existing_document\",\"nextStepInstruction\":\"Open Sample Ticket Export and locate the two rows for TKT-1. Compare them against your original source to determine which extended_cost (3125 or 5000) and which transaction_quantity (250 or 400) is correct, then correct the wrong row.\",\"citations\":[\"B\",\"C\",\"D\",\"E\",\"F\",\"G\",\"H\",\"I\",\"L\",\"M\"],\"missingInformation\":[\"No transaction records exist for billed line rate group INV1001::HAUL015 on Sample Invoice 7. It is not yet known whether matching work records exist elsewhere and need to be loaded, or whether this line has no valid support.\",\"The canonical work category for at least one billed line on Sample Invoice 7 is unresolved. It is not known what category applies or what additional information would be needed to confirm it.\"],\"confidence\":\"high\"}",
+      "stopReason": "end_turn",
+      "returnedModel": "claude-sonnet-4-6",
+      "providerRequestId": "req_011CgfDwhUEGJjFTJuagr125",
+      "inputTokens": 4172,
+      "outputTokens": 754,
+      "latencyMs": 17582.832800000004,
+      "costUsd": 0.023826,
+      "failure": {
+        "failureClass": "output_rejected",
+        "reachedProvider": true,
+        "httpStatus": null,
+        "providerErrorType": null,
+        "providerRequestId": "req_011CgfDwhUEGJjFTJuagr125"
+      }
+    },
+    {
+      "caseId": "missing-06",
+      "allowedNextSteps": [
+        "likely_system_issue",
+        "review_existing_document",
+        "operator_judgment_required"
+      ],
+      "requestBodySha256": "2a789f7a3050f76a16574badfe6247392eda1c416c2552650c4e4994a1fe32e8",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "whats_missing",
+        "evidenceState": "likely_system_issue",
+        "answer": "The pricing schedule is in this project as \"Sample Unit Price Sheet\", and it has been read and linked, yet this is still flagged. This looks like an issue on the EightForge side rather than something missing from your project.",
+        "recommendedNextStep": {
+          "kind": "likely_system_issue",
+          "instruction": "Check that \"Sample Unit Price Sheet\" shows what you expect. If it does, report this to your EightForge contact.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "d73f3acf-1581-4970-8e42-c0ab2647fbf7",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          },
+          {
+            "recordId": "5022abf4-38ef-4bcd-857d-0c30b625ba28",
+            "sectionKind": "documents",
+            "label": "Sample Unit Price Sheet",
+            "documentId": "5022abf4-38ef-4bcd-857d-0c30b625ba28",
+            "page": null
+          },
+          {
+            "recordId": "553c242d-012e-4881-835b-da82334ffa45",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          }
+        ],
+        "confidence": "low",
+        "missingInformation": [
+          "The reason EightForge still flags this has not been established."
+        ],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "model_reasoned",
+        "intent": "whats_missing",
+        "evidenceState": "likely_system_issue",
+        "answer": "Sample Project East is currently BLOCKED by one critical finding: the contract rate schedule is recorded as missing from the Sample Debris Removal Contract, which means billed rates cannot be checked against contract pricing.\n\nHowever, the project already has a document — the Sample Unit Price Sheet — that appears to be exactly what is needed. That document is marked as governing, has been processed, and is already attached to the Sample Debris Removal Contract. Despite all of that, the finding remains open and the rate schedule is still flagged as missing.\n\nBecause the right document appears to already be in place and linked, this looks like a system-side issue rather than a genuine gap in your project records. The reason the finding has not cleared despite the Sample Unit Price Sheet being present and attached has not been established.",
+        "recommendedNextStep": {
+          "kind": "likely_system_issue",
+          "instruction": "Open the Sample Unit Price Sheet and confirm that its content includes the unit rate schedule referenced by the Sample Debris Removal Contract. If the rates are present and the document looks correct, this may need to be escalated as a processing issue, since the finding has not cleared despite the document being attached and governing.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "1c097894-ebb3-4023-82ed-832629a9c73e",
+            "sectionKind": "project_identity",
+            "label": "Sample Project East",
+            "documentId": null,
+            "page": null
+          },
+          {
+            "recordId": "d73f3acf-1581-4970-8e42-c0ab2647fbf7",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          },
+          {
+            "recordId": "553c242d-012e-4881-835b-da82334ffa45",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          },
+          {
+            "recordId": "5022abf4-38ef-4bcd-857d-0c30b625ba28",
+            "sectionKind": "documents",
+            "label": "Sample Unit Price Sheet",
+            "documentId": "5022abf4-38ef-4bcd-857d-0c30b625ba28",
+            "page": null
+          },
+          {
+            "recordId": "d1a31252-c83b-43ff-8e87-32bf6eeffbcf",
+            "sectionKind": "document_relationships",
+            "label": "Document link: attached_to",
+            "documentId": "5022abf4-38ef-4bcd-857d-0c30b625ba28",
+            "page": null
+          }
+        ],
+        "confidence": "low",
+        "missingInformation": [
+          "The reason EightForge still flags this has not been established.",
+          "It is not known why the rate schedule is still flagged as missing even though the Sample Unit Price Sheet is attached to the Sample Debris Removal Contract and marked as governing. The reason the finding has not cleared has not been established."
+        ],
+        "needsHumanReview": true
+      },
+      "status": "accepted",
+      "rejectionReason": null,
+      "rawOutput": "{\"answer\":\"Sample Project East is currently BLOCKED by one critical finding: the contract rate schedule is recorded as missing from the Sample Debris Removal Contract, which means billed rates cannot be checked against contract pricing.\\n\\nHowever, the project already has a document — the Sample Unit Price Sheet — that appears to be exactly what is needed. That document is marked as governing, has been processed, and is already attached to the Sample Debris Removal Contract. Despite all of that, the finding remains open and the rate schedule is still flagged as missing.\\n\\nBecause the right document appears to already be in place and linked, this looks like a system-side issue rather than a genuine gap in your project records. The reason the finding has not cleared despite the Sample Unit Price Sheet being present and attached has not been established.\",\"nextStepKind\":\"likely_system_issue\",\"nextStepInstruction\":\"Open the Sample Unit Price Sheet and confirm that its content includes the unit rate schedule referenced by the Sample Debris Removal Contract. If the rates are present and the document looks correct, this may need to be escalated as a processing issue, since the finding has not cleared despite the document being attached and governing.\",\"citations\":[\"A\",\"B\",\"C\",\"D\",\"E\"],\"missingInformation\":[\"It is not known why the rate schedule is still flagged as missing even though the Sample Unit Price Sheet is attached to the Sample Debris Removal Contract and marked as governing. The reason the finding has not cleared has not been established.\"],\"confidence\":\"medium\"}",
+      "stopReason": "end_turn",
+      "returnedModel": "claude-sonnet-4-6",
+      "providerRequestId": "req_011CgfDxzj5WkdNZs1UiYEUy",
+      "inputTokens": 2062,
+      "outputTokens": 335,
+      "latencyMs": 9097.663099999998,
+      "costUsd": 0.011211
+    },
+    {
+      "caseId": "document-01",
+      "allowedNextSteps": [
+        "link_existing_document",
+        "review_existing_document",
+        "operator_judgment_required"
+      ],
+      "requestBodySha256": "5d7b65ff79370038ae06788e61b0dc09799a2a222ce855f9b6636217f506bc66",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "need_document",
+        "evidenceState": "source_present_relationship_unresolved",
+        "answer": "The pricing schedule appears to already exist in this project as \"Sample Unit Price Sheet\". No additional document appears necessary.",
+        "recommendedNextStep": {
+          "kind": "link_existing_document",
+          "instruction": "Check whether \"Sample Unit Price Sheet\" is linked to the governing contract, \"Sample Debris Removal Contract\", and link it if it applies.",
+          "actionHref": "/platform/projects/d10e236a-cc74-40c8-8583-72b9142b45e7#project-documents"
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "7accdc2e-8e67-44d4-8a9e-1b550868b620",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          },
+          {
+            "recordId": "e9bdd44a-50ca-494f-89ff-a9bf2b4c2c5f",
+            "sectionKind": "documents",
+            "label": "Sample Unit Price Sheet",
+            "documentId": "e9bdd44a-50ca-494f-89ff-a9bf2b4c2c5f",
+            "page": null
+          },
+          {
+            "recordId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "Whether it covers everything the project needs has not been confirmed."
+        ],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "model_reasoned",
+        "intent": "need_document",
+        "evidenceState": "source_present_relationship_unresolved",
+        "answer": "Your project (Sample Project North) is currently BLOCKED by one critical finding: the rate schedule for the Sample Debris Removal Contract has not been found or linked.\n\nThe good news is that you likely do NOT need to upload a new document. You already have two documents in the project:\n\n1. **Sample Debris Removal Contract** (C) — the governing base contract\n2. **Sample Unit Price Sheet** (D) — a governing pricing schedule\n\nThe assessment has identified the Sample Unit Price Sheet as a candidate that could resolve the missing rate schedule finding (B). However, that document has not yet been linked to the governing contract. That is the gap causing the block.\n\nTo be specific about what is known and what is not:\n- The Sample Unit Price Sheet exists and has been processed.\n- It has NOT been linked to the Sample Debris Removal Contract.\n- Whether the Sample Unit Price Sheet fully covers everything the project needs has not yet been confirmed.\n\nSo the path forward is to link the Sample Unit Price Sheet to the Sample Debris Removal Contract, rather than uploading something new — unless, after reviewing it, you determine it does not actually serve as the contract's rate schedule.",
+        "recommendedNextStep": {
+          "kind": "link_existing_document",
+          "instruction": "Open the Sample Unit Price Sheet (D) and link it to the Sample Debris Removal Contract (C) as its rate schedule, so the system can check billed rates against contract pricing and clear the critical finding.",
+          "actionHref": "/platform/projects/d10e236a-cc74-40c8-8583-72b9142b45e7#project-documents"
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "d10e236a-cc74-40c8-8583-72b9142b45e7",
+            "sectionKind": "project_identity",
+            "label": "Sample Project North",
+            "documentId": null,
+            "page": null
+          },
+          {
+            "recordId": "7accdc2e-8e67-44d4-8a9e-1b550868b620",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          },
+          {
+            "recordId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          },
+          {
+            "recordId": "e9bdd44a-50ca-494f-89ff-a9bf2b4c2c5f",
+            "sectionKind": "documents",
+            "label": "Sample Unit Price Sheet",
+            "documentId": "e9bdd44a-50ca-494f-89ff-a9bf2b4c2c5f",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "Whether it covers everything the project needs has not been confirmed.",
+          "Whether the Sample Unit Price Sheet fully covers all the unit rates referenced in the Sample Debris Removal Contract has not been confirmed — you should review its contents before or after linking it."
+        ],
+        "needsHumanReview": true
+      },
+      "status": "accepted",
+      "rejectionReason": null,
+      "rawOutput": "{\"answer\":\"Your project (Sample Project North) is currently BLOCKED by one critical finding: the rate schedule for the Sample Debris Removal Contract has not been found or linked.\\n\\nThe good news is that you likely do NOT need to upload a new document. You already have two documents in the project:\\n\\n1. **Sample Debris Removal Contract** (C) — the governing base contract\\n2. **Sample Unit Price Sheet** (D) — a governing pricing schedule\\n\\nThe assessment has identified the Sample Unit Price Sheet as a candidate that could resolve the missing rate schedule finding (B). However, that document has not yet been linked to the governing contract. That is the gap causing the block.\\n\\nTo be specific about what is known and what is not:\\n- The Sample Unit Price Sheet exists and has been processed.\\n- It has NOT been linked to the Sample Debris Removal Contract.\\n- Whether the Sample Unit Price Sheet fully covers everything the project needs has not yet been confirmed.\\n\\nSo the path forward is to link the Sample Unit Price Sheet to the Sample Debris Removal Contract, rather than uploading something new — unless, after reviewing it, you determine it does not actually serve as the contract's rate schedule.\",\"nextStepKind\":\"link_existing_document\",\"nextStepInstruction\":\"Open the Sample Unit Price Sheet (D) and link it to the Sample Debris Removal Contract (C) as its rate schedule, so the system can check billed rates against contract pricing and clear the critical finding.\",\"citations\":[\"A\",\"B\",\"C\",\"D\"],\"missingInformation\":[\"Whether the Sample Unit Price Sheet fully covers all the unit rates referenced in the Sample Debris Removal Contract has not been confirmed — you should review its contents before or after linking it.\"],\"confidence\":\"medium\"}",
+      "stopReason": "end_turn",
+      "returnedModel": "claude-sonnet-4-6",
+      "providerRequestId": "req_011CgfDyfbfWUWv9YzwNDJoT",
+      "inputTokens": 2000,
+      "outputTokens": 398,
+      "latencyMs": 10169.068100000004,
+      "costUsd": 0.01197
+    },
+    {
+      "caseId": "document-02",
+      "allowedNextSteps": [
+        "upload_or_request_document",
+        "review_existing_document"
+      ],
+      "requestBodySha256": "b89d1b5ea9ab281f2f4869e886d85b6d86bc15b1157708df65183e645e792707",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "need_document",
+        "evidenceState": "source_missing",
+        "answer": "This project has no pricing schedule. It looks genuinely absent, not just unlinked.",
+        "recommendedNextStep": {
+          "kind": "upload_or_request_document",
+          "instruction": "Upload the pricing schedule, or request it from whoever holds it.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "7accdc2e-8e67-44d4-8a9e-1b550868b620",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          },
+          {
+            "recordId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "Whether the contract itself contains the schedule pages has not been confirmed."
+        ],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "model_reasoned",
+        "intent": "need_document",
+        "evidenceState": "source_missing",
+        "answer": "Yes, your project currently has a critical blocking finding because no rate schedule has been found for the governing contract, \"Sample Debris Removal Contract.\" Since this contract is priced by unit rates, a rate schedule is required so that billed rates can be checked against contract pricing. Without it, the project remains blocked and cannot move forward.\n\nThe finding was recorded on January 2, 2026, and is the only open finding on the project. No candidate documents containing the rate schedule have been identified in the project so far. It is also still unconfirmed whether the rate schedule may already exist as embedded pages within the \"Sample Debris Removal Contract\" itself — that has not been verified yet.\n\nYour next step is to either upload the rate schedule as a separate document, or confirm whether it is already embedded within the existing contract document and, if so, extract or attach it so it can be recognized.",
+        "recommendedNextStep": {
+          "kind": "upload_or_request_document",
+          "instruction": "Upload the contract rate schedule as a new document to this project, or — if the schedule pages are already part of \"Sample Debris Removal Contract\" — extract and attach those pages so the rate schedule can be recognized and the blocking finding resolved.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "7accdc2e-8e67-44d4-8a9e-1b550868b620",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          },
+          {
+            "recordId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "Whether the contract itself contains the schedule pages has not been confirmed.",
+          "It has not been confirmed whether the rate schedule is already embedded within the pages of \"Sample Debris Removal Contract.\" If it is, it may need to be extracted or separately attached rather than uploaded as a new file.",
+          "No candidate documents containing the rate schedule have been found in the project, so the source of the schedule (separate file, amendment, exhibit, etc.) is currently unknown."
+        ],
+        "needsHumanReview": true
+      },
+      "status": "accepted",
+      "rejectionReason": null,
+      "rawOutput": "{\"answer\":\"Yes, your project currently has a critical blocking finding because no rate schedule has been found for the governing contract, \\\"Sample Debris Removal Contract.\\\" Since this contract is priced by unit rates, a rate schedule is required so that billed rates can be checked against contract pricing. Without it, the project remains blocked and cannot move forward.\\n\\nThe finding was recorded on January 2, 2026, and is the only open finding on the project. No candidate documents containing the rate schedule have been identified in the project so far. It is also still unconfirmed whether the rate schedule may already exist as embedded pages within the \\\"Sample Debris Removal Contract\\\" itself — that has not been verified yet.\\n\\nYour next step is to either upload the rate schedule as a separate document, or confirm whether it is already embedded within the existing contract document and, if so, extract or attach it so it can be recognized.\",\"nextStepKind\":\"upload_or_request_document\",\"nextStepInstruction\":\"Upload the contract rate schedule as a new document to this project, or — if the schedule pages are already part of \\\"Sample Debris Removal Contract\\\" — extract and attach those pages so the rate schedule can be recognized and the blocking finding resolved.\",\"citations\":[\"B\",\"C\"],\"missingInformation\":[\"It has not been confirmed whether the rate schedule is already embedded within the pages of \\\"Sample Debris Removal Contract.\\\" If it is, it may need to be extracted or separately attached rather than uploaded as a new file.\",\"No candidate documents containing the rate schedule have been found in the project, so the source of the schedule (separate file, amendment, exhibit, etc.) is currently unknown.\"],\"confidence\":\"high\"}",
+      "stopReason": "end_turn",
+      "returnedModel": "claude-sonnet-4-6",
+      "providerRequestId": "req_011CgfDzR5pPQMc1NWrkzcme",
+      "inputTokens": 1731,
+      "outputTokens": 374,
+      "latencyMs": 9186.641700000007,
+      "costUsd": 0.010803
+    },
+    {
+      "caseId": "document-03",
+      "allowedNextSteps": [
+        "review_existing_document",
+        "operator_judgment_required"
+      ],
+      "requestBodySha256": "8168bd176dce9d6d0ac0f2c6ce5210c0714565516b87f0586435a30083cf68ab",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "need_document",
+        "evidenceState": "source_present",
+        "answer": "The pricing schedule is in this project as \"Sample Unit Price Sheet\", and it was read after the latest validation. You probably do not need another document.",
+        "recommendedNextStep": {
+          "kind": "review_existing_document",
+          "instruction": "Run validation again, then review whether this is still flagged.",
+          "actionHref": "/platform/documents/553c242d-012e-4881-835b-da82334ffa45"
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "d73f3acf-1581-4970-8e42-c0ab2647fbf7",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          },
+          {
+            "recordId": "5022abf4-38ef-4bcd-857d-0c30b625ba28",
+            "sectionKind": "documents",
+            "label": "Sample Unit Price Sheet",
+            "documentId": "5022abf4-38ef-4bcd-857d-0c30b625ba28",
+            "page": null
+          },
+          {
+            "recordId": "553c242d-012e-4881-835b-da82334ffa45",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "Validation has not run since this document was read, so this finding may be out of date."
+        ],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "model_reasoned",
+        "intent": "need_document",
+        "evidenceState": "source_present",
+        "answer": "You likely do not need to request another pricing document. Here is what the project records show:\n\n**The finding:** Sample Project East is currently BLOCKED by a critical finding titled \"Contract rate schedule not found\" (B). The finding states that the Sample Debris Removal Contract (C) is priced by unit rates, but no rate schedule was found linked to it, so billed rates cannot be checked against contract pricing.\n\n**What is already in the project:** There are two documents on file — the Sample Debris Removal Contract (C) and the Sample Unit Price Sheet (D). The Sample Unit Price Sheet is classified as a pricing schedule, is marked as governing, has been fully processed, and is already attached to the Sample Debris Removal Contract (E). In other words, a document that looks like exactly what the finding is asking for is already present and linked.\n\n**The key uncertainty:** The evidence assessment notes that validation has not run since the Sample Unit Price Sheet was read and attached. This means the critical finding may already be resolved by the existing document, but the system has not yet confirmed that. The finding was flagged on 2026-01-02 and the Sample Unit Price Sheet was processed on 2026-01-03 — after the finding was raised — which is consistent with the finding being stale.\n\n**Bottom line:** Before requesting any new document, you should review the Sample Unit Price Sheet that is already on file to confirm it contains the rate schedule information the contract requires. If it does, the right next step is to trigger a new validation run (or take whatever action causes the system to re-check the finding), not to source a new document.",
+        "recommendedNextStep": {
+          "kind": "review_existing_document",
+          "instruction": "Open the Sample Unit Price Sheet and confirm it contains the unit rate schedule referenced by the Sample Debris Removal Contract. If it does, re-run validation so the system can check whether the critical finding is now resolved.",
+          "actionHref": "/platform/documents/553c242d-012e-4881-835b-da82334ffa45"
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "d73f3acf-1581-4970-8e42-c0ab2647fbf7",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          },
+          {
+            "recordId": "553c242d-012e-4881-835b-da82334ffa45",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          },
+          {
+            "recordId": "5022abf4-38ef-4bcd-857d-0c30b625ba28",
+            "sectionKind": "documents",
+            "label": "Sample Unit Price Sheet",
+            "documentId": "5022abf4-38ef-4bcd-857d-0c30b625ba28",
+            "page": null
+          },
+          {
+            "recordId": "d1a31252-c83b-43ff-8e87-32bf6eeffbcf",
+            "sectionKind": "document_relationships",
+            "label": "Document link: attached_to",
+            "documentId": "5022abf4-38ef-4bcd-857d-0c30b625ba28",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "Validation has not run since this document was read, so this finding may be out of date.",
+          "Validation has not run since the Sample Unit Price Sheet was processed on 2026-01-03, so it is unknown whether that document actually satisfies the rate schedule requirement. A new validation run is needed to confirm.",
+          "It is unknown whether the Sample Unit Price Sheet contains all the specific rate line items the contract relies on for billing checks, or only partial pricing information."
+        ],
+        "needsHumanReview": true
+      },
+      "status": "accepted",
+      "rejectionReason": null,
+      "rawOutput": "{\"answer\":\"You likely do not need to request another pricing document. Here is what the project records show:\\n\\n**The finding:** Sample Project East is currently BLOCKED by a critical finding titled \\\"Contract rate schedule not found\\\" (B). The finding states that the Sample Debris Removal Contract (C) is priced by unit rates, but no rate schedule was found linked to it, so billed rates cannot be checked against contract pricing.\\n\\n**What is already in the project:** There are two documents on file — the Sample Debris Removal Contract (C) and the Sample Unit Price Sheet (D). The Sample Unit Price Sheet is classified as a pricing schedule, is marked as governing, has been fully processed, and is already attached to the Sample Debris Removal Contract (E). In other words, a document that looks like exactly what the finding is asking for is already present and linked.\\n\\n**The key uncertainty:** The evidence assessment notes that validation has not run since the Sample Unit Price Sheet was read and attached. This means the critical finding may already be resolved by the existing document, but the system has not yet confirmed that. The finding was flagged on 2026-01-02 and the Sample Unit Price Sheet was processed on 2026-01-03 — after the finding was raised — which is consistent with the finding being stale.\\n\\n**Bottom line:** Before requesting any new document, you should review the Sample Unit Price Sheet that is already on file to confirm it contains the rate schedule information the contract requires. If it does, the right next step is to trigger a new validation run (or take whatever action causes the system to re-check the finding), not to source a new document.\",\"nextStepKind\":\"review_existing_document\",\"nextStepInstruction\":\"Open the Sample Unit Price Sheet and confirm it contains the unit rate schedule referenced by the Sample Debris Removal Contract. If it does, re-run validation so the system can check whether the critical finding is now resolved.\",\"citations\":[\"B\",\"C\",\"D\",\"E\"],\"missingInformation\":[\"Validation has not run since the Sample Unit Price Sheet was processed on 2026-01-03, so it is unknown whether that document actually satisfies the rate schedule requirement. A new validation run is needed to confirm.\",\"It is unknown whether the Sample Unit Price Sheet contains all the specific rate line items the contract relies on for billing checks, or only partial pricing information.\"],\"confidence\":\"medium\"}",
+      "stopReason": "end_turn",
+      "returnedModel": "claude-sonnet-4-6",
+      "providerRequestId": "req_011CgfE16QCdZRCRrhDGD6AT",
+      "inputTokens": 2059,
+      "outputTokens": 532,
+      "latencyMs": 14124.497600000002,
+      "costUsd": 0.014157
+    },
+    {
+      "caseId": "document-04",
+      "allowedNextSteps": [
+        "review_existing_document",
+        "operator_judgment_required"
+      ],
+      "requestBodySha256": "9a17af302c99c2e71cd7230c25bda8b34917a8abcb942e6844fae98668fc9c7c",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "need_document",
+        "evidenceState": "source_present",
+        "answer": "The invoice is in this project as \"Sample Invoice 7\", and it was read after the latest validation. You probably do not need another document. 1 other open finding is listed for this project as well.",
+        "recommendedNextStep": {
+          "kind": "review_existing_document",
+          "instruction": "Run validation again, then review whether this is still flagged.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "36ca988a-a38b-4940-8688-4b7b3d0cab9d",
+            "sectionKind": "validator_findings",
+            "label": "Invoice data is missing",
+            "documentId": null,
+            "page": null
+          },
+          {
+            "recordId": "0140f44d-45e0-4df9-8045-821c955a1efb",
+            "sectionKind": "documents",
+            "label": "Sample Invoice 7",
+            "documentId": "0140f44d-45e0-4df9-8045-821c955a1efb",
+            "page": null
+          },
+          {
+            "recordId": "252a9554-3fa9-4364-8d92-8d5d835b53ba",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "252a9554-3fa9-4364-8d92-8d5d835b53ba",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "Validation has not run since this document was read, so this finding may be out of date."
+        ],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "model_reasoned",
+        "intent": "need_document",
+        "evidenceState": "source_present",
+        "answer": "Your project 'Sample Project South' is currently BLOCKED with two critical findings. Focusing on your question about invoices:\n\n**You likely do NOT need another invoice document — but you should verify the existing one is properly linked.**\n\nHere's what the records show:\n\n- There is an open critical finding titled \"Invoice data is missing\" (B) that is blocking the project. It reports that validation found no linked invoice documents or extracted invoice rows.\n- However, you already have a document on file: **Sample Invoice 7** (E), which has been processed and read.\n- The evidence assessment notes that the invoice source is present — Sample Invoice 7 has been read — but validation has not re-run since that document was processed. This means the finding may simply be out of date and could clear on the next validation run.\n- One important gap: Sample Invoice 7 is **not linked to the governing contract** (Sample Debris Removal Contract, D). That relationship may need to be established before validation can recognize the invoice as valid support for billed work.\n\n**In short:** Before uploading a new invoice, review Sample Invoice 7 to confirm it is the correct document and check whether it needs to be linked to the Sample Debris Removal Contract. A new validation run after that linkage may resolve the finding without any additional document.\n\n**The second open finding** — \"Work support data is missing\" (C) — is a separate critical blocker. It requires ticket or transaction data (mobile tickets, load tickets, or transaction-data rows) and currently has no candidate documents at all. That finding is unrelated to invoices and will need its own source data regardless of what happens with the invoice finding.\n\nBoth findings are blocking the project and must be addressed before billed work can be approved.",
+        "recommendedNextStep": {
+          "kind": "review_existing_document",
+          "instruction": "Open Sample Invoice 7 and confirm it covers the billed work for this project, then check whether it is linked to the Sample Debris Removal Contract — that link may be required before validation can recognize it as valid invoice support.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "36ca988a-a38b-4940-8688-4b7b3d0cab9d",
+            "sectionKind": "validator_findings",
+            "label": "Invoice data is missing",
+            "documentId": null,
+            "page": null
+          },
+          {
+            "recordId": "efb3ae19-0fb4-4184-85cd-013164c02234",
+            "sectionKind": "validator_findings",
+            "label": "Work support data is missing",
+            "documentId": null,
+            "page": null
+          },
+          {
+            "recordId": "252a9554-3fa9-4364-8d92-8d5d835b53ba",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "252a9554-3fa9-4364-8d92-8d5d835b53ba",
+            "page": null
+          },
+          {
+            "recordId": "0140f44d-45e0-4df9-8045-821c955a1efb",
+            "sectionKind": "documents",
+            "label": "Sample Invoice 7",
+            "documentId": "0140f44d-45e0-4df9-8045-821c955a1efb",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "Validation has not run since this document was read, so this finding may be out of date.",
+          "Validation has not re-run since Sample Invoice 7 was processed, so it is unknown whether the 'Invoice data is missing' finding will clear once validation runs again.",
+          "It is unknown whether Sample Invoice 7 needs to be explicitly linked to the Sample Debris Removal Contract, or whether processing alone is sufficient for validation to recognize it.",
+          "No ticket or transaction source documents (mobile tickets, load tickets, or transaction-data rows) have been identified for this project; it is unknown where that data should come from."
+        ],
+        "needsHumanReview": true
+      },
+      "status": "accepted",
+      "rejectionReason": null,
+      "rawOutput": "{\"answer\":\"Your project 'Sample Project South' is currently BLOCKED with two critical findings. Focusing on your question about invoices:\\n\\n**You likely do NOT need another invoice document — but you should verify the existing one is properly linked.**\\n\\nHere's what the records show:\\n\\n- There is an open critical finding titled \\\"Invoice data is missing\\\" (B) that is blocking the project. It reports that validation found no linked invoice documents or extracted invoice rows.\\n- However, you already have a document on file: **Sample Invoice 7** (E), which has been processed and read.\\n- The evidence assessment notes that the invoice source is present — Sample Invoice 7 has been read — but validation has not re-run since that document was processed. This means the finding may simply be out of date and could clear on the next validation run.\\n- One important gap: Sample Invoice 7 is **not linked to the governing contract** (Sample Debris Removal Contract, D). That relationship may need to be established before validation can recognize the invoice as valid support for billed work.\\n\\n**In short:** Before uploading a new invoice, review Sample Invoice 7 to confirm it is the correct document and check whether it needs to be linked to the Sample Debris Removal Contract. A new validation run after that linkage may resolve the finding without any additional document.\\n\\n**The second open finding** — \\\"Work support data is missing\\\" (C) — is a separate critical blocker. It requires ticket or transaction data (mobile tickets, load tickets, or transaction-data rows) and currently has no candidate documents at all. That finding is unrelated to invoices and will need its own source data regardless of what happens with the invoice finding.\\n\\nBoth findings are blocking the project and must be addressed before billed work can be approved.\",\"nextStepKind\":\"review_existing_document\",\"nextStepInstruction\":\"Open Sample Invoice 7 and confirm it covers the billed work for this project, then check whether it is linked to the Sample Debris Removal Contract — that link may be required before validation can recognize it as valid invoice support.\",\"citations\":[\"B\",\"C\",\"D\",\"E\"],\"missingInformation\":[\"Validation has not re-run since Sample Invoice 7 was processed, so it is unknown whether the 'Invoice data is missing' finding will clear once validation runs again.\",\"It is unknown whether Sample Invoice 7 needs to be explicitly linked to the Sample Debris Removal Contract, or whether processing alone is sufficient for validation to recognize it.\",\"No ticket or transaction source documents (mobile tickets, load tickets, or transaction-data rows) have been identified for this project; it is unknown where that data should come from.\"],\"confidence\":\"medium\"}",
+      "stopReason": "end_turn",
+      "returnedModel": "claude-sonnet-4-6",
+      "providerRequestId": "req_011CgfE28tJ893QNEBc9D4sL",
+      "inputTokens": 2283,
+      "outputTokens": 606,
+      "latencyMs": 15606.197199999995,
+      "costUsd": 0.015939
+    },
+    {
+      "caseId": "document-05",
+      "allowedNextSteps": [
+        "review_existing_document",
+        "likely_system_issue"
+      ],
+      "requestBodySha256": "8399398f27402bc548795cc8293d8bacb038bcf3fa82376113fdd4a3b0f366a9",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "need_document",
+        "evidenceState": "source_present_unread",
+        "answer": "The pricing schedule appears to already be in this project as \"Sample Unit Price Sheet\", but it has not been read successfully. You probably do not need another document.",
+        "recommendedNextStep": {
+          "kind": "review_existing_document",
+          "instruction": "Open \"Sample Unit Price Sheet\" and check that it processed, then reprocess it if it did not.",
+          "actionHref": "/platform/documents/553c242d-012e-4881-835b-da82334ffa45"
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "d73f3acf-1581-4970-8e42-c0ab2647fbf7",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          },
+          {
+            "recordId": "5022abf4-38ef-4bcd-857d-0c30b625ba28",
+            "sectionKind": "documents",
+            "label": "Sample Unit Price Sheet",
+            "documentId": "5022abf4-38ef-4bcd-857d-0c30b625ba28",
+            "page": null
+          },
+          {
+            "recordId": "553c242d-012e-4881-835b-da82334ffa45",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "EightForge has not finished reading this document, so its contents are not confirmed."
+        ],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "model_reasoned",
+        "intent": "need_document",
+        "evidenceState": "source_present_unread",
+        "answer": "You do not need to upload the price sheet again. A document called **Sample Unit Price Sheet** is already in your project (D), and it is recognized as the governing pricing schedule. However, its processing status is **failed** — meaning EightForge attempted to read it but was unable to extract its contents. Because the rate schedule data was never successfully read, the project is treating the rate schedule as missing, which is what is driving the critical finding: **\"Contract rate schedule not found\"** (B). That finding is blocking your project **Sample Project East** (A).\n\nThe finding requires that a contract rate schedule be attached or extracted before billed rates can be checked against the **Sample Debris Removal Contract** (C). The Sample Unit Price Sheet is already linked as the governing document in the rate sheet family, but since processing failed, its unit rates have not been confirmed or made available for validation.\n\nIn short: the document exists in the system, but it could not be read. Whether you need to re-upload depends on why processing failed — it may be a file issue (corrupted, unsupported format, poor scan quality) or it may be a system-side processing problem. You should open the Sample Unit Price Sheet record and inspect it before deciding whether to replace the file.",
+        "recommendedNextStep": {
+          "kind": "review_existing_document",
+          "instruction": "Open the Sample Unit Price Sheet record and check why its processing status shows as failed — look at the file itself to confirm it is readable, complete, and in a supported format before deciding whether to re-upload it.",
+          "actionHref": "/platform/documents/553c242d-012e-4881-835b-da82334ffa45"
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "1c097894-ebb3-4023-82ed-832629a9c73e",
+            "sectionKind": "project_identity",
+            "label": "Sample Project East",
+            "documentId": null,
+            "page": null
+          },
+          {
+            "recordId": "d73f3acf-1581-4970-8e42-c0ab2647fbf7",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          },
+          {
+            "recordId": "553c242d-012e-4881-835b-da82334ffa45",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          },
+          {
+            "recordId": "5022abf4-38ef-4bcd-857d-0c30b625ba28",
+            "sectionKind": "documents",
+            "label": "Sample Unit Price Sheet",
+            "documentId": "5022abf4-38ef-4bcd-857d-0c30b625ba28",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "EightForge has not finished reading this document, so its contents are not confirmed.",
+          "The reason the Sample Unit Price Sheet failed processing is not recorded in the available project data — it is unclear whether the failure was due to a file quality issue (e.g., corrupted file, unsupported format, poor scan) or a system-side processing error.",
+          "It is not confirmed whether the Sample Unit Price Sheet is linked to the Sample Debris Removal Contract — the document relationships section shows no explicit links between the two documents."
+        ],
+        "needsHumanReview": true
+      },
+      "status": "accepted",
+      "rejectionReason": null,
+      "rawOutput": "{\"answer\":\"You do not need to upload the price sheet again. A document called **Sample Unit Price Sheet** is already in your project (D), and it is recognized as the governing pricing schedule. However, its processing status is **failed** — meaning EightForge attempted to read it but was unable to extract its contents. Because the rate schedule data was never successfully read, the project is treating the rate schedule as missing, which is what is driving the critical finding: **\\\"Contract rate schedule not found\\\"** (B). That finding is blocking your project **Sample Project East** (A).\\n\\nThe finding requires that a contract rate schedule be attached or extracted before billed rates can be checked against the **Sample Debris Removal Contract** (C). The Sample Unit Price Sheet is already linked as the governing document in the rate sheet family, but since processing failed, its unit rates have not been confirmed or made available for validation.\\n\\nIn short: the document exists in the system, but it could not be read. Whether you need to re-upload depends on why processing failed — it may be a file issue (corrupted, unsupported format, poor scan quality) or it may be a system-side processing problem. You should open the Sample Unit Price Sheet record and inspect it before deciding whether to replace the file.\",\"nextStepKind\":\"review_existing_document\",\"nextStepInstruction\":\"Open the Sample Unit Price Sheet record and check why its processing status shows as failed — look at the file itself to confirm it is readable, complete, and in a supported format before deciding whether to re-upload it.\",\"citations\":[\"A\",\"B\",\"C\",\"D\"],\"missingInformation\":[\"The reason the Sample Unit Price Sheet failed processing is not recorded in the available project data — it is unclear whether the failure was due to a file quality issue (e.g., corrupted file, unsupported format, poor scan) or a system-side processing error.\",\"It is not confirmed whether the Sample Unit Price Sheet is linked to the Sample Debris Removal Contract — the document relationships section shows no explicit links between the two documents.\"],\"confidence\":\"high\"}",
+      "stopReason": "end_turn",
+      "returnedModel": "claude-sonnet-4-6",
+      "providerRequestId": "req_011CgfE3HaTS7zr3GcBeAWUX",
+      "inputTokens": 1904,
+      "outputTokens": 460,
+      "latencyMs": 13059.397700000001,
+      "costUsd": 0.012612
+    },
+    {
+      "caseId": "document-06",
+      "allowedNextSteps": [
+        "no_action_needed"
+      ],
+      "requestBodySha256": "90b49feffe6d0a8d0383f30ce6541daa3de60f5683dbc922c79b7606818d93f3",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "need_document",
+        "evidenceState": "no_open_findings",
+        "answer": "Validation has run and this project has no open findings, so nothing currently indicates a missing document or a required action.",
+        "recommendedNextStep": {
+          "kind": "no_action_needed",
+          "instruction": "Nothing is required right now.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "c2bbbfea-0512-49c0-8968-f9d733000799",
+            "sectionKind": "project_identity",
+            "label": "Sample Project West",
+            "documentId": null,
+            "page": null
+          }
+        ],
+        "confidence": "high",
+        "missingInformation": [],
+        "needsHumanReview": false
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "model_reasoned",
+        "intent": "need_document",
+        "evidenceState": "no_open_findings",
+        "answer": "Your project, Sample Project West, currently has no open findings as of the latest validation run on January 2, 2026. The one document on file — the Sample Debris Removal Contract (a base contract, marked as the governing document) — has been fully processed and decisioned. Based on the current assessment, there are no outstanding document gaps or issues flagged for this project.",
+        "recommendedNextStep": {
+          "kind": "no_action_needed",
+          "instruction": "No additional documents are required at this time. Continue monitoring the project for any new findings that may arise as work progresses.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "c2bbbfea-0512-49c0-8968-f9d733000799",
+            "sectionKind": "project_identity",
+            "label": "Sample Project West",
+            "documentId": null,
+            "page": null
+          },
+          {
+            "recordId": "bcabeb2c-47e1-4f9b-8bff-a25e807eb970",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "bcabeb2c-47e1-4f9b-8bff-a25e807eb970",
+            "page": null
+          }
+        ],
+        "confidence": "high",
+        "missingInformation": [],
+        "needsHumanReview": false
+      },
+      "status": "accepted",
+      "rejectionReason": null,
+      "rawOutput": "{\"answer\":\"Your project, Sample Project West, currently has no open findings as of the latest validation run on January 2, 2026. The one document on file — the Sample Debris Removal Contract (a base contract, marked as the governing document) — has been fully processed and decisioned. Based on the current assessment, there are no outstanding document gaps or issues flagged for this project.\",\"nextStepKind\":\"no_action_needed\",\"nextStepInstruction\":\"No additional documents are required at this time. Continue monitoring the project for any new findings that may arise as work progresses.\",\"citations\":[\"A\",\"B\"],\"missingInformation\":[],\"confidence\":\"high\"}",
+      "stopReason": "end_turn",
+      "returnedModel": "claude-sonnet-4-6",
+      "providerRequestId": "req_011CgfE4FRznXd69DhZ35rnU",
+      "inputTokens": 1319,
+      "outputTokens": 150,
+      "latencyMs": 4087.6835999999894,
+      "costUsd": 0.006207
+    },
+    {
+      "caseId": "flagged-01",
+      "allowedNextSteps": [
+        "operator_judgment_required",
+        "review_existing_document"
+      ],
+      "requestBodySha256": "4c04806cf7afa0c034b2c3188be2dfbe49b8d95456cabeef2f4fbf14ef7575a6",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "why_flagged",
+        "evidenceState": "not_a_source_gap",
+        "answer": "This project is flagged for: Repeated ticket has conflicting values. 7 other open findings are listed for this project as well.",
+        "recommendedNextStep": {
+          "kind": "operator_judgment_required",
+          "instruction": "Review the cited records and decide on the finding through its own workflow.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "403f88a4-f7f3-40a7-8ead-dad1aeaef547",
+            "sectionKind": "validator_findings",
+            "label": "Repeated ticket has conflicting values",
+            "documentId": "fixture-tickets",
+            "page": null
+          },
+          {
+            "recordId": "fixture-tickets",
+            "sectionKind": "documents",
+            "label": "Sample Ticket Export",
+            "documentId": "fixture-tickets",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "why_flagged",
+        "evidenceState": "not_a_source_gap",
+        "answer": "This project is flagged for: Repeated ticket has conflicting values. 7 other open findings are listed for this project as well.",
+        "recommendedNextStep": {
+          "kind": "operator_judgment_required",
+          "instruction": "Review the cited records and decide on the finding through its own workflow.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "403f88a4-f7f3-40a7-8ead-dad1aeaef547",
+            "sectionKind": "validator_findings",
+            "label": "Repeated ticket has conflicting values",
+            "documentId": "fixture-tickets",
+            "page": null
+          },
+          {
+            "recordId": "fixture-tickets",
+            "sectionKind": "documents",
+            "label": "Sample Ticket Export",
+            "documentId": "fixture-tickets",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [],
+        "needsHumanReview": true
+      },
+      "status": "rejected",
+      "rejectionReason": "unsupported_number",
+      "rawOutput": "{\"answer\":\"**Sample Project Conflict** is blocked because it has 8 open findings — 3 critical and 5 warnings. The 3 critical findings are what actually block the project.\\n\\n---\\n\\n**Critical findings (blocking)**\\n\\n1. **Conflicting extended_cost on TKT-1** (B): The same ticket, TKT-1 in Sample Ticket Export, appears more than once with two different extended_cost values: 3125 vs 5000. Neither value has been selected as correct, so any totals that depend on this ticket are not reliable.\\n\\n2. **Conflicting transaction_quantity on TKT-1** (C): The same ticket TKT-1 also shows two different quantities: 250 vs 400. This is a separate conflict on the same ticket record and must be resolved independently.\\n\\n3. **No transaction support for a billed line** (D): Sample Invoice 7 includes a billed line for rate group INV1001::HAUL015, but no matching transaction records were found to support it. The billed work has no backup.\\n\\n---\\n\\n**Warnings (not blocking, but need attention)**\\n\\n4. **Project billing not fully supported** (E): The total fully reconciled amount is 0 against an expected 5000.\\n\\n5. **Invoice has billed dollars at risk** (F): 5000 in billed dollars on Sample Invoice 7 are tied to open findings and are at risk.\\n\\n6. **Work category needs confirmation** (G): The canonical work category for a billed line on Sample Invoice 7 is unresolved, so automated rate comparison cannot proceed.\\n\\n7. **Project has billed dollars at risk** (H): 5000 in billed dollars across the project are tied to open findings.\\n\\n8. **Invoice not fully supported** (I): The supported amount on Sample Invoice 7 is 0 against an expected 5000.\\n\\n---\\n\\nAll of these findings point to data in **Sample Ticket Export** (M) and **Sample Invoice 7** (L). The ticket conflicts need to be corrected at the source, and the missing transaction support for INV1001::HAUL015 needs to be located or addressed before the project can move forward.\",\"nextStepKind\":\"review_existing_document\",\"nextStepInstruction\":\"Open Sample Ticket Export and locate the two rows for TKT-1. Compare the extended_cost values (3125 vs 5000) and transaction_quantity values (250 vs 400) against your source records, then correct the wrong row so only one agreed value remains for each field.\",\"citations\":[\"A\",\"B\",\"C\",\"D\",\"E\",\"F\",\"G\",\"H\",\"I\",\"L\",\"M\"],\"missingInformation\":[\"It is not known which of the two extended_cost values (3125 or 5000) for TKT-1 is correct — that determination requires checking the original source documents outside this project.\",\"It is not known which of the two transaction_quantity values (250 or 400) for TKT-1 is correct — same source check needed.\",\"It is not known where the transaction records for billed line INV1001::HAUL015 are, or whether they exist and simply have not been loaded into the project.\"],\"confidence\":\"high\"}",
+      "stopReason": "end_turn",
+      "returnedModel": "claude-sonnet-4-6",
+      "providerRequestId": "req_011CgfE4YzgaWDo1dSKZk3hZ",
+      "inputTokens": 4173,
+      "outputTokens": 778,
+      "latencyMs": 17182.87000000001,
+      "costUsd": 0.024189,
+      "failure": {
+        "failureClass": "output_rejected",
+        "reachedProvider": true,
+        "httpStatus": null,
+        "providerErrorType": null,
+        "providerRequestId": "req_011CgfE4YzgaWDo1dSKZk3hZ"
+      }
+    },
+    {
+      "caseId": "flagged-02",
+      "allowedNextSteps": [
+        "review_ticket_or_transaction",
+        "review_existing_document",
+        "operator_judgment_required"
+      ],
+      "requestBodySha256": "d4aa225917489d578866703dab00818d33d2a059910b6da9eb9b8b8d54ccd135",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "why_flagged",
+        "evidenceState": "not_a_source_gap",
+        "answer": "This project is flagged for: Billed quantity differs from transactions. 2 other open findings are listed for this project as well.",
+        "recommendedNextStep": {
+          "kind": "review_ticket_or_transaction",
+          "instruction": "Compare the flagged lines with their tickets or transactions.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "732ea745-50b8-4353-8876-0e2268c51b08",
+            "sectionKind": "validator_findings",
+            "label": "Billed quantity differs from transactions",
+            "documentId": "fixture-invoice",
+            "page": null
+          },
+          {
+            "recordId": "fixture-invoice",
+            "sectionKind": "documents",
+            "label": "Sample Invoice 7",
+            "documentId": "fixture-invoice",
+            "page": null
+          },
+          {
+            "recordId": "fixture-tickets",
+            "sectionKind": "documents",
+            "label": "Sample Ticket Export",
+            "documentId": "fixture-tickets",
+            "page": null
+          },
+          {
+            "recordId": "fixture-contract",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "fixture-contract",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "why_flagged",
+        "evidenceState": "not_a_source_gap",
+        "answer": "This project is flagged for: Billed quantity differs from transactions. 2 other open findings are listed for this project as well.",
+        "recommendedNextStep": {
+          "kind": "review_ticket_or_transaction",
+          "instruction": "Compare the flagged lines with their tickets or transactions.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "732ea745-50b8-4353-8876-0e2268c51b08",
+            "sectionKind": "validator_findings",
+            "label": "Billed quantity differs from transactions",
+            "documentId": "fixture-invoice",
+            "page": null
+          },
+          {
+            "recordId": "fixture-invoice",
+            "sectionKind": "documents",
+            "label": "Sample Invoice 7",
+            "documentId": "fixture-invoice",
+            "page": null
+          },
+          {
+            "recordId": "fixture-tickets",
+            "sectionKind": "documents",
+            "label": "Sample Ticket Export",
+            "documentId": "fixture-tickets",
+            "page": null
+          },
+          {
+            "recordId": "fixture-contract",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "fixture-contract",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [],
+        "needsHumanReview": true
+      },
+      "status": "rejected",
+      "rejectionReason": "unsupported_number",
+      "rawOutput": "{\"answer\":\"This project (Sample Project Tickets) is blocked by two critical findings and has one additional warning, all on Sample Invoice 7.\\n\\n**Critical Finding 1 – Billed quantity differs from transactions (blocks project)**\\nThe quantity recorded on the invoice is 800, but the supporting transactions total to an expected quantity of 400. That is a direct mismatch that must be resolved before the project can move forward. B\\n\\n**Critical Finding 2 – Billed amount differs from transactions (blocks project)**\\nThe extended cost recorded on the invoice is 10000, but the supporting transactions total to an expected amount of 5000. Like the quantity issue, this is a direct dollar-amount mismatch that blocks the project. C\\n\\n**Warning – Work category needs confirmation (does not block project)**\\nThe work category for the billed line was recorded as \\\"transport,\\\" but a confident canonical category could not be determined. Until this is confirmed, automated rate comparison cannot run for that line. D\\n\\nAll three findings point to Sample Invoice 7 as the document to review. The two critical findings indicate that either the invoice overstates quantities and amounts relative to the ticket/transaction records, or the transaction records understate them — you will need to compare the two directly to determine which side needs correction.\",\"nextStepKind\":\"review_ticket_or_transaction\",\"nextStepInstruction\":\"Open Sample Invoice 7 alongside the Sample Ticket Export and compare the billed quantity (800) and extended cost (10000) against the transaction totals (400 and 5000 respectively) to determine which record is incorrect, then correct the invoice or the support record accordingly.\",\"citations\":[\"B\",\"C\",\"D\",\"G\",\"H\"],\"missingInformation\":[\"It is not yet clear whether the discrepancy originates on the invoice side (overbilling) or the transaction/ticket side (incomplete ticket capture) — that determination requires a direct line-by-line comparison of Sample Invoice 7 against the Sample Ticket Export.\",\"The work category recorded as 'transport' has not been confirmed as the correct canonical category, so the appropriate rate comparison for that line cannot yet be performed.\"],\"confidence\":\"high\"}",
+      "stopReason": "end_turn",
+      "returnedModel": "claude-sonnet-4-6",
+      "providerRequestId": "req_011CgfE5paaKUtvVamWFcDke",
+      "inputTokens": 2455,
+      "outputTokens": 492,
+      "latencyMs": 12479.127700000012,
+      "costUsd": 0.014745,
+      "failure": {
+        "failureClass": "output_rejected",
+        "reachedProvider": true,
+        "httpStatus": null,
+        "providerErrorType": null,
+        "providerRequestId": "req_011CgfE5paaKUtvVamWFcDke"
+      }
+    },
+    {
+      "caseId": "flagged-03",
+      "allowedNextSteps": [
+        "likely_system_issue",
+        "review_existing_document",
+        "operator_judgment_required"
+      ],
+      "requestBodySha256": "3fc2722764d3e016969da628290e11069b8ea97e09ece893d22196ba4ff95fca",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "why_flagged",
+        "evidenceState": "likely_system_issue",
+        "answer": "The pricing schedule is in this project as \"Sample Debris Removal Contract\", and it has been read and linked, yet this is still flagged. This looks like an issue on the EightForge side rather than something missing from your project. 2 other open findings are listed for this project as well.",
+        "recommendedNextStep": {
+          "kind": "likely_system_issue",
+          "instruction": "Check that \"Sample Debris Removal Contract\" shows what you expect. If it does, report this to your EightForge contact.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "29968537-be62-4961-8919-de47b08d0e0f",
+            "sectionKind": "validator_findings",
+            "label": "Too few contract rate rows extracted",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          },
+          {
+            "recordId": "553c242d-012e-4881-835b-da82334ffa45",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          },
+          {
+            "recordId": "408d405d-f586-47dd-8546-1d7d0a89e1af",
+            "sectionKind": "canonical_facts",
+            "label": "rate schedule present (Sample Debris Removal Contract)",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          }
+        ],
+        "confidence": "low",
+        "missingInformation": [
+          "The reason EightForge still flags this has not been established."
+        ],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "why_flagged",
+        "evidenceState": "likely_system_issue",
+        "answer": "The pricing schedule is in this project as \"Sample Debris Removal Contract\", and it has been read and linked, yet this is still flagged. This looks like an issue on the EightForge side rather than something missing from your project. 2 other open findings are listed for this project as well.",
+        "recommendedNextStep": {
+          "kind": "likely_system_issue",
+          "instruction": "Check that \"Sample Debris Removal Contract\" shows what you expect. If it does, report this to your EightForge contact.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "29968537-be62-4961-8919-de47b08d0e0f",
+            "sectionKind": "validator_findings",
+            "label": "Too few contract rate rows extracted",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          },
+          {
+            "recordId": "553c242d-012e-4881-835b-da82334ffa45",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          },
+          {
+            "recordId": "408d405d-f586-47dd-8546-1d7d0a89e1af",
+            "sectionKind": "canonical_facts",
+            "label": "rate schedule present (Sample Debris Removal Contract)",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          }
+        ],
+        "confidence": "low",
+        "missingInformation": [
+          "The reason EightForge still flags this has not been established."
+        ],
+        "needsHumanReview": true
+      },
+      "status": "rejected",
+      "rejectionReason": "unsupported_number",
+      "rawOutput": "{\"answer\":\"**Sample Project East** is blocked by 3 open findings on the **Sample Debris Removal Contract**, all stemming from problems with how the contract's rate schedule was extracted and interpreted. Here is what each finding says:\\n\\n---\\n\\n**1. Too few contract rate rows extracted** (Critical — blocks project) [B]\\n\\nThe contract is priced by unit rates, but extraction produced fewer rate rows than needed for pricing validation. The system expected **>= 5** rate rows; the actual count recorded is **null** — meaning no rate rows were captured at all. Without those rows, billed lines have no contract rate to compare against. The assessment reads this as a likely extraction issue rather than a missing document, since the governing contract is already on file and has been processed.\\n\\n**2. Rate schedule pages not identified** (Critical — blocks project) [C]\\n\\nEven though extraction recorded that a rate schedule is present [E], the specific pages holding that schedule were not identified. The system expected **identified rate schedule pages** but recorded **missing**. This means the governing pricing cannot be traced back to its source pages in the document.\\n\\nBoth of these critical findings point to the same root cause: the **Sample Debris Removal Contract** [F] appears to contain a rate schedule, but extraction did not successfully pull the rate rows or identify the pages where they appear. The assessment flags both as likely extraction issues — the document is already in the system and linked as governing, so the gap is in what was pulled from it, not in what was uploaded.\\n\\n**3. Pricing schedule applicability unresolved** (Warning — does not block) [D]\\n\\nSeparately, even if rate rows were extracted, it has not been confirmed whether the contract's rate schedule actually applies to the billed work categories. The system recorded the status as **requires_activation_scope_or_eligibility_resolution** rather than resolved. This may involve disposal treatment, reimbursement conditions, or other pricing gates in the contract language.\\n\\n---\\n\\n**Summary:** The two blocking findings are most likely the result of an extraction problem on the Sample Debris Removal Contract — the schedule exhibit may not have been captured correctly during processing. The warning finding is a separate question about whether the rates that do exist actually govern the billed work.\",\"nextStepKind\":\"likely_system_issue\",\"nextStepInstruction\":\"Open the Sample Debris Removal Contract, locate the rate schedule exhibit pages, and re-run extraction so that the rate rows and schedule page references are captured. Then confirm whether those rates apply to the billed work categories to resolve the warning finding as well.\",\"citations\":[\"B\",\"C\",\"D\",\"E\",\"F\"],\"missingInformation\":[\"The reason extraction produced a null rate row count (and no schedule pages) from the Sample Debris Removal Contract has not been established — it is unclear whether the schedule exhibit was missing from the uploaded file, on pages that were not processed, or whether extraction simply failed on those pages.\",\"It has not been confirmed which contract clause or pricing gate governs applicability of the rate schedule to the billed work categories (the warning finding remains unresolved).\"],\"confidence\":\"medium\"}",
+      "stopReason": "end_turn",
+      "returnedModel": "claude-sonnet-4-6",
+      "providerRequestId": "req_011CgfE6jv4hvZH8oP9HXM2n",
+      "inputTokens": 2755,
+      "outputTokens": 709,
+      "latencyMs": 19452.19159999999,
+      "costUsd": 0.0189,
+      "failure": {
+        "failureClass": "output_rejected",
+        "reachedProvider": true,
+        "httpStatus": null,
+        "providerErrorType": null,
+        "providerRequestId": "req_011CgfE6jv4hvZH8oP9HXM2n"
+      }
+    },
+    {
+      "caseId": "flagged-04",
+      "allowedNextSteps": [
+        "link_existing_document",
+        "review_existing_document",
+        "operator_judgment_required"
+      ],
+      "requestBodySha256": "4569fedc89ba6a6b6d51cbccae84d34a40d333e950d89d24c97cd510ed16cf5b",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "why_flagged",
+        "evidenceState": "source_present_relationship_unresolved",
+        "answer": "The pricing schedule appears to already exist in this project as \"Sample Unit Price Sheet\". No additional document appears necessary.",
+        "recommendedNextStep": {
+          "kind": "link_existing_document",
+          "instruction": "Check whether \"Sample Unit Price Sheet\" is linked to the governing contract, \"Sample Debris Removal Contract\", and link it if it applies.",
+          "actionHref": "/platform/projects/d10e236a-cc74-40c8-8583-72b9142b45e7#project-documents"
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "7accdc2e-8e67-44d4-8a9e-1b550868b620",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          },
+          {
+            "recordId": "e9bdd44a-50ca-494f-89ff-a9bf2b4c2c5f",
+            "sectionKind": "documents",
+            "label": "Sample Unit Price Sheet",
+            "documentId": "e9bdd44a-50ca-494f-89ff-a9bf2b4c2c5f",
+            "page": null
+          },
+          {
+            "recordId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "This document's authority has not been settled: a person decides whether it applies.",
+          "Whether it covers everything the project needs has not been confirmed."
+        ],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "why_flagged",
+        "evidenceState": "source_present_relationship_unresolved",
+        "answer": "The pricing schedule appears to already exist in this project as \"Sample Unit Price Sheet\". No additional document appears necessary.",
+        "recommendedNextStep": {
+          "kind": "link_existing_document",
+          "instruction": "Check whether \"Sample Unit Price Sheet\" is linked to the governing contract, \"Sample Debris Removal Contract\", and link it if it applies.",
+          "actionHref": "/platform/projects/d10e236a-cc74-40c8-8583-72b9142b45e7#project-documents"
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "7accdc2e-8e67-44d4-8a9e-1b550868b620",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          },
+          {
+            "recordId": "e9bdd44a-50ca-494f-89ff-a9bf2b4c2c5f",
+            "sectionKind": "documents",
+            "label": "Sample Unit Price Sheet",
+            "documentId": "e9bdd44a-50ca-494f-89ff-a9bf2b4c2c5f",
+            "page": null
+          },
+          {
+            "recordId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "This document's authority has not been settled: a person decides whether it applies.",
+          "Whether it covers everything the project needs has not been confirmed."
+        ],
+        "needsHumanReview": true
+      },
+      "status": "rejected",
+      "rejectionReason": "internal_vocabulary",
+      "rawOutput": "{\"answer\":\"Sample Project North is blocked by one critical finding: the contract rate schedule is recorded as missing from the Sample Debris Removal Contract, which means billed rates cannot be checked against contract pricing.\\n\\nHere is what the records show:\\n\\n**The finding (critical, project-blocking)**\\nThe contract is priced by unit rates, but when the contract document was processed, no rate schedule was found within it. Until a rate schedule is attached or extracted, billed rates cannot be verified against contract pricing. (B)\\n\\n**What is already in the project**\\nThere is a second document — the Sample Unit Price Sheet — which is a pricing schedule and is already linked to the Sample Debris Removal Contract with an \\\"attached_to\\\" relationship. (C, D, E)\\n\\n**Why the flag has not cleared**\\nEven though the Sample Unit Price Sheet is present and linked, the project assessment shows the relationship is unresolved. Specifically, the document's authority has not been settled — meaning no one has confirmed whether it is the authoritative rate schedule that governs this contract. Its authority status is currently recorded as \\\"reference_only,\\\" and it has not been confirmed as the governing pricing source. Until that authority question is decided, the system cannot treat it as satisfying the rate schedule requirement, so the finding remains open and the project stays blocked. (B, D, E)\\n\\n**In short:** The candidate document exists and is linked, but its role has not been confirmed by a person. That confirmation step is what is still missing.\",\"nextStepKind\":\"review_existing_document\",\"nextStepInstruction\":\"Open the Sample Unit Price Sheet and review whether it is the authoritative rate schedule for the Sample Debris Removal Contract. If it is, settle its authority status accordingly so the rate schedule requirement can be evaluated against it.\",\"citations\":[\"B\",\"C\",\"D\",\"E\"],\"missingInformation\":[\"Whether the Sample Unit Price Sheet is the authoritative rate schedule for this contract — its authority status is currently 'reference_only' and has not been confirmed by a person as governing.\",\"Whether the Sample Unit Price Sheet covers everything the project needs from a rate schedule has not been confirmed.\"],\"confidence\":\"high\"}",
+      "stopReason": "end_turn",
+      "returnedModel": "claude-sonnet-4-6",
+      "providerRequestId": "req_011CgfE8B6fGEKR4LnaknFxU",
+      "inputTokens": 2171,
+      "outputTokens": 491,
+      "latencyMs": 13202.857400000008,
+      "costUsd": 0.013878,
+      "failure": {
+        "failureClass": "output_rejected",
+        "reachedProvider": true,
+        "httpStatus": null,
+        "providerErrorType": null,
+        "providerRequestId": "req_011CgfE8B6fGEKR4LnaknFxU"
+      }
+    },
+    {
+      "caseId": "flagged-05",
+      "allowedNextSteps": [
+        "upload_or_request_document"
+      ],
+      "requestBodySha256": "bf5e09074ce2c6976a2bc15d32a3eee18929eb4da6d954bebfe6056ef450427c",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "why_flagged",
+        "evidenceState": "source_missing",
+        "answer": "This project has no contract. It looks genuinely absent, not just unlinked.",
+        "recommendedNextStep": {
+          "kind": "upload_or_request_document",
+          "instruction": "Upload the contract, or request it from whoever holds it.",
+          "actionHref": "/platform/documents"
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "29879437-50ca-4ce8-8155-3468cde40d13",
+            "sectionKind": "validator_findings",
+            "label": "Project contract is missing",
+            "documentId": null,
+            "page": null
+          }
+        ],
+        "confidence": "high",
+        "missingInformation": [],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "model_reasoned",
+        "intent": "why_flagged",
+        "evidenceState": "source_missing",
+        "answer": "**Sample Project South** is blocked because it has no contract document linked to it. This is a critical finding that prevents the project from moving forward.\n\nSpecifically, validation requires a governing contract to be on file before any invoices tied to this work can be approved. Right now, there is no contract-family document linked to this project at all — the project record shows zero governing documents attached.\n\nUntil a contract is linked, validation has nothing to check against, and the block will remain in place.",
+        "recommendedNextStep": {
+          "kind": "upload_or_request_document",
+          "instruction": "Upload the governing contract document for Sample Project South (e.g., the signed contract or master agreement) so it can be linked to this project and the critical finding resolved.",
+          "actionHref": "/platform/documents"
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "517fffc2-0c1a-472b-88a3-b45e9df68922",
+            "sectionKind": "project_identity",
+            "label": "Sample Project South",
+            "documentId": null,
+            "page": null
+          },
+          {
+            "recordId": "29879437-50ca-4ce8-8155-3468cde40d13",
+            "sectionKind": "validator_findings",
+            "label": "Project contract is missing",
+            "documentId": null,
+            "page": null
+          }
+        ],
+        "confidence": "high",
+        "missingInformation": [
+          "No contract document has been identified as a candidate to link — it is unknown whether a contract exists elsewhere in your records or needs to be sourced externally."
+        ],
+        "needsHumanReview": true
+      },
+      "status": "accepted",
+      "rejectionReason": null,
+      "rawOutput": "{\"answer\":\"**Sample Project South** is blocked because it has no contract document linked to it. This is a critical finding that prevents the project from moving forward.\\n\\nSpecifically, validation requires a governing contract to be on file before any invoices tied to this work can be approved. Right now, there is no contract-family document linked to this project at all — the project record shows zero governing documents attached.\\n\\nUntil a contract is linked, validation has nothing to check against, and the block will remain in place.\",\"nextStepKind\":\"upload_or_request_document\",\"nextStepInstruction\":\"Upload the governing contract document for Sample Project South (e.g., the signed contract or master agreement) so it can be linked to this project and the critical finding resolved.\",\"citations\":[\"A\",\"B\"],\"missingInformation\":[\"No contract document has been identified as a candidate to link — it is unknown whether a contract exists elsewhere in your records or needs to be sourced externally.\"],\"confidence\":\"high\"}",
+      "stopReason": "end_turn",
+      "returnedModel": "claude-sonnet-4-6",
+      "providerRequestId": "req_011CgfE99buETVMsJCfsg9U1",
+      "inputTokens": 1343,
+      "outputTokens": 225,
+      "latencyMs": 5723.276799999992,
+      "costUsd": 0.007404
+    },
+    {
+      "caseId": "flagged-06",
+      "allowedNextSteps": [
+        "review_existing_document",
+        "operator_judgment_required"
+      ],
+      "requestBodySha256": "4f0c5fbabc716529a2d4c35aee890c37dfff7caa46c7f3efa38b69f40474d868",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "why_flagged",
+        "evidenceState": "not_a_source_gap",
+        "answer": "This project is flagged for: Pricing schedule applicability unresolved.",
+        "recommendedNextStep": {
+          "kind": "review_existing_document",
+          "instruction": "Open the cited evidence and check it against the document.",
+          "actionHref": "/platform/documents/553c242d-012e-4881-835b-da82334ffa45"
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "f1bd40ff-b69a-4dc7-8571-875c6b71412c",
+            "sectionKind": "validator_findings",
+            "label": "Pricing schedule applicability unresolved",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          },
+          {
+            "recordId": "553c242d-012e-4881-835b-da82334ffa45",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "model_reasoned",
+        "intent": "why_flagged",
+        "evidenceState": "not_a_source_gap",
+        "answer": "Pricing is flagged because the governing contract — **Sample Debris Removal Contract** — contains a rate schedule, but it has not been confirmed whether that rate schedule actually applies to the work being billed. Specifically, the pricing applicability is recorded as requiring activation, scope, or eligibility resolution, rather than being resolved. This means the governing rates for the billed work categories are unclear — there may be disposal treatment terms, reimbursement conditions, or other pricing gates in the contract that determine whether the listed rates apply, and none of those have been confirmed yet.\n\nThe finding is a **warning** and does not currently block the project, but it remains open and needs to be addressed. The required action is to confirm whether the contract rate schedule applies to the billed work categories, or to identify and document the specific contract clause that governs pricing for those categories.\n\nImportantly, this is not a missing-document problem — the assessment indicates the issue is not a gap in source materials. The contract is already on file and is the governing document. The resolution needs to come from reviewing the contract itself and making a determination about which pricing terms apply.",
+        "recommendedNextStep": {
+          "kind": "review_existing_document",
+          "instruction": "Open the Sample Debris Removal Contract and locate the rate schedule and any clauses governing pricing eligibility, activation conditions, disposal treatment, or reimbursement — then determine whether those rates apply to the billed work categories and document your conclusion.",
+          "actionHref": "/platform/documents/553c242d-012e-4881-835b-da82334ffa45"
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "f1bd40ff-b69a-4dc7-8571-875c6b71412c",
+            "sectionKind": "validator_findings",
+            "label": "Pricing schedule applicability unresolved",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          },
+          {
+            "recordId": "553c242d-012e-4881-835b-da82334ffa45",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "It is not recorded which specific clause or section of the Sample Debris Removal Contract contains the pricing gate or eligibility condition that needs to be resolved — you will need to locate that within the document itself.",
+          "The specific billed work categories that need to be matched against the rate schedule are not identified in the project records."
+        ],
+        "needsHumanReview": true
+      },
+      "status": "accepted",
+      "rejectionReason": null,
+      "rawOutput": "{\"answer\":\"Pricing is flagged because the governing contract — **Sample Debris Removal Contract** — contains a rate schedule, but it has not been confirmed whether that rate schedule actually applies to the work being billed. Specifically, the pricing applicability is recorded as requiring activation, scope, or eligibility resolution, rather than being resolved. This means the governing rates for the billed work categories are unclear — there may be disposal treatment terms, reimbursement conditions, or other pricing gates in the contract that determine whether the listed rates apply, and none of those have been confirmed yet.\\n\\nThe finding is a **warning** and does not currently block the project, but it remains open and needs to be addressed. The required action is to confirm whether the contract rate schedule applies to the billed work categories, or to identify and document the specific contract clause that governs pricing for those categories.\\n\\nImportantly, this is not a missing-document problem — the assessment indicates the issue is not a gap in source materials. The contract is already on file and is the governing document. The resolution needs to come from reviewing the contract itself and making a determination about which pricing terms apply.\",\"nextStepKind\":\"review_existing_document\",\"nextStepInstruction\":\"Open the Sample Debris Removal Contract and locate the rate schedule and any clauses governing pricing eligibility, activation conditions, disposal treatment, or reimbursement — then determine whether those rates apply to the billed work categories and document your conclusion.\",\"citations\":[\"B\",\"C\"],\"missingInformation\":[\"It is not recorded which specific clause or section of the Sample Debris Removal Contract contains the pricing gate or eligibility condition that needs to be resolved — you will need to locate that within the document itself.\",\"The specific billed work categories that need to be matched against the rate schedule are not identified in the project records.\"],\"confidence\":\"high\"}",
+      "stopReason": "end_turn",
+      "returnedModel": "claude-sonnet-4-6",
+      "providerRequestId": "req_011CgfE9a5ZHqTR2GMwNTvUy",
+      "inputTokens": 1674,
+      "outputTokens": 407,
+      "latencyMs": 10381.819400000008,
+      "costUsd": 0.011127
+    },
+    {
+      "caseId": "action-01",
+      "allowedNextSteps": [
+        "upload_or_request_document",
+        "review_existing_document"
+      ],
+      "requestBodySha256": "00b8d72d7b3846a65325f1978e54a88424c98ba37760c19afe069a2f302a80cd",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "what_to_do",
+        "evidenceState": "source_missing",
+        "answer": "This project has no pricing schedule. It looks genuinely absent, not just unlinked.",
+        "recommendedNextStep": {
+          "kind": "upload_or_request_document",
+          "instruction": "Upload the pricing schedule, or request it from whoever holds it.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "7accdc2e-8e67-44d4-8a9e-1b550868b620",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          },
+          {
+            "recordId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "Whether the contract itself contains the schedule pages has not been confirmed."
+        ],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "model_reasoned",
+        "intent": "what_to_do",
+        "evidenceState": "source_missing",
+        "answer": "Your project 'Sample Project North' is currently BLOCKED by one critical finding that must be resolved before work can continue.\n\n**The Problem**\nThe governing contract — 'Sample Debris Removal Contract' — is priced by unit rates, but no rate schedule has been found. Without a rate schedule, billed rates cannot be checked against contract pricing. This is flagged as a critical issue that is blocking the project.\n\n**What Was Found**\nThe contract document has been processed and is recognized as the governing contract for this project. However, when the contract's pricing information was examined, the rate schedule was recorded as missing — it was expected to be present but was not found.\n\n**What Needs to Happen**\nThe contract rate schedule must be attached or extracted before any review of billed rates can proceed. There are two possibilities:\n1. The rate schedule may exist as a separate document that has not yet been uploaded to the project.\n2. The rate schedule may be embedded within the 'Sample Debris Removal Contract' itself (for example, as an exhibit or appendix) but was not successfully extracted during processing.\n\nNeither of these has been confirmed yet — it is still unknown whether the contract document itself contains the schedule pages.",
+        "recommendedNextStep": {
+          "kind": "upload_or_request_document",
+          "instruction": "Check whether the rate schedule is a separate document (such as a pricing exhibit or schedule attachment) and, if so, upload it to the project. If you believe the schedule is already within the 'Sample Debris Removal Contract,' review that document to confirm whether the schedule pages are present and legible.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "d10e236a-cc74-40c8-8583-72b9142b45e7",
+            "sectionKind": "project_identity",
+            "label": "Sample Project North",
+            "documentId": null,
+            "page": null
+          },
+          {
+            "recordId": "7accdc2e-8e67-44d4-8a9e-1b550868b620",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          },
+          {
+            "recordId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "Whether the contract itself contains the schedule pages has not been confirmed.",
+          "Whether the 'Sample Debris Removal Contract' itself contains the rate schedule pages (e.g., as an exhibit or appendix) has not been confirmed — the document may need to be reviewed to determine if the schedule is embedded within it.",
+          "Whether a separate rate schedule document exists outside the project and needs to be uploaded has not been determined."
+        ],
+        "needsHumanReview": true
+      },
+      "status": "accepted",
+      "rejectionReason": null,
+      "rawOutput": "{\"answer\":\"Your project 'Sample Project North' is currently BLOCKED by one critical finding that must be resolved before work can continue.\\n\\n**The Problem**\\nThe governing contract — 'Sample Debris Removal Contract' — is priced by unit rates, but no rate schedule has been found. Without a rate schedule, billed rates cannot be checked against contract pricing. This is flagged as a critical issue that is blocking the project.\\n\\n**What Was Found**\\nThe contract document has been processed and is recognized as the governing contract for this project. However, when the contract's pricing information was examined, the rate schedule was recorded as missing — it was expected to be present but was not found.\\n\\n**What Needs to Happen**\\nThe contract rate schedule must be attached or extracted before any review of billed rates can proceed. There are two possibilities:\\n1. The rate schedule may exist as a separate document that has not yet been uploaded to the project.\\n2. The rate schedule may be embedded within the 'Sample Debris Removal Contract' itself (for example, as an exhibit or appendix) but was not successfully extracted during processing.\\n\\nNeither of these has been confirmed yet — it is still unknown whether the contract document itself contains the schedule pages.\",\"nextStepKind\":\"upload_or_request_document\",\"nextStepInstruction\":\"Check whether the rate schedule is a separate document (such as a pricing exhibit or schedule attachment) and, if so, upload it to the project. If you believe the schedule is already within the 'Sample Debris Removal Contract,' review that document to confirm whether the schedule pages are present and legible.\",\"citations\":[\"A\",\"B\",\"C\"],\"missingInformation\":[\"Whether the 'Sample Debris Removal Contract' itself contains the rate schedule pages (e.g., as an exhibit or appendix) has not been confirmed — the document may need to be reviewed to determine if the schedule is embedded within it.\",\"Whether a separate rate schedule document exists outside the project and needs to be uploaded has not been determined.\"],\"confidence\":\"high\"}",
+      "stopReason": "end_turn",
+      "returnedModel": "claude-sonnet-4-6",
+      "providerRequestId": "req_011CgfEALUXLNEd6m2vVioEa",
+      "inputTokens": 1729,
+      "outputTokens": 459,
+      "latencyMs": 10699.270199999999,
+      "costUsd": 0.012072
+    },
+    {
+      "caseId": "action-02",
+      "allowedNextSteps": [
+        "link_existing_document",
+        "review_existing_document",
+        "operator_judgment_required"
+      ],
+      "requestBodySha256": "1c0c8c886b42f7650c4f78ee3f9736a800f3ff3f2f38ad515ab8d05f3f1287f6",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "what_to_do",
+        "evidenceState": "source_present_relationship_unresolved",
+        "answer": "The pricing schedule appears to already exist in this project as \"Sample Unit Price Sheet\". No additional document appears necessary.",
+        "recommendedNextStep": {
+          "kind": "link_existing_document",
+          "instruction": "Check whether \"Sample Unit Price Sheet\" is linked to the governing contract, \"Sample Debris Removal Contract\", and link it if it applies.",
+          "actionHref": "/platform/projects/d10e236a-cc74-40c8-8583-72b9142b45e7#project-documents"
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "7accdc2e-8e67-44d4-8a9e-1b550868b620",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          },
+          {
+            "recordId": "e9bdd44a-50ca-494f-89ff-a9bf2b4c2c5f",
+            "sectionKind": "documents",
+            "label": "Sample Unit Price Sheet",
+            "documentId": "e9bdd44a-50ca-494f-89ff-a9bf2b4c2c5f",
+            "page": null
+          },
+          {
+            "recordId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "Whether it covers everything the project needs has not been confirmed."
+        ],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "what_to_do",
+        "evidenceState": "source_present_relationship_unresolved",
+        "answer": "The pricing schedule appears to already exist in this project as \"Sample Unit Price Sheet\". No additional document appears necessary.",
+        "recommendedNextStep": {
+          "kind": "link_existing_document",
+          "instruction": "Check whether \"Sample Unit Price Sheet\" is linked to the governing contract, \"Sample Debris Removal Contract\", and link it if it applies.",
+          "actionHref": "/platform/projects/d10e236a-cc74-40c8-8583-72b9142b45e7#project-documents"
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "7accdc2e-8e67-44d4-8a9e-1b550868b620",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          },
+          {
+            "recordId": "e9bdd44a-50ca-494f-89ff-a9bf2b4c2c5f",
+            "sectionKind": "documents",
+            "label": "Sample Unit Price Sheet",
+            "documentId": "e9bdd44a-50ca-494f-89ff-a9bf2b4c2c5f",
+            "page": null
+          },
+          {
+            "recordId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "f9a6b8f2-fb3d-490a-8e39-3a45ef8cf39a",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [
+          "Whether it covers everything the project needs has not been confirmed."
+        ],
+        "needsHumanReview": true
+      },
+      "status": "rejected",
+      "rejectionReason": "internal_vocabulary",
+      "rawOutput": "{\"answer\":\"Your project 'Sample Project North' is currently BLOCKED by one critical finding: the contract rate schedule is missing from the 'Sample Debris Removal Contract' (B, C). Without a rate schedule linked to the contract, billed rates cannot be checked against contract pricing.\\n\\nHere is the good news: a candidate document already exists in your project — 'Sample Unit Price Sheet' (D) — which is a pricing schedule and is already processed and marked as governing for the rate_sheet family. However, it has not yet been linked to the governing contract ('Sample Debris Removal Contract'). That missing relationship is what is blocking the project.\\n\\nIn short: the pricing schedule document you need appears to already be in the project, but it has not been connected to the contract as its rate schedule. Establishing that link is the next step to clear the block.\",\"nextStepKind\":\"link_existing_document\",\"nextStepInstruction\":\"Open the 'Sample Debris Removal Contract' and link 'Sample Unit Price Sheet' to it as the contract's rate schedule. This will resolve the critical finding and unblock the project.\",\"citations\":[\"B\",\"C\",\"D\"],\"missingInformation\":[\"Whether the 'Sample Unit Price Sheet' actually covers all the unit rates and line items referenced in the 'Sample Debris Removal Contract' has not been confirmed — only that the document exists and is unlinked.\"],\"confidence\":\"high\"}",
+      "stopReason": "end_turn",
+      "returnedModel": "claude-sonnet-4-6",
+      "providerRequestId": "req_011CgfEB8EbgSZgmMC6SWNVe",
+      "inputTokens": 2002,
+      "outputTokens": 321,
+      "latencyMs": 8537.959499999997,
+      "costUsd": 0.010821,
+      "failure": {
+        "failureClass": "output_rejected",
+        "reachedProvider": true,
+        "httpStatus": null,
+        "providerErrorType": null,
+        "providerRequestId": "req_011CgfEB8EbgSZgmMC6SWNVe"
+      }
+    },
+    {
+      "caseId": "action-03",
+      "allowedNextSteps": [
+        "likely_system_issue",
+        "review_existing_document",
+        "operator_judgment_required"
+      ],
+      "requestBodySha256": "dedd0f33d4ce83440f0513fe8755efa6a5f4f6b5b8b63adbab6f375909a131ba",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "what_to_do",
+        "evidenceState": "likely_system_issue",
+        "answer": "The pricing schedule is in this project as \"Sample Unit Price Sheet\", and it has been read and linked, yet this is still flagged. This looks like an issue on the EightForge side rather than something missing from your project.",
+        "recommendedNextStep": {
+          "kind": "likely_system_issue",
+          "instruction": "Check that \"Sample Unit Price Sheet\" shows what you expect. If it does, report this to your EightForge contact.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "d73f3acf-1581-4970-8e42-c0ab2647fbf7",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          },
+          {
+            "recordId": "5022abf4-38ef-4bcd-857d-0c30b625ba28",
+            "sectionKind": "documents",
+            "label": "Sample Unit Price Sheet",
+            "documentId": "5022abf4-38ef-4bcd-857d-0c30b625ba28",
+            "page": null
+          },
+          {
+            "recordId": "553c242d-012e-4881-835b-da82334ffa45",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          }
+        ],
+        "confidence": "low",
+        "missingInformation": [
+          "The reason EightForge still flags this has not been established."
+        ],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "what_to_do",
+        "evidenceState": "likely_system_issue",
+        "answer": "The pricing schedule is in this project as \"Sample Unit Price Sheet\", and it has been read and linked, yet this is still flagged. This looks like an issue on the EightForge side rather than something missing from your project.",
+        "recommendedNextStep": {
+          "kind": "likely_system_issue",
+          "instruction": "Check that \"Sample Unit Price Sheet\" shows what you expect. If it does, report this to your EightForge contact.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "d73f3acf-1581-4970-8e42-c0ab2647fbf7",
+            "sectionKind": "validator_findings",
+            "label": "Contract rate schedule not found",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          },
+          {
+            "recordId": "5022abf4-38ef-4bcd-857d-0c30b625ba28",
+            "sectionKind": "documents",
+            "label": "Sample Unit Price Sheet",
+            "documentId": "5022abf4-38ef-4bcd-857d-0c30b625ba28",
+            "page": null
+          },
+          {
+            "recordId": "553c242d-012e-4881-835b-da82334ffa45",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "553c242d-012e-4881-835b-da82334ffa45",
+            "page": null
+          }
+        ],
+        "confidence": "low",
+        "missingInformation": [
+          "The reason EightForge still flags this has not been established."
+        ],
+        "needsHumanReview": true
+      },
+      "status": "rejected",
+      "rejectionReason": "internal_vocabulary",
+      "rawOutput": "{\"answer\":\"Sample Project East is currently BLOCKED by one critical finding: \\\"Contract rate schedule not found\\\" on the Sample Debris Removal Contract.\\n\\nThe finding states that the contract is priced by unit rates, but no rate schedule was found linked to the contract's pricing data, so billed rates cannot be checked against contract pricing. The required action per the finding is to attach or extract the contract rate schedule before reviewing billed rates.\\n\\nHowever, the evidence assessment indicates this is likely a system issue rather than a genuine missing document. Here is why:\\n\\n- The Sample Unit Price Sheet is already present in the project as a governing pricing schedule document.\\n- It has already been processed and decisioned.\\n- It is already linked to the Sample Debris Removal Contract via an \\\"attached_to\\\" relationship.\\n- Its authority status is settled (not unsettled).\\n\\nIn other words, the document that should satisfy the rate schedule requirement — the Sample Unit Price Sheet — appears to already be in place and connected to the contract. Despite this, the system is still flagging the rate schedule as missing. The reason EightForge continues to flag this has not been established, which is why this is assessed as a likely system issue.\\n\\nThere are no other open findings on this project.\",\"nextStepKind\":\"likely_system_issue\",\"nextStepInstruction\":\"Open the Sample Unit Price Sheet and the Sample Debris Removal Contract and confirm that the rate schedule link between them is correctly recorded; if everything looks correct on your end, this may need to be escalated as a system issue since the finding persists despite the pricing schedule being present and linked.\",\"citations\":[\"A\",\"B\",\"C\",\"D\",\"E\"],\"missingInformation\":[\"The specific reason EightForge still flags the rate schedule as missing has not been established, even though the Sample Unit Price Sheet is present, processed, and linked to the Sample Debris Removal Contract.\"],\"confidence\":\"medium\"}",
+      "stopReason": "end_turn",
+      "returnedModel": "claude-sonnet-4-6",
+      "providerRequestId": "req_011CgfEBkoHZZm2Vv7Vpaupb",
+      "inputTokens": 2062,
+      "outputTokens": 433,
+      "latencyMs": 10979.926899999991,
+      "costUsd": 0.012681,
+      "failure": {
+        "failureClass": "output_rejected",
+        "reachedProvider": true,
+        "httpStatus": null,
+        "providerErrorType": null,
+        "providerRequestId": "req_011CgfEBkoHZZm2Vv7Vpaupb"
+      }
+    },
+    {
+      "caseId": "action-04",
+      "allowedNextSteps": [
+        "operator_judgment_required",
+        "review_existing_document"
+      ],
+      "requestBodySha256": "ab2b61083ef68e1c49eeca8aaebdaa9816e1dd5d44ab5f04cec7b5bbd82dc8c0",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "what_to_do",
+        "evidenceState": "not_a_source_gap",
+        "answer": "This project is flagged for: Repeated ticket has conflicting values. 7 other open findings are listed for this project as well.",
+        "recommendedNextStep": {
+          "kind": "operator_judgment_required",
+          "instruction": "Review the cited records and decide on the finding through its own workflow.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "403f88a4-f7f3-40a7-8ead-dad1aeaef547",
+            "sectionKind": "validator_findings",
+            "label": "Repeated ticket has conflicting values",
+            "documentId": "fixture-tickets",
+            "page": null
+          },
+          {
+            "recordId": "fixture-tickets",
+            "sectionKind": "documents",
+            "label": "Sample Ticket Export",
+            "documentId": "fixture-tickets",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "what_to_do",
+        "evidenceState": "not_a_source_gap",
+        "answer": "This project is flagged for: Repeated ticket has conflicting values. 7 other open findings are listed for this project as well.",
+        "recommendedNextStep": {
+          "kind": "operator_judgment_required",
+          "instruction": "Review the cited records and decide on the finding through its own workflow.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "403f88a4-f7f3-40a7-8ead-dad1aeaef547",
+            "sectionKind": "validator_findings",
+            "label": "Repeated ticket has conflicting values",
+            "documentId": "fixture-tickets",
+            "page": null
+          },
+          {
+            "recordId": "fixture-tickets",
+            "sectionKind": "documents",
+            "label": "Sample Ticket Export",
+            "documentId": "fixture-tickets",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [],
+        "needsHumanReview": true
+      },
+      "status": "rejected",
+      "rejectionReason": "unsupported_number",
+      "rawOutput": "{\"answer\":\"Your project **Sample Project Conflict** is currently BLOCKED with 8 open findings — 3 critical and 5 warnings. None of these are gaps that can be fixed by uploading additional documents; each one requires you to review and correct data in the existing records.\\n\\n**Critical findings (block the project):**\\n\\n1. **TKT-1 extended_cost conflict** (B): Ticket TKT-1 in the Sample Ticket Export appears more than once with two different extended_cost values — 3125 vs 5000. Neither value has been selected as correct, so any totals that depend on this ticket are unreliable.\\n\\n2. **TKT-1 transaction_quantity conflict** (C): The same ticket TKT-1 also has two conflicting transaction_quantity values — 250 vs 400. This is a separate conflict on the same ticket row and must be resolved independently.\\n\\n3. **No transaction support for billed line INV1001::HAUL015** (D): Sample Invoice 7 contains a billed line for rate group INV1001::HAUL015, but no matching transaction records were found to support it. The billed work has no backup in the ticket data currently loaded.\\n\\n**Warnings (do not block, but put $5,000 at risk):**\\n\\n4. **Project billing not fully supported** (E): The total fully reconciled amount is 0 against an expected 5000.\\n\\n5. **Invoice has billed dollars at risk** (F): The at-risk amount on Sample Invoice 7 is 5000 against an expected 0.\\n\\n6. **Work category needs confirmation** (G): The canonical work category for a billed line on Sample Invoice 7 is unresolved, so automated rate comparison cannot proceed.\\n\\n7. **Project has billed dollars at risk** (H): Total at-risk amount across the project is 5000 against an expected 0.\\n\\n8. **Invoice not fully supported** (I): The supported amount on Sample Invoice 7 is 0 against an expected 5000.\\n\\n**Where to start:** The two TKT-1 conflicts (B, C) are the most foundational. Go back to your source ticket records and determine which values for TKT-1 are correct — the extended_cost (3125 or 5000) and the transaction_quantity (250 or 400) — then correct the wrong row in the Sample Ticket Export. Resolving those conflicts will likely affect the downstream support and at-risk calculations as well. After that, address the missing transaction support for INV1001::HAUL015 (D) by confirming whether matching ticket records exist and loading them if so.\",\"nextStepKind\":\"review_existing_document\",\"nextStepInstruction\":\"Open the Sample Ticket Export and locate the two rows for TKT-1. Compare them against your original source data to determine which extended_cost value (3125 or 5000) and which transaction_quantity value (250 or 400) is correct, then correct the wrong row.\",\"citations\":[\"A\",\"B\",\"C\",\"D\",\"E\",\"F\",\"G\",\"H\",\"I\",\"L\",\"M\"],\"missingInformation\":[\"It is not yet known which of the two extended_cost values for TKT-1 (3125 or 5000) is correct — that requires checking the original source ticket records outside this project.\",\"It is not yet known which of the two transaction_quantity values for TKT-1 (250 or 400) is correct — same source check required.\",\"It is not yet known whether transaction records exist for billed line INV1001::HAUL015 and simply have not been loaded, or whether no such records exist at all.\",\"The canonical work category for the billed line on Sample Invoice 7 is unresolved; the correct category is not determinable from the current project records.\"],\"confidence\":\"high\"}",
+      "stopReason": "end_turn",
+      "returnedModel": "claude-sonnet-4-6",
+      "providerRequestId": "req_011CgfECZtUtzB39HbSZJY6w",
+      "inputTokens": 4175,
+      "outputTokens": 912,
+      "latencyMs": 20578.93829999998,
+      "costUsd": 0.026205,
+      "failure": {
+        "failureClass": "output_rejected",
+        "reachedProvider": true,
+        "httpStatus": null,
+        "providerErrorType": null,
+        "providerRequestId": "req_011CgfECZtUtzB39HbSZJY6w"
+      }
+    },
+    {
+      "caseId": "action-05",
+      "allowedNextSteps": [
+        "review_ticket_or_transaction",
+        "review_existing_document",
+        "operator_judgment_required"
+      ],
+      "requestBodySha256": "eb68c48a6deba20e44f0e006ca7785869a3bc45e431159d817968a50a5a1bcc7",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "what_to_do",
+        "evidenceState": "not_a_source_gap",
+        "answer": "This project is flagged for: Billed amount differs from transactions. 2 other open findings are listed for this project as well.",
+        "recommendedNextStep": {
+          "kind": "review_ticket_or_transaction",
+          "instruction": "Compare the flagged lines with their tickets or transactions.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "583f809d-1ecd-4eb3-8395-5631ebb69707",
+            "sectionKind": "validator_findings",
+            "label": "Billed amount differs from transactions",
+            "documentId": "fixture-invoice",
+            "page": null
+          },
+          {
+            "recordId": "fixture-invoice",
+            "sectionKind": "documents",
+            "label": "Sample Invoice 7",
+            "documentId": "fixture-invoice",
+            "page": null
+          },
+          {
+            "recordId": "fixture-tickets",
+            "sectionKind": "documents",
+            "label": "Sample Ticket Export",
+            "documentId": "fixture-tickets",
+            "page": null
+          },
+          {
+            "recordId": "fixture-contract",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "fixture-contract",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [],
+        "needsHumanReview": true
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "what_to_do",
+        "evidenceState": "not_a_source_gap",
+        "answer": "This project is flagged for: Billed amount differs from transactions. 2 other open findings are listed for this project as well.",
+        "recommendedNextStep": {
+          "kind": "review_ticket_or_transaction",
+          "instruction": "Compare the flagged lines with their tickets or transactions.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "583f809d-1ecd-4eb3-8395-5631ebb69707",
+            "sectionKind": "validator_findings",
+            "label": "Billed amount differs from transactions",
+            "documentId": "fixture-invoice",
+            "page": null
+          },
+          {
+            "recordId": "fixture-invoice",
+            "sectionKind": "documents",
+            "label": "Sample Invoice 7",
+            "documentId": "fixture-invoice",
+            "page": null
+          },
+          {
+            "recordId": "fixture-tickets",
+            "sectionKind": "documents",
+            "label": "Sample Ticket Export",
+            "documentId": "fixture-tickets",
+            "page": null
+          },
+          {
+            "recordId": "fixture-contract",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "fixture-contract",
+            "page": null
+          }
+        ],
+        "confidence": "medium",
+        "missingInformation": [],
+        "needsHumanReview": true
+      },
+      "status": "rejected",
+      "rejectionReason": "unsupported_number",
+      "rawOutput": "{\"answer\":\"Your project **Sample Project Tickets** is currently **BLOCKED** with 3 open findings on **Sample Invoice 7**, all requiring your attention before the project can move forward.\\n\\n---\\n\\n**Critical Finding 1 – Billed amount differs from transactions (blocks project)**\\nThe extended cost recorded on the invoice is **10,000**, but the total of the supporting transactions is **5,000**. These two values must be reconciled. You need to either correct the billed line total on the invoice or identify additional transaction support that accounts for the difference.\\n\\n**Critical Finding 2 – Billed quantity differs from transactions (blocks project)**\\nThe quantity recorded on the invoice is **800**, but the transaction quantity totals **400**. As with the cost discrepancy, you need to confirm which figure is correct and bring the invoice and transaction records into agreement.\\n\\n**Warning Finding 3 – Work category needs confirmation (does not block project)**\\nThe work category for the billed line was recorded as **transport**, but a confident canonical category could not be determined. Until this is confirmed, automated rate comparison cannot proceed for this line.\\n\\n---\\n\\n**What the assessment tells you:** All three findings are data reconciliation issues — they are not caused by missing source documents. The records needed to resolve them (the invoice and the ticket/transaction export) are already in the project. The discrepancies need to be reviewed and corrected in the underlying records or explained through a decision.\\n\\nThe two critical findings are what is blocking the project. Start there.\",\"nextStepKind\":\"review_ticket_or_transaction\",\"nextStepInstruction\":\"Open Sample Invoice 7 and the Sample Ticket Export side by side. Compare the billed extended cost (10,000) and billed quantity (800) against the transaction totals (5,000 and 400 respectively) to determine which record contains the error, then correct or document the discrepancy.\",\"citations\":[\"A\",\"B\",\"C\",\"D\",\"G\",\"H\"],\"missingInformation\":[\"It is not yet clear whether the cost and quantity discrepancies on Sample Invoice 7 are due to a data entry error on the invoice, duplicate ticket entries, or a legitimate billing adjustment — reviewing the ticket export detail is needed to determine the cause.\",\"The correct canonical work category for the transport line has not been confirmed, so it is unknown whether the billed rate can be verified against the contract rate schedule.\"],\"confidence\":\"high\"}",
+      "stopReason": "end_turn",
+      "returnedModel": "claude-sonnet-4-6",
+      "providerRequestId": "req_011CgfEE5sos1ndPmaHzws9v",
+      "inputTokens": 2455,
+      "outputTokens": 555,
+      "latencyMs": 14743.50390000001,
+      "costUsd": 0.01569,
+      "failure": {
+        "failureClass": "output_rejected",
+        "reachedProvider": true,
+        "httpStatus": null,
+        "providerErrorType": null,
+        "providerRequestId": "req_011CgfEE5sos1ndPmaHzws9v"
+      }
+    },
+    {
+      "caseId": "action-06",
+      "allowedNextSteps": [
+        "no_action_needed"
+      ],
+      "requestBodySha256": "717561583840f9ac7fa10cfefc5e3723c7a35e01deaf3c07a5ec024645f580c3",
+      "floor": {
+        "authority": "non_authoritative",
+        "method": "deterministic",
+        "intent": "what_to_do",
+        "evidenceState": "no_open_findings",
+        "answer": "Validation has run and this project has no open findings, so nothing currently indicates a missing document or a required action.",
+        "recommendedNextStep": {
+          "kind": "no_action_needed",
+          "instruction": "Nothing is required right now.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "c2bbbfea-0512-49c0-8968-f9d733000799",
+            "sectionKind": "project_identity",
+            "label": "Sample Project West",
+            "documentId": null,
+            "page": null
+          }
+        ],
+        "confidence": "high",
+        "missingInformation": [],
+        "needsHumanReview": false
+      },
+      "shown": {
+        "authority": "non_authoritative",
+        "method": "model_reasoned",
+        "intent": "what_to_do",
+        "evidenceState": "no_open_findings",
+        "answer": "Sample Project West is in a clean state. The project has been validated, there are zero open findings, and the one document on file — the Sample Debris Removal Contract (a governing base contract) — has been fully processed and decisioned. There is nothing outstanding that requires your attention right now.",
+        "recommendedNextStep": {
+          "kind": "no_action_needed",
+          "instruction": "No action is required. Monitor the project for any new documents or changes that may need review in the future.",
+          "actionHref": null
+        },
+        "evidenceRefs": [
+          {
+            "recordId": "c2bbbfea-0512-49c0-8968-f9d733000799",
+            "sectionKind": "project_identity",
+            "label": "Sample Project West",
+            "documentId": null,
+            "page": null
+          },
+          {
+            "recordId": "bcabeb2c-47e1-4f9b-8bff-a25e807eb970",
+            "sectionKind": "documents",
+            "label": "Sample Debris Removal Contract",
+            "documentId": "bcabeb2c-47e1-4f9b-8bff-a25e807eb970",
+            "page": null
+          }
+        ],
+        "confidence": "high",
+        "missingInformation": [],
+        "needsHumanReview": false
+      },
+      "status": "accepted",
+      "rejectionReason": null,
+      "rawOutput": "{\"answer\":\"Sample Project West is in a clean state. The project has been validated, there are zero open findings, and the one document on file — the Sample Debris Removal Contract (a governing base contract) — has been fully processed and decisioned. There is nothing outstanding that requires your attention right now.\",\"nextStepKind\":\"no_action_needed\",\"nextStepInstruction\":\"No action is required. Monitor the project for any new documents or changes that may need review in the future.\",\"citations\":[\"A\",\"B\"],\"missingInformation\":[],\"confidence\":\"high\"}",
+      "stopReason": "end_turn",
+      "returnedModel": "claude-sonnet-4-6",
+      "providerRequestId": "req_011CgfEFAvgez2V8oDXW4WzG",
+      "inputTokens": 1320,
+      "outputTokens": 128,
+      "latencyMs": 3783.8914000000223,
+      "costUsd": 0.00588
+    }
+  ]
+}

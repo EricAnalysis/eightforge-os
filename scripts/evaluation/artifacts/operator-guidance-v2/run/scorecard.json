@@ -1,0 +1,50 @@
+{
+  "scorer": "operator_guidance_scorecard_v1",
+  "barsDigest": "24ceb1cff37eb54bb879e5f6f60a999a95628e7a1b2b1fe9f9a0e8ba8f3c5e8e",
+  "verdict": "FAIL_HARD_CORRECTNESS",
+  "calls": 24,
+  "accepted": 14,
+  "fallback": 10,
+  "acceptedRate": 0.5833333333333334,
+  "fallbackRate": 0.4166666666666667,
+  "fallbackReasons": {
+    "internal_vocabulary": 4,
+    "unsupported_number": 6
+  },
+  "violations": [
+    {
+      "caseId": "document-03",
+      "codes": [
+        "authority_escalation"
+      ]
+    },
+    {
+      "caseId": "document-04",
+      "codes": [
+        "authority_escalation"
+      ]
+    },
+    {
+      "caseId": "document-05",
+      "codes": [
+        "obtain_source_already_present"
+      ]
+    },
+    {
+      "caseId": "flagged-05",
+      "codes": [
+        "authority_escalation"
+      ]
+    }
+  ],
+  "spendUsd": 0.322119,
+  "latencyMs": {
+    "median": 10485.7013,
+    "p95": 19452.19159999999,
+    "max": 20578.93829999998
+  },
+  "tokens": {
+    "input": 52913,
+    "output": 10892
+  }
+}

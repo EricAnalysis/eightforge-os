@@ -1,0 +1,51 @@
+{
+  "classification": "OPERATOR GUIDANCE V2 = FAIL_HARD_CORRECTNESS",
+  "status": "failed",
+  "isVoid": false,
+  "contract": "operator_guidance_qualification_v2",
+  "freezeSha256": "6cf9635567ef5f4278f3604134dd2e96ec0257446fd2c1e1b9f714aa64556f0c",
+  "freezeCommit": "a8b0534b4b483cc80d38c40ab2ea943afd4e80d0",
+  "model": "claude-sonnet-4-6",
+  "startedAt": "2026-11-03T02:41:37.020Z",
+  "reason": "The run is complete and every model answered. Four accepted answers carried hard-bar hits, so the frozen scorecard verdict stands. It is a real failure, not a void, and it is not reinterpreted.",
+  "counts": {
+    "calls": 24,
+    "modelAnswers": 24,
+    "reachedProvider": 24,
+    "providerFailures": 0,
+    "accepted": 14,
+    "rejected": 10,
+    "casesWithHardViolations": 4
+  },
+  "spendUsd": 0.322119,
+  "diagnosis": {
+    "state": "MIXED",
+    "method": "Read-only replay of the frozen checks over the sealed answers. No rerun, no provider call, and no human grading.",
+    "doesNotChangeVerdict": true,
+    "hardBarHits": [
+      { "caseId": "document-05", "code": "obtain_source_already_present", "reading": "genuine_model_error", "detail": "Steers toward re-uploading a source already in the project. Reprocessing was never in the context, which contributed." },
+      { "caseId": "document-03", "code": "authority_escalation", "reading": "scorer_false_positive", "detail": "\"check whether ... now resolved\"" },
+      { "caseId": "document-04", "code": "authority_escalation", "reading": "scorer_false_positive", "detail": "\"before billed work can be approved\". Separately, its advice that a contract link may be required is unsupported." },
+      { "caseId": "flagged-05", "code": "authority_escalation", "reading": "scorer_false_positive", "detail": "\"before any invoices ... can be approved\"" }
+    ],
+    "firstFailureMasking": "The validator stops at its first failure. The scorecard reports 6 unsupported_number and 4 internal_vocabulary, but vocabulary hits all 10 rejected answers and numbers hit 6.",
+    "numbers": "No number was invented. The 6 rejections were 3 ordinals or list markers (2) and 3 correct derived counts (5). The check also passes digits that exist only inside UUIDs.",
+    "projectionFromProvenValidatorFixesOnly": { "accepted": 17, "of": 24, "rate": 0.7083, "belowBar": true }
+  },
+  "evidence": {
+    "path": "scripts/evaluation/artifacts/operator-guidance-v2/run/",
+    "originalLocation": "untracked in the worktree at commit a8b0534; copied byte for byte, original untouched",
+    "sha256": {
+      "SHA256SUMS.txt": "42635e070d610a104e603521db99e6a4192fe0a3e20af66dd347c222dd16099d",
+      "freeze.json": "172cf8590fb73d2c047a63356993a0f35491f05ac418388ce2aac6a707be1c50",
+      "records.json": "3c4d760be5e7b438a87c20528b547009f291b5b8ab3847ba9105f4e674f99450",
+      "run-health.json": "aa4897c7f7c9cf0ff9b53ae044493b377c64eae776a811f7b0e809489cbf5acd",
+      "scorecard.json": "e91e2f69386c5b3467820086f3fa5ca1e80eeaea128b49ed1eabbadbdb77068e",
+      "started.json": "2a07d61a5903e41bc101e3033d5b810ea91f07e4087b1b6f9e3f5a230a5c7d0a"
+    }
+  },
+  "evidenceLimits": [
+    "The readings in diagnosis are one author's replay, not independent review. Usefulness and invented facts were not graded."
+  ],
+  "successor": "operator_guidance_qualification_v3"
+}

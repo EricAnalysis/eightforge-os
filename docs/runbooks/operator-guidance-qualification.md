@@ -16,6 +16,24 @@ v2 is the same benchmark, not a redesign: the same 24 cases, fixtures, labels, p
 bars, model, timeout, no-retry policy and spend ceiling. What differs is the code it runs on and
 the failure classes it records. `preflight` stops if any v1 request, floor, bar or label differs.
 
+## v2 failed
+
+`OPERATOR GUIDANCE V2 = FAIL_HARD_CORRECTNESS`. One run on 2026-11-03 UTC from `a8b0534`: 24 calls, 24
+model answers, 14 accepted, 10 rejected, $0.3221, no provider failures. This is a real failure, not a
+void. The evidence and the record are in `scripts/evaluation/artifacts/operator-guidance-v2/` (`run/`
+and `RESULT.json`). `run/` is sealed: it is never rerun or rewritten.
+
+A read-only replay reads the failure as `MIXED`, and that does not change the verdict:
+
+- **Real:** `document-05` steered toward re-uploading a source already in the project.
+- **Scorer false positives:** the three `authority_escalation` hits, on "whether ... now resolved" and
+  "before ... can be approved".
+- **Rejections:** the validator stops at its first failure, so vocabulary hit all 10 rejected answers,
+  not the 4 the scorecard counts. No number was invented.
+- **Fixing only proven validator defects** gives 17 of 24, still below the bar.
+
+Any correction needs a new contract and new held-out cases, because these answers informed it.
+
 ## What is being tested
 
 Whether an answer that gets past validation is ever wrong, and whether enough answers

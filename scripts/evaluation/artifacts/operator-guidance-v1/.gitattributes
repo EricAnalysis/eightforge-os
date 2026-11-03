@@ -1,0 +1,2 @@
+# Evidence of the voided v1 attempt: its digests hold only if git never rewrites its bytes.
+run/** -text

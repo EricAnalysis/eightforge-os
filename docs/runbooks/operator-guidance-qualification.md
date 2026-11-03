@@ -1,9 +1,20 @@
 # Operator guidance qualification
 
 Pre-registered and frozen before any provider call. Contract
-`operator_guidance_qualification_v1`, request contract
+`operator_guidance_qualification_v2`, request contract
 `project_ask_operator_guidance_v1`, on `claude-sonnet-4-6`. Design:
 [forgewing-project-intelligence](../architecture/forgewing-project-intelligence.md).
+
+## v1 is void
+
+`OPERATOR GUIDANCE V1 = VOID / PRE-PROVIDER FAILURE`, by owner decision on 2026-11-02. Its one
+attempt had 24 failed calls and no model answers, so it says nothing about the model and is not
+a qualification fail. The evidence and the reason are kept in
+`scripts/evaluation/artifacts/operator-guidance-v1/` (`run/` and `VOID.json`).
+
+v2 is the same benchmark, not a redesign: the same 24 cases, fixtures, labels, prompt, validators,
+bars, model, timeout, no-retry policy and spend ceiling. What differs is the code it runs on and
+the failure classes it records. `preflight` stops if any v1 request, floor, bar or label differs.
 
 ## What is being tested
 
@@ -83,8 +94,29 @@ operator as a wrong answer. Changing it needs a new contract.
 ## Run rules
 
 Exactly one 24-call run. No selective retries, replacement cases, exclusions, or changes to the
-prompt, labels, validators or thresholds after seeing output. The evidence directory must not
-already exist, so a second run needs a new contract.
+prompt, labels, validators or thresholds after seeing output. The run writes only to
+`scripts/evaluation/artifacts/operator-guidance-v2/run`, which must not already exist, so a second
+run needs a new contract.
+
+## When a call fails
+
+Each failed call records a fixed class and nothing else: never a message, a response body or a key.
+
+| Class | Meaning |
+| --- | --- |
+| `pre_provider_credential` | No usable key on this machine |
+| `pre_provider_connection` | The provider never answered |
+| `provider_authentication`, `provider_permission` | Key refused, or not allowed |
+| `provider_billing` | Credits or billing |
+| `provider_rate_limited`, `provider_unavailable` | Too many requests, or a provider outage |
+| `provider_invalid_request`, `provider_model_not_found` | The request or model was refused: a defect to fix, not a model result |
+| `timeout` | Project Ask's 45 s bound, or a provider timeout |
+| `local_error`, `local_validation_error` | Failed on this machine |
+| `output_rejected` | The model answered and validation refused it; `rejectionReason` holds the code |
+
+Failures still count against the fallback bar, as they always have. `run-health.json` says how many
+models answered. **If none did, the scorecard's verdict is not a model result:** take the classes to
+the owner, who decides whether that run is void, as with v1.
 
 ## Commands
 
@@ -92,21 +124,21 @@ already exist, so a second run needs a new contract.
 refuses `ANTHROPIC_BASE_URL`, so calls go directly to the provider. `grade` makes no calls.
 
 ```text
-npx vite-node --config vitest.config.ts scripts/evaluation/operator-guidance/qualify.ts -- preflight --out scripts/evaluation/artifacts/operator-guidance-v1/freeze.json
-npx vite-node --config vitest.config.ts scripts/evaluation/operator-guidance/qualify.ts -- run --freeze scripts/evaluation/artifacts/operator-guidance-v1/freeze.json --out <evidence dir> --confirm-paid-run
-npx vite-node --config vitest.config.ts scripts/evaluation/operator-guidance/qualify.ts -- grade --freeze scripts/evaluation/artifacts/operator-guidance-v1/freeze.json --run <evidence dir>
+npx vite-node --config vitest.config.ts scripts/evaluation/operator-guidance/qualify.ts -- preflight --out scripts/evaluation/artifacts/operator-guidance-v2/freeze.json
+npx vite-node --config vitest.config.ts scripts/evaluation/operator-guidance/qualify.ts -- run --freeze scripts/evaluation/artifacts/operator-guidance-v2/freeze.json --out scripts/evaluation/artifacts/operator-guidance-v2/run --confirm-paid-run
+npx vite-node --config vitest.config.ts scripts/evaluation/operator-guidance/qualify.ts -- grade --freeze scripts/evaluation/artifacts/operator-guidance-v2/freeze.json --run scripts/evaluation/artifacts/operator-guidance-v2/run
 ```
 
 ## Where the paid run happens
 
-From frozen commit `9b5b97f`, in a checkout of exactly that commit. The contract pins its
-source files, and later work on `main` edits some of them, so `qualify.ts run` on `main`
-refuses by design. That refusal stays. Do not refreeze to get past it.
+From the commit that merged the v2 freeze, in a checkout of exactly that commit. The contract pins
+its source files, so once later work on `main` edits one, `qualify.ts run` refuses there by design.
+That refusal stays. Do not refreeze to get past it.
 
 The result still applies to `main` because `lib/evaluation/operatorGuidance/frozenRequests.test.ts`
 proves `main` builds all 24 requests and floors byte for byte as frozen. Ticket context is planned
 from a question's words only, and none of the 24 questions names tickets, so it never joins them.
-If that test ever fails, a result from `9b5b97f` no longer describes `main`.
+If that test ever fails, a result from the freeze commit no longer describes `main`.
 
 **What this does not cover:** answers to ticket questions. Their requests carry a section the
 contract never saw, so qualification does not speak for them and they need their own review

@@ -128,7 +128,8 @@ person checks it before asking anyone. Everything stays non-authoritative and re
 
 ## Known gaps
 
-- The live provider path is unexercised, and no qualification has been run.
+- The live provider path is unexercised: no model has answered a qualification case. The v1
+  attempt is void, and v2 is frozen and not yet run.
 - Guidance answers and signals are stored as content-free rows
   (`project_intelligence_guidance_events`, `project_intelligence_signals`), read only by the
   platform-gated signals route. Cost is not stored: it is tokens at the price of the day.

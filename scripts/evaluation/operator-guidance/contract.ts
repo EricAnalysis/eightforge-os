@@ -17,6 +17,7 @@ import {
 import { CLAUDE_REQUEST_OPTIONS } from '@/lib/server/ai/claudeRequestOptions';
 import { unsupportedNumbers } from '@/lib/server/caseInvestigationRunner';
 
+import type { GuidanceFailure } from './failureClass';
 import type { GuidanceCaseLabel } from './labels';
 
 /**
@@ -27,7 +28,12 @@ import type { GuidanceCaseLabel } from './labels';
  * stays the floor. A rejected answer is a reliability cost, never a wrong answer.
  */
 
-export const GUIDANCE_QUALIFICATION_CONTRACT = 'operator_guidance_qualification_v1';
+export const GUIDANCE_QUALIFICATION_CONTRACT = 'operator_guidance_qualification_v2';
+/** Voided without evidence about the model: see its VOID.json. Everything measured carries forward unchanged. */
+export const GUIDANCE_SUPERSEDED_CONTRACT = 'operator_guidance_qualification_v1';
+export const GUIDANCE_V1_ARTIFACT_DIR = 'scripts/evaluation/artifacts/operator-guidance-v1';
+/** The one place this contract's single run may write. */
+export const GUIDANCE_RUN_DIR = 'scripts/evaluation/artifacts/operator-guidance-v2/run';
 export const GUIDANCE_QUALIFICATION_MODEL = 'claude-sonnet-4-6';
 
 /** Published Claude Sonnet 4.6 list prices, USD per million tokens. */
@@ -62,6 +68,7 @@ export const GUIDANCE_PINNED_SOURCES = Object.freeze([
   'lib/projectIntelligence/evidenceAssessment.ts',
   'lib/projectIntelligence/operatorRecommendation.ts',
   'lib/projectIntelligence/projectContext.ts',
+  'lib/projectIntelligence/transactionContext.ts',
   'lib/server/ai/askModel.ts',
   'lib/server/ai/askProject.ts',
   'lib/server/ai/claudeRequestOptions.ts',
@@ -70,12 +77,30 @@ export const GUIDANCE_PINNED_SOURCES = Object.freeze([
   'lib/server/caseInvestigationRunner.ts',
   'lib/server/documentPrecedence.ts',
   'lib/server/projectIntelligenceRead.ts',
+  'lib/server/projectIntelligenceRecords.ts',
+  'lib/server/transactionDataPersistence.ts',
   'lib/validator/projectValidator.ts',
   'lib/validator/ruleExplanations.ts',
   'scripts/evaluation/operator-guidance/contract.ts',
   'scripts/evaluation/operator-guidance/corpus.ts',
+  'scripts/evaluation/operator-guidance/failureClass.ts',
   'scripts/evaluation/operator-guidance/harness.ts',
   'scripts/evaluation/operator-guidance/labels.ts',
+  'scripts/evaluation/operator-guidance/qualify.ts',
+]);
+
+/**
+ * The v1 pins main may have moved past, each because of work that cannot reach the 24
+ * requests: the ticket section and the durable records. Any other pin moving stops the
+ * freeze, and the harness files here carry only the new identity and failure classes.
+ */
+export const GUIDANCE_V1_PINS_ALLOWED_TO_CHANGE: readonly string[] = Object.freeze([
+  'app/api/projects/[id]/ask/route.ts',
+  'lib/projectIntelligence/contextPlan.ts',
+  'lib/projectIntelligence/operatorRecommendation.ts',
+  'lib/projectIntelligence/projectContext.ts',
+  'lib/server/projectIntelligenceRead.ts',
+  'scripts/evaluation/operator-guidance/contract.ts',
 ]);
 
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -130,6 +155,8 @@ export type GuidanceRunRecord = Readonly<{
   /** What the operator would see: the model's answer, or the floor. */
   shown: OperatorRecommendation;
   floor: OperatorRecommendation;
+  /** Why this call gave no accepted answer, in closed vocabulary. Absent when accepted or not called. */
+  failure?: GuidanceFailure;
 }>;
 
 export const HARD_BAR_CODES = [

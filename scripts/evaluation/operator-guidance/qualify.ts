@@ -17,10 +17,12 @@ import path from 'node:path';
 
 import { QUALIFICATION_CASES, PROJECT_FIXTURES, type QualificationCase } from './corpus';
 import {
-  costUsd, GUIDANCE_BARS, GUIDANCE_PRICING, GUIDANCE_QUALIFICATION_CONTRACT, GUIDANCE_QUALIFICATION_MODEL, guidanceBarsDigest,
+  costUsd, GUIDANCE_BARS, GUIDANCE_PRICING, GUIDANCE_QUALIFICATION_CONTRACT, GUIDANCE_QUALIFICATION_MODEL, GUIDANCE_RUN_DIR,
+  GUIDANCE_SUPERSEDED_CONTRACT, GUIDANCE_V1_ARTIFACT_DIR, GUIDANCE_V1_PINS_ALLOWED_TO_CHANGE, guidanceBarsDigest,
   pinnedSourceDigests, requestShapeIdentity, scoreGuidanceQualification, worstCaseCallUsd,
   type CaseEvidence, type GuidanceRunRecord,
 } from './contract';
+import { classifyGuidanceCallFailure, guidanceStatusForFailure } from './failureClass';
 import { DECOY_MARKER, materializeCase, type MaterializedCase } from './harness';
 import { GUIDANCE_LABEL_SET_VERSION, GUIDANCE_LABELS, guidanceLabelSetDigest } from './labels';
 import { hashCanonical } from '@/lib/extraction/domain/hash';
@@ -47,6 +49,45 @@ function caseEvidence(item: MaterializedCase): CaseEvidence {
     symbols: item.symbols,
     contextLabels: item.approvedContext.sections.flatMap((section) => section.records.map((record) => record.label)),
     decoyMarker: DECOY_MARKER,
+  };
+}
+
+type FrozenV1 = Readonly<{
+  freezeSha256: string; barsDigest: string; perIntent: unknown; perFixture: unknown; fixtures: unknown; census: unknown; bars: unknown; request: unknown; pricing: unknown;
+  labelSet: Readonly<{ version: string; digest: string }>;
+  requests: readonly Readonly<{ caseId: string; bodySha256: string; floorDigest: string; contextTransmittedDigest: string; chars: number }>[];
+  pinnedSources: Readonly<Record<string, string>>;
+}>;
+
+/**
+ * v2 is the same benchmark on current code, so every identity v1 froze must still hold.
+ * Throws on any semantic difference rather than freezing over it.
+ */
+function parityWithV1(current: Readonly<{ barsDigest: string; perIntent: unknown; perFixture: unknown; fixtures: unknown; census: unknown; bars: unknown; request: unknown; pricing: unknown; labelSet: unknown; requests: readonly unknown[]; pinnedSources: Readonly<Record<string, string>> }>) {
+  const stop = (what: string, detail: unknown): never => { throw new Error(`PARITY_FAILED: ${what}: ${JSON.stringify(detail)}`); };
+  const v1 = JSON.parse(readFileSync(path.join(GUIDANCE_V1_ARTIFACT_DIR, 'freeze.json'), 'utf8')) as FrozenV1;
+  const voidRecord = JSON.parse(readFileSync(path.join(GUIDANCE_V1_ARTIFACT_DIR, 'VOID.json'), 'utf8')) as { status: string; contract: string; freezeSha256: string; evidence: { sha256: Record<string, string> } };
+  if (voidRecord.status !== 'void' || voidRecord.contract !== GUIDANCE_SUPERSEDED_CONTRACT || voidRecord.freezeSha256 !== v1.freezeSha256) stop('void record', voidRecord.status);
+  for (const [name, digest] of Object.entries(voidRecord.evidence.sha256)) {
+    if (sha256(readFileSync(path.join(GUIDANCE_V1_ARTIFACT_DIR, 'run', name))) !== digest) stop('v1 evidence changed', name);
+  }
+  for (const key of ['barsDigest', 'perIntent', 'perFixture', 'fixtures', 'census', 'bars', 'request', 'pricing', 'labelSet'] as const) {
+    if (hashCanonical(current[key]) !== hashCanonical(v1[key])) stop(key, 'differs from v1');
+  }
+  if (JSON.stringify(current.requests) !== JSON.stringify(v1.requests)) stop('requests', 'differ from v1');
+  const changed = Object.keys(v1.pinnedSources).filter((file) => current.pinnedSources[file] !== v1.pinnedSources[file]);
+  const unexpected = changed.filter((file) => !GUIDANCE_V1_PINS_ALLOWED_TO_CHANGE.includes(file));
+  if (unexpected.length > 0) stop('pins', unexpected);
+  return {
+    supersedes: { contract: GUIDANCE_SUPERSEDED_CONTRACT, freezeSha256: v1.freezeSha256, classification: 'VOID / PRE-PROVIDER FAILURE',
+      voidRecordSha256: sha256(readFileSync(path.join(GUIDANCE_V1_ARTIFACT_DIR, 'VOID.json'), 'utf8').replace(/\r\n/gu, '\n')) },
+    parityWithV1: {
+      requestBodiesIdentical: v1.requests.length, deterministicFloorsIdentical: v1.requests.length, transmittedContextsIdentical: v1.requests.length,
+      identical: ['bars', 'census', 'fixtures', 'labelSet', 'perFixture', 'perIntent', 'pricing', 'requestShape'],
+      pinsChanged: changed.sort(),
+      pinsUnchanged: Object.keys(v1.pinnedSources).filter((file) => !changed.includes(file)).sort(),
+      pinsAdded: Object.keys(current.pinnedSources).filter((file) => !(file in v1.pinnedSources)).sort(),
+    },
   };
 }
 
@@ -107,7 +148,8 @@ async function buildFreeze() {
     worstCaseSpendUsd: Number(worstCaseUsd.toFixed(4)),
     pricing: GUIDANCE_PRICING,
   };
-  return { ...body, freezeSha256: hashCanonical(body) };
+  const withParity = { ...body, ...parityWithV1(body) };
+  return { ...withParity, freezeSha256: hashCanonical(withParity) };
 }
 
 function refuseCredentials() {
@@ -118,9 +160,12 @@ function refuseCredentials() {
 
 async function preflight() {
   refuseCredentials();
+  if (existsSync(GUIDANCE_RUN_DIR)) throw new Error(`PREFLIGHT_FAILED: this contract's run directory is already used: ${GUIDANCE_RUN_DIR}`);
   const freeze = await buildFreeze();
   writeJson(path.resolve(flag('out')), freeze);
   console.log(`[preflight] pass: ${GUIDANCE_BARS.cases} cases, 0 provider calls, 0 writes`);
+  console.log(`[preflight] v1 parity: ${freeze.parityWithV1.requestBodiesIdentical} request bodies, ${freeze.parityWithV1.deterministicFloorsIdentical} floors identical; pins changed: ${freeze.parityWithV1.pinsChanged.length}`);
+  console.log(`[preflight] run directory unused: ${GUIDANCE_RUN_DIR}`);
   console.log(`[preflight] freeze ${freeze.freezeSha256}`);
   console.log(`[preflight] worst-case spend $${freeze.worstCaseSpendUsd} against the $${GUIDANCE_BARS.spendCeilingUsd} ceiling, enforced before every call`);
 }
@@ -162,6 +207,31 @@ function writeReviewPacket(dir: string, records: readonly GuidanceRunRecord[], b
   writeJson(path.join(dir, 'human-review-packet.json'), { instructions: REVIEW_INSTRUCTIONS, cases });
 }
 
+const LOCAL_VALIDATION_ERROR = 'local_validation_error' as const;
+
+/** The production validator, unchanged. If it throws, that is this machine's failure, not the provider's. */
+function validated(raw: string, built: MaterializedCase) {
+  try {
+    return acceptModelRecommendation({ raw, context: built.approvedContext, assessment: built.assessment, floor: built.floor, transmitted: built.transmitted });
+  } catch {
+    return { ok: false as const, reason: LOCAL_VALIDATION_ERROR };
+  }
+}
+
+/** Did any model answer at all? A scorecard with none says nothing about the model. */
+function runHealth(records: readonly GuidanceRunRecord[]) {
+  const failureClasses: Record<string, number> = {};
+  for (const record of records) {
+    if (record.failure) failureClasses[record.failure.failureClass] = (failureClasses[record.failure.failureClass] ?? 0) + 1;
+  }
+  return {
+    calls: records.filter((record) => record.status !== 'not_called').length,
+    modelAnswers: records.filter((record) => record.rawOutput != null).length,
+    reachedProvider: records.filter((record) => record.rawOutput != null || record.failure?.reachedProvider === true).length,
+    failureClasses,
+  };
+}
+
 async function run() {
   if (!process.argv.includes('--confirm-paid-run')) throw new Error('the paid run requires --confirm-paid-run');
   if (process.env[PROJECT_ASK_GUIDANCE_ENABLED_ENV] === '1') throw new Error('the production guidance switch must stay off during qualification');
@@ -169,6 +239,7 @@ async function run() {
   // The run tests the provider production calls, so nothing may reroute it.
   if (process.env.ANTHROPIC_BASE_URL?.trim()) throw new Error('ANTHROPIC_BASE_URL must be unset for the qualification run');
   const out = path.resolve(flag('out'));
+  if (out !== path.resolve(GUIDANCE_RUN_DIR)) throw new Error(`this contract's single run writes only to ${GUIDANCE_RUN_DIR}`);
   if (existsSync(out)) throw new Error(`refusing to reuse an evidence directory: exactly one run per contract: ${out}`);
 
   const frozen = JSON.parse(readFileSync(flag('freeze'), 'utf8')) as Record<string, unknown> & { freezeSha256: string };
@@ -178,7 +249,7 @@ async function run() {
   }
   mkdirSync(out, { recursive: true });
   writeJson(path.join(out, 'freeze.json'), frozen);
-  writeJson(path.join(out, 'started.json'), { freezeSha256: frozen.freezeSha256, startedAt: new Date().toISOString(), model: GUIDANCE_QUALIFICATION_MODEL });
+  writeJson(path.join(out, 'started.json'), { contract: GUIDANCE_QUALIFICATION_CONTRACT, freezeSha256: frozen.freezeSha256, startedAt: new Date().toISOString(), model: GUIDANCE_QUALIFICATION_MODEL });
 
   const records: GuidanceRunRecord[] = [];
   const byCase = new Map<string, MaterializedCase>();
@@ -199,7 +270,7 @@ async function run() {
       const answered = await askOperatorGuidanceWithClaude({ ...built.request, model: GUIDANCE_QUALIFICATION_MODEL });
       const accepted = answered.truncated ? { ok: false as const, reason: 'truncated' }
         : answered.refused ? { ok: false as const, reason: 'refused' }
-        : acceptModelRecommendation({ raw: answered.raw, context: built.approvedContext, assessment: built.assessment, floor: built.floor, transmitted: built.transmitted });
+        : validated(answered.raw, built);
       const cost = costUsd(answered.observation.inputTokens, answered.observation.outputTokens);
       spent += cost;
       record = {
@@ -207,14 +278,18 @@ async function run() {
         rawOutput: answered.raw, stopReason: answered.observation.stopReason, returnedModel: answered.observation.returnedModel,
         providerRequestId: answered.observation.providerRequestId, inputTokens: answered.observation.inputTokens, outputTokens: answered.observation.outputTokens,
         latencyMs: answered.observation.latencyMs, costUsd: cost, shown: accepted.ok ? accepted.recommendation : built.floor,
+        ...(accepted.ok ? {} : { failure: {
+          failureClass: accepted.reason === LOCAL_VALIDATION_ERROR ? LOCAL_VALIDATION_ERROR : 'output_rejected' as const,
+          reachedProvider: true, httpStatus: null, providerErrorType: null, providerRequestId: answered.observation.providerRequestId,
+        } }),
       };
     } catch (error) {
-      const timedOut = error instanceof Error && /timed? ?out|abort/iu.test(error.name + error.message);
+      const failure = classifyGuidanceCallFailure(error);
       // A failed call may still be billed for what was sent; charge its input to stay conservative.
       const cost = costUsd(Math.ceil(JSON.stringify(built.request).length / GUIDANCE_BARS.worstCaseCharsPerToken), 0);
       spent += cost;
-      record = { ...base, ...empty, status: timedOut ? 'provider_timeout' : 'provider_failed',
-        rejectionReason: error instanceof Error ? error.name : 'provider_error', latencyMs: performance.now() - startedAt, costUsd: cost };
+      record = { ...base, ...empty, status: guidanceStatusForFailure(failure), rejectionReason: failure.failureClass,
+        providerRequestId: failure.providerRequestId, latencyMs: performance.now() - startedAt, costUsd: cost, failure };
     }
     records.push(record);
     writeJson(path.join(out, 'records.json'), { freezeSha256: frozen.freezeSha256, records });
@@ -224,6 +299,10 @@ async function run() {
   const evidenceByCase = new Map([...byCase].map(([caseId, built]) => [caseId, caseEvidence(built)]));
   const card = scoreGuidanceQualification({ records, labels: GUIDANCE_LABELS, evidenceByCase });
   writeJson(path.join(out, 'scorecard.json'), card);
+  const health = runHealth(records);
+  writeJson(path.join(out, 'run-health.json'), health);
+  console.log(`[run] ${health.modelAnswers} model answers, failure classes ${JSON.stringify(health.failureClasses)}`);
+  if (health.modelAnswers === 0) console.log('[run] NO MODEL ANSWERED: this run says nothing about the model. Do not read its verdict as a model result.');
   if (card.verdict === 'PENDING_HUMAN_REVIEW') writeReviewPacket(out, records, byCase);
   sha256Sums(out);
   console.log(`[run] ${card.verdict}: ${card.accepted}/${GUIDANCE_BARS.cases} accepted, $${card.spendUsd.toFixed(4)} spent, ${card.violations.length} cases with hard violations`);

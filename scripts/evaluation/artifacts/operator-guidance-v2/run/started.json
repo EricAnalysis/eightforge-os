@@ -1,0 +1,6 @@
+{
+  "contract": "operator_guidance_qualification_v2",
+  "freezeSha256": "6cf9635567ef5f4278f3604134dd2e96ec0257446fd2c1e1b9f714aa64556f0c",
+  "startedAt": "2026-11-03T02:41:37.020Z",
+  "model": "claude-sonnet-4-6"
+}

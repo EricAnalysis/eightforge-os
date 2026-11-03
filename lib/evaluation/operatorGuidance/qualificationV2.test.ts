@@ -102,16 +102,68 @@ describe('v2 is the same benchmark', () => {
     }
   });
 
-  it('has not been run', () => {
-    expect(GUIDANCE_RUN_DIR).toBe(`${V2}/run`);
-    expect(existsSync(GUIDANCE_RUN_DIR)).toBe(false);
-  });
-
   it('refuses a second evidence directory, so the one-run rule cannot be stepped around', () => {
     const script = readFileSync('scripts/evaluation/operator-guidance/qualify.ts', 'utf8');
     expect(script).toContain("this contract's single run writes only to");
     expect(script).toContain('this contract\'s run directory is already used');
     expect(script).toContain('PARITY_FAILED');
+  });
+});
+
+describe('the v2 run failed, and its evidence is intact', () => {
+  const record = json(path.join(V2, 'RESULT.json'));
+  const run = path.join(V2, 'run');
+
+  it('used its one run directory', () => {
+    expect(GUIDANCE_RUN_DIR).toBe(run.replace(/\\/gu, '/'));
+    expect(existsSync(GUIDANCE_RUN_DIR)).toBe(true);
+  });
+
+  it('is a real failure, with the verdict the scorecard gave', () => {
+    const card = json(path.join(run, 'scorecard.json'));
+    expect(record.classification).toBe('OPERATOR GUIDANCE V2 = FAIL_HARD_CORRECTNESS');
+    expect(record.status).toBe('failed');
+    expect(record.isVoid).toBe(false);
+    expect(record.diagnosis.doesNotChangeVerdict).toBe(true);
+    expect(card.verdict).toBe('FAIL_HARD_CORRECTNESS');
+    expect(record.counts).toMatchObject({ calls: card.calls, accepted: card.accepted, casesWithHardViolations: card.violations.length });
+    expect(record.spendUsd).toBe(card.spendUsd);
+    expect(record.diagnosis.hardBarHits.map((hit: { caseId: string }) => hit.caseId).sort()).toEqual(card.violations.map((hit: { caseId: string }) => hit.caseId).sort());
+  });
+
+  it('ran from the frozen identity', () => {
+    const frozen = json(path.join(V2, 'freeze.json'));
+    expect(record.contract).toBe(frozen.contract);
+    expect(record.freezeSha256).toBe(frozen.freezeSha256);
+    expect(json(path.join(run, 'freeze.json')).freezeSha256).toBe(frozen.freezeSha256);
+    expect(json(path.join(run, 'started.json')).freezeSha256).toBe(frozen.freezeSha256);
+    expect(json(path.join(run, 'records.json')).freezeSha256).toBe(frozen.freezeSha256);
+  });
+
+  it('names every evidence file by the digest it was found with', () => {
+    const files = readdirSync(run).sort();
+    expect(files).toEqual(['SHA256SUMS.txt', 'freeze.json', 'records.json', 'run-health.json', 'scorecard.json', 'started.json']);
+    expect(Object.keys(record.evidence.sha256).sort()).toEqual(files);
+    for (const file of files) expect(sha256(readFileSync(path.join(run, file))), file).toBe(record.evidence.sha256[file]);
+  });
+
+  it('agrees with the run\'s own sums', () => {
+    const sums = readFileSync(path.join(run, 'SHA256SUMS.txt'), 'utf8').trim().split('\n').map((line) => line.split(/\s+/u));
+    expect(sums).toHaveLength(5);
+    for (const [digest, file] of sums) expect(record.evidence.sha256[file!], file).toBe(digest);
+  });
+
+  it('holds what the record says: 24 answers from the frozen model, 14 accepted', () => {
+    const { records } = json(path.join(run, 'records.json')) as { records: Array<Record<string, unknown>> };
+    expect(records).toHaveLength(record.counts.calls);
+    expect(records.filter((entry) => entry.rawOutput == null)).toEqual([]);
+    expect(new Set(records.map((entry) => entry.returnedModel))).toEqual(new Set([record.model]));
+    expect(records.filter((entry) => entry.status === 'accepted')).toHaveLength(record.counts.accepted);
+    expect(records.filter((entry) => entry.status === 'rejected')).toHaveLength(record.counts.rejected);
+  });
+
+  it('holds no credential', () => {
+    for (const file of readdirSync(run)) expect(readFileSync(path.join(run, file), 'utf8')).not.toMatch(/sk-ant|x-api-key|ANTHROPIC_API_KEY/u);
   });
 });
 

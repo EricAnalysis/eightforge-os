@@ -5,6 +5,8 @@ const humanize = (value: string) => value.replaceAll('_', ' ');
 /** Read-only proposal. The assessment review on this page does not approve this plan. */
 export function FdeIntakePlanCard({ plan }: { plan: FdeIntakePlan }) {
   const open = plan.informationNeeds.filter((need) => need.state !== 'confirmed');
+  const fileNameById = new Map(plan.pinnedInputs.suppliedFiles.map((file) => [file.attachmentId, file.filename]));
+  const sourceLabel = (id: string) => fileNameById.has(id) ? `${fileNameById.get(id)} (${id})` : id;
   return (
     <section className="space-y-4 rounded-md border border-[var(--ef-border-subtle)] bg-[var(--ef-background-panel)] p-4">
       <div>
@@ -52,12 +54,13 @@ export function FdeIntakePlanCard({ plan }: { plan: FdeIntakePlan }) {
           <ul className="mt-1 space-y-1 text-xs text-[var(--ef-text-secondary)]">
             {open.map((need, index) => (
               <li key={`${need.stepId ?? 'workflow'}:${need.description}:${index}`}>
-                <span className="font-medium">{humanize(need.state)}</span>{need.stepId ? ` · ${need.stepId}` : ''}: {need.description}
-                {need.sourceIds.length > 0 && <span className="text-[var(--ef-text-muted)]"> · Source {need.sourceIds.join(', ')}</span>}
+                <span className="font-medium">{humanize(need.state)}</span>: {need.description}
+                {need.stepId && <span className="text-[var(--ef-text-muted)]"> · Step {need.stepId}</span>}
+                {need.sourceIds.length > 0 && <span className="text-[var(--ef-text-muted)]"> · Source {need.sourceIds.map(sourceLabel).join(', ')}</span>}
               </li>
             ))}
           </ul>
-        ) : <p className="mt-1 text-xs text-[var(--ef-text-muted)]">No information gaps identified in the stored sources. A reviewer must still confirm the plan.</p>}
+        ) : <p className="mt-1 text-xs text-[var(--ef-text-muted)]">{plan.readiness.blockers.length > 0 ? plan.readiness.blockers.join('; ') : 'No information gaps identified in the stored sources. A reviewer must still confirm the plan.'}</p>}
       </div>
 
       <div>
@@ -67,8 +70,8 @@ export function FdeIntakePlanCard({ plan }: { plan: FdeIntakePlan }) {
             const approach = plan.deploymentApproach.steps.find((step) => step.stepId === match.stepId);
             return (
               <li key={match.stepId} className="rounded border border-[var(--ef-border-subtle)] p-2">
-                <p className="font-medium text-[var(--ef-text-primary)]">{match.stepId}: {match.requirement || 'Requirement not described'}</p>
-                <p className="mt-1">{match.capabilityId ? `Catalogue match: ${humanize(match.capabilityId)} (${humanize(match.status ?? 'unknown')})` : 'No established catalogue match'}</p>
+                <p className="font-medium text-[var(--ef-text-primary)]">{match.requirement || 'Requirement not described'} <span className="font-normal text-[var(--ef-text-muted)]">· Step {match.stepId}</span></p>
+                <p className="mt-1">{match.capabilityId ? `Catalogue candidate: ${humanize(match.capabilityId)} (${humanize(match.status ?? 'unknown')})` : 'No established catalogue match'}</p>
                 <p>Approach: {approach?.rung ? humanize(approach.rung) : 'Human decision or undetermined'}{approach?.basis ? ` · ${approach.basis}` : ''}</p>
                 {approach && approach.lowerRungsToRuleOut.length > 0 && <p>Confirm lower rungs are insufficient: {approach.lowerRungsToRuleOut.map(humanize).join(', ')}</p>}
                 {match.configurationRequirements.length > 0 && <p>Configuration: {match.configurationRequirements.join(' ')}</p>}

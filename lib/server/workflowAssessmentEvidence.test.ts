@@ -104,10 +104,12 @@ describe('authenticated assessment evidence boundaries', () => {
   it('provider context accepts only the complete own manifest, with exact pins', async () => {
     const manifest = [{ attachmentId:FILE,sourceSha256:'a'.repeat(64),representationDigestSha256:'b'.repeat(64) }];
     const context = { ...manifest[0] };
-    const state = setup({ files:[{ id:FILE, draft_id:DRAFT,organization_id:ORG,content_sha256:'a'.repeat(64),status:'processed',removed_at:null,context }] });
+    const state = setup({ files:[{ id:FILE, draft_id:DRAFT,organization_id:ORG,content_sha256:'a'.repeat(64),representation_digest_sha256:'b'.repeat(64),status:'processed',removed_at:null,context }] });
     expect(await loadAssessmentAttachmentContext(state.dependencies.admin,DRAFT,ORG,manifest)).toEqual([context]);
     await expect(loadAssessmentAttachmentContext(state.dependencies.admin,DRAFT,'foreign',manifest)).rejects.toThrow('closure');
     await expect(loadAssessmentAttachmentContext(state.dependencies.admin,DRAFT,ORG,[{ ...manifest[0],sourceSha256:'c'.repeat(64) }])).rejects.toThrow('closure');
+    const mismatched = setup({ files:[{ id:FILE,draft_id:DRAFT,organization_id:ORG,content_sha256:'a'.repeat(64),representation_digest_sha256:'c'.repeat(64),status:'processed',removed_at:null,context }] });
+    await expect(loadAssessmentAttachmentContext(mismatched.dependencies.admin,DRAFT,ORG,manifest)).rejects.toThrow('closure');
     expect(await loadAssessmentAttachmentContext(state.dependencies.admin,DRAFT,null,undefined)).toEqual([]);
   });
 });

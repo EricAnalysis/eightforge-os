@@ -156,13 +156,14 @@ export async function loadAssessmentAttachmentContext(admin: Admin, submissionId
   const ids = manifest.map(item => item?.attachmentId);
   if (ids.some(id => typeof id !== 'string' || !UUID.test(id)) || new Set(ids).size !== ids.length) throw new Error('Attachment manifest invalid');
   const { data, error: failure } = await admin.from(ATTACHMENTS)
-    .select('id,draft_id,organization_id,content_sha256,context,status,removed_at')
+    .select('id,draft_id,organization_id,content_sha256,representation_digest_sha256,context,status,removed_at')
     .eq('draft_id', submissionId).eq('organization_id', organizationId).in('id', ids);
   if (failure || !data || data.length !== manifest.length) throw new Error('Attachment closure failed');
   return manifest.map(item => {
     const row = data.find(candidate => candidate.id === item.attachmentId);
     if (!row || row.organization_id !== organizationId || row.draft_id !== submissionId || row.removed_at
       || row.status !== 'processed' || row.content_sha256 !== item.sourceSha256
+      || row.representation_digest_sha256 !== item.representationDigestSha256
       || row.context?.sourceSha256 !== item.sourceSha256
       || row.context?.representationDigestSha256 !== item.representationDigestSha256
       || row.context?.attachmentId !== item.attachmentId) throw new Error('Attachment closure failed');

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { hashCanonical } from '@/lib/extraction/domain/hash';
 
 const getAdmin = vi.hoisted(() => vi.fn());
 const loadIntake = vi.hoisted(() => vi.fn());
@@ -24,6 +25,21 @@ import {
 
 const ASSESSMENT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const SUBMISSION = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const ATTACHMENT = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+const SOURCE_SHA = 'a'.repeat(64);
+const envelope = {
+  attachmentId: ATTACHMENT, originalFilename: 'rates.pdf', mediaType: 'application/pdf',
+  sizeBytes: 20, sourceSha256: SOURCE_SHA, parserVersion: 'assessment_supporting_file_v1',
+  format: 'pdf', truncated: false, limitations: [],
+  sections: [{ sourceRef: `sha256:${SOURCE_SHA}:page:1`, kind: 'page', label: 'Rates', content: 'Rate schedule' }],
+};
+const REPRESENTATION_SHA = hashCanonical(envelope);
+const MANIFEST = [{ attachmentId: ATTACHMENT, sourceSha256: SOURCE_SHA, representationDigestSha256: REPRESENTATION_SHA }];
+const ATTACHMENT_ROW = {
+  id: ATTACHMENT, draft_id: SUBMISSION, organization_id: 'org-a', content_sha256: SOURCE_SHA,
+  representation_digest_sha256: REPRESENTATION_SHA, status: 'processed', removed_at: null,
+  context: { ...envelope, representationDigestSha256: REPRESENTATION_SHA },
+};
 
 const QUEUE_ROW = {
   assessment_id: ASSESSMENT,
@@ -129,6 +145,7 @@ describe('workflow review packet read', () => {
   function client(overrides: {
     assessment?: unknown; assessmentError?: unknown;
     review?: unknown[]; steps?: unknown[];
+    attachmentRows?: unknown[]; attachmentError?: unknown;
   } = {}) {
     const from = vi.fn((table: string) => {
       if (table === 'workflow_assessments') {
@@ -162,6 +179,13 @@ describe('workflow review packet read', () => {
             }),
           }),
         };
+      }
+      if (table === 'workflow_assessment_attachments') {
+        const chain: Record<string, unknown> = {};
+        chain.select = () => chain;
+        chain.eq = () => chain;
+        chain.in = async () => ({ data: overrides.attachmentRows ?? [ATTACHMENT_ROW], error: overrides.attachmentError ?? null });
+        return chain;
       }
       return {
         select: () => ({
@@ -204,6 +228,44 @@ describe('workflow review packet read', () => {
     });
     expect((await readWorkflowReviewPacket(ASSESSMENT)).status).toBe('ok');
     expect(from).not.toHaveBeenCalledWith('workflow_assessment_attachments');
+  });
+
+  it('keeps no-manifest legacy submissions distinct from an unavailable attachment read', async () => {
+    const from = client();
+    const result = await readWorkflowReviewPacket(ASSESSMENT, 'org-a');
+    expect(result.status === 'ok' && result.packet.attachmentEvidenceUnavailable).toBe(false);
+    expect(from).not.toHaveBeenCalledWith('workflow_assessment_attachments');
+  });
+
+  it('pins manifest-closed source and representation identities for processed evidence', async () => {
+    client();
+    loadIntake.mockResolvedValue({ submissionId: SUBMISSION, submissionSchemaVersion: 'workflow_intake_v2',
+      organizationId: 'org-a', attachmentManifest: MANIFEST, answers: { workflowDescription: 'Review rates.' } });
+    const result = await readWorkflowReviewPacket(ASSESSMENT, 'org-a');
+    expect(result.status).toBe('ok');
+    if (result.status !== 'ok') return;
+    expect(result.packet.attachmentEvidenceUnavailable).toBe(false);
+    expect(result.packet.answerableFiles).toEqual([{ attachmentId: ATTACHMENT, filename: 'rates.pdf' }]);
+    expect(result.packet.fdeIntakePlan?.pinnedInputs.suppliedFiles).toEqual([
+      expect.objectContaining({ attachmentId: ATTACHMENT, sourceSha256: SOURCE_SHA,
+        representationDigestSha256: REPRESENTATION_SHA }),
+    ]);
+  });
+
+  it('does not turn an attachment query failure or manifest mismatch into customer omission', async () => {
+    loadIntake.mockResolvedValue({ submissionId: SUBMISSION, submissionSchemaVersion: 'workflow_intake_v2',
+      organizationId: 'org-a', attachmentManifest: MANIFEST, answers: { workflowDescription: 'Review rates.' } });
+    for (const overrides of [{ attachmentError: { message: 'unavailable' } },
+      { attachmentRows: [{ ...ATTACHMENT_ROW, content_sha256: 'b'.repeat(64) }] }]) {
+      client(overrides);
+      const result = await readWorkflowReviewPacket(ASSESSMENT, 'org-a');
+      expect(result.status).toBe('ok');
+      if (result.status !== 'ok') continue;
+      expect(result.packet.attachmentEvidenceUnavailable).toBe(true);
+      expect(result.packet.answerableFiles).toEqual([]);
+      expect(result.packet.fdeIntakePlan?.informationNeeds).toContainEqual(
+        expect.objectContaining({ state: 'evidence_unavailable', sourceIds: [ATTACHMENT] }));
+    }
   });
 
   it('returns intake, assessment, and a null review when none exists', async () => {

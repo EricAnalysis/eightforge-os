@@ -13,8 +13,8 @@ const RUNG_LABELS: Readonly<Record<FdeLadderRung, string>> = {
 };
 
 const DEPLOYMENT_LABELS: Readonly<Record<FdeDeploymentState, string>> = {
-  ready_existing_capability: 'Looks covered by what exists',
-  ready_with_configuration: 'Looks covered, with configuration',
+  ready_existing_capability: 'Candidate existing capability',
+  ready_with_configuration: 'Candidate with configuration',
   needs_mapping: 'Needs mapping',
   needs_adapter: 'Needs an adapter',
   needs_deterministic_rule: 'Needs a reusable rule',
@@ -25,15 +25,15 @@ const DEPLOYMENT_LABELS: Readonly<Record<FdeDeploymentState, string>> = {
 };
 
 const READINESS_LABELS: Readonly<Record<FdeReadinessPlan['executionReadiness']['state'], string>> = {
-  ready_for_implementation_review: 'Ready for implementation review',
+  ready_for_implementation_review: 'Ready for preliminary review',
   needs_follow_up: 'Needs follow-up',
   not_ready: 'Nothing here to automate yet',
 };
 
 const EVIDENCE_LABELS: Readonly<Record<FdeReadinessPlan['evidenceCompleteness']['state'], string>> = {
-  supplied: 'All described sources supplied',
-  partially_supplied: 'Some described sources supplied',
-  not_supplied: 'Described sources not supplied',
+  supplied: 'Possible matches for all described sources',
+  partially_supplied: 'Possible matches for some described sources',
+  not_supplied: 'No filename matches for described sources',
   none_described: 'No sources described',
 };
 

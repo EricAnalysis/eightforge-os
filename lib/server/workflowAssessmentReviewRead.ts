@@ -15,8 +15,11 @@
 
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { loadWorkflowIntakeSubmission } from '@/lib/server/workflowIntakeRead';
-import { buildFdeReadinessPlan, type FdeReadinessPlan, type FdeSuppliedFile } from '@/lib/projectIntelligence/fdeReadiness';
-import { buildFdeIntakePlan, type FdeIntakePlan } from '@/lib/projectIntelligence/fdeIntakePlan';
+import { loadAssessmentAttachmentContext } from '@/lib/server/workflowAssessmentEvidence';
+import { parseAssessmentSupportingFileContext } from '@/lib/workflowAssessmentEvidenceContract';
+import { hashCanonical } from '@/lib/extraction/domain/hash';
+import { buildFdeReadinessPlan, type FdeReadinessPlan } from '@/lib/projectIntelligence/fdeReadiness';
+import { buildFdeIntakePlan, type FdeIntakeFile, type FdeIntakePlan } from '@/lib/projectIntelligence/fdeIntakePlan';
 import { readWorkflowFollowUpAnswers, type WorkflowFollowUpAnswer } from '@/lib/server/workflowFollowUpAnswers';
 
 /**
@@ -84,6 +87,8 @@ export type WorkflowReviewPacket = Readonly<{
   attachmentCount: number;
   /** Derived for the reviewer from this assessment; null when it has no steps. Never authoritative. */
   readinessPlan: FdeReadinessPlan | null;
+  /** A nonempty manifest could not be authenticated or read; never infer missing customer evidence. */
+  attachmentEvidenceUnavailable: boolean;
   /** Read-only FDE proposal pinned to this packet's sources; never approved by an assessment review. */
   fdeIntakePlan: FdeIntakePlan | null;
   /** Every revision, oldest first. Null when unreadable or the submission has no organization. */
@@ -118,6 +123,25 @@ function str(value: unknown): string | null {
 
 function num(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+const SHA256 = /^[0-9a-f]{64}$/u;
+type ManifestAttachment = Readonly<{ attachmentId: string; sourceSha256: string; representationDigestSha256: string }>;
+
+function manifestAttachments(value: unknown): readonly ManifestAttachment[] | null {
+  if (value == null) return [];
+  if (!Array.isArray(value) || value.length > 5) return null;
+  const entries: ManifestAttachment[] = [];
+  for (const item of value) {
+    if (!isRecord(item) || typeof item.attachmentId !== 'string' || !UUID.test(item.attachmentId)
+      || typeof item.sourceSha256 !== 'string' || !SHA256.test(item.sourceSha256)
+      || typeof item.representationDigestSha256 !== 'string' || !SHA256.test(item.representationDigestSha256)) return null;
+    entries.push({ attachmentId: item.attachmentId, sourceSha256: item.sourceSha256,
+      representationDigestSha256: item.representationDigestSha256 });
+  }
+  if (new Set(entries.map((entry) => entry.attachmentId)).size !== entries.length) return null;
+  return entries;
 }
 
 /**
@@ -175,27 +199,33 @@ async function loadSuppliedFiles(
   submissionId: string,
   organizationId: string | null | undefined,
   manifest: unknown,
-): Promise<(FdeSuppliedFile & Readonly<{ attachmentId: string }>)[]> {
-  // Attachments exist only on an organization's submission; a historic unassigned one has none to read.
-  if (!organizationId || !Array.isArray(manifest) || manifest.length === 0) return [];
-  const { data, error } = await admin.from('workflow_assessment_attachments')
-    .select('id, original_filename, status, removed_at, context')
-    .eq('draft_id', submissionId).eq('organization_id', organizationId);
-  // The plan is an aid to the review, so a failed read must not block it: it just names no files.
-  if (error || !Array.isArray(data)) return [];
-  return data.flatMap((file): (FdeSuppliedFile & Readonly<{ attachmentId: string }>)[] => {
-    if (!isRecord(file) || file.removed_at != null || file.status !== 'processed') return [];
-    const filename = str(file.original_filename);
-    if (!filename) return [];
-    const context = isRecord(file.context) ? file.context : {};
-    return [{
-      attachmentId: String(file.id),
-      filename,
-      truncated: context.truncated === true,
-      sectionLabels: (Array.isArray(context.sections) ? context.sections : [])
-        .flatMap((section) => (isRecord(section) && typeof section.label === 'string' ? [section.label] : [])),
-    }];
-  });
+): Promise<Readonly<{ files: readonly FdeIntakeFile[]; manifestAttachments: readonly ManifestAttachment[]; unavailable: boolean }>> {
+  // V1 unassigned submissions have no assessment attachments. A nonempty manifest
+  // without an organization is inconsistent evidence, not an empty submission.
+  const pinned = manifestAttachments(manifest);
+  if (!pinned) return { files: [], manifestAttachments: [], unavailable: true };
+  if (pinned.length === 0) return { files: [], manifestAttachments: [], unavailable: false };
+  if (!organizationId) return { files: [], manifestAttachments: pinned, unavailable: true };
+  try {
+    const contexts = await loadAssessmentAttachmentContext(admin, submissionId, organizationId, pinned);
+    const files = contexts.map((raw) => {
+      const context = parseAssessmentSupportingFileContext(raw);
+      return {
+        attachmentId: context.attachmentId,
+        filename: context.originalFilename,
+        sourceSha256: context.sourceSha256,
+        representationDigestSha256: context.representationDigestSha256,
+        contextDigest: hashCanonical({ truncated: context.truncated, limitations: context.limitations, sections: context.sections }),
+        truncated: context.truncated,
+        limitations: context.limitations,
+        sectionLabels: context.sections.map((section) => section.label),
+      };
+    });
+    return { files, manifestAttachments: pinned, unavailable: false };
+  } catch {
+    // No partial evidence is trusted after a closure or read failure.
+    return { files: [], manifestAttachments: pinned, unavailable: true };
+  }
 }
 
 export async function readWorkflowReviewPacket(
@@ -228,7 +258,8 @@ export async function readWorkflowReviewPacket(
     && submission.organizationId !== organizationId)) return { status: 'assessment_not_found' };
 
   const assessmentVersion = num(row.assessment_version);
-  const suppliedFiles = await loadSuppliedFiles(admin, sourceSubmissionId, submission.organizationId, submission.attachmentManifest);
+  const attachmentEvidence = await loadSuppliedFiles(admin, sourceSubmissionId, submission.organizationId, submission.attachmentManifest);
+  const suppliedFiles = attachmentEvidence.files;
 
   // An aid to the review, so a failed read must not block it. Null shows the reviewer
   // answers are unavailable, and readiness then treats every follow-up as still open.
@@ -293,10 +324,13 @@ export async function readWorkflowReviewPacket(
     packet: {
       attachmentCount: Array.isArray(submission.attachmentManifest) ? submission.attachmentManifest.length : 0,
       readinessPlan: buildFdeReadinessPlan(row.assessment, suppliedFiles, followUpAnswers?.map((entry) => ({ answerId: entry.answerId, followUpId: entry.followUpId })) ?? []),
+      attachmentEvidenceUnavailable: attachmentEvidence.unavailable,
       fdeIntakePlan: buildFdeIntakePlan({
         assessmentId, assessmentVersion, sourceSubmissionId,
         intake: submission.answers, assessment: row.assessment,
-        suppliedFiles, answers: followUpAnswers, existingReview,
+        suppliedFiles, manifestAttachments: attachmentEvidence.manifestAttachments,
+        attachmentEvidenceUnavailable: attachmentEvidence.unavailable,
+        answers: followUpAnswers, existingReview,
       }),
       followUpAnswers,
       answerableFiles: suppliedFiles.map((file) => ({ attachmentId: file.attachmentId, filename: file.filename })),

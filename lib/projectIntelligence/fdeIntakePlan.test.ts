@@ -53,6 +53,96 @@ describe('structured FDE intake plan', () => {
     expect(plan.pinnedInputs.answers).toContainEqual(expect.objectContaining({ answerId: 'old-answer', assessmentId: 'assessment-old', assessmentVersion: 1 }));
   });
 
+  it('excludes answers submitted against a later assessment version', () => {
+    const question = allFdeFollowUps(assessment)[0]!;
+    const future = { answerId: 'future', followUpId: question.followUpId, answer: 'Five cents', answerSource: 'customer_stated', evidenceAttachmentIds: [], revision: 2, assessmentId: 'later', assessmentVersion: 3 };
+    const current = { ...future, answerId: 'current', answer: 'Two cents', revision: 1, assessmentId: 'assessment-a', assessmentVersion: 2 };
+    const plan = buildFdeIntakePlan({ ...input, answers: [future, current] })!;
+    expect(plan.pinnedInputs.answers.map((entry) => entry.answerId)).toEqual(['current']);
+    expect(plan.informationNeeds).toContainEqual(expect.objectContaining({ state: 'supplied_uninterpreted', sourceIds: ['current'] }));
+  });
+
+  it('uses stable attachment order and preserves every duplicate-name candidate', () => {
+    const files = [
+      { attachmentId: 'file-b', filename: 'Rate schedule PDF', sectionLabels: ['Rates'], truncated: false },
+      { attachmentId: 'file-a', filename: 'Rate schedule PDF', sectionLabels: ['Rates'], truncated: false },
+    ];
+    const first = buildFdeIntakePlan({ ...input, suppliedFiles: files })!;
+    const reversed = buildFdeIntakePlan({ ...input, suppliedFiles: [...files].reverse() })!;
+    expect(first).toEqual(reversed);
+    expect(first.informationNeeds).toContainEqual(expect.objectContaining({
+      description: 'Rate schedule PDF', state: 'supplied_uninterpreted', sourceIds: ['file-a', 'file-b'],
+    }));
+  });
+
+  it('retains differently named candidate files that match the same described source', () => {
+    const files = [
+      { attachmentId: 'file-b', filename: 'Contract rates.pdf', sectionLabels: ['Rate schedule'], truncated: false },
+      { attachmentId: 'file-a', filename: 'Rate schedule PDF', sectionLabels: ['Rates'], truncated: false },
+    ];
+    const plan = buildFdeIntakePlan({ ...input, suppliedFiles: files })!;
+    expect(plan.informationNeeds).toContainEqual(expect.objectContaining({
+      description: 'Rate schedule PDF', state: 'supplied_uninterpreted', sourceIds: ['file-a', 'file-b'],
+    }));
+    expect(buildFdeIntakePlan({ ...input, suppliedFiles: [...files].reverse() })).toEqual(plan);
+  });
+
+  it('keeps unmatched and truncated files visible without treating them as a customer omission', () => {
+    const plan = buildFdeIntakePlan({ ...input, suppliedFiles: [{ attachmentId: 'other', filename: 'Other evidence.pdf', sectionLabels: ['Other'], truncated: true,
+      limitations: ['Only the first page was read'] }] })!;
+    expect(plan.informationNeeds).toContainEqual(expect.objectContaining({ state: 'requires_clarification', description: 'Rate schedule PDF', sourceIds: ['other'] }));
+    expect(plan.informationNeeds).toContainEqual(expect.objectContaining({ state: 'supplied_uninterpreted', sourceIds: ['other'], description: expect.stringContaining('Only the first page was read') }));
+    expect(plan.readiness.state).toBe('needs_follow_up');
+    expect(plan.informationNeeds.some((need) => need.state === 'not_supplied' && need.description === 'Rate schedule PDF')).toBe(false);
+  });
+
+  it('distinguishes unavailable attachment evidence and pins the immutable manifest', () => {
+    const manifestAttachments = [{ attachmentId: 'file-a', sourceSha256: 'a'.repeat(64), representationDigestSha256: 'b'.repeat(64) }];
+    const plan = buildFdeIntakePlan({ ...input, suppliedFiles: [], manifestAttachments, attachmentEvidenceUnavailable: true })!;
+    expect(plan.pinnedInputs.manifestAttachments).toEqual(manifestAttachments);
+    expect(plan.informationNeeds).toContainEqual(expect.objectContaining({ state: 'evidence_unavailable', sourceIds: ['file-a'] }));
+    expect(plan.informationNeeds.some((need) => need.state === 'not_supplied' && need.description === 'Rate schedule PDF')).toBe(false);
+    expect(plan.deploymentApproach.rung).toBeNull();
+  });
+
+  it('blocks a reviewed step that differs from the assessment proposal without approving the plan', () => {
+    const review = { reviewId: 'review-a', reviewVersion: 1, overallDisposition: 'accepted', reviewerSummary: 'Human decision retained',
+      stepReviews: [{ assessmentStepId: 'check', proposedClassification: 'VERIFY', reviewedClassification: 'HUMAN', disposition: 'reclassified',
+        reviewerNotes: 'Keep this with the operator.', acceptedSpecification: { description: 'Human review' } }] };
+    const plan = buildFdeIntakePlan({ ...input, existingReview: review })!;
+    expect(plan.informationNeeds).toContainEqual(expect.objectContaining({ state: 'conflicting', stepId: 'check', sourceIds: ['review-a', 'assessment-a'] }));
+    expect(plan.deploymentApproach.steps.find((step) => step.stepId === 'check')?.rung).toBeNull();
+    expect(plan.humanReview).toMatchObject({ planState: 'pending_review', approvedDeploymentRecommendation: false });
+  });
+
+  it('blocks owner activation even with a catalogue-backed capability candidate', () => {
+    const advisory = { ...assessment, workflowSteps: [{ stepId: 'explain', classification: 'ADVISORY', description: 'Provide an AI explanation',
+      requiredInputs: ['Validated project'], proposedOutput: 'Explanation', unresolvedAssumptions: [], determinismGaps: [] }], documents: [] };
+    const plan = buildFdeIntakePlan({ ...input, assessment: advisory, suppliedFiles: [] })!;
+    expect(plan.capabilityMatches[0]).toMatchObject({ capabilityId: 'model_explanation', status: 'requires_owner_activation' });
+    expect(plan.informationNeeds).toContainEqual(expect.objectContaining({ state: 'missing_human_decision', stepId: 'explain' }));
+    expect(plan.readiness.state).toBe('needs_follow_up');
+    expect(plan.deploymentApproach.rung).toBeNull();
+  });
+
+  it('pins only explicit material fields and changes identity when evidence or review decisions change', () => {
+    const file = { attachmentId: 'file-a', filename: 'Rate schedule PDF', sectionLabels: ['Rates'], truncated: false,
+      sourceSha256: 'a'.repeat(64), representationDigestSha256: 'b'.repeat(64), contextDigest: 'c'.repeat(64) };
+    const review = { reviewId: 'review-a', reviewVersion: 1, overallDisposition: 'accepted', reviewerSummary: 'Reviewed',
+      stepReviews: [{ assessmentStepId: 'check', proposedClassification: 'VERIFY', reviewedClassification: 'VERIFY', disposition: 'accepted',
+        reviewerNotes: null, acceptedSpecification: null }] };
+    const source = { ...input, suppliedFiles: [file], existingReview: review };
+    const original = buildFdeIntakePlan(source)!;
+    const noisyFile = { ...file, runtimeProperty: 'ignored' };
+    const noisyReview = { ...review, runtimeProperty: 'ignored' };
+    const irrelevant = buildFdeIntakePlan({ ...source, assessment: { ...assessment, runtimeCache: 'ignored' },
+      suppliedFiles: [noisyFile], existingReview: noisyReview })!;
+    expect(irrelevant.pinnedInputs).toEqual(original.pinnedInputs);
+    expect(buildFdeIntakePlan({ ...source, suppliedFiles: [{ ...file, sourceSha256: 'd'.repeat(64) }] })!.pinnedInputs.suppliedFiles).not.toEqual(original.pinnedInputs.suppliedFiles);
+    expect(buildFdeIntakePlan({ ...source, suppliedFiles: [{ ...file, contextDigest: 'e'.repeat(64) }] })!.pinnedInputs.suppliedFiles).not.toEqual(original.pinnedInputs.suppliedFiles);
+    expect(buildFdeIntakePlan({ ...source, existingReview: { ...review, stepReviews: [{ ...review.stepReviews[0], disposition: 'rejected' }] } })!.pinnedInputs.assessmentReview?.digest).not.toBe(original.pinnedInputs.assessmentReview?.digest);
+  });
+
   it('uses only catalogue matches, ranks the lower supported rung, and preserves human decisions', () => {
     const plan = buildFdeIntakePlan(input)!;
     expect(plan.capabilityMatches.find((match) => match.stepId === 'extract')).toMatchObject({ capabilityId: 'document_text_extraction', status: 'supported' });

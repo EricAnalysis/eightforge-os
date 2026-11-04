@@ -47,9 +47,9 @@ export function FdeReadinessCard({ plan }: { plan: FdeReadinessPlan }) {
   return (
     <section className="space-y-3 rounded-md border border-[var(--ef-border-subtle)] bg-[var(--ef-background-panel)] p-4">
       <div>
-        <h2 className="text-sm font-semibold text-[var(--ef-text-primary)]">Deployment readiness</h2>
+        <h2 className="text-sm font-semibold text-[var(--ef-text-primary)]">Preliminary deployment readiness</h2>
         <p className="mt-1 text-xs text-[var(--ef-text-muted)]">
-          Derived from this assessment for you to review. Each step starts on the lowest level that looks sufficient; rule out anything lower before accepting it.
+          Derived from this assessment for review. Submitted follow-up answers count as answered here; the FDE intake plan above still requires their interpretation and separate plan approval. Rule out lower rungs before accepting a step.
         </p>
       </div>
       <dl className="grid gap-3 md:grid-cols-3">

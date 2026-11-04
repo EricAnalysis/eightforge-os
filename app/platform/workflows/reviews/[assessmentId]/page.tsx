@@ -25,8 +25,10 @@ import { supabase } from '@/lib/supabaseClient';
 import { usePlatformSessionToken } from '@/components/platform/PlatformSessionContext';
 import { FdeFollowUpAnswers } from '@/components/workflows/FdeFollowUpAnswers';
 import { FdeReadinessCard } from '@/components/workflows/FdeReadinessCard';
+import { FdeIntakePlanCard } from '@/components/workflows/FdeIntakePlanCard';
 import { WorkflowAssessmentEvidenceFiles } from '@/components/workflows/WorkflowAssessmentAttachments';
 import type { FdeReadinessPlan } from '@/lib/projectIntelligence/fdeReadiness';
+import type { FdeIntakePlan } from '@/lib/projectIntelligence/fdeIntakePlan';
 import type { WorkflowFollowUpAnswer } from '@/lib/server/workflowFollowUpAnswers';
 import { workflowQualificationLabel } from '@/lib/workflowAssessmentPresentation';
 import {
@@ -104,6 +106,7 @@ type Packet = {
   sourceSubmissionId: string;
   attachmentCount: number;
   readinessPlan: FdeReadinessPlan | null;
+  fdeIntakePlan: FdeIntakePlan | null;
   followUpAnswers: readonly WorkflowFollowUpAnswer[] | null;
   answerableFiles: readonly Readonly<{ attachmentId: string; filename: string }>[];
   assessmentId: string;
@@ -358,6 +361,7 @@ export default function WorkflowReviewDetailPage() {
             <WorkflowAssessmentEvidenceFiles accessToken={sessionToken} submissionId={state.packet.sourceSubmissionId} />
           )}
 
+          {state.packet.fdeIntakePlan && <FdeIntakePlanCard plan={state.packet.fdeIntakePlan} />}
           {state.packet.readinessPlan && <FdeReadinessCard plan={state.packet.readinessPlan} />}
           {state.packet.readinessPlan && sessionToken && (
             <FdeFollowUpAnswers

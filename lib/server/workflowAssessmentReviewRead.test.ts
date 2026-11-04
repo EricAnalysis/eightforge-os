@@ -189,6 +189,11 @@ describe('workflow review packet read', () => {
       authority: 'non_authoritative', requiresHumanReview: true,
       steps: [{ stepId: 's1', startingRung: 'reusable_deterministic_rule' }],
     });
+    expect(result.status === 'ok' && result.packet.fdeIntakePlan).toMatchObject({
+      schemaVersion: 'fde_intake_plan_v1', authority: 'non_authoritative',
+      pinnedInputs: { assessmentId: ASSESSMENT },
+      humanReview: { planState: 'pending_review', approvedDeploymentRecommendation: false },
+    });
   });
 
   it('never reads supplied files for an unassigned historic submission', async () => {
@@ -232,6 +237,10 @@ describe('workflow review packet read', () => {
     expect(result.packet.existingReview?.overallDisposition).toBe('changes_required');
     expect(result.packet.existingReview?.stepReviews[0]).toMatchObject({
       proposedClassification: 'RULE', reviewedClassification: 'HUMAN',
+    });
+    expect(result.packet.fdeIntakePlan?.humanReview).toMatchObject({
+      planState: 'pending_review', approvedDeploymentRecommendation: false,
+      assessmentReview: { reviewId: 'r1', disposition: 'changes_required' },
     });
   });
 

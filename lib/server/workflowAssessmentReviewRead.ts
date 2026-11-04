@@ -16,6 +16,7 @@
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { loadWorkflowIntakeSubmission } from '@/lib/server/workflowIntakeRead';
 import { buildFdeReadinessPlan, type FdeReadinessPlan, type FdeSuppliedFile } from '@/lib/projectIntelligence/fdeReadiness';
+import { buildFdeIntakePlan, type FdeIntakePlan } from '@/lib/projectIntelligence/fdeIntakePlan';
 import { readWorkflowFollowUpAnswers, type WorkflowFollowUpAnswer } from '@/lib/server/workflowFollowUpAnswers';
 
 /**
@@ -83,6 +84,8 @@ export type WorkflowReviewPacket = Readonly<{
   attachmentCount: number;
   /** Derived for the reviewer from this assessment; null when it has no steps. Never authoritative. */
   readinessPlan: FdeReadinessPlan | null;
+  /** Read-only FDE proposal pinned to this packet's sources; never approved by an assessment review. */
+  fdeIntakePlan: FdeIntakePlan | null;
   /** Every revision, oldest first. Null when unreadable or the submission has no organization. */
   followUpAnswers: readonly WorkflowFollowUpAnswer[] | null;
   /** Files an answer may cite. */
@@ -290,6 +293,11 @@ export async function readWorkflowReviewPacket(
     packet: {
       attachmentCount: Array.isArray(submission.attachmentManifest) ? submission.attachmentManifest.length : 0,
       readinessPlan: buildFdeReadinessPlan(row.assessment, suppliedFiles, followUpAnswers?.map((entry) => ({ answerId: entry.answerId, followUpId: entry.followUpId })) ?? []),
+      fdeIntakePlan: buildFdeIntakePlan({
+        assessmentId, assessmentVersion, sourceSubmissionId,
+        intake: submission.answers, assessment: row.assessment,
+        suppliedFiles, answers: followUpAnswers, existingReview,
+      }),
       followUpAnswers,
       answerableFiles: suppliedFiles.map((file) => ({ attachmentId: file.attachmentId, filename: file.filename })),
       assessmentId,

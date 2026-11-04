@@ -264,6 +264,7 @@ describe('scoring', () => {
     }
     return scoreGuidanceQualification({ records, labels: HELDOUT_LABELS,
       frozenRequests: HELDOUT_CASES.map((item) => ({ caseId: item.caseId, bodySha256: bodySha256(cases.get(item.caseId)!) })),
+      reservedUsdByCase: new Map([...cases].map(([caseId, item]) => [caseId, reservedCallUsd(item.request)])),
       evidenceByCase: new Map([...cases].map(([caseId, item]) => [caseId, evidenceOf(item)])) });
   }
 
@@ -291,5 +292,55 @@ describe('scoring', () => {
     const card = await fullRun(24, (record) => record.caseId === 'heldout-action-06'
       ? { ...record, status: 'not_called', rejectionReason: 'spend_ceiling', shown: record.floor, costUsd: 0 } : record);
     expect(card.verdict).toBe('FAIL_INCOMPLETE_RUN');
+  });
+
+  describe('spend integrity, read from the records themselves', () => {
+    const lastCase = 'heldout-action-06';
+    const reservedFor = async (caseId: string) => reservedCallUsd((await allCases()).get(caseId)!.request);
+
+    it('a clean run has no breach, and costing exactly the reservation is not one', async () => {
+      const reserved = await reservedFor(lastCase);
+      expect((await fullRun(24)).spendBreaches).toEqual([]);
+      const card = await fullRun(24, (record) => record.caseId === lastCase ? { ...record, inputTokens: null, outputTokens: null, costUsd: reserved } : record);
+      expect(card).toMatchObject({ verdict: 'PENDING_HUMAN_REVIEW', spendBreaches: [] });
+    });
+
+    it('fails on the last call, with all 24 called and no not_called record anywhere', async () => {
+      const card = await fullRun(24, (record) => record.caseId === lastCase ? { ...record, inputTokens: 100_000, costUsd: costUsd(100_000, 300) } : record);
+      expect(card.calls).toBe(24);
+      expect(card.verdict).toBe('FAIL_SPEND_INTEGRITY');
+      expect(card.spendBreaches).toMatchObject([{ code: 'reservation_exceeded', caseId: lastCase, observedUsd: costUsd(100_000, 300), limitUsd: await reservedFor(lastCase) }]);
+    });
+
+    it('fails above the ceiling though every call stayed inside its reservation', async () => {
+      const reservations = new Map(await Promise.all(HELDOUT_CASES.map(async (item) => [item.caseId, await reservedFor(item.caseId)] as const)));
+      const card = await fullRun(24, (record) => ({ ...record, inputTokens: null, outputTokens: null, costUsd: reservations.get(record.caseId)! }));
+      expect(card.verdict).toBe('FAIL_SPEND_INTEGRITY');
+      expect(card.spendBreaches).toEqual([{ code: 'spend_ceiling_exceeded', caseId: null, observedUsd: card.spendUsd, limitUsd: 1 }]);
+      expect(card.spendUsd).toBeGreaterThan(1);
+    });
+
+    it('prices tokens over a recorded cost, so understating it hides nothing', async () => {
+      const card = await fullRun(24, (record) => record.caseId === lastCase ? { ...record, inputTokens: 500_000, costUsd: 0 } : record);
+      expect(card.verdict).toBe('FAIL_SPEND_INTEGRITY');
+      expect(card.spendBreaches.map((breach) => breach.code)).toEqual(['reservation_exceeded', 'spend_ceiling_exceeded']);
+    });
+
+    it.each([
+      ['missing', null],
+      ['negative', -1_000_000],
+      ['fractional', 0.5],
+    ])('treats %s usage as the whole reservation, whatever cost it records', async (_name, inputTokens) => {
+      const card = await fullRun(24, (record) => record.caseId === lastCase ? { ...record, inputTokens, costUsd: 0 } : record);
+      const clean = await fullRun(24);
+      expect(card.spendUsd).toBeCloseTo(clean.spendUsd - costUsd(1000, 300) + await reservedFor(lastCase), 10);
+    });
+
+    it('a hard failure keeps its verdict, and the breach is still reported beside it', async () => {
+      const card = await fullRun(24, (record) => record.caseId === lastCase
+        ? { ...record, inputTokens: 100_000, costUsd: costUsd(100_000, 300), shown: { ...record.shown, answer: 'I have linked it.' } } : record);
+      expect(card.verdict).toBe('FAIL_HARD_CORRECTNESS');
+      expect(card.spendBreaches).toHaveLength(1);
+    });
   });
 });

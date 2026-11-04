@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -6,8 +7,8 @@ import { hashCanonical } from '@/lib/extraction/domain/hash';
 import { acceptModelRecommendation, guidanceRejectionReasons } from '@/lib/server/ai/operatorGuidance';
 
 import {
-  costUsd, GUIDANCE_BARS, GUIDANCE_LABEL_VERIFICATION_FILE, GUIDANCE_QUALIFICATION_CONTRACT, GUIDANCE_QUALIFICATION_MODEL, reservedCallUsd, scoreGuidanceQualification,
-  type GuidanceRunRecord,
+  costUsd, GUIDANCE_BARS, GUIDANCE_LABEL_VERIFICATION_FILE, GUIDANCE_QUALIFICATION_CONTRACT, GUIDANCE_QUALIFICATION_MODEL, reservedCallUsd, scoreGuidanceQualification, usableUsage,
+  type GuidanceRunRecord, type GuidanceScorecard,
 } from './contract';
 import { HELDOUT_CASES } from './corpus';
 import { classifyGuidanceCallFailure, guidanceStatusForFailure } from './failureClass';
@@ -23,8 +24,17 @@ import { caseEvidenceFor } from './regression';
 const sha256 = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 const writeJson = (file: string, value: unknown) => writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
 
-/** Recorded with a freeze, and not part of what it hashes. */
-const OUT_OF_HASH_FIELDS = ['freezeSha256', 'implementationCommit', 'status'] as const;
+/** Evidence is never overwritten. Refusing up front saves the work; the exclusive write below is what holds. */
+export function refuseExistingOutput(file: string): void {
+  if (existsSync(file)) throw new Error(`OUTPUT_EXISTS: refusing to overwrite ${file}`);
+}
+
+export function writeNewJson(file: string, value: unknown): void {
+  writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`, { flag: 'wx' });
+}
+
+/** Recorded with a freeze, and not part of what it hashes. None of these authorizes anything by being present: see `authorizeFinalFreeze`. */
+const OUT_OF_HASH_FIELDS = ['freezeSha256', 'implementationCommit', 'status', 'finalization', 'finalizationSha256'] as const;
 
 export type FrozenGuidance = Readonly<Record<string, unknown>> & Readonly<{
   freezeSha256: string;
@@ -52,14 +62,90 @@ export function authenticateFreezeForRun(loaded: Readonly<Record<string, unknown
   if (loaded.freezeSha256 !== current.freezeSha256) throw new Error(`FREEZE_DIFFERS: this checkout builds ${String(current.freezeSha256)}, the freeze is ${String(loaded.freezeSha256)}`);
 }
 
-/** A person other than the labels' author verified exactly these labels. */
-export function labelVerificationProblem(labelSetDigest: string, file: string = GUIDANCE_LABEL_VERIFICATION_FILE): string | null {
-  if (!existsSync(file)) return 'no independent label verification is recorded';
-  const record = JSON.parse(readFileSync(file, 'utf8')) as { status?: string; labelSetDigest?: string; verifiedBy?: string; independentOfAuthor?: boolean };
+type LabelVerification = Readonly<{ status?: string; candidateFreezeSha256?: string; labelSetDigest?: string; verifiedBy?: string; verifiedOn?: string; independentOfAuthor?: boolean }>;
+
+function readLabelVerification(file: string): LabelVerification | null {
+  if (!existsSync(file)) return null;
+  try {
+    return JSON.parse(readFileSync(file, 'utf8')) as LabelVerification;
+  } catch {
+    return { status: 'unreadable' };
+  }
+}
+
+/** A person other than the labels' author verified exactly these labels, on exactly this candidate. */
+export function labelVerificationProblem(candidate: Pick<FrozenGuidance, 'freezeSha256' | 'labelSet'>, file: string = GUIDANCE_LABEL_VERIFICATION_FILE): string | null {
+  const record = readLabelVerification(file);
+  if (!record) return 'no independent label verification is recorded';
   if (record.status !== 'verified') return `the recorded verification says ${String(record.status)}`;
-  if (record.labelSetDigest !== labelSetDigest) return 'the recorded verification is for other labels';
+  if (record.candidateFreezeSha256 !== candidate.freezeSha256) return 'the recorded verification is for another candidate freeze';
+  if (record.labelSetDigest !== candidate.labelSet.digest) return 'the recorded verification is for other labels';
   if (!record.verifiedBy?.trim() || record.independentOfAuthor !== true) return 'the recorded verification does not name an independent verifier';
+  if (!record.verifiedOn?.trim()) return 'the recorded verification does not say when';
   return null;
+}
+
+/**
+ * What binds a final freeze to the candidate reviewed and the verification of it. Rebuilt on
+ * every authorization, so editing any field of it, or the status or commit it covers, or the
+ * verification, breaks the digest.
+ */
+function finalizationOf(freeze: FrozenGuidance, record: LabelVerification) {
+  return {
+    status: 'final', candidateFreezeSha256: freeze.freezeSha256, candidateImplementationCommit: freeze.implementationCommit,
+    labelSetDigest: freeze.labelSet.digest, labelVerificationDigest: hashCanonical(record), verifiedBy: record.verifiedBy,
+  };
+}
+
+/**
+ * A final freeze, derived from the candidate. The only way to one: `status` alone says
+ * nothing. It keeps the candidate's body, so its digest stays the candidate's.
+ */
+export function finalizeFreeze(candidate: FrozenGuidance, current: Readonly<Record<string, unknown>>, file: string = GUIDANCE_LABEL_VERIFICATION_FILE): FrozenGuidance {
+  authenticateFreezeForRun(candidate, current);
+  if (candidate.status !== 'candidate_not_final' || typeof candidate.implementationCommit !== 'string') throw new Error(`FREEZE_NOT_CANDIDATE: its status is ${String(candidate.status)}`);
+  const problem = labelVerificationProblem(candidate, file);
+  if (problem) throw new Error(`LABELS_NOT_VERIFIED: ${problem}`);
+  const finalization = finalizationOf(candidate, readLabelVerification(file)!);
+  return { ...candidate, status: 'final', finalization, finalizationSha256: hashCanonical(finalization) };
+}
+
+/** Quick, and before anything else about the run is looked at. Claiming to be final is still not enough. */
+export function assertClaimsFinal(loaded: Readonly<Record<string, unknown>>): void {
+  if (loaded.status !== 'final' || typeof loaded.finalizationSha256 !== 'string' || loaded.finalization == null || typeof loaded.implementationCommit !== 'string') {
+    throw new Error(`FREEZE_NOT_FINAL: its status is ${String(loaded.status)}, and only qualify.ts finalize makes a final freeze`);
+  }
+}
+
+/**
+ * Whether this file authorizes a paid run of what this checkout would send. Source identity is
+ * the pinned contents and the request bytes they build, never a commit id, so a squash merge
+ * of the same sources is the same freeze, and any change to them is not.
+ */
+export function authorizeFinalFreeze(loaded: FrozenGuidance, current: Readonly<Record<string, unknown>>, file: string = GUIDANCE_LABEL_VERIFICATION_FILE): void {
+  assertClaimsFinal(loaded);
+  authenticateFreezeForRun(loaded, current);
+  const problem = labelVerificationProblem(loaded, file);
+  if (problem) throw new Error(`LABELS_NOT_VERIFIED: ${problem}`);
+  const expected = hashCanonical(finalizationOf(loaded, readLabelVerification(file)!));
+  if (expected !== loaded.finalizationSha256 || hashCanonical(loaded.finalization) !== expected) {
+    throw new Error('FREEZE_NOT_FINAL: its finalization does not bind this candidate and this verification');
+  }
+}
+
+/** Authorization has to be on the record: tracked, and with nothing uncommitted. Which commit holds it does not matter, so a squash merge keeps it. */
+export function committedProblem(files: readonly string[], cwd: string = process.cwd()): string | null {
+  const git = (...args: string[]) => execFileSync('git', ['--literal-pathspecs', ...args], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  const relative = files.map((file) => path.relative(cwd, path.resolve(cwd, file)).replace(/\\/gu, '/'));
+  for (const file of relative) {
+    try {
+      git('ls-files', '--error-unmatch', '--', file);
+    } catch {
+      return `${file} is not committed`;
+    }
+  }
+  const uncommitted = git('status', '--porcelain', '--', ...relative).trim();
+  return uncommitted === '' ? null : `uncommitted changes: ${uncommitted}`;
 }
 
 function sha256Sums(dir: string) {
@@ -125,7 +211,7 @@ function allReasons(raw: string, built: MaterializedCase, first: string): readon
 }
 
 /** Did any model answer at all? A scorecard with none says nothing about the model. */
-function runHealth(records: readonly GuidanceRunRecord[]) {
+function runHealth(records: readonly GuidanceRunRecord[], card: GuidanceScorecard) {
   const failureClasses: Record<string, number> = {};
   for (const record of records) {
     if (record.failure) failureClasses[record.failure.failureClass] = (failureClasses[record.failure.failureClass] ?? 0) + 1;
@@ -135,7 +221,14 @@ function runHealth(records: readonly GuidanceRunRecord[]) {
     modelAnswers: records.filter((record) => record.rawOutput != null).length,
     reachedProvider: records.filter((record) => record.rawOutput != null || record.failure?.reachedProvider === true).length,
     failureClasses,
+    spendBreaches: card.spendBreaches,
   };
+}
+
+/** A fixed code, never a message: a message can carry anything. */
+function terminalFailureCode(error: unknown): string {
+  const message = error instanceof Error ? error.message : '';
+  return /^[A-Z][A-Z_]+(?=:)/u.exec(message)?.[0] ?? (error instanceof Error ? error.name : 'unknown');
 }
 
 export type GuidanceAsk = (request: GuidanceProviderRequest & Readonly<{ model: string }>) => Promise<Readonly<{
@@ -150,8 +243,20 @@ export async function executeGuidanceRun(params: Readonly<{ out: string; frozen:
   mkdirSync(out, { recursive: true });
   writeJson(path.join(out, 'freeze.json'), frozen);
   writeJson(path.join(out, 'started.json'), { contract: GUIDANCE_QUALIFICATION_CONTRACT, freezeSha256: frozen.freezeSha256, startedAt: new Date().toISOString(), model: GUIDANCE_QUALIFICATION_MODEL });
-
   const records: GuidanceRunRecord[] = [];
+  try {
+    return await callAndScore(params, records);
+  } catch (error) {
+    // Calls already paid for are evidence, whatever stopped the run. It stays whole, sealed and used.
+    writeJson(path.join(out, 'records.json'), { freezeSha256: frozen.freezeSha256, records });
+    writeJson(path.join(out, 'run-failure.json'), { failure: terminalFailureCode(error), callsRecorded: records.filter((record) => record.status !== 'not_called').length, chargedUsd: records.reduce((sum, record) => sum + record.costUsd, 0) });
+    sha256Sums(out);
+    throw error;
+  }
+}
+
+async function callAndScore(params: Readonly<{ out: string; frozen: FrozenGuidance; ask: GuidanceAsk }>, records: GuidanceRunRecord[]) {
+  const { out, frozen } = params;
   const byCase = new Map<string, MaterializedCase>();
   let spent = 0;
   let halted: string | null = null;
@@ -174,8 +279,7 @@ export async function executeGuidanceRun(params: Readonly<{ out: string; frozen:
         : answered.refused ? { ok: false as const, reason: 'refused' }
         : validated(answered.raw, built);
       // Without reported usage, nothing proves it cost less than everything held back for it.
-      const reported = answered.observation.inputTokens != null && answered.observation.outputTokens != null;
-      const cost = reported ? costUsd(answered.observation.inputTokens, answered.observation.outputTokens) : reserved;
+      const cost = usableUsage(answered.observation.inputTokens, answered.observation.outputTokens) ? costUsd(answered.observation.inputTokens, answered.observation.outputTokens) : reserved;
       spent += cost;
       // The reservation was wrong, so nothing further can be bounded by it.
       if (cost > reserved) halted = 'spend_reservation_exceeded';
@@ -202,11 +306,13 @@ export async function executeGuidanceRun(params: Readonly<{ out: string; frozen:
   }
   writeJson(path.join(out, 'records.json'), { freezeSha256: frozen.freezeSha256, records });
   const evidenceByCase = new Map([...byCase].map(([caseId, built]) => [caseId, caseEvidenceFor(built)]));
-  const card = scoreGuidanceQualification({ records, labels: HELDOUT_LABELS, evidenceByCase, frozenRequests: frozen.requests });
+  const reservedUsdByCase = new Map([...byCase].map(([caseId, built]) => [caseId, reservedCallUsd(built.request)]));
+  const card = scoreGuidanceQualification({ records, labels: HELDOUT_LABELS, evidenceByCase, frozenRequests: frozen.requests, reservedUsdByCase });
   writeJson(path.join(out, 'scorecard.json'), card);
-  const health = runHealth(records);
+  const health = runHealth(records, card);
   writeJson(path.join(out, 'run-health.json'), health);
   console.log(`[run] ${health.modelAnswers} model answers, failure classes ${JSON.stringify(health.failureClasses)}`);
+  if (card.spendBreaches.length > 0) console.log(`[run] SPEND INTEGRITY BREACHED: ${JSON.stringify(card.spendBreaches)}`);
   if (health.modelAnswers === 0) console.log('[run] NO MODEL ANSWERED: this run says nothing about the model. Do not read its verdict as a model result.');
   if (card.verdict === 'PENDING_HUMAN_REVIEW') writeReviewPacket(out, records, byCase);
   sha256Sums(out);
@@ -223,6 +329,8 @@ export async function regradeSealedRun(dir: string, frozen: FrozenGuidance) {
   const sealedFreeze = JSON.parse(readFileSync(path.join(dir, 'freeze.json'), 'utf8')) as FrozenGuidance;
   authenticateFreezeBody(sealedFreeze);
   if (sealedFreeze.freezeSha256 !== frozen.freezeSha256) throw new Error('RUN_NOT_SEALED: it carries another freeze');
-  const entries = await Promise.all(HELDOUT_CASES.map(async (item) => [item.caseId, caseEvidenceFor(await materializeCase(item))] as const));
-  return scoreGuidanceQualification({ records: run.records, labels: HELDOUT_LABELS, evidenceByCase: new Map(entries), frozenRequests: frozen.requests });
+  const cases = await Promise.all(HELDOUT_CASES.map(async (item) => [item.caseId, await materializeCase(item)] as const));
+  return scoreGuidanceQualification({ records: run.records, labels: HELDOUT_LABELS, frozenRequests: frozen.requests,
+    evidenceByCase: new Map(cases.map(([caseId, built]) => [caseId, caseEvidenceFor(built)])),
+    reservedUsdByCase: new Map(cases.map(([caseId, built]) => [caseId, reservedCallUsd(built.request)])) });
 }

@@ -118,7 +118,9 @@ export const GUIDANCE_V2_PINS_ALLOWED_TO_CHANGE: readonly string[] = Object.free
 /** Floors this contract changes, and only in their action link: two open the named source, three gain the upload route. */
 export const GUIDANCE_V2_FLOORS_ALLOWED_TO_CHANGE: readonly string[] = Object.freeze(['action-01', 'document-02', 'document-03', 'document-05', 'missing-01']);
 
-/** A freeze cannot be final until someone other than the labels' author has verified them. */
+/** The candidate under review. `qualify.ts finalize` derives a final freeze from it, and `run` accepts nothing else. */
+export const GUIDANCE_CANDIDATE_FREEZE_FILE = 'scripts/evaluation/artifacts/operator-guidance-v3/freeze-r3.json';
+/** A freeze cannot be final until someone other than the labels' author has verified them, on this candidate. */
 export const GUIDANCE_LABEL_VERIFICATION_FILE = 'scripts/evaluation/artifacts/operator-guidance-v3/label-verification.json';
 /** Withdrawn before any run, and kept byte for byte: see WITHDRAWN.json beside it. */
 export const GUIDANCE_WITHDRAWN_FREEZE_FILE = 'scripts/evaluation/artifacts/operator-guidance-v3/freeze.json';
@@ -351,10 +353,47 @@ export function hardViolations(record: GuidanceRunRecord, label: GuidanceCaseLab
   return [...violations];
 }
 
+/** Usage that could be true: a request always has input, and no count is negative or fractional. */
+export function usableUsage(inputTokens: number | null, outputTokens: number | null): boolean {
+  return Number.isSafeInteger(inputTokens) && Number.isSafeInteger(outputTokens) && (inputTokens as number) > 0 && (outputTokens as number) >= 0;
+}
+
+/**
+ * What a call must be taken to have cost: the larger of what it recorded and what its tokens
+ * price at. A call with no usable usage cost its whole reservation, whatever it recorded.
+ */
+export function observedCallUsd(record: Pick<GuidanceRunRecord, 'status' | 'rawOutput' | 'inputTokens' | 'outputTokens' | 'costUsd'>, reservedUsd: number): number {
+  const neverCalled = record.status === 'not_called' && record.rawOutput == null;
+  const priced = usableUsage(record.inputTokens, record.outputTokens) ? costUsd(record.inputTokens, record.outputTokens) : neverCalled ? 0 : reservedUsd;
+  return Math.max(record.costUsd, priced);
+}
+
+export type SpendBreach = Readonly<{ code: 'reservation_exceeded' | 'spend_ceiling_exceeded'; caseId: string | null; observedUsd: number; limitUsd: number }>;
+
+/**
+ * Read from each record itself, so a breach on the last call fails the run as surely as one
+ * on the first, and no later record has to exist for it to be seen.
+ */
+export function spendBreachesIn(records: readonly GuidanceRunRecord[], reservedUsdByCase: ReadonlyMap<string, number>): readonly SpendBreach[] {
+  const breaches: SpendBreach[] = [];
+  let total = 0;
+  for (const record of records) {
+    const reserved = reservedUsdByCase.get(record.caseId);
+    if (reserved == null) throw new Error(`SCORE_CASE_UNKNOWN: ${record.caseId}`);
+    const observed = observedCallUsd(record, reserved);
+    total += observed;
+    if (observed > reserved) breaches.push({ code: 'reservation_exceeded', caseId: record.caseId, observedUsd: observed, limitUsd: reserved });
+  }
+  if (total > GUIDANCE_BARS.spendCeilingUsd) breaches.push({ code: 'spend_ceiling_exceeded', caseId: null, observedUsd: total, limitUsd: GUIDANCE_BARS.spendCeilingUsd });
+  return breaches;
+}
+
 export type GuidanceVerdict =
   /** Every mechanical bar passed. Invented facts and explanation quality still need people. */
   | 'PENDING_HUMAN_REVIEW'
   | 'FAIL_HARD_CORRECTNESS'
+  /** A call cost more than was reserved for it, or the run cost more than its ceiling. */
+  | 'FAIL_SPEND_INTEGRITY'
   | 'FAIL_EXCESSIVE_FALLBACK'
   | 'FAIL_INCOMPLETE_RUN';
 
@@ -371,6 +410,7 @@ export type GuidanceScorecard = Readonly<{
   /** Every check failed across rejected answers, where the first-failure count above hides some. */
   allRejectionReasons: Readonly<Record<string, number>>;
   violations: readonly Readonly<{ caseId: string; codes: readonly HardBarCode[] }>[];
+  spendBreaches: readonly SpendBreach[];
   spendUsd: number;
   latencyMs: Readonly<{ median: number | null; p95: number | null; max: number | null }>;
   tokens: Readonly<{ input: number; output: number }>;
@@ -401,8 +441,11 @@ export function scoreGuidanceQualification(params: Readonly<{
   labels: readonly GuidanceCaseLabel[];
   evidenceByCase: ReadonlyMap<string, CaseEvidence>;
   frozenRequests: readonly Readonly<{ caseId: string; bodySha256: string }>[];
+  /** Rebuilt from each case's request, so no record can state its own limit. */
+  reservedUsdByCase: ReadonlyMap<string, number>;
 }>): GuidanceScorecard {
   assertExactCohort(params.records, params.frozenRequests);
+  const spendBreaches = spendBreachesIn(params.records, params.reservedUsdByCase);
   const labelByCase = new Map(params.labels.map((label) => [label.caseId, label]));
   const violations = params.records.flatMap((record) => {
     const label = labelByCase.get(record.caseId);
@@ -428,13 +471,14 @@ export function scoreGuidanceQualification(params: Readonly<{
   const acceptedRate = accepted / total;
   const fallbackRate = fallback / total;
   const verdict: GuidanceVerdict = violations.length > 0 ? 'FAIL_HARD_CORRECTNESS'
+    : spendBreaches.length > 0 ? 'FAIL_SPEND_INTEGRITY'
     : called.length !== total ? 'FAIL_INCOMPLETE_RUN'
     : acceptedRate < GUIDANCE_BARS.minimumAcceptedRate || fallbackRate > GUIDANCE_BARS.maximumFallbackRate ? 'FAIL_EXCESSIVE_FALLBACK'
     : 'PENDING_HUMAN_REVIEW';
   return {
     scorer: GUIDANCE_BARS.scorer, barsDigest: guidanceBarsDigest(), verdict, calls: called.length, accepted, fallback, acceptedRate, fallbackRate,
-    fallbackReasons, allRejectionReasons, violations,
-    spendUsd: params.records.reduce((sum, record) => sum + record.costUsd, 0),
+    fallbackReasons, allRejectionReasons, violations, spendBreaches,
+    spendUsd: params.records.reduce((sum, record) => sum + observedCallUsd(record, params.reservedUsdByCase.get(record.caseId)!), 0),
     latencyMs: { median: percentile(latencies, 0.5), p95: percentile(latencies, 0.95), max: latencies.at(-1) ?? null },
     tokens: {
       input: params.records.reduce((sum, record) => sum + (record.inputTokens ?? 0), 0),

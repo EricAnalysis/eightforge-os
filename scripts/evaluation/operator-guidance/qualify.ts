@@ -3,10 +3,13 @@
  *
  *   npx vite-node --config vitest.config.ts scripts/evaluation/operator-guidance/qualify.ts -- <command>
  *
- *   preflight --out <file>                                  zero calls; refuses a credential
- *   run --freeze <file> --out <dir> --confirm-paid-run      exactly 24 calls, once
- *   grade --freeze <file> --run <dir>                       zero calls; re-scores a finished run
- *   regression --out <file>                                 zero calls; v2's saved answers under v3, evidence only
+ *   preflight --out <new file>                              zero calls; refuses a credential; cuts a candidate
+ *   finalize --candidate <file> --out <new file>            zero calls; needs a committed candidate and verification
+ *   run --freeze <final file> --out <dir> --confirm-paid-run  exactly 24 calls, once
+ *   grade --freeze <final file> --run <dir>                 zero calls; re-scores a finished run
+ *   regression --out <new file>                             zero calls; v2's saved answers under v3, evidence only
+ *
+ * No command overwrites a file: frozen and sealed evidence stays what it was.
  *
  * The run calls the production adapter directly, so the production switch is never read
  * or set. Nothing writes to a database: the run's database is in memory and refuses writes.
@@ -14,12 +17,12 @@
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { heldoutStateSignature, HELDOUT_CASES, HELDOUT_PROJECT_FIXTURES, PROJECT_FIXTURES, V2_REGRESSION_CASES, type QualificationCase } from './corpus';
 import {
-  customerContentIn, GUIDANCE_BARS, GUIDANCE_PRICING, GUIDANCE_QUALIFICATION_CONTRACT, GUIDANCE_QUALIFICATION_MODEL, GUIDANCE_RUN_DIR,
+  customerContentIn, GUIDANCE_BARS, GUIDANCE_LABEL_VERIFICATION_FILE, GUIDANCE_PRICING, GUIDANCE_QUALIFICATION_CONTRACT, GUIDANCE_QUALIFICATION_MODEL, GUIDANCE_RUN_DIR,
   GUIDANCE_SUPERSEDED_CONTRACT, GUIDANCE_V1_ARTIFACT_DIR, GUIDANCE_V2_ARTIFACT_DIR, GUIDANCE_V2_FLOORS_ALLOWED_TO_CHANGE, GUIDANCE_V2_PINS_ALLOWED_TO_CHANGE,
   guidanceBarsDigest, internalVocabularyInPayload, pinnedSourceDigests, requestShapeIdentity, reservedCallUsd,
   type CaseEvidence,
@@ -29,7 +32,9 @@ import {
   GUIDANCE_LABEL_SET_VERSION, guidanceLabelSetDigest, HELDOUT_LABELS, V2_REGRESSION_LABEL_SET_VERSION, v2RegressionLabelSetDigest,
 } from './labels';
 import { caseEvidenceFor, replayV2Answers } from './regression';
-import { authenticateFreezeForRun, executeGuidanceRun, labelVerificationProblem, regradeSealedRun, type FrozenGuidance } from './runner';
+import {
+  assertClaimsFinal, authorizeFinalFreeze, committedProblem, executeGuidanceRun, finalizeFreeze, labelVerificationProblem, refuseExistingOutput, regradeSealedRun, writeNewJson, type FrozenGuidance,
+} from './runner';
 import { hashCanonical } from '@/lib/extraction/domain/hash';
 import { questionConcernsTransactions } from '@/lib/projectIntelligence/contextPlan';
 import { BILLED_LINE_SUPPORT_UNCERTAINTY } from '@/lib/projectIntelligence/evidenceAssessment';
@@ -37,7 +42,6 @@ import { askOperatorGuidanceWithClaude } from '@/lib/server/ai/askProject';
 import { PROJECT_ASK_GUIDANCE_ENABLED_ENV, PROJECT_ASK_QUALIFIED_MODELS } from '@/lib/server/ai/askModel';
 
 const sha256 = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
-const writeJson = (file: string, value: unknown) => writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
 
 function flag(name: string): string {
   const index = process.argv.indexOf(`--${name}`);
@@ -232,39 +236,57 @@ function refuseCredentials() {
 
 async function preflight() {
   refuseCredentials();
+  const out = path.resolve(flag('out'));
+  refuseExistingOutput(out);
   if (existsSync(GUIDANCE_RUN_DIR)) throw new Error(`PREFLIGHT_FAILED: this contract's run directory is already used: ${GUIDANCE_RUN_DIR}`);
   const freeze = await buildFreeze();
   const pinned = Object.keys(freeze.pinnedSources);
   // A record of where this was cut, outside the hash: a squash merge gives the same sources another commit.
   if (execFileSync('git', ['status', '--porcelain', '--', ...pinned], { encoding: 'utf8' }).trim() !== '') throw new Error('PREFLIGHT_FAILED: a pinned source has uncommitted changes');
   const implementationCommit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
-  // Verification is what makes it final, and it is deliberately outside the hash: verifying these labels changes no byte sent.
-  const unverified = labelVerificationProblem(freeze.labelSet.digest);
-  writeJson(path.resolve(flag('out')), { ...freeze, implementationCommit, status: unverified ? 'candidate_not_final' : 'final' });
+  // Always a candidate. Only `finalize` makes a final freeze, from a verification of this candidate.
+  const unverified = labelVerificationProblem(freeze) ?? 'run qualify.ts finalize';
+  writeNewJson(out, { ...freeze, implementationCommit, status: 'candidate_not_final' });
   console.log(`[preflight] pass: ${GUIDANCE_BARS.cases} cases, 0 provider calls, 0 writes`);
   console.log(`[preflight] v2 parity: ${freeze.parityWithV2.requestBodiesBeforeCorrectionsIdentical} request bodies identical before corrections, ${freeze.parityWithV2.requestBodiesGainingOnlyTheBilledLineUncertainty.join(', ')} gain only the billed-line uncertainty; ${freeze.parityWithV2.floorsIdentical} floors identical, ${freeze.parityWithV2.floorsChangedInActionLinkOnly.join(', ')} differ in their action link only; pins changed: ${freeze.parityWithV2.pinsChanged.length}`);
   console.log(`[preflight] run directory unused: ${GUIDANCE_RUN_DIR}`);
   console.log(`[preflight] freeze ${freeze.freezeSha256}`);
   console.log(`[preflight] Case Investigation runner unchanged; held-out reuse of v1 or v2: ${freeze.parityWithV2.heldoutReuse}`);
   console.log(`[preflight] projected spend $${freeze.projectedSpendUsd}; sum of reservations $${freeze.sumOfReservationsUsd}; each call's whole reservation must fit under the $${GUIDANCE_BARS.spendCeilingUsd} ceiling before it starts`);
-  console.log(`[preflight] status: ${unverified ? `CANDIDATE, NOT FINAL: ${unverified}` : 'final'}`);
+  console.log(`[preflight] status: CANDIDATE, NOT FINAL: ${unverified}`);
   console.log(`[preflight] implementation commit ${implementationCommit}`);
+}
+
+/** Zero calls. The only way to a final freeze: a committed candidate, and a committed independent verification of exactly it. */
+async function finalize() {
+  refuseCredentials();
+  const candidateFile = flag('candidate');
+  const out = path.resolve(flag('out'));
+  refuseExistingOutput(out);
+  const uncommitted = committedProblem([candidateFile, GUIDANCE_LABEL_VERIFICATION_FILE]);
+  if (uncommitted) throw new Error(`FREEZE_NOT_FINAL: ${uncommitted}`);
+  const final = finalizeFreeze(JSON.parse(readFileSync(candidateFile, 'utf8')) as FrozenGuidance, await buildFreeze());
+  writeNewJson(out, final);
+  console.log(`[finalize] final: freeze ${final.freezeSha256}, 0 provider calls`);
 }
 
 async function run() {
   if (!process.argv.includes('--confirm-paid-run')) throw new Error('the paid run requires --confirm-paid-run');
   if (process.env[PROJECT_ASK_GUIDANCE_ENABLED_ENV] === '1') throw new Error('the production guidance switch must stay off during qualification');
-  if (!process.env.ANTHROPIC_API_KEY?.trim()) throw new Error('ANTHROPIC_API_KEY is not set');
   // The run tests the provider production calls, so nothing may reroute it.
   if (process.env.ANTHROPIC_BASE_URL?.trim()) throw new Error('ANTHROPIC_BASE_URL must be unset for the qualification run');
+  const freezeFile = flag('freeze');
+  const frozen = JSON.parse(readFileSync(freezeFile, 'utf8')) as FrozenGuidance;
+  assertClaimsFinal(frozen);
   const out = path.resolve(flag('out'));
   if (out !== path.resolve(GUIDANCE_RUN_DIR)) throw new Error(`this contract's single run writes only to ${GUIDANCE_RUN_DIR}`);
   if (existsSync(out)) throw new Error(`refusing to reuse an evidence directory: exactly one run per contract: ${out}`);
 
-  const frozen = JSON.parse(readFileSync(flag('freeze'), 'utf8')) as FrozenGuidance;
-  authenticateFreezeForRun(frozen, await buildFreeze());
-  const unverified = labelVerificationProblem(frozen.labelSet.digest);
-  if (unverified) throw new Error(`LABELS_NOT_VERIFIED: ${unverified}`);
+  const uncommitted = committedProblem([freezeFile, GUIDANCE_LABEL_VERIFICATION_FILE, ...Object.keys(frozen.pinnedSources as Readonly<Record<string, string>>)]);
+  if (uncommitted) throw new Error(`FREEZE_NOT_FINAL: ${uncommitted}`);
+  authorizeFinalFreeze(frozen, await buildFreeze());
+  // Last, so nothing about a credential is touched for a freeze that cannot run.
+  if (!process.env.ANTHROPIC_API_KEY?.trim()) throw new Error('ANTHROPIC_API_KEY is not set');
   await executeGuidanceRun({ out, frozen, ask: (request) => askOperatorGuidanceWithClaude(request) });
 }
 
@@ -276,11 +298,13 @@ async function grade() {
 /** Regression evidence only. It computes no rate and no verdict. */
 async function regression() {
   refuseCredentials();
-  writeJson(path.resolve(flag('out')), { evidenceOnly: 'v2 saved answers under v3. Not a qualification result.', rows: await replayV2Answers() });
+  const out = path.resolve(flag('out'));
+  refuseExistingOutput(out);
+  writeNewJson(out, { evidenceOnly: 'v2 saved answers under v3. Not a qualification result.', rows: await replayV2Answers() });
   console.log('[regression] wrote v2 saved answers under v3, 0 provider calls');
 }
 
-const commands: Record<string, () => Promise<void>> = { preflight, run, grade, regression };
+const commands: Record<string, () => Promise<void>> = { preflight, finalize, run, grade, regression };
 const command = process.argv.slice(2).find((arg) => commands[arg] != null);
 if (!command || !commands[command]) throw new Error(`usage: ${Object.keys(commands).join(' | ')}`);
 await commands[command]!();

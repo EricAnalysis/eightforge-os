@@ -20,7 +20,7 @@ import { unsupportedNumbers } from '@/lib/server/caseInvestigationRunner';
 
 import {
   authorityEscalationIn, customerContentIn, GUIDANCE_BARS, GUIDANCE_QUALIFICATION_CONTRACT, GUIDANCE_QUALIFICATION_MODEL, GUIDANCE_RUN_DIR, GUIDANCE_SUPERSEDED_CONTRACT, GUIDANCE_V2_ARTIFACT_DIR,
-  GUIDANCE_WITHDRAWN_FREEZE_FILE, hardViolations, internalVocabularyInPayload, pinnedSourceDigests, promisedOutcomeIn, requestShapeIdentity, tellsOperatorToObtainSource, unsupportedRelationshipAdviceIn,
+  GUIDANCE_CANDIDATE_FREEZE_FILE, GUIDANCE_WITHDRAWN_FREEZE_FILE, hardViolations, internalVocabularyInPayload, pinnedSourceDigests, promisedOutcomeIn, requestShapeIdentity, tellsOperatorToObtainSource, unsupportedRelationshipAdviceIn,
   type GuidanceRunRecord,
 } from '@/scripts/evaluation/operator-guidance/contract';
 import { heldoutStateSignature, HELDOUT_CASES, HELDOUT_PROJECT_FIXTURES, V2_REGRESSION_CASES, type QualificationCase } from '@/scripts/evaluation/operator-guidance/corpus';
@@ -78,6 +78,27 @@ describe('v3 has its own identity and keeps the terms it did not set out to chan
     const record = json('scripts/evaluation/artifacts/operator-guidance-v3/WITHDRAWN.json');
     expect(createHash('sha256').update(withdrawn).digest('hex')).toBe('4bb943c9f5572feab58a755c8373cf7ab80f50a9a658c6b10c12ecbf00d3e0cd');
     expect(record).toMatchObject({ status: 'withdrawn_before_any_run', fileSha256: '4bb943c9f5572feab58a755c8373cf7ab80f50a9a658c6b10c12ecbf00d3e0cd', freezeSha256: json(GUIDANCE_WITHDRAWN_FREEZE_FILE).freezeSha256 });
+  });
+
+  it('keeps the candidate it replaced byte for byte, as a candidate and never final', () => {
+    const file = 'scripts/evaluation/artifacts/operator-guidance-v3/freeze-r2.json';
+    expect(createHash('sha256').update(readFileSync(file)).digest('hex')).toBe('ec3f7ed4aeb947c067cbc1bdec3bfd9722a8e7b9c96570c95f280ce95fcd6812');
+    expect(json(file)).toMatchObject({ status: 'candidate_not_final', freezeSha256: '4edcd9b7fed19abc39ba4a5581d3693c169646ec75606e7b62f0b5fd273f51c3' });
+  });
+
+  it('the candidate differs from the one it replaced only in the three pinned files these gates changed', () => {
+    const before = json('scripts/evaluation/artifacts/operator-guidance-v3/freeze-r2.json') as Record<string, unknown> & { pinnedSources: Record<string, string> };
+    const after = json(GUIDANCE_CANDIDATE_FREEZE_FILE) as Record<string, unknown> & { pinnedSources: Record<string, string> };
+    expect(after.status).toBe('candidate_not_final');
+    const outOfHash = new Set(['freezeSha256', 'implementationCommit', 'status', 'pinnedSources']);
+    const rest = (freeze: Record<string, unknown>) => Object.fromEntries(Object.entries(freeze).filter(([key]) => !outOfHash.has(key)));
+    expect(rest(after)).toEqual(rest(before));
+    expect(Object.keys(after.pinnedSources)).toEqual(Object.keys(before.pinnedSources));
+    expect(Object.keys(after.pinnedSources).filter((file) => after.pinnedSources[file] !== before.pinnedSources[file]).sort()).toEqual([
+      'scripts/evaluation/operator-guidance/contract.ts',
+      'scripts/evaluation/operator-guidance/qualify.ts',
+      'scripts/evaluation/operator-guidance/runner.ts',
+    ]);
   });
 });
 

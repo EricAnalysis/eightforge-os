@@ -8,7 +8,7 @@ import { classifyOperatorIntent, planProjectContext, questionConcernsTransaction
 import { BILLED_LINE_SUPPORT_UNCERTAINTY } from '@/lib/projectIntelligence/evidenceAssessment';
 import type { OperatorRecommendation } from '@/lib/projectIntelligence/operatorRecommendation';
 
-import { GUIDANCE_V2_FLOORS_ALLOWED_TO_CHANGE } from '@/scripts/evaluation/operator-guidance/contract';
+import { GUIDANCE_CANDIDATE_FREEZE_FILE, GUIDANCE_V2_FLOORS_ALLOWED_TO_CHANGE } from '@/scripts/evaluation/operator-guidance/contract';
 import { HELDOUT_CASES, V2_REGRESSION_CASES } from '@/scripts/evaluation/operator-guidance/corpus';
 import { materializeCase } from '@/scripts/evaluation/operator-guidance/harness';
 
@@ -23,7 +23,7 @@ type FrozenRequest = { caseId: string; bodySha256: string; floorDigest: string; 
 
 const frozen = JSON.parse(readFileSync('scripts/evaluation/artifacts/operator-guidance-v1/freeze.json', 'utf8')) as { requests: FrozenRequest[] };
 const frozenV2 = JSON.parse(readFileSync('scripts/evaluation/artifacts/operator-guidance-v2/freeze.json', 'utf8')) as { requests: FrozenRequest[] };
-const frozenV3 = JSON.parse(readFileSync('scripts/evaluation/artifacts/operator-guidance-v3/freeze-r2.json', 'utf8')) as { requests: FrozenRequest[] };
+const frozenV3 = JSON.parse(readFileSync(GUIDANCE_CANDIDATE_FREEZE_FILE, 'utf8')) as { requests: FrozenRequest[] };
 const withoutAddedUncertainty = (body: string) => body.split(`"stillUncertain":[${JSON.stringify(BILLED_LINE_SUPPORT_UNCERTAINTY)}]`).join('"stillUncertain":[]');
 const { records } = JSON.parse(readFileSync('scripts/evaluation/artifacts/operator-guidance-v2/run/records.json', 'utf8')) as { records: { caseId: string; floor: OperatorRecommendation }[] };
 

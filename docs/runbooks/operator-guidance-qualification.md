@@ -38,17 +38,40 @@ Any correction needs a new contract and new held-out cases, because these answer
 
 ## Where v3 stands
 
-**Not final, and not run.** The first v3 freeze (`59c0431a…`) was withdrawn before any run, after an
-independent review of #295 found defects in it. It stays byte for byte in `freeze.json`, with the reasons
-in `WITHDRAWN.json`. The candidate is `freeze-r2.json`.
+**Not final, and not run.** Nothing here has made a provider call.
 
-`preflight` marks a freeze `final` only when `label-verification.json` names an independent verifier of
-exactly these labels, and `run` refuses otherwise. A verification record looks like this, and changes no
-byte sent:
+| File | What it is |
+| --- | --- |
+| `freeze.json` | The first freeze (`59c0431a…`), withdrawn before any run after an independent review of #295. Kept byte for byte, with the reasons in `WITHDRAWN.json` |
+| `freeze-r2.json` | The candidate whose 24 labels were independently checked. Kept byte for byte. It can no longer authenticate, because the final gates changed three pinned files. Its labels and every request and floor carry over unchanged |
+| `freeze-r3.json` | **The candidate.** It differs from r2 only in the pins of `contract.ts`, `qualify.ts` and `runner.ts`, and a test holds that |
 
-```json
-{ "status": "verified", "labelSetDigest": "<labelSet.digest>", "verifiedBy": "<who>", "verifiedOn": "<date>", "independentOfAuthor": true }
-```
+**A freeze becomes final one way:**
+
+1. `preflight` cuts a candidate. It is always `candidate_not_final`, whatever else exists.
+2. An independent verifier commits `label-verification.json`, naming this candidate and these labels. It
+   changes no byte sent, and looks like this:
+
+   ```json
+   { "status": "verified", "candidateFreezeSha256": "<candidate freezeSha256>", "labelSetDigest": "<labelSet.digest>", "verifiedBy": "<who>", "verifiedOn": "<date>", "independentOfAuthor": true }
+   ```
+
+3. `finalize` derives `freeze-final.json` from the committed candidate and record, and that file is committed.
+4. `run` accepts only that.
+
+**`status` authorizes nothing.** `status`, `implementationCommit` and the finalization sit outside the freeze
+digest, so `finalizationSha256` binds them to the candidate digest, the labels and the digest of the
+verification record, and `run` rebuilds it from those every time. Editing any of them, or the record, refuses
+the run. So does an untracked or uncommitted freeze, record or pinned source.
+
+**Squash merges are supported.** Source identity is the pinned contents and the request bytes they build, which
+`run` rebuilds and compares. It never asks whether `implementationCommit` still exists, because that field
+records where the candidate was cut. A squash merge of the same sources is the same freeze, and any change to
+them is refused.
+
+**What this cannot do:** nothing here is signed, so someone who writes a false verification record and commits
+it can pass these checks. The defence is that it would have to be a committed record under a named verifier,
+which is what a review reads.
 
 ## Evidence sufficiency (owner, 2026-11-03)
 
@@ -133,7 +156,7 @@ has decoy rows from another project and another organization in its database, wh
 **v1 and v2's 24 cases are regression evidence only.** v3's corrections were derived from their answers,
 so they are never called in a run and never count towards a result.
 `scripts/evaluation/artifacts/operator-guidance-v3/regression-v2-answers.json` holds v2's saved answers
-under v3, and `qualify.ts regression` rebuilds it with zero calls.
+under v3, and `qualify.ts regression` rebuilds them into a new file with zero calls, for comparison.
 
 **Questions naming tickets stay outside this contract.** Their requests carry a section it never saw, so
 ticket evidence is covered through ticket findings, with questions that do not name tickets.
@@ -198,6 +221,14 @@ without reducing correctness?
   provider reports usage, so a failed call or missing usage is charged in full. If one call ever costs more
   than its reservation, the run halts. The reservation rests on a token being at least a byte, which is not
   a term the provider states, so that check is what catches it being wrong.
+- **A breach fails the qualification, `FAIL_SPEND_INTEGRITY`, even on the last call.** The scorer reads it from
+  each record, against a reservation it rebuilds from the request, so no later record has to exist and no record
+  can state its own limit. It takes the larger of a record's cost and what its tokens price at. Usage that is
+  missing, negative, fractional or shows no input counts as the whole reservation. A hard correctness failure
+  keeps its own verdict, and the breach is reported beside it in `spendBreaches`.
+- **An unsuccessful run keeps its evidence.** A failing verdict still writes records, scorecard and run health,
+  and seals them. If the run cannot finish at all, what was paid for is sealed with `run-failure.json`, which
+  holds a fixed code. The run directory stays used either way.
 - **No retries.** Timeout is Project Ask's existing 45 s; no stricter bound is invented.
 - Latency and tokens are preserved per call, with no bar on them.
 
@@ -214,8 +245,9 @@ without reducing correctness?
   "Document link: attached_to" to operators. Neither changes here.
 - **Production coverage.** The translation is proven on these 48 requests. Other rules may send
   identifiers it does not cover, which fall back safely.
-- **Numbers written as words are not read.** "Two critical findings" is not checked. Reviewers read every
-  accepted answer.
+- **Number words are validated only before a recognized unit or finding noun.** "Two critical findings" reads
+  as 2 and must equal the count sent, and written-out scale such as "two thousand" is never supported. A number
+  word anywhere else, such as "two of them", is not read. Reviewers read every accepted answer.
 - **A partial title can fall back.** "Invoice 7" for a document titled "Sample Invoice 7" is read as a
   bare 7, which is safe and costs a fallback.
 
@@ -249,13 +281,17 @@ the owner, who decides whether that run is void, as with v1.
 
 ## Commands
 
-`preflight` refuses a provider credential in its environment. `run` needs `ANTHROPIC_API_KEY` and
+`preflight`, `finalize` and `regression` refuse a provider credential in their environment, and refuse an
+`--out` that already exists, so none of them can overwrite evidence. To check that a checkout still builds the
+candidate, send `preflight` to a new file outside the repository and compare its `freezeSha256` with
+`freeze-r3.json`. `run` refuses anything but a committed final freeze first, then needs `ANTHROPIC_API_KEY`, and
 refuses `ANTHROPIC_BASE_URL`, so calls go directly to the provider. `grade` makes no calls.
 
 ```text
-npx vite-node --config vitest.config.ts scripts/evaluation/operator-guidance/qualify.ts -- preflight --out scripts/evaluation/artifacts/operator-guidance-v3/freeze.json
-npx vite-node --config vitest.config.ts scripts/evaluation/operator-guidance/qualify.ts -- run --freeze scripts/evaluation/artifacts/operator-guidance-v3/freeze.json --out scripts/evaluation/artifacts/operator-guidance-v3/run --confirm-paid-run
-npx vite-node --config vitest.config.ts scripts/evaluation/operator-guidance/qualify.ts -- grade --freeze scripts/evaluation/artifacts/operator-guidance-v3/freeze.json --run scripts/evaluation/artifacts/operator-guidance-v3/run
+npx vite-node --config vitest.config.ts scripts/evaluation/operator-guidance/qualify.ts -- preflight --out <new file outside the repository>
+npx vite-node --config vitest.config.ts scripts/evaluation/operator-guidance/qualify.ts -- finalize --candidate scripts/evaluation/artifacts/operator-guidance-v3/freeze-r3.json --out scripts/evaluation/artifacts/operator-guidance-v3/freeze-final.json
+npx vite-node --config vitest.config.ts scripts/evaluation/operator-guidance/qualify.ts -- run --freeze scripts/evaluation/artifacts/operator-guidance-v3/freeze-final.json --out scripts/evaluation/artifacts/operator-guidance-v3/run --confirm-paid-run
+npx vite-node --config vitest.config.ts scripts/evaluation/operator-guidance/qualify.ts -- grade --freeze scripts/evaluation/artifacts/operator-guidance-v3/freeze-final.json --run scripts/evaluation/artifacts/operator-guidance-v3/run
 ```
 
 ## Where the paid run happens

@@ -158,15 +158,18 @@ function tokens(value: string): Set<string> {
  * them when this is a whole sentence. This only ever points a person at a file to
  * look in; it never counts as having read the answer from it.
  */
-function matchingFile(name: string, files: readonly FdeSuppliedFile[]): string | null {
+export function matchingFileCandidates<T extends FdeSuppliedFile>(name: string, files: readonly T[]): readonly T[] {
   const wanted = tokens(name);
-  if (wanted.size === 0) return null;
-  for (const file of files) {
+  if (wanted.size === 0) return [];
+  return files.filter((file) => {
     const have = tokens([file.filename, ...file.sectionLabels].join(' '));
     const overlap = [...wanted].filter((token) => have.has(token)).length;
-    if (overlap >= 3 || (overlap > 0 && overlap * 2 >= wanted.size)) return file.filename;
-  }
-  return null;
+    return overlap >= 3 || (overlap > 0 && overlap * 2 >= wanted.size);
+  });
+}
+
+function matchingFile(name: string, files: readonly FdeSuppliedFile[]): string | null {
+  return matchingFileCandidates(name, files)[0]?.filename ?? null;
 }
 
 function ruleOutBelow(rung: FdeLadderRung): FdeLadderRung[] {

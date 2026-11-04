@@ -1,5 +1,30 @@
 # EightForge + Forgewing as a productized Forward Deployed Engineer
 
+## FDE intake plan projection
+
+`lib/projectIntelligence/fdeIntakePlan.ts` derives a read-only `fde_intake_plan_v1`
+from one stored Workflow Assessment, the original intake, organization-scoped
+attachment metadata, stored follow-up answer revisions, and the existing
+capability catalogue. The review packet displays it beside the existing
+readiness card. Its pinned input identifiers and digests make the projection
+reproducible from the same records; it writes no canonical facts or approvals.
+
+A submitted follow-up is `supplied_uninterpreted` until a human establishes
+what it means. The projection uses only answers from the current or an earlier
+assessment version when the same follow-up question still applies. Attachment
+context is read through the existing immutable manifest closure; read failures
+are shown as `evidence_unavailable`, not as a customer omission. Candidate
+filename matches retain every relevant attachment ID, while unmatched and
+truncated files remain visible for interpretation. Missing, unavailable, or
+conflicting information leaves the deployment approach undetermined. Per-step
+catalogue matches and ladder rungs are candidates with lower rungs to check,
+not proof of customer deployability. Owner activation and divergent reviewed
+step decisions block readiness. An assessment
+specification review remains distinct from review of this derived plan. The
+plan stays `authority: non_authoritative` and `pending_review`; no existing
+record approves its deployment recommendation. A separate approval contract
+requires an owner decision before activation or execution can use the plan.
+
 Status: direction, not a specification. Each phase that builds on this note
 gets its own scoped spec, audit and verification gates. Recorded 2026-10-04.
 

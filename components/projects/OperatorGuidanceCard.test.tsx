@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vitest';
 import { OperatorGuidanceCard } from '@/components/projects/OperatorGuidanceCard';
 import { projectAskRequestBody } from '@/components/projects/ProjectAskBar';
 import { FdeReadinessCard } from '@/components/workflows/FdeReadinessCard';
+import { FdeIntakePlanCard } from '@/components/workflows/FdeIntakePlanCard';
+import { buildFdeIntakePlan } from '@/lib/projectIntelligence/fdeIntakePlan';
 import { buildFdeReadinessPlan } from '@/lib/projectIntelligence/fdeReadiness';
 import type { OperatorRecommendation } from '@/lib/projectIntelligence/operatorRecommendation';
 
@@ -69,5 +71,40 @@ describe('FdeReadinessCard', () => {
       expect(html).toContain(text);
     }
     expect(html).not.toMatch(/<button|<form|<input|<a /u);
+  });
+});
+
+describe('FdeIntakePlanCard', () => {
+  it('renders distinct PDF guidance and omits reviewed conflicts from proposed engineering work', () => {
+    const limitation = 'Native text from at most three physical pages; images and unreadable scanned content are not inferred.';
+    const source = {
+      assessmentId: 'assessment-a', assessmentVersion: 1, sourceSubmissionId: 'submission-a',
+      intake: { workflowDescription: 'Review contracts', successOutcome: 'Reviewed contract' },
+      assessment: { documents: [{ name: 'Rate schedule PDF' }], workflowSteps: [
+        { stepId: 'extract', classification: 'EXTRACT', description: 'Read the rate schedule PDF', requiredInputs: [], proposedOutput: 'Rates' },
+        { stepId: 'custom', classification: 'RULE', description: 'Verify a bespoke operation', requiredInputs: [], proposedOutput: 'Result' },
+      ] },
+      answers: [],
+      existingReview: { reviewId: 'review-a', reviewVersion: 1, overallDisposition: 'accepted', stepReviews: [
+        { assessmentStepId: 'extract', proposedClassification: 'EXTRACT', reviewedClassification: null, disposition: 'rejected', reviewerNotes: null, acceptedSpecification: null },
+        { assessmentStepId: 'custom', proposedClassification: 'RULE', reviewedClassification: 'HUMAN', disposition: 'reclassified', reviewerNotes: null, acceptedSpecification: { description: 'Operator decision' } },
+      ] },
+    };
+    const file = { attachmentId: 'file-a', filename: 'Rate schedule PDF', sectionLabels: ['Rates'], limitations: [limitation] };
+    const complete = buildFdeIntakePlan({ ...source, suppliedFiles: [{ ...file, truncated: false }] })!;
+    const truncated = buildFdeIntakePlan({ ...source, suppliedFiles: [{ ...file, truncated: true }] })!;
+    const completeHtml = renderToStaticMarkup(<FdeIntakePlanCard plan={complete} />);
+    const truncatedHtml = renderToStaticMarkup(<FdeIntakePlanCard plan={truncated} />);
+    expect(completeHtml).toContain('Review parser limitations for Rate schedule PDF');
+    expect(completeHtml).not.toContain('partially processed document');
+    expect(truncatedHtml).toContain('Review partially processed document Rate schedule PDF');
+    expect(truncatedHtml).toContain('only part of the document was processed');
+    expect(completeHtml).toContain(limitation);
+    expect(truncatedHtml).toContain(limitation);
+    expect(complete.engineeringRequirements).toEqual([]);
+    expect(truncated.engineeringRequirements).toEqual([]);
+    expect(completeHtml).toContain('Reviewed step differs from the assessment proposal');
+    expect(completeHtml).not.toContain('lib/extraction/pdf/extractText.ts');
+    expect(truncatedHtml).not.toContain('lib/extraction/pdf/extractText.ts');
   });
 });

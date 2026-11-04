@@ -1,0 +1,643 @@
+{
+  "contract": "operator_guidance_qualification_v3",
+  "fixtures": {
+    "harbor_setup": "Sample Project Harbor",
+    "harbor_pricing": "Sample Project Inlet",
+    "harbor_billing": "Sample Project Marina",
+    "harbor_cleared": "Sample Project Pier",
+    "harbor_conflict": "Sample Project Dock",
+    "harbor_tickets": "Sample Project Wharf"
+  },
+  "perIntent": {
+    "whats_missing": 6,
+    "need_document": 6,
+    "why_flagged": 6,
+    "what_to_do": 6
+  },
+  "perFixture": {
+    "harbor_billing": 4,
+    "harbor_setup": 5,
+    "harbor_cleared": 3,
+    "harbor_pricing": 7,
+    "harbor_conflict": 1,
+    "harbor_tickets": 4
+  },
+  "census": [
+    {
+      "caseId": "heldout-missing-01",
+      "fixture": "harbor_billing",
+      "intent": "whats_missing",
+      "question": "What is still missing for billing review?",
+      "focusRule": null,
+      "classification": "source_missing",
+      "floorNextStep": "upload_or_request_document",
+      "openFindings": 1,
+      "sourceAlreadyPresent": false,
+      "ownerAdjudicated": false
+    },
+    {
+      "caseId": "heldout-missing-02",
+      "fixture": "harbor_setup",
+      "intent": "whats_missing",
+      "question": "What is missing from this project?",
+      "focusRule": null,
+      "classification": "not_a_source_gap",
+      "floorNextStep": "review_ticket_or_transaction",
+      "openFindings": 6,
+      "sourceAlreadyPresent": true,
+      "ownerAdjudicated": true
+    },
+    {
+      "caseId": "heldout-missing-03",
+      "fixture": "harbor_cleared",
+      "intent": "whats_missing",
+      "question": "Is anything missing?",
+      "focusRule": null,
+      "classification": "no_open_findings",
+      "floorNextStep": "no_action_needed",
+      "openFindings": 0,
+      "sourceAlreadyPresent": false,
+      "ownerAdjudicated": false
+    },
+    {
+      "caseId": "heldout-missing-04",
+      "fixture": "harbor_pricing",
+      "intent": "whats_missing",
+      "question": "What is missing before we can check pricing?",
+      "focusRule": null,
+      "classification": "source_missing",
+      "floorNextStep": "upload_or_request_document",
+      "openFindings": 1,
+      "sourceAlreadyPresent": false,
+      "ownerAdjudicated": false
+    },
+    {
+      "caseId": "heldout-missing-05",
+      "fixture": "harbor_setup",
+      "intent": "whats_missing",
+      "question": "What is missing before we can start?",
+      "focusRule": null,
+      "classification": "source_missing",
+      "floorNextStep": "upload_or_request_document",
+      "openFindings": 1,
+      "sourceAlreadyPresent": false,
+      "ownerAdjudicated": false
+    },
+    {
+      "caseId": "heldout-missing-06",
+      "fixture": "harbor_billing",
+      "intent": "whats_missing",
+      "question": "What is missing from the project file?",
+      "focusRule": null,
+      "classification": "source_missing",
+      "floorNextStep": "upload_or_request_document",
+      "openFindings": 2,
+      "sourceAlreadyPresent": false,
+      "ownerAdjudicated": false
+    },
+    {
+      "caseId": "heldout-document-01",
+      "fixture": "harbor_pricing",
+      "intent": "need_document",
+      "question": "Do I need to upload the rate exhibit again?",
+      "focusRule": null,
+      "classification": "source_present_unread",
+      "floorNextStep": "review_existing_document",
+      "openFindings": 1,
+      "sourceAlreadyPresent": true,
+      "ownerAdjudicated": false
+    },
+    {
+      "caseId": "heldout-document-02",
+      "fixture": "harbor_billing",
+      "intent": "need_document",
+      "question": "Do I need another document for billing?",
+      "focusRule": null,
+      "classification": "source_present_unread",
+      "floorNextStep": "review_existing_document",
+      "openFindings": 1,
+      "sourceAlreadyPresent": true,
+      "ownerAdjudicated": false
+    },
+    {
+      "caseId": "heldout-document-03",
+      "fixture": "harbor_pricing",
+      "intent": "need_document",
+      "question": "Do we need a separate rate schedule?",
+      "focusRule": null,
+      "classification": "source_present",
+      "floorNextStep": "review_existing_document",
+      "openFindings": 1,
+      "sourceAlreadyPresent": true,
+      "ownerAdjudicated": false
+    },
+    {
+      "caseId": "heldout-document-04",
+      "fixture": "harbor_pricing",
+      "intent": "need_document",
+      "question": "Do we need another pricing document?",
+      "focusRule": null,
+      "classification": "source_missing",
+      "floorNextStep": "review_existing_document",
+      "openFindings": 1,
+      "sourceAlreadyPresent": true,
+      "ownerAdjudicated": true
+    },
+    {
+      "caseId": "heldout-document-05",
+      "fixture": "harbor_cleared",
+      "intent": "need_document",
+      "question": "Do I need to upload anything else?",
+      "focusRule": null,
+      "classification": "no_open_findings",
+      "floorNextStep": "no_action_needed",
+      "openFindings": 0,
+      "sourceAlreadyPresent": false,
+      "ownerAdjudicated": false
+    },
+    {
+      "caseId": "heldout-document-06",
+      "fixture": "harbor_setup",
+      "intent": "need_document",
+      "question": "Should I request the contract again?",
+      "focusRule": "SOURCES_NO_CONTRACT",
+      "classification": "source_present_unread",
+      "floorNextStep": "review_existing_document",
+      "openFindings": 1,
+      "sourceAlreadyPresent": true,
+      "ownerAdjudicated": false
+    },
+    {
+      "caseId": "heldout-flagged-01",
+      "fixture": "harbor_setup",
+      "intent": "why_flagged",
+      "question": "Why has this not cleared?",
+      "focusRule": "FINANCIAL_RATE_BASED_SCHEDULE_REQUIRED",
+      "classification": "source_present_relationship_unresolved",
+      "floorNextStep": "link_existing_document",
+      "openFindings": 1,
+      "sourceAlreadyPresent": true,
+      "ownerAdjudicated": false
+    },
+    {
+      "caseId": "heldout-flagged-02",
+      "fixture": "harbor_conflict",
+      "intent": "why_flagged",
+      "question": "Why is this flagged?",
+      "focusRule": "TRANSACTION_TICKET_GRAIN_CONFLICT",
+      "classification": "not_a_source_gap",
+      "floorNextStep": "operator_judgment_required",
+      "openFindings": 8,
+      "sourceAlreadyPresent": true,
+      "ownerAdjudicated": false
+    },
+    {
+      "caseId": "heldout-flagged-03",
+      "fixture": "harbor_tickets",
+      "intent": "why_flagged",
+      "question": "Why is this project blocked?",
+      "focusRule": null,
+      "classification": "not_a_source_gap",
+      "floorNextStep": "correct_source_data",
+      "openFindings": 4,
+      "sourceAlreadyPresent": true,
+      "ownerAdjudicated": false
+    },
+    {
+      "caseId": "heldout-flagged-04",
+      "fixture": "harbor_pricing",
+      "intent": "why_flagged",
+      "question": "Why is the rate exhibit still flagged?",
+      "focusRule": "FINANCIAL_RATE_BASED_SCHEDULE_REQUIRED",
+      "classification": "likely_system_issue",
+      "floorNextStep": "likely_system_issue",
+      "openFindings": 1,
+      "sourceAlreadyPresent": true,
+      "ownerAdjudicated": false
+    },
+    {
+      "caseId": "heldout-flagged-05",
+      "fixture": "harbor_pricing",
+      "intent": "why_flagged",
+      "question": "Why is pricing still open?",
+      "focusRule": "FINANCIAL_RATE_BASED_PRICING_APPLICABILITY_UNCLEAR",
+      "classification": "not_a_source_gap",
+      "floorNextStep": "review_existing_document",
+      "openFindings": 1,
+      "sourceAlreadyPresent": true,
+      "ownerAdjudicated": false
+    },
+    {
+      "caseId": "heldout-flagged-06",
+      "fixture": "harbor_tickets",
+      "intent": "why_flagged",
+      "question": "Why is this line flagged?",
+      "focusRule": "TRANSACTION_QUANTITY_MATCHES_INVOICE",
+      "classification": "not_a_source_gap",
+      "floorNextStep": "review_ticket_or_transaction",
+      "openFindings": 6,
+      "sourceAlreadyPresent": true,
+      "ownerAdjudicated": false
+    },
+    {
+      "caseId": "heldout-action-01",
+      "fixture": "harbor_setup",
+      "intent": "what_to_do",
+      "question": "What is my next step?",
+      "focusRule": null,
+      "classification": "source_present_relationship_unresolved",
+      "floorNextStep": "link_existing_document",
+      "openFindings": 1,
+      "sourceAlreadyPresent": true,
+      "ownerAdjudicated": false
+    },
+    {
+      "caseId": "heldout-action-02",
+      "fixture": "harbor_pricing",
+      "intent": "what_to_do",
+      "question": "What do I do now?",
+      "focusRule": "FINANCIAL_RATE_BASED_ROWS_REQUIRED",
+      "classification": "likely_system_issue",
+      "floorNextStep": "likely_system_issue",
+      "openFindings": 3,
+      "sourceAlreadyPresent": true,
+      "ownerAdjudicated": false
+    },
+    {
+      "caseId": "heldout-action-03",
+      "fixture": "harbor_tickets",
+      "intent": "what_to_do",
+      "question": "What should we do first?",
+      "focusRule": null,
+      "classification": "not_a_source_gap",
+      "floorNextStep": "correct_source_data",
+      "openFindings": 2,
+      "sourceAlreadyPresent": true,
+      "ownerAdjudicated": false
+    },
+    {
+      "caseId": "heldout-action-04",
+      "fixture": "harbor_tickets",
+      "intent": "what_to_do",
+      "question": "What should I check on this line?",
+      "focusRule": "TRANSACTION_TOTAL_MATCHES_INVOICE_LINE",
+      "classification": "not_a_source_gap",
+      "floorNextStep": "review_ticket_or_transaction",
+      "openFindings": 2,
+      "sourceAlreadyPresent": true,
+      "ownerAdjudicated": false
+    },
+    {
+      "caseId": "heldout-action-05",
+      "fixture": "harbor_cleared",
+      "intent": "what_to_do",
+      "question": "What should we do next on this project?",
+      "focusRule": null,
+      "classification": "no_open_findings",
+      "floorNextStep": "no_action_needed",
+      "openFindings": 0,
+      "sourceAlreadyPresent": false,
+      "ownerAdjudicated": false
+    },
+    {
+      "caseId": "heldout-action-06",
+      "fixture": "harbor_billing",
+      "intent": "what_to_do",
+      "question": "What needs my attention?",
+      "focusRule": "SOURCES_NO_INVOICE_DATA",
+      "classification": "source_present_unread",
+      "floorNextStep": "review_existing_document",
+      "openFindings": 2,
+      "sourceAlreadyPresent": true,
+      "ownerAdjudicated": false
+    }
+  ],
+  "requests": [
+    {
+      "caseId": "heldout-missing-01",
+      "bodySha256": "5c2cc201b29f6f4622b0096171eb84bd7456c8fd9aa91023a600baef6c099789",
+      "floorDigest": "5b804efaf1fd0ac6d22b5ef99e537bc534f05835cb32abacf2768ba2ca47121a",
+      "contextTransmittedDigest": "6bbbcdefab15354fb8029f66ec17877496b876207930daf85dd80ddd5838ba01",
+      "chars": 3698
+    },
+    {
+      "caseId": "heldout-missing-02",
+      "bodySha256": "cc6fceac78c505cc1ba0c07ed36e5289bda341b009840d4535dca1e0dc1d17d5",
+      "floorDigest": "985aeefd2a77f3888b6061fdc1be85c5f3f9f5b13055500eeba8f9b1a77d1dd8",
+      "contextTransmittedDigest": "353589bfc0b9886c3f13eb3095b02b9ef8eb6a70237bdaa34878e2feca85f7c2",
+      "chars": 9567
+    },
+    {
+      "caseId": "heldout-missing-03",
+      "bodySha256": "f09b7159c1d2e2bddc14a70495b0325709e39c17713ddc6d91c5753217b9159f",
+      "floorDigest": "002475b9709eda0d1302f6a85bf084108d2c2ddb1d45a2ce0430e8afc8292046",
+      "contextTransmittedDigest": "79fb8411c28695524cb49b7c8478fdc68c745e512d6f827239dbf2876196fefd",
+      "chars": 1941
+    },
+    {
+      "caseId": "heldout-missing-04",
+      "bodySha256": "b0f105b68f9703944b5c59c528e6c5930746542fe6b1743c4409c789686f3105",
+      "floorDigest": "1b32e02abd3e3508586237b7963bc98b498fd0623098a05ad386bdd851e20396",
+      "contextTransmittedDigest": "17c7bdd3432eff9dd7f214a20f27209136f4d99b6bda115b6b742205e55063c1",
+      "chars": 3283
+    },
+    {
+      "caseId": "heldout-missing-05",
+      "bodySha256": "9d857c52e0b07b4dce1b757e47e0265e739186693b21067d1fd433a6409007ab",
+      "floorDigest": "db83737ce8d3dd427b0818888fa6ab38884224413b6e5d9631951c17dcb6c11c",
+      "contextTransmittedDigest": "1fe26e3e57d79f02b93ade7606394b643555bb7b744726e7ae8ce7300d28ab67",
+      "chars": 2329
+    },
+    {
+      "caseId": "heldout-missing-06",
+      "bodySha256": "ca044420cbe11d846a55126724738c5dac82a9f298f63d4ca52433ec1d608705",
+      "floorDigest": "cd2ddbc81337e36b18ee0809067ed7d1d895e45a09a24a3fb8d30e8691e4f144",
+      "contextTransmittedDigest": "d42f32e6455c6935232b27e27466acd447fc183c2e412ca810c6dc7d15c3bf49",
+      "chars": 4406
+    },
+    {
+      "caseId": "heldout-document-01",
+      "bodySha256": "0da7becf895c5551a5c9afdcf3cdd5824d3a8aac3ebf1379db53b776332f6218",
+      "floorDigest": "1e7e3eca99b5db4ffd812b6433829ed9170a070b2d33b5d7b60111fd372b286d",
+      "contextTransmittedDigest": "1d5563488274bd9bc92b8fab51e54734dfac2c1fb728926f8f8912338001769c",
+      "chars": 3903
+    },
+    {
+      "caseId": "heldout-document-02",
+      "bodySha256": "add74ce9f941484d120698941012ee9f335fd99ec12920e8821dd96d4a7fb4ee",
+      "floorDigest": "2b654d97b34c7ae31cad7d85b4995ff760f851e3b9aa21d8fe0f21cb6be89e94",
+      "contextTransmittedDigest": "51f3a01ca35c300002a6cca06b29fa18bd66d59534f5919f5249fc53a5772d49",
+      "chars": 4415
+    },
+    {
+      "caseId": "heldout-document-03",
+      "bodySha256": "e12a5d007640a4f4cc6dc7fdd1eca47a0f4c5313556721615a194f1d669c8391",
+      "floorDigest": "b4b5823f7f33fa3843dc9f4f24252c3c511f7e185fb9c51366e6bed0b6c8fc94",
+      "contextTransmittedDigest": "fd92fa724fbf0ec09ac385432ac49523d371f685e796acb57f6ede3b33002a45",
+      "chars": 4155
+    },
+    {
+      "caseId": "heldout-document-04",
+      "bodySha256": "c92c773cc35d22ddbc2d94a273040dbbc8d5173f2e26c46d6ebfe81c2d182156",
+      "floorDigest": "abba548e11620fb05963eb95ed0e3daff41a877018e722b17cf2e392f123abf1",
+      "contextTransmittedDigest": "48c56aa67ccc8d8854ee64199dbc123d82704403b4817145dc62108002406cf6",
+      "chars": 3870
+    },
+    {
+      "caseId": "heldout-document-05",
+      "bodySha256": "9c68b6ed8fd1496f18f2506abecddb081d92a9bd6aefbeef27703fc6293f58ee",
+      "floorDigest": "e56bc32ce17f7255f68e0ec8e0f7fbc7e1679d4f2cb9b658d5e66287dd0faa2b",
+      "contextTransmittedDigest": "79fb8411c28695524cb49b7c8478fdc68c745e512d6f827239dbf2876196fefd",
+      "chars": 1955
+    },
+    {
+      "caseId": "heldout-document-06",
+      "bodySha256": "6dd91b40df2f1d18fdce462af11bf8894fc8a417024d67437432a89ea5b3bc5f",
+      "floorDigest": "9d6becaacf0b0026b809245d8b4c3888723057d8fd6c6166e9b33a330329d5cc",
+      "contextTransmittedDigest": "0ec2b1f0c258063308d425fe2b975cbaf477d7d1d6e7e906eae44ee1a605754e",
+      "chars": 3366
+    },
+    {
+      "caseId": "heldout-flagged-01",
+      "bodySha256": "848626c965170abd65fc9609ab023f2e855065387cd7262b439046c85cf327a6",
+      "floorDigest": "95cc158bb71a7bbfac3b212faf84f690786b836eb72a1424ce6b9a8c46ecdd1b",
+      "contextTransmittedDigest": "030e50d18a70277de0f0e1cf14eaa5316ed42e3ad8c021a7279f0721fac7f095",
+      "chars": 4349
+    },
+    {
+      "caseId": "heldout-flagged-02",
+      "bodySha256": "0b4a465b1392700cd1787f0973ece71bc37244d0572babe6ca9702dffac6dbd7",
+      "floorDigest": "28e754822f6728ad654d54e129fc92d4fc19dc81b1f9d5a02ec9878befcbd47a",
+      "contextTransmittedDigest": "cec2b6f1772b750b60a8429d0f8c6dce4fe512f3d4b3f67ae4613c0ded05d2f3",
+      "chars": 12056
+    },
+    {
+      "caseId": "heldout-flagged-03",
+      "bodySha256": "7d0adf959587286779c1375001107bf166366de823d3f8e30b284db0cb551036",
+      "floorDigest": "8e5333477283073d3db75c221761009cc03e6cdf8934f7a007bed4445b113d9a",
+      "contextTransmittedDigest": "02cc5f56c93f9d4c8a8cc5208e5e426f36913cb10679c1ad5a238eeecfac62e0",
+      "chars": 8196
+    },
+    {
+      "caseId": "heldout-flagged-04",
+      "bodySha256": "188b121dac2a0195b614cb4fa506bf076971311e886a6768279f26d996acb7bc",
+      "floorDigest": "b8cf960529dbc910f7b6de8d2a12b0e5113ff44c9d53dfd3fc63fa3402dbe986",
+      "contextTransmittedDigest": "3467bfa6e57128f1a94623d9a327bd07852fdc37e52432a8c38ea0c46e2bb653",
+      "chars": 4199
+    },
+    {
+      "caseId": "heldout-flagged-05",
+      "bodySha256": "2248e6ca7889d83fb17c211650bdcc5aff4c0bbe1d91da0d082ea88c04bf4b91",
+      "floorDigest": "6681b483ec0c3bd27c80235e01bf6656f28a093f7197f078bcb55c4ef5878a4f",
+      "contextTransmittedDigest": "e8553d062cf71123d494195b042e0869ed3fa250da030062a5195bf069c1de92",
+      "chars": 3316
+    },
+    {
+      "caseId": "heldout-flagged-06",
+      "bodySha256": "ca2097b116809af1f11eb8fe16fe19ce77df9e7de3f0e15effb9df8a7ec22fc0",
+      "floorDigest": "de21ca25917665c0d55c8d7d36f8191c5b34b2995bafb090ae9cc085ac305b28",
+      "contextTransmittedDigest": "d1bcbdf24813cdd393e28a248896a6d91b498ae6dc4880284a4804edcfcb6b72",
+      "chars": 9284
+    },
+    {
+      "caseId": "heldout-action-01",
+      "bodySha256": "8ae58ffc00e9e3d96071878c4f0bbe1dd0cb98718294c0e9b9b4490e08d3f614",
+      "floorDigest": "e50d894ae3b76fc17e1b34b3aaf0432a6a1f223389bdcff7321caf9fe9c883b0",
+      "contextTransmittedDigest": "8ec0dcbb31320ff549e10a94e201810713dca6cd744e7f932ae6da0251afdf85",
+      "chars": 3985
+    },
+    {
+      "caseId": "heldout-action-02",
+      "bodySha256": "691fbd33fbb631962e9fc8071c4544f0af9599ed4095115836afd2a0320acda0",
+      "floorDigest": "1ecc456e3b29be84edc4e5c45855360c1f29ae8c19c67ea1e1dbbd1720c9f6f8",
+      "contextTransmittedDigest": "2b00e0c7813ae130f0dfd54ef7bb94085770b57ae4825f0b5d282be12a71fa15",
+      "chars": 6291
+    },
+    {
+      "caseId": "heldout-action-03",
+      "bodySha256": "98381101c080bc23f4762b4377efb19ce37445e300a78fb904fd965f39bb659d",
+      "floorDigest": "b21013452c1e0f9bb5c4fb495a3b2efc8fabacbe0503ab3176d222d6713ee7cf",
+      "contextTransmittedDigest": "8e15efabef115a9940a9752c04e0a91e7a903729175d3631eae93cc47e0eaa0d",
+      "chars": 5499
+    },
+    {
+      "caseId": "heldout-action-04",
+      "bodySha256": "b11b1ab20aaf1cbc9c30aa065767dd20b16a219df4dc04e3ce182d0c49a33892",
+      "floorDigest": "e08016f846eb9a48892c5f6332ed7ccd50e7e370a56fcb0b2efa79c82ad6727c",
+      "contextTransmittedDigest": "0660d0833c0ac3fd6c7ee7b1e4a754aaaa676db9ad5908e52debc011a2b96032",
+      "chars": 5221
+    },
+    {
+      "caseId": "heldout-action-05",
+      "bodySha256": "d5b5228959a70b893cde2b8ca74c902f64c940b04743565c6da682d97d891def",
+      "floorDigest": "305edb560c71c1851ffb28aa33ba27499b838477bc0dfcacc2a52c1b6e24eb32",
+      "contextTransmittedDigest": "8d572b3383982ddfde2d4b617405a4fdb756d0adbf8d5de1b289dad1545dd6a5",
+      "chars": 2292
+    },
+    {
+      "caseId": "heldout-action-06",
+      "bodySha256": "04028787dbb33573cc9a901e2a8a9bed1b777f8cc9c0de45e05eddfb18ee9d5c",
+      "floorDigest": "c3d524a3483c1d61f450d0a0d0741084e9dc2ecdbe4ea6f3c351cf351900f700",
+      "contextTransmittedDigest": "bc26ac0c981c61b881836c1d15c8f9e6b2009f1769858b9fa2a7c124a7bf2ae4",
+      "chars": 5099
+    }
+  ],
+  "labelSet": {
+    "version": "operator_guidance_heldout_labels_v2",
+    "digest": "560a06434ce4672604ed584615723e155724426d35d74373a54fa41a82848692"
+  },
+  "regressionLabelSet": {
+    "version": "operator_guidance_labels_v1",
+    "digest": "752b8a4d3e17092803a4f9f7e4e16482980f71cf43e8c60560c57e4ac6229bcc"
+  },
+  "bars": {
+    "scorer": "operator_guidance_scorecard_v2",
+    "cases": 24,
+    "casesPerIntent": 6,
+    "minimumFixtures": 3,
+    "maximumCasesPerFixture": 8,
+    "hardViolationsAllowed": 0,
+    "minimumAcceptedRate": 0.75,
+    "maximumFallbackRate": 0.25,
+    "spendCeilingUsd": 1,
+    "retries": 0,
+    "timeoutMs": 45000,
+    "reservedTokensPerUtf8Byte": 1,
+    "reservedOverheadTokens": 2000
+  },
+  "barsDigest": "7da2e24b495b9408937d2ef7c7784474be25271cc1c0cdcaa44a9851169d8899",
+  "request": {
+    "requestContract": "project_ask_operator_guidance_v2",
+    "model": "claude-sonnet-4-6",
+    "temperature": 0,
+    "maxOutputTokens": 2400,
+    "timeoutMs": 45000,
+    "retries": 0,
+    "promptSha256": "18a5791440c1a9743eb7394d3e5bb5b02f93ebc07c03807b092e5578d83f92a0",
+    "outputSchemaDigest": "c767cb6f104dcd3d0420a579026eb4df0390e74f0c471473bf15fd93ba37295b",
+    "nextStepVocabularyDigest": "13a53449916c886326817a50e504e0078e2da392b6b3d1c30ba2b868296781ee",
+    "pricing": {
+      "model": "claude-sonnet-4-6",
+      "inputUsdPerMTok": 3,
+      "outputUsdPerMTok": 15
+    }
+  },
+  "pinnedSources": {
+    "app/api/projects/[id]/ask/route.ts": "7af92d4af4175cedc28d385295da1f287c72bf8eb6ac049969bc0e657399de43",
+    "lib/ask/classifier.ts": "218a6534c2cbbb0621871455b56347e9868ee73ed6007e13d05eae1523a90aea",
+    "lib/ask/retrieval.ts": "7c705bd7bd3da9437d5d2d72bdde89cf8f48856eb7aed36300f08ecdf36a81ab",
+    "lib/documentPrecedence.ts": "e2cd83683e24f56ae97573623188d721d85fcb2188bc682ded62ccd0744f1baf",
+    "lib/projectIntelligence/contextPlan.ts": "d25d17a9721de3aeb6b912b5e29f87289e7a9ecfdf55083db2bfff43d7bee7e0",
+    "lib/projectIntelligence/evidenceAssessment.ts": "f4f5be0fde359f60b432183fd03305d96009878759a905f0a8ad0208fd277b25",
+    "lib/projectIntelligence/operatorRecommendation.ts": "5c30abc3fe83c1af31fbb1c4e6f76f4ea7e523648615a66c4d687627a84c4398",
+    "lib/projectIntelligence/operatorTerms.ts": "c71f72fa1b925931b4892d3d6393c09459e3275412ab4b565ba0fd83e447ef55",
+    "lib/projectIntelligence/projectContext.ts": "aff1c3d0fe9adf1ba7b671345e133b4f58ed63adb228e6452839085c636476fe",
+    "lib/projectIntelligence/transactionContext.ts": "25641bcd514cfc4211b509526d6fc2ba3a327d532ea60db1de91b21951e618ed",
+    "lib/server/ai/askModel.ts": "f3d55cac85de000e9b29ec7888c5e9d3dbabb4035a73f12ad20968ed4ee5c743",
+    "lib/server/ai/askProject.ts": "d014fd8563c466cdf1ed6d7477925c7b543b8752ba0b3d523a1d6e40fa675fbc",
+    "lib/server/ai/claudeRequestOptions.ts": "3e0d8cfb794a53974b434fc23d18a010d51364ab51c08e4a4b19824207f99dab",
+    "lib/server/ai/claudeSampling.ts": "08c3da6b6ff3f126d89bb5693f6165b3a323a683d9b8144bf9c80e9f33d76faa",
+    "lib/server/ai/operatorGuidance.ts": "ab48a8b67be650adbc7ecf926ab3dcb42b8c9232fda0f4706b87f96b5d40ec15",
+    "lib/server/caseInvestigationRunner.ts": "69292714b045a12fb2dfb90e18e702155055b3c3169244ba2bc335e1e6385b73",
+    "lib/server/documentPrecedence.ts": "7c8e871e43e83808a89001b9deea33c09667a4c2068891d48c84b4ea21b7da04",
+    "lib/server/projectIntelligenceRead.ts": "89d8d01ae1c0ca722e4616f8fe79e82f1d924dd5951adad43ced8a198a853e5e",
+    "lib/server/projectIntelligenceRecords.ts": "a04a4b65011a086ea04259f400254986133cecf6415ba343b9760ee474332b3f",
+    "lib/server/transactionDataPersistence.ts": "d9fe3774ec7270992541c0d46f31010e5519c66f6fff6f4c431da16b4835701f",
+    "lib/validator/projectValidator.ts": "200b43b96c65cd70266c4549e6048eba9df9234e3721f2d23507181b2bc7b36e",
+    "lib/validator/ruleExplanations.ts": "d4e9b0a362b58c8845397a2be96929b0283277de2c684da740f8818a3fc69d1e",
+    "scripts/evaluation/operator-guidance/contract.ts": "4e2ef5a9e0f4418280d60ea5762996108fe66bd09e49129d15e5f1c9414d3a55",
+    "scripts/evaluation/operator-guidance/corpus.ts": "e9073bbefd65d3076e4feeec17ec61affd33c74ad1787d802416927aa3c1a0da",
+    "scripts/evaluation/operator-guidance/failureClass.ts": "7f8cd0ced2116d883f48a6176199df425dc97bbc294d8fe5657e2433323ea26e",
+    "scripts/evaluation/operator-guidance/harness.ts": "f56e99eb14627bce02fd6ac067b3b84d639f97a95c08963334b16b7d8507b0e9",
+    "scripts/evaluation/operator-guidance/labels.ts": "fddaa51c1b9290f066662f38dbddc7ed8ae55370116eaf15d34517877dd440dd",
+    "scripts/evaluation/operator-guidance/qualify.ts": "7a39c514cd618bbab361056dc8261ab1537947b2db5f116ffb6ea000daee70e3",
+    "scripts/evaluation/operator-guidance/regression.ts": "f82ce89537a2e45848da5be9d161f26fd85b08eb57ebc809c4221749a03e8375",
+    "scripts/evaluation/operator-guidance/runner.ts": "8a365a437d78735e884d5a44d903e8b65c68d58ab2311dc0b35460a312c21ca6"
+  },
+  "projectedSpendUsd": 0.3336,
+  "sumOfReservationsUsd": 1.4942,
+  "maximumSpendUsd": 1,
+  "pricing": {
+    "model": "claude-sonnet-4-6",
+    "inputUsdPerMTok": 3,
+    "outputUsdPerMTok": 15
+  },
+  "supersedes": {
+    "contract": "operator_guidance_qualification_v2",
+    "freezeSha256": "6cf9635567ef5f4278f3604134dd2e96ec0257446fd2c1e1b9f714aa64556f0c",
+    "classification": "FAIL_HARD_CORRECTNESS",
+    "resultRecordSha256": "6dc366dae48c10ca31941f0c62461554e6f39bee909ccbdc1e7099e9922726d0"
+  },
+  "parityWithV2": {
+    "requestBodiesBeforeCorrectionsIdentical": 21,
+    "requestBodiesGainingOnlyTheBilledLineUncertainty": [
+      "action-04",
+      "flagged-01",
+      "missing-05"
+    ],
+    "transmittedContextsIdentical": 24,
+    "floorsIdentical": 19,
+    "floorsChangedInActionLinkOnly": [
+      "action-01",
+      "document-02",
+      "document-03",
+      "document-05",
+      "missing-01"
+    ],
+    "identical": [
+      "regressionFixtures",
+      "regressionLabelSet",
+      "pricing",
+      "model",
+      "temperature",
+      "maxOutputTokens",
+      "timeoutMs",
+      "retries",
+      "promptSha256",
+      "outputSchemaDigest",
+      "nextStepVocabularyDigest",
+      "pricing"
+    ],
+    "caseInvestigationRunnerUnchanged": true,
+    "heldoutReuse": 0,
+    "pinsChanged": [
+      "app/api/projects/[id]/ask/route.ts",
+      "lib/projectIntelligence/evidenceAssessment.ts",
+      "lib/projectIntelligence/operatorRecommendation.ts",
+      "lib/server/ai/askModel.ts",
+      "lib/server/ai/askProject.ts",
+      "lib/server/ai/operatorGuidance.ts",
+      "lib/validator/ruleExplanations.ts",
+      "scripts/evaluation/operator-guidance/contract.ts",
+      "scripts/evaluation/operator-guidance/corpus.ts",
+      "scripts/evaluation/operator-guidance/harness.ts",
+      "scripts/evaluation/operator-guidance/labels.ts",
+      "scripts/evaluation/operator-guidance/qualify.ts"
+    ],
+    "pinsUnchanged": [
+      "lib/ask/classifier.ts",
+      "lib/ask/retrieval.ts",
+      "lib/documentPrecedence.ts",
+      "lib/projectIntelligence/contextPlan.ts",
+      "lib/projectIntelligence/projectContext.ts",
+      "lib/projectIntelligence/transactionContext.ts",
+      "lib/server/ai/claudeRequestOptions.ts",
+      "lib/server/ai/claudeSampling.ts",
+      "lib/server/caseInvestigationRunner.ts",
+      "lib/server/documentPrecedence.ts",
+      "lib/server/projectIntelligenceRead.ts",
+      "lib/server/projectIntelligenceRecords.ts",
+      "lib/server/transactionDataPersistence.ts",
+      "lib/validator/projectValidator.ts",
+      "scripts/evaluation/operator-guidance/failureClass.ts"
+    ],
+    "pinsAdded": [
+      "lib/projectIntelligence/operatorTerms.ts",
+      "scripts/evaluation/operator-guidance/regression.ts",
+      "scripts/evaluation/operator-guidance/runner.ts"
+    ]
+  },
+  "freezeSha256": "585c64514f0eab6acc7adfc023fa9040493c7d6c607f97960ec8e939a94292a7",
+  "implementationCommit": "90e5aa104d7120c9c86f8b09b2084aba8dc819a3",
+  "status": "candidate_not_final"
+}

@@ -182,8 +182,11 @@ export function buildFdeIntakePlan(input: FdeIntakePlanInput): FdeIntakePlan | n
     informationNeeds.push({ state: 'supplied_uninterpreted', description: `Inspect supplied file ${file.filename} for relevant workflow information`, stepId: null, sourceIds: [file.attachmentId] });
   }
   for (const file of files.filter((entry) => entry.truncated || (entry.limitations?.length ?? 0) > 0)) {
-    const limitations = file.limitations?.join('; ') || 'Only part of the source was processed';
-    informationNeeds.push({ state: 'supplied_uninterpreted', description: `Review incomplete evidence in ${file.filename}: ${limitations}`, stepId: null, sourceIds: [file.attachmentId] });
+    const limitations = file.limitations?.join('; ');
+    const description = file.truncated
+      ? `Review partially processed document ${file.filename}: only part of the document was processed${limitations ? `; ${limitations}` : ''}`
+      : `Review parser limitations for ${file.filename}: ${limitations}`;
+    informationNeeds.push({ state: 'supplied_uninterpreted', description, stepId: null, sourceIds: [file.attachmentId] });
   }
   if (input.attachmentEvidenceUnavailable) informationNeeds.push({
     state: 'evidence_unavailable', description: 'Stored attachment evidence could not be read or reconciled; inspect the existing submission before requesting another source',
@@ -237,7 +240,7 @@ export function buildFdeIntakePlan(input: FdeIntakePlanInput): FdeIntakePlan | n
       unresolvedQuestions: informationNeeds.filter((need) => need.stepId === step.stepId && need.state !== 'confirmed').map((need) => need.description),
     };
   });
-  const proposed = readiness.steps.filter((step) => step.deployment !== null);
+  const proposed = readiness.steps.filter((step) => step.deployment !== null && !conflictingStepIds.has(step.stepId));
   const actionable = proposed.filter((step) => step.classification !== 'ADVISORY');
   const blocked = informationNeeds.some((need) => need.state !== 'confirmed') || readiness.evidenceCompleteness.truncatedFiles.length > 0;
   const ladder: readonly FdeLadderRung[] = FDE_LADDER_RUNGS;
@@ -298,7 +301,7 @@ export function buildFdeIntakePlan(input: FdeIntakePlanInput): FdeIntakePlan | n
       ...(input.existingReview ? [{ kind: 'assessment_review' as const, id: input.existingReview.reviewId, detail: `Assessment review ${input.existingReview.overallDisposition}` }] : []),
     ],
     informationNeeds, capabilityMatches,
-    affectedSystems: [...new Set(capabilityMatches.flatMap((match) => match.supportingComponents))],
+    affectedSystems: [...new Set(capabilityMatches.filter((match) => !conflictingStepIds.has(match.stepId)).flatMap((match) => match.supportingComponents))],
     deploymentApproach: {
       rung, state: rung ? 'candidate_pending_review' : 'undetermined',
       rationale: rung ? 'Highest required step rung, subject to human confirmation of each lower rung.' : 'Missing or unreviewed information prevents a supported deployment rung.',

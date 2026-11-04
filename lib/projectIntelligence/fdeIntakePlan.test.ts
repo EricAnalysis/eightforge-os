@@ -21,6 +21,7 @@ const input: FdeIntakePlanInput = {
   suppliedFiles: [{ attachmentId: 'file-a', filename: 'Rate schedule PDF', sectionLabels: ['Rates'], truncated: false }],
   answers: [],
 };
+const PDF_PARSER_LIMITATION = 'Native text from at most three physical pages; images and unreadable scanned content are not inferred.';
 
 describe('structured FDE intake plan', () => {
   it('is deterministic and pins the assessment, file, answer, and catalogue identities', () => {
@@ -96,6 +97,22 @@ describe('structured FDE intake plan', () => {
     expect(plan.informationNeeds.some((need) => need.state === 'not_supplied' && need.description === 'Rate schedule PDF')).toBe(false);
   });
 
+  it('distinguishes a complete PDF with parser limits from a truncated PDF', () => {
+    const file = { attachmentId: 'file-a', filename: 'Rate schedule PDF', sectionLabels: ['Rates'], limitations: [PDF_PARSER_LIMITATION] };
+    const complete = buildFdeIntakePlan({ ...input, suppliedFiles: [{ ...file, truncated: false }] })!;
+    const truncated = buildFdeIntakePlan({ ...input, suppliedFiles: [{ ...file, truncated: true }] })!;
+    const completeNeed = complete.informationNeeds.find((need) => need.description.includes('parser limitations for Rate schedule PDF'))!;
+    const truncatedNeed = truncated.informationNeeds.find((need) => need.description.includes('partially processed document Rate schedule PDF'))!;
+    expect(completeNeed).toMatchObject({ state: 'supplied_uninterpreted', sourceIds: ['file-a'] });
+    expect(completeNeed.description).toContain(PDF_PARSER_LIMITATION);
+    expect(completeNeed.description).not.toMatch(/incomplete|partially processed|only part|truncated/iu);
+    expect(truncatedNeed).toMatchObject({ state: 'supplied_uninterpreted', sourceIds: ['file-a'] });
+    expect(truncatedNeed.description).toContain('only part of the document was processed');
+    expect(truncatedNeed.description).toContain(PDF_PARSER_LIMITATION);
+    expect(complete.readiness.state).toBe('needs_follow_up');
+    expect(truncated.readiness.state).toBe('needs_follow_up');
+  });
+
   it('distinguishes unavailable attachment evidence and pins the immutable manifest', () => {
     const manifestAttachments = [{ attachmentId: 'file-a', sourceSha256: 'a'.repeat(64), representationDigestSha256: 'b'.repeat(64) }];
     const plan = buildFdeIntakePlan({ ...input, suppliedFiles: [], manifestAttachments, attachmentEvidenceUnavailable: true })!;
@@ -113,6 +130,46 @@ describe('structured FDE intake plan', () => {
     expect(plan.informationNeeds).toContainEqual(expect.objectContaining({ state: 'conflicting', stepId: 'check', sourceIds: ['review-a', 'assessment-a'] }));
     expect(plan.deploymentApproach.steps.find((step) => step.stepId === 'check')?.rung).toBeNull();
     expect(plan.humanReview).toMatchObject({ planState: 'pending_review', approvedDeploymentRecommendation: false });
+  });
+
+  it('excludes rejected and HUMAN-reclassified steps from engineering work and affected systems', () => {
+    const extended = { ...assessment, workflowSteps: [
+      ...assessment.workflowSteps,
+      { stepId: 'bespoke-rule', classification: 'RULE', description: 'Verify a bespoke operation', requiredInputs: [], proposedOutput: 'Result', unresolvedAssumptions: [], determinismGaps: [] },
+      { stepId: 'rejected-rule', classification: 'RULE', description: 'Check another bespoke operation', requiredInputs: [], proposedOutput: 'Result', unresolvedAssumptions: [], determinismGaps: [] },
+    ] };
+    const baseline = buildFdeIntakePlan({ ...input, assessment: extended })!;
+    expect(baseline.affectedSystems).toContain('lib/extraction/pdf/extractText.ts');
+    expect(baseline.engineeringRequirements.map((entry) => entry.stepId)).toEqual(expect.arrayContaining(['bespoke-rule', 'rejected-rule']));
+    const review = { reviewId: 'review-a', reviewVersion: 1, overallDisposition: 'accepted', stepReviews: [
+      { assessmentStepId: 'extract', proposedClassification: 'EXTRACT', reviewedClassification: null, disposition: 'rejected', reviewerNotes: 'Do not use this extraction', acceptedSpecification: null },
+      { assessmentStepId: 'bespoke-rule', proposedClassification: 'RULE', reviewedClassification: 'HUMAN', disposition: 'reclassified', reviewerNotes: 'Operator decision', acceptedSpecification: { description: 'Human decision' } },
+      { assessmentStepId: 'rejected-rule', proposedClassification: 'RULE', reviewedClassification: null, disposition: 'rejected', reviewerNotes: 'Not required', acceptedSpecification: null },
+    ] };
+    const plan = buildFdeIntakePlan({ ...input, assessment: extended, existingReview: review })!;
+    expect(plan.engineeringRequirements.map((entry) => entry.stepId)).not.toContain('bespoke-rule');
+    expect(plan.engineeringRequirements.map((entry) => entry.stepId)).not.toContain('rejected-rule');
+    expect(plan.affectedSystems).not.toContain('lib/extraction/pdf/extractText.ts');
+    expect(plan.capabilityMatches.map((entry) => entry.stepId)).toEqual(expect.arrayContaining(['extract', 'bespoke-rule', 'rejected-rule']));
+    for (const stepId of ['extract', 'bespoke-rule', 'rejected-rule']) {
+      expect(plan.informationNeeds).toContainEqual(expect.objectContaining({ state: 'conflicting', stepId }));
+    }
+    expect(plan.affectedSystems).toContain('lib/validator/projectValidator.ts');
+    expect(plan.authority).toBe('non_authoritative');
+    expect(plan.humanReview.planState).toBe('pending_review');
+  });
+
+  it('retains a component when another eligible step independently supports it', () => {
+    const extended = { ...assessment, workflowSteps: [
+      ...assessment.workflowSteps,
+      { ...assessment.workflowSteps[0], stepId: 'other-extract' },
+    ] };
+    const review = { reviewId: 'review-a', reviewVersion: 1, overallDisposition: 'accepted', stepReviews: [
+      { assessmentStepId: 'extract', proposedClassification: 'EXTRACT', reviewedClassification: null, disposition: 'rejected', reviewerNotes: null, acceptedSpecification: null },
+    ] };
+    const plan = buildFdeIntakePlan({ ...input, assessment: extended, existingReview: review })!;
+    expect(plan.affectedSystems).toContain('lib/extraction/pdf/extractText.ts');
+    expect(plan.capabilityMatches.find((entry) => entry.stepId === 'extract')).toBeDefined();
   });
 
   it('blocks owner activation even with a catalogue-backed capability candidate', () => {

@@ -25,7 +25,7 @@ type LateDocument = { id: string; filename: string; uploadedAt: string; status: 
 type HistoryEntry = { reviewId: string; reviewVersion: number; disposition: string; rationale: string; createdAt: string; reviewerActorId: string; resolvedDigest: string | null; stale: boolean; waiverCount: number; waivedAssumptions?: readonly { needId: string; requirement: string; customerStatement: string; reason: string }[] };
 type EvidenceChoice = { label: string; ref: SourceRef };
 type FollowUpSummary = { answerId: string; question: string; answer: string; answerSource: string; revision: number; answeredAt: string };
-type Packet = { plan: Plan; intake: Readonly<Record<string, string>>; followUpAnswers: readonly FollowUpSummary[] | null; baseSnapshotId: string | null; baseDigest: string; lateDocuments: readonly LateDocument[]; history: readonly HistoryEntry[]; latestReviewVersion: number; reviewerEligible: boolean; currentStatus: string; currentResolvedRecommendation: FdeResolvedPlan | null; evidenceChoices: readonly EvidenceChoice[]; acknowledgmentText: string; acknowledgmentVersion: 'fde_evidence_waiver_v1' };
+type Packet = { plan: Plan; intake: Readonly<Record<string, string>>; followUpAnswers: readonly FollowUpSummary[] | null; baseSnapshotId: string | null; baseDigest: string; lateDocuments: readonly LateDocument[]; history: readonly HistoryEntry[]; latestReviewVersion: number; currentStatus: string; currentResolvedRecommendation: FdeResolvedPlan | null; evidenceChoices: readonly EvidenceChoice[]; acknowledgmentText: string; acknowledgmentVersion: 'fde_evidence_waiver_v1' };
 
 function canOfferWaiver(need: Need): boolean {
   // This is presentation only. The server and database independently enforce
@@ -155,8 +155,8 @@ export default function FdePlanPage() {
     {error && <p role="alert" className="rounded border border-[var(--ef-critical)] p-3 text-sm">{error}</p>}
     {loading && <p role="status">Loading FDE plan…</p>}
     {packet && !loading && <>
-      <p className="rounded border border-[var(--ef-border-subtle)] p-3 text-sm">Current status: <strong>{packet.currentStatus === 'approved_with_customer_waiver' ? 'Approved — Customer-Acknowledged Evidence Waiver' : packet.currentStatus.replaceAll('_', ' ')}</strong>. Base plan digest: <code className="break-all text-xs">{packet.baseDigest}</code></p>
-      <FdeIntakePlanCard plan={packet.plan} reviewStatus={packet.currentStatus} />
+      <p className="rounded border border-[var(--ef-border-subtle)] p-3 text-sm">Current status: <strong>{packet.currentStatus === 'approved_with_customer_waiver' ? 'Approved — Acknowledged Evidence Waiver' : packet.currentStatus.replaceAll('_', ' ')}</strong>. Base plan digest: <code className="break-all text-xs">{packet.baseDigest}</code></p>
+      <FdeIntakePlanCard plan={packet.plan} reviewStatus={packet.currentStatus === 'approved_with_customer_waiver' ? 'approved with acknowledged evidence waiver' : packet.currentStatus} />
       <section className="space-y-2 rounded border border-[var(--ef-border-subtle)] p-4">
         <h2 className="font-semibold">Customer-provided workflow information</h2>
         <dl className="grid gap-2 text-sm md:grid-cols-2">{Object.entries(packet.intake).filter(([, value]) => value.trim()).map(([key, value]) => <div key={key}><dt className="font-medium">{key.replace(/([a-z])([A-Z])/g, '$1 $2')}</dt><dd className="whitespace-pre-wrap text-[var(--ef-text-secondary)]">{value}</dd></div>)}</dl>
@@ -174,7 +174,7 @@ export default function FdePlanPage() {
           <p className="text-sm">Approach: <strong>{packet.currentResolvedRecommendation.deploymentApproach.rung?.replaceAll('_', ' ') ?? 'Undetermined'}</strong>. This approval covers this recommendation only.</p>
           {packet.currentResolvedRecommendation.deploymentApproach.lowerRungsToRuleOut.length > 0 && <p className="text-xs">Lower rungs reviewed: {packet.currentResolvedRecommendation.deploymentApproach.lowerRungsToRuleOut.map((rung) => rung.replaceAll('_', ' ')).join(', ')}</p>}
           <ul className="space-y-2 text-sm">{packet.currentResolvedRecommendation.needs.map((need) => <li key={need.needId} className="rounded border border-[var(--ef-border-subtle)] p-2">
-            <strong>{need.state === 'waived' ? 'Customer-acknowledged unverified assumption' : need.state === 'confirmed' ? 'Human-reviewed conclusion' : 'Unresolved'}</strong>: {need.description}
+            <strong>{need.state === 'waived' ? 'Acknowledged unverified assumption' : need.state === 'confirmed' ? 'Human-reviewed conclusion' : 'Unresolved'}</strong>: {need.description}
             {need.conclusion && <p>{need.conclusion}</p>}
             {need.rationale && <p className="text-xs text-[var(--ef-text-muted)]">Reason: {need.rationale}</p>}
           </li>)}</ul>
@@ -200,7 +200,7 @@ export default function FdePlanPage() {
         <fieldset className="space-y-1 text-sm"><legend className="font-medium">Associate with information needs</legend>{packet.plan.informationNeeds.map((need) => <label key={need.needId} className="block"><input type="checkbox" checked={selectedNeedIds.includes(need.needId)} onChange={(event) => { setSelectedNeedIds((current) => event.target.checked ? [...current, need.needId] : current.filter((id) => id !== need.needId)); setUploadRequestId(crypto.randomUUID()); }} /> {need.description}</label>)}</fieldset>
         <button type="button" className="rounded border px-3 py-1.5 text-sm disabled:opacity-50" disabled={busy || !uploadFile || !uploadRequestId || selectedNeedIds.length === 0} onClick={() => void upload()}>Upload supporting document</button>
       </section>
-      {packet.reviewerEligible ? <><section className="space-y-4 rounded border border-[var(--ef-border-subtle)] p-4">
+      <section className="space-y-4 rounded border border-[var(--ef-border-subtle)] p-4">
         <h2 className="font-semibold">Resolve information needs</h2>
         <p className="text-xs text-[var(--ef-text-secondary)]">A customer statement, a supplied file, and your conclusion are separate records. Marking a need confirmed supports this plan review; it does not change Project Truth.</p>
         {packet.plan.informationNeeds.map((need) => {
@@ -214,7 +214,7 @@ export default function FdePlanPage() {
             <label className="block">Review conclusion<textarea className={FIELD} rows={2} maxLength={4000} value={resolution.conclusion} onChange={(event) => setResolutions((current) => ({ ...current, [need.needId]: { ...resolution, conclusion: event.target.value } }))} /></label>
             <label className="block">Supporting source<select className={FIELD} value={resolution.sourceId} onChange={(event) => setResolutions((current) => ({ ...current, [need.needId]: { ...resolution, sourceId: event.target.value } }))}><option value="">No pinned source selected</option>{needChoices.map((choice) => <option key={`${choice.ref.kind}:${choice.ref.id}`} value={choice.ref.id}>{choice.label}</option>)}</select></label>
             <label className="block">Disposition<select className={FIELD} value={resolution.disposition} onChange={(event) => setResolutions((current) => ({ ...current, [need.needId]: { ...resolution, disposition: event.target.value as ResolutionDraft['disposition'] } }))}><option value="unresolved">Unresolved</option>{need.confirmEligible && <option value="confirmed">Confirmed for this plan</option>}</select></label>
-            {!need.confirmEligible && <p className="text-xs text-[var(--ef-text-muted)]">This need cannot be confirmed directly. Supply the missing evidence or complete the separate required decision.{need.waiverEligible ? ' An explicit customer evidence waiver is available below.' : ''}</p>}
+            {!need.confirmEligible && <p className="text-xs text-[var(--ef-text-muted)]">This need cannot be confirmed directly. Supply the missing evidence or complete the separate required decision.{need.waiverEligible ? ' An explicit evidence waiver is available below.' : ''}</p>}
             <label className="block">Rationale<textarea className={FIELD} rows={2} maxLength={4000} value={resolution.rationale} onChange={(event) => setResolutions((current) => ({ ...current, [need.needId]: { ...resolution, rationale: event.target.value } }))} /></label>
             {canOfferWaiver(need) && <FdeEvidenceWaiverControl value={waiver} acknowledgmentText={packet.acknowledgmentText}
               sources={choices.filter((choice) => need.needKind === 'follow_up'
@@ -226,20 +226,20 @@ export default function FdePlanPage() {
       </section>
       <section className="space-y-3 rounded border border-[var(--ef-border-subtle)] p-4">
         <h2 className="font-semibold">Record FDE plan decision</h2>
-        <p className="text-xs">Approved recommendations with waivers will be displayed as <strong>Approved — Customer-Acknowledged Evidence Waiver</strong>, with the unverified assumptions visible. Approval does not authorize implementation or activation.</p>
+        <p className="text-xs">Approved recommendations with waivers will be displayed as <strong>Approved — Acknowledged Evidence Waiver</strong>, with the unverified assumptions visible. Approval does not authorize implementation or activation.</p>
         <label className="block text-sm">Decision<select className={FIELD} value={disposition} onChange={(event) => setDisposition(event.target.value as typeof disposition)}><option value="changes_requested">Request changes</option><option value="rejected">Reject</option><option value="approved">Approve recommendation</option></select></label>
         {disposition === 'approved' && !approvalDraftComplete && <p role="status" className="text-xs text-[var(--ef-text-muted)]">Every information need must have a complete, eligible resolution or an acknowledged evidence waiver before approval. Structural and authority blockers require their separate action.</p>}
         <label className="block text-sm">Decision rationale<textarea className={FIELD} rows={3} maxLength={4000} value={rationale} onChange={(event) => setRationale(event.target.value)} /></label>
         <button type="button" className="rounded border px-3 py-1.5 text-sm disabled:opacity-50" disabled={busy || !rationale.trim() || incompleteResolutionDraft || (disposition === 'approved' && !approvalDraftComplete) || Object.values(waivers).some((value) => value.enabled && !canSubmitFdeWaiver(value))} onClick={() => void submitReview()}>{busy ? 'Recording…' : Object.values(waivers).some((value) => value.enabled) ? 'Record decision and acknowledged waivers' : 'Record decision'}</button>
-      </section></> : <p role="status" className="rounded border border-[var(--ef-border-subtle)] p-3 text-sm">An authorized reviewer records information resolutions, waivers, and the plan decision. You can add supporting documents above.</p>}
+      </section>
       <section className="space-y-2 rounded border border-[var(--ef-border-subtle)] p-4">
         <h2 className="font-semibold">Decision history</h2>
         {packet.history.length > 0 ? <ol className="space-y-2 text-sm">{packet.history.map((entry) => <li key={entry.reviewId} className="rounded border border-[var(--ef-border-subtle)] p-2">
-          <strong>{entry.disposition === 'approved' && entry.waiverCount > 0 ? 'Approved — Customer-Acknowledged Evidence Waiver' : entry.disposition.replaceAll('_', ' ')}</strong> · Version {entry.reviewVersion} · {entry.createdAt}
+          <strong>{entry.disposition === 'approved' && entry.waiverCount > 0 ? 'Approved — Acknowledged Evidence Waiver' : entry.disposition.replaceAll('_', ' ')}</strong> · Version {entry.reviewVersion} · {entry.createdAt}
           {entry.stale && <span className="ml-2 font-medium">Stale or superseded</span>}
           <p className="mt-1 whitespace-pre-wrap">{entry.rationale}</p>
           <p className="text-xs">Reviewer {entry.reviewerActorId} · Resolved digest {entry.resolvedDigest ?? 'None'}</p>
-          {entry.waivedAssumptions && entry.waivedAssumptions.length > 0 && <ul className="mt-2 space-y-1 text-xs">{entry.waivedAssumptions.map((assumption) => <li key={assumption.needId} className="rounded border border-[var(--ef-warning-a)] p-2"><strong>Unverified:</strong> {assumption.requirement}. Customer statement: {assumption.customerStatement}. Reason: {assumption.reason}.</li>)}</ul>}
+          {entry.waivedAssumptions && entry.waivedAssumptions.length > 0 && <ul className="mt-2 space-y-1 text-xs">{entry.waivedAssumptions.map((assumption) => <li key={assumption.needId} className="rounded border border-[var(--ef-warning-a)] p-2"><strong>Unverified:</strong> {assumption.requirement}. Relied-on statement: {assumption.customerStatement}. Reason: {assumption.reason}.</li>)}</ul>}
         </li>)}</ol> : <p className="text-sm text-[var(--ef-text-muted)]">No decision recorded.</p>}
       </section>
     </>}

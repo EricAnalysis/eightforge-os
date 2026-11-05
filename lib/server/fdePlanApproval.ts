@@ -8,7 +8,6 @@ import { parseAssessmentSupportingFileContext } from '@/lib/workflowAssessmentEv
 import { getActorContext } from '@/lib/server/getActorContext';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { readWorkflowReviewPacket } from '@/lib/server/workflowAssessmentReviewRead';
-import { resolveWorkflowPlatformReviewAccess } from '@/lib/server/workflowPlatformReviewAccess';
 import { resolveFdePlan, isFdeWaiverEligibleNeed, isFdeConfirmableNeed, FDE_WAIVER_ACKNOWLEDGMENT_TEXT,
   FDE_WAIVER_ACKNOWLEDGMENT_VERSION, type FdeEvidenceRef } from '@/lib/projectIntelligence/fdeResolvedPlan';
 import type { FdeIntakeFile, FdeIntakePlan } from '@/lib/projectIntelligence/fdeIntakePlan';
@@ -167,7 +166,6 @@ export async function readFdePlanApproval(req:Request,assessmentId:string):Promi
           ?(row.context as {limitations?:string[]}).limitations??[]:[row.error??'Evidence unavailable'],
         needIds:row.need_ids,downloadUrl:`/api/fde-plans/${assessmentId}/documents/${row.id}`})),
       history,currentStatus,latestReviewVersion:latest?.reviewVersion??0,
-      reviewerEligible:resolveWorkflowPlatformReviewAccess(access.actor).allowed,
       currentResolvedRecommendation:latest && !latest.stale && latest.disposition==='approved'
         ? JSON.parse((reviews.data??[])[0].resolved_plan_canonical_json) : null,
       acknowledgmentText:FDE_WAIVER_ACKNOWLEDGMENT_TEXT,
@@ -178,8 +176,6 @@ export async function readFdePlanApproval(req:Request,assessmentId:string):Promi
 export async function recordFdePlanReview(req:Request,assessmentId:string,input:unknown):Promise<Response>{
   const access=await authorized(req,assessmentId);
   if(!access.ok) return access.response;
-  // Same authority as the assessment review; organization membership alone cannot decide.
-  if(!resolveWorkflowPlatformReviewAccess(access.actor).allowed) return error('reviewer_not_eligible',403);
   const parsed=REVIEW.safeParse(input);
   if(!parsed.success) return error('invalid_review',400);
   try {

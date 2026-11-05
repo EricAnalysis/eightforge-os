@@ -22,6 +22,9 @@ describe('FDE evidence waiver control', () => {
     const html = renderToStaticMarkup(<FdeEvidenceWaiverControl value={enabled}
       acknowledgmentText={acknowledgment} sources={sources} onChange={() => undefined} />);
     expect(html).toContain(acknowledgment);
+    expect(html).toContain('Statement or assumption being relied on');
+    expect(html).toContain('Statement source');
+    expect(html).not.toContain('Customer statement source');
     expect(html.match(/checked=""/g)).toHaveLength(1); // The toggle is on; the acknowledgment is not.
     expect(canSubmitFdeWaiver(enabled)).toBe(false);
     expect(canSubmitFdeWaiver({ ...enabled, acknowledged: true })).toBe(true);

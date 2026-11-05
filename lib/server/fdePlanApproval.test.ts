@@ -65,6 +65,14 @@ describe('FDE plan server authorization',()=>{
     expect(await response.json()).not.toHaveProperty('reviewerEligible');
   });
 
+  it('scopes the FDE assessment lookup to the trusted actor organization',async()=>{
+    const db=admin();mocks.admin.mockReturnValue(db);
+    const response=await readFdePlanApproval(new Request('http://localhost'),ASSESSMENT);
+    expect(response.status).toBe(200);
+    expect(db.sources.workflow_assessments.eq).toHaveBeenCalledWith('id',ASSESSMENT);
+    expect(db.sources.workflow_assessments.eq).toHaveBeenCalledWith('organization_id',ORG);
+  });
+
   it('rejects unauthenticated reads before querying the database',async()=>{
     mocks.actor.mockResolvedValue({ok:false,status:401,error:'Unauthorized'});
     const db=admin();mocks.admin.mockReturnValue(db);

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { usePlatformSessionToken } from '@/components/platform/PlatformSessionContext';
 import { WorkflowIntakeDialog } from '@/components/landing/WorkflowIntakeDialog';
 import { WorkflowAssessmentAttachments } from '@/components/workflows/WorkflowAssessmentAttachments';
@@ -12,6 +13,7 @@ export default function WorkflowAssessmentPage() {
   const [attachmentsBusy, setAttachmentsBusy] = useState(false);
   const [submittedId, setSubmittedId] = useState<string | null>(null);
   const [summary, setSummary] = useState<string | null>(null);
+  const [assessmentId, setAssessmentId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!token || draftId) return;
@@ -37,6 +39,8 @@ export default function WorkflowAssessmentPage() {
     const body = await response.json();
     const value = body.workflow?.assessment?.assessment?.summary;
     setSummary(typeof value === 'string' ? value : 'Your workflow is recorded. Assessment preparation and human review are pending.');
+    const id = body.workflow?.assessment?.id;
+    setAssessmentId(typeof id === 'string' ? id : null);
   }
 
   return <section className="mx-auto max-w-3xl space-y-5 p-6">
@@ -52,6 +56,7 @@ export default function WorkflowAssessmentPage() {
       {token && <WorkflowAssessmentAttachments accessToken={token} draftId={submittedId} readOnly />}
       <button type="button" onClick={refreshAssessment} className="underline">Check assessment status</button>
       {summary ? <p className="whitespace-pre-wrap text-sm">{summary}</p> : null}
+      {assessmentId ? <Link className="inline-block text-sm underline" href={`/platform/workflows/fde-plans/${encodeURIComponent(assessmentId)}`}>View FDE plan and supporting evidence</Link> : null}
       <p className="text-xs text-[var(--ef-text-muted)]">Assessment suggestions remain proposals until human review. They do not activate mappings, configuration, or rules.</p>
     </div> : null}
   </section>;

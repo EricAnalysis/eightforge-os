@@ -3,7 +3,7 @@ import type { FdeIntakePlan } from '@/lib/projectIntelligence/fdeIntakePlan';
 const humanize = (value: string) => value.replaceAll('_', ' ');
 
 /** Read-only proposal. The assessment review on this page does not approve this plan. */
-export function FdeIntakePlanCard({ plan }: { plan: FdeIntakePlan }) {
+export function FdeIntakePlanCard({ plan, reviewStatus }: { plan: FdeIntakePlan; reviewStatus?: string }) {
   const open = plan.informationNeeds.filter((need) => need.state !== 'confirmed');
   const fileNameById = new Map(plan.pinnedInputs.suppliedFiles.map((file) => [file.attachmentId, file.filename]));
   const sourceLabel = (id: string) => fileNameById.has(id) ? `${fileNameById.get(id)} (${id})` : id;
@@ -12,7 +12,7 @@ export function FdeIntakePlanCard({ plan }: { plan: FdeIntakePlan }) {
       <div>
         <h2 className="text-sm font-semibold text-[var(--ef-text-primary)]">FDE intake plan</h2>
         <p className="mt-1 text-xs text-[var(--ef-text-muted)]">
-          Read-only proposal from assessment version {plan.pinnedInputs.assessmentVersion}. Plan review is pending; the assessment review does not approve a deployment recommendation.
+          Read-only proposal from assessment version {plan.pinnedInputs.assessmentVersion}. {reviewStatus ? `FDE plan status: ${humanize(reviewStatus)}.` : 'Plan review is pending;'} The assessment review does not approve a deployment recommendation.
         </p>
       </div>
 
@@ -43,7 +43,7 @@ export function FdeIntakePlanCard({ plan }: { plan: FdeIntakePlan }) {
         </div>
         <div>
           <h3 className="text-[11px] uppercase tracking-wide text-[var(--ef-text-faint)]">Human review</h3>
-          <p className="mt-1 text-xs text-[var(--ef-text-primary)]">Pending FDE plan review</p>
+          <p className="mt-1 text-xs text-[var(--ef-text-primary)]">{reviewStatus ? `FDE plan: ${humanize(reviewStatus)}` : 'Pending FDE plan review'}</p>
           <p className="mt-1 text-xs text-[var(--ef-text-muted)]">{plan.humanReview.requiredDecision}</p>
         </div>
       </div>

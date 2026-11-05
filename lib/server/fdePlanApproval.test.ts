@@ -50,6 +50,8 @@ function admin({owned=true,existingSnapshot=true,latestAssessmentId=ASSESSMENT,p
 
 beforeEach(()=>{
   vi.clearAllMocks();
+  vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS','a@example.com');
+  vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_ROLES','');
   mocks.actor.mockResolvedValue({ok:true,actor:{actorId:ACTOR,organizationId:ORG,email:'a@example.com',role:null,displayName:null}});
   mocks.packet.mockResolvedValue({status:'ok',packet:{fdeIntakePlan:plan,followUpAnswers:[],intake:{workflowDescription:'Review invoices'}}});
 });
@@ -66,7 +68,7 @@ describe('FDE plan server authorization',()=>{
   it('fails closed on a plan outside the actor organization',async()=>{
     const db=admin({owned:false});mocks.admin.mockReturnValue(db);
     const response=await recordFdePlanReview(new Request('http://localhost'),ASSESSMENT,{
-      baseDigest:hashCanonical(plan),disposition:'approved',rationale:'Reviewed',resolutions:[],waivers:[]});
+      baseDigest:hashCanonical(plan),expectedReviewVersion:0,disposition:'approved',rationale:'Reviewed',resolutions:[],waivers:[]});
     expect(response.status).toBe(404);
     expect(db.rpc).not.toHaveBeenCalled();
   });
@@ -74,7 +76,7 @@ describe('FDE plan server authorization',()=>{
   it('rejects a stale submitted plan digest before any decision write',async()=>{
     const db=admin();mocks.admin.mockReturnValue(db);
     const response=await recordFdePlanReview(new Request('http://localhost'),ASSESSMENT,{
-      baseDigest:'a'.repeat(64),disposition:'approved',rationale:'Reviewed',resolutions:[],waivers:[]});
+      baseDigest:'a'.repeat(64),expectedReviewVersion:0,disposition:'approved',rationale:'Reviewed',resolutions:[],waivers:[]});
     expect(response.status).toBe(409);
     expect(db.rpc).not.toHaveBeenCalled();
   });
@@ -82,7 +84,7 @@ describe('FDE plan server authorization',()=>{
   it('rejects review of an older assessment version',async()=>{
     const db=admin({latestAssessmentId:'77777777-7777-4777-8777-777777777777'});mocks.admin.mockReturnValue(db);
     const response=await recordFdePlanReview(new Request('http://localhost'),ASSESSMENT,{
-      baseDigest:hashCanonical(plan),disposition:'approved',rationale:'Reviewed',resolutions:[],waivers:[]});
+      baseDigest:hashCanonical(plan),expectedReviewVersion:0,disposition:'approved',rationale:'Reviewed',resolutions:[],waivers:[]});
     expect(response.status).toBe(409);
     expect(db.rpc).not.toHaveBeenCalled();
   });
@@ -108,7 +110,7 @@ describe('FDE plan server authorization',()=>{
     expect(resolveFdePlan(plan,[],[]).eligible).toBe(true);
     const db=admin();mocks.admin.mockReturnValue(db);
     const response=await recordFdePlanReview(new Request('http://localhost'),ASSESSMENT,{
-      baseDigest:hashCanonical(plan),disposition:'approved',rationale:'Reviewed',resolutions:[],waivers:[]});
+      baseDigest:hashCanonical(plan),expectedReviewVersion:0,disposition:'approved',rationale:'Reviewed',resolutions:[],waivers:[]});
     expect(response.status).toBe(201);
     expect(db.rpc).toHaveBeenCalledWith('record_fde_plan_review',expect.objectContaining({
       p_base_snapshot_id:SNAPSHOT,p_base_digest_sha256:hashCanonical(plan),p_actor_id:ACTOR,
@@ -116,27 +118,74 @@ describe('FDE plan server authorization',()=>{
     }));
   });
 
-  it('allows a change request while failed late evidence blocks approval',async()=>{
-    const failed=buildFdeIntakePlan({
-      assessmentId:ASSESSMENT,assessmentVersion:1,sourceSubmissionId:SUBMISSION,
-      intake:{workflowDescription:'Review invoices',successOutcome:'Reviewed invoice'},
-      assessment:{schemaVersion:'workflow_assessment_v2',workflowSteps:[{
-        stepId:'extract',classification:'EXTRACT',description:'Read invoice',proposedOutput:'Rows',
-        requiredInputs:[],unresolvedAssumptions:[],determinismGaps:[]}],documents:[],limitations:[]},
-      suppliedFiles:[],answers:[],existingReview:{reviewId:REVIEW_ID,reviewVersion:1,overallDisposition:'accepted'},
-      attachmentEvidenceUnavailable:true,
-      supplementalEvidence:{evidenceRevision:1,documents:[{attachmentId:SNAPSHOT,sourceSha256:'a'.repeat(64),
-        representationDigestSha256:null,contextDigest:null,status:'failed',associatedNeedIds:[]}]},
-    })!;
-    mocks.packet.mockResolvedValue({status:'ok',packet:{fdeIntakePlan:failed,followUpAnswers:[],intake:{workflowDescription:'Review invoices'}}});
-    const db=admin({snapshotPlan:failed,priorUpload:[{id:SNAPSHOT,evidence_revision:1,status:'failed',
-      content_sha256:'a'.repeat(64),representation_digest_sha256:null,context_digest_sha256:null,
-      context:null,need_ids:[],original_filename:'failed.pdf',uploaded_at:'2026-11-05T00:00:00Z',
-      error:'Processing unavailable'}]});mocks.admin.mockReturnValue(db);
+  it('rejects a decision from an organization member who is not an authorized reviewer',async()=>{
+    mocks.actor.mockResolvedValue({ok:true,actor:{actorId:ACTOR,organizationId:ORG,email:'member@customer.example',role:'owner',displayName:null}});
+    const db=admin();mocks.admin.mockReturnValue(db);
     const response=await recordFdePlanReview(new Request('http://localhost'),ASSESSMENT,{
-      baseDigest:hashCanonical(failed),disposition:'changes_requested',rationale:'Please replace the failed file.',
-      resolutions:[],waivers:[]});
+      baseDigest:hashCanonical(plan),expectedReviewVersion:0,disposition:'approved',rationale:'Reviewed',resolutions:[],waivers:[]});
+    expect(response.status).toBe(403);
+    expect(db.rpc).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when no reviewer allowlist is configured',async()=>{
+    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS','');
+    const db=admin();mocks.admin.mockReturnValue(db);
+    const response=await recordFdePlanReview(new Request('http://localhost'),ASSESSMENT,{
+      baseDigest:hashCanonical(plan),expectedReviewVersion:0,disposition:'rejected',rationale:'Reviewed',resolutions:[],waivers:[]});
+    expect(response.status).toBe(403);
+    expect(db.rpc).not.toHaveBeenCalled();
+  });
+
+  it('never accepts an actor or organization from the request',async()=>{
+    const db=admin();mocks.admin.mockReturnValue(db);
+    const response=await recordFdePlanReview(new Request('http://localhost'),ASSESSMENT,{
+      baseDigest:hashCanonical(plan),expectedReviewVersion:0,disposition:'approved',rationale:'Reviewed',resolutions:[],waivers:[],
+      actorId:'99999999-9999-4999-8999-999999999999',organizationId:'99999999-9999-4999-8999-999999999999'});
+    expect(response.status).toBe(400);
+    expect(db.rpc).not.toHaveBeenCalled();
+  });
+
+  it('binds a decision to the history its reviewer saw and reports a changed history',async()=>{
+    const db=admin();mocks.admin.mockReturnValue(db);
+    db.rpc.mockResolvedValueOnce({data:null,error:{code:'40001',message:'FDE decision history changed'}} as never);
+    const response=await recordFdePlanReview(new Request('http://localhost'),ASSESSMENT,{
+      baseDigest:hashCanonical(plan),expectedReviewVersion:0,disposition:'approved',rationale:'Reviewed',resolutions:[],waivers:[]});
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({error:'decision_history_changed'});
+    expect(db.rpc).toHaveBeenCalledWith('record_fde_plan_review',expect.objectContaining({p_expected_review_version:0}));
+  });
+
+  it('does not state a current status when a replay returns an earlier receipt',async()=>{
+    const db=admin();mocks.admin.mockReturnValue(db);
+    db.rpc.mockResolvedValueOnce({data:{review_id:REVIEW_ID,review_version:1,inserted:false},error:null});
+    const response=await recordFdePlanReview(new Request('http://localhost'),ASSESSMENT,{
+      baseDigest:hashCanonical(plan),expectedReviewVersion:0,disposition:'approved',rationale:'Reviewed',resolutions:[],waivers:[]});
+    expect(response.status).toBe(200);
+    expect(await response.json()).not.toHaveProperty('currentStatus');
+  });
+
+  it('keeps a failed late file pinned and visible without evidence value or a permanent block',async()=>{
+    const failedRow={id:SNAPSHOT,evidence_revision:1,status:'failed',content_sha256:'a'.repeat(64),representation_digest_sha256:null,
+      context_digest_sha256:null,context:null,need_ids:[],original_filename:'scan.pdf',uploaded_at:'2026-11-05T00:00:00Z',error:'No readable content'};
+    mocks.packet.mockImplementation(async(_id:string,_org:string,supplemental:{files:unknown[];unavailable:boolean;evidenceRevision:number;documents:unknown[]})=>{
+      expect(supplemental).toMatchObject({files:[],unavailable:false,evidenceRevision:1});
+      expect(supplemental.documents).toHaveLength(1);
+      return {status:'ok',packet:{fdeIntakePlan:plan,followUpAnswers:[],intake:{}}};
+    });
+    const db=admin({priorUpload:[failedRow]});mocks.admin.mockReturnValue(db);
+    const response=await recordFdePlanReview(new Request('http://localhost'),ASSESSMENT,{
+      baseDigest:hashCanonical(plan),expectedReviewVersion:0,disposition:'approved',rationale:'Reviewed',resolutions:[],waivers:[]});
     expect(response.status).toBe(201);
     expect(db.rpc).toHaveBeenCalledOnce();
+  });
+
+  it('still blocks approval when a processed late document fails its identity check',async()=>{
+    const brokenRow={id:SNAPSHOT,evidence_revision:1,status:'processed',content_sha256:'a'.repeat(64),representation_digest_sha256:'b'.repeat(64),
+      context_digest_sha256:'c'.repeat(64),context:{not:'valid'},need_ids:[],original_filename:'late.csv',uploaded_at:'2026-11-05T00:00:00Z',error:null};
+    const db=admin({priorUpload:[brokenRow]});mocks.admin.mockReturnValue(db);
+    const response=await recordFdePlanReview(new Request('http://localhost'),ASSESSMENT,{
+      baseDigest:hashCanonical(plan),expectedReviewVersion:0,disposition:'approved',rationale:'Reviewed',resolutions:[],waivers:[]});
+    expect(response.status).toBe(409);
+    expect(db.rpc).not.toHaveBeenCalled();
   });
 });

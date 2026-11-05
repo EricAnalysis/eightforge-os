@@ -60,11 +60,11 @@ export type FdeResolvedPlan = Readonly<{
 }>;
 
 const structuralKinds = new Set<FdeInformationNeed['needKind']>([
-  'attachment_unavailable', 'limited_file', 'human_step', 'intake_objective', 'intake_output',
+  'attachment_unavailable', 'human_step', 'intake_objective', 'intake_output',
   'follow_up_unavailable', 'assessment_review_conflict', 'owner_activation',
 ]);
 const interpretableKinds = new Set<FdeInformationNeed['needKind']>([
-  'follow_up', 'described_document', 'unmatched_file', 'relationship', 'assessment_limitation',
+  'follow_up', 'described_document', 'unmatched_file', 'limited_file', 'relationship', 'assessment_limitation',
 ]);
 
 export function isFdeConfirmableNeed(need: FdeInformationNeed, base: FdeIntakePlan): boolean {

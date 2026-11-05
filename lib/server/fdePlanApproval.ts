@@ -8,6 +8,7 @@ import { parseAssessmentSupportingFileContext } from '@/lib/workflowAssessmentEv
 import { getActorContext } from '@/lib/server/getActorContext';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { readWorkflowReviewPacket } from '@/lib/server/workflowAssessmentReviewRead';
+import { resolveWorkflowPlatformReviewAccess } from '@/lib/server/workflowPlatformReviewAccess';
 import { resolveFdePlan, isFdeWaiverEligibleNeed, isFdeConfirmableNeed, FDE_WAIVER_ACKNOWLEDGMENT_TEXT,
   FDE_WAIVER_ACKNOWLEDGMENT_VERSION, type FdeEvidenceRef } from '@/lib/projectIntelligence/fdeResolvedPlan';
 import type { FdeIntakeFile, FdeIntakePlan } from '@/lib/projectIntelligence/fdeIntakePlan';
@@ -23,6 +24,7 @@ const WAIVER = z.object({ needId: z.string().regex(/^need_[a-f0-9]{64}$/), requi
   acknowledgmentText: z.literal(FDE_WAIVER_ACKNOWLEDGMENT_TEXT), acknowledgmentVersion: z.literal(FDE_WAIVER_ACKNOWLEDGMENT_VERSION),
   acknowledged: z.literal(true), sourceRefs: z.array(SOURCE_REF).max(30) }).strict();
 const REVIEW = z.object({ baseSnapshotId: UUID.optional().nullable(), baseDigest: DIGEST,
+  expectedReviewVersion: z.number().int().min(0),
   disposition: z.enum(['approved','rejected','changes_requested']), rationale: z.string().trim().min(1).max(4000),
   resolutions: z.array(RESOLUTION).max(100), waivers: z.array(WAIVER).max(100) }).strict();
 type Admin = NonNullable<ReturnType<typeof getSupabaseAdmin>>;
@@ -84,6 +86,9 @@ async function currentPlan(admin:Admin,actor:Actor,assessment:{id:string;source_
     documents.push({attachmentId:row.id,sourceSha256:row.content_sha256,
       representationDigestSha256:row.representation_digest_sha256,contextDigest:row.context_digest_sha256,
       status:row.status,associatedNeedIds:row.need_ids});
+    // A failed file stays pinned and visible but is not evidence. Records are immutable,
+    // so it must not block the replacement or the human review that follows it.
+    if(row.status==='failed') continue;
     if(row.status!=='processed' || !row.context || !row.representation_digest_sha256 || !row.context_digest_sha256){unavailable=true;continue;}
     try {
       const context=parseAssessmentSupportingFileContext(row.context);
@@ -140,12 +145,12 @@ export async function readFdePlanApproval(req:Request,assessmentId:string):Promi
       .eq('plan_digest_sha256',digest).maybeSingle();
     if(snapshotRow.error) throw new Error('snapshot_read_failed');
     const reviews=await access.admin.from('fde_plan_reviews')
-      .select('id,review_version,disposition,reviewer_actor_id,resolved_plan_digest_sha256,base_plan_digest_sha256,resolved_plan_canonical_json,created_at')
+      .select('id,review_version,disposition,rationale,reviewer_actor_id,resolved_plan_digest_sha256,base_plan_digest_sha256,resolved_plan_canonical_json,created_at')
       .eq('organization_id',access.actor.organizationId).eq('source_submission_id',access.assessment.source_submission_id)
       .order('review_version',{ascending:false});
     if(reviews.error) throw new Error('review_read_failed');
     const history=(reviews.data??[]).map((row,index)=>{const saved=JSON.parse(row.resolved_plan_canonical_json) as {waivedAssumptions?:unknown[]};return {reviewId:row.id,reviewVersion:row.review_version,
-      disposition:row.disposition,createdAt:row.created_at,reviewerActorId:row.reviewer_actor_id,
+      disposition:row.disposition,rationale:row.rationale,createdAt:row.created_at,reviewerActorId:row.reviewer_actor_id,
       resolvedDigest:row.resolved_plan_digest_sha256,
       stale:row.base_plan_digest_sha256!==digest || !access.assessment.isCurrentVersion || index>0,
       waiverCount:(saved.waivedAssumptions??[]).length,waivedAssumptions:saved.waivedAssumptions??[]}});
@@ -161,7 +166,8 @@ export async function readFdePlanApproval(req:Request,assessmentId:string):Promi
         status:row.status,limitations:row.status==='processed' && row.context && typeof row.context==='object'
           ?(row.context as {limitations?:string[]}).limitations??[]:[row.error??'Evidence unavailable'],
         needIds:row.need_ids,downloadUrl:`/api/fde-plans/${assessmentId}/documents/${row.id}`})),
-      history,currentStatus,
+      history,currentStatus,latestReviewVersion:latest?.reviewVersion??0,
+      reviewerEligible:resolveWorkflowPlatformReviewAccess(access.actor).allowed,
       currentResolvedRecommendation:latest && !latest.stale && latest.disposition==='approved'
         ? JSON.parse((reviews.data??[])[0].resolved_plan_canonical_json) : null,
       acknowledgmentText:FDE_WAIVER_ACKNOWLEDGMENT_TEXT,
@@ -172,6 +178,8 @@ export async function readFdePlanApproval(req:Request,assessmentId:string):Promi
 export async function recordFdePlanReview(req:Request,assessmentId:string,input:unknown):Promise<Response>{
   const access=await authorized(req,assessmentId);
   if(!access.ok) return access.response;
+  // Same authority as the assessment review; organization membership alone cannot decide.
+  if(!resolveWorkflowPlatformReviewAccess(access.actor).allowed) return error('reviewer_not_eligible',403);
   const parsed=REVIEW.safeParse(input);
   if(!parsed.success) return error('invalid_review',400);
   try {
@@ -184,20 +192,23 @@ export async function recordFdePlanReview(req:Request,assessmentId:string,input:
     const result=resolveFdePlan(current.plan,parsed.data.resolutions,parsed.data.waivers);
     if(parsed.data.disposition==='approved' && !result.eligible) return Response.json({ok:false,error:'approval_blocked',blockers:result.blockers},{status:409});
     const requestDigest=hashCanonical({actorId:access.actor.actorId,snapshotId:pinned.id,
-      baseDigest:pinned.digest,disposition:parsed.data.disposition,rationale:parsed.data.rationale,
+      expectedReviewVersion:parsed.data.expectedReviewVersion,baseDigest:pinned.digest,disposition:parsed.data.disposition,rationale:parsed.data.rationale,
       resolutions:parsed.data.resolutions,waivers:parsed.data.waivers,resolvedDigest:result.digest});
     const written=await access.admin.rpc('record_fde_plan_review',{
       p_base_snapshot_id:pinned.id,p_base_digest_sha256:pinned.digest,
       p_resolved_canonical_json:canonicalJson(result.resolvedPlan),p_resolved_digest_sha256:result.digest,
       p_disposition:parsed.data.disposition,p_rationale:parsed.data.rationale,
       p_request_digest_sha256:requestDigest,p_actor_id:access.actor.actorId,
-      p_resolutions:parsed.data.resolutions,p_waivers:parsed.data.waivers});
-    if(written.error) return error('review_write_failed',409);
+      p_resolutions:parsed.data.resolutions,p_waivers:parsed.data.waivers,
+      p_expected_review_version:parsed.data.expectedReviewVersion});
+    if(written.error) return error(written.error.code==='40001'?'decision_history_changed':'review_write_failed',409);
     const row=Array.isArray(written.data)?written.data[0]:written.data;
     if(!row || !UUID.safeParse(row.review_id).success) return error('review_write_failed',500);
     return Response.json({ok:true,reviewId:row.review_id,reviewVersion:row.review_version,inserted:row.inserted,
-      resolvedDigest:result.digest,currentStatus:parsed.data.disposition==='approved' && parsed.data.waivers.length>0
-        ?'approved_with_customer_waiver':parsed.data.disposition},{status:row.inserted?201:200});
+      resolvedDigest:result.digest,
+      // A replay returns the original receipt; only a new decision can state current status.
+      ...(row.inserted?{currentStatus:parsed.data.disposition==='approved' && parsed.data.waivers.length>0
+        ?'approved_with_customer_waiver':parsed.data.disposition}:{})},{status:row.inserted?201:200});
   } catch { return error('review_unavailable',503); }
 }
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { parseAssessmentSupportingFile } from '@/lib/extraction/assessmentSupportingFile';
 import { hashCanonical } from '@/lib/extraction/domain/hash';
 import { buildFdeIntakePlan } from '@/lib/projectIntelligence/fdeIntakePlan';
 import { FDE_WAIVER_ACKNOWLEDGMENT_TEXT, FDE_WAIVER_ACKNOWLEDGMENT_VERSION,
@@ -22,6 +23,31 @@ const input = {
 };
 
 describe('evidence-bound FDE recommendation', () => {
+  // Uses real parser output: every processed file carries a parser limitation, so a
+  // hand-written file without limitations would prove nothing about this path.
+  it('lets a human resolve a real parsed document, and only an explicit resolution does so', async () => {
+    const parsed = await parseAssessmentSupportingFile({ bytes: new TextEncoder().encode('rate,unit\n12.50,CY\n'),
+      attachmentId: '11111111-1111-4111-8111-111111111111', originalFilename: 'rate-schedule.csv', mediaType: 'text/csv' });
+    if (parsed.status !== 'processed') throw new Error('fixture must parse');
+    const context = parsed.context;
+    expect(context.limitations.length).toBeGreaterThan(0);
+    const base = buildFdeIntakePlan({ ...input, suppliedFiles: [{ attachmentId: '11111111-1111-4111-8111-111111111111', filename: 'rate-schedule.csv',
+      sectionLabels: context.sections.map((section) => section.label), truncated: context.truncated, limitations: context.limitations,
+      sourceSha256: context.sourceSha256, representationDigestSha256: context.representationDigestSha256 }] })!;
+    const limited = base.informationNeeds.find((need) => need.needKind === 'limited_file')!;
+    expect(limited).toBeDefined();
+    expect(isFdeWaiverEligibleNeed(limited, base)).toBe(false);
+    expect(resolveFdePlan(base, [], []).eligible).toBe(false);
+    const file = base.pinnedInputs.suppliedFiles[0];
+    const judge = (needId: string) => ({ needId, disposition: 'confirmed' as const, conclusion: 'Read the file and its stated limits.',
+      rationale: 'Checked the source directly.', sourceRefs: [{ kind: 'attachment' as const, id: file.attachmentId, digest: hashCanonical(file) }] });
+    const others = base.informationNeeds.filter((need) => need.needId !== limited.needId).map((need) => judge(need.needId));
+    expect(resolveFdePlan(base, others, []).eligible).toBe(false);
+    const resolved = resolveFdePlan(base, [...others, judge(limited.needId)], []);
+    expect(resolved.eligible).toBe(true);
+    expect(resolved.resolvedPlan.needs.find((need) => need.needId === limited.needId)?.state).toBe('confirmed');
+  });
+
   it('requires a human conclusion for a supplied document and binds its exact source representation', () => {
     const base = buildFdeIntakePlan({ ...input, suppliedFiles: [{ attachmentId: 'file-a', filename: 'Rate schedule PDF',
       sectionLabels: ['rates'], truncated: false, sourceSha256: 'a'.repeat(64), representationDigestSha256: 'b'.repeat(64) }] })!;

@@ -30,9 +30,9 @@ BEGIN
         AND t.tgname=v_table||'_immutable';
     IF v_count<>1 THEN RAISE EXCEPTION 'immutable trigger missing: %',v_table; END IF;
   END LOOP;
-  IF has_function_privilege('authenticated','public.record_fde_plan_review(uuid,text,text,text,text,text,text,uuid,jsonb,jsonb)','EXECUTE')
-    OR has_function_privilege('anon','public.record_fde_plan_review(uuid,text,text,text,text,text,text,uuid,jsonb,jsonb)','EXECUTE')
-    OR NOT has_function_privilege('service_role','public.record_fde_plan_review(uuid,text,text,text,text,text,text,uuid,jsonb,jsonb)','EXECUTE') THEN
+  IF has_function_privilege('authenticated','public.record_fde_plan_review(uuid,text,text,text,text,text,text,uuid,jsonb,jsonb,integer)','EXECUTE')
+    OR has_function_privilege('anon','public.record_fde_plan_review(uuid,text,text,text,text,text,text,uuid,jsonb,jsonb,integer)','EXECUTE')
+    OR NOT has_function_privilege('service_role','public.record_fde_plan_review(uuid,text,text,text,text,text,text,uuid,jsonb,jsonb,integer)','EXECUTE') THEN
     RAISE EXCEPTION 'FDE review RPC privilege mismatch';
   END IF;
   IF has_function_privilege('authenticated','public.record_fde_plan_supplemental_document(jsonb,text[],uuid,uuid,uuid,text)','EXECUTE')
@@ -89,6 +89,36 @@ BEGIN
   END;
 END $$;
 
+-- A decision binds the decision history its reviewer saw. The snapshot is still current here.
+SET request.jwt.claim.role='service_role';
+DO $$
+DECLARE v_base text; v_body text; v_digest text; v_version integer;
+BEGIN
+  SELECT plan_digest_sha256 INTO STRICT v_base FROM public.fde_plan_snapshots
+    WHERE id='f5000000-0000-4000-8000-000000000001';
+  v_body:=jsonb_build_object('authority','non_authoritative','basePlanDigestSha256',v_base,
+    'sourceSubmissionId','f3000000-0000-4000-8000-000000000001','assessmentId','f4000000-0000-4000-8000-000000000001',
+    'assessmentVersion',1,'evidenceRevision',0,'eligible',false,'blockers',jsonb_build_array('test'),
+    'deploymentApproach',jsonb_build_object('state','undetermined','rung',null))::text;
+  v_digest:=encode(extensions.digest(convert_to(v_body,'UTF8'),'sha256'),'hex');
+  BEGIN
+    PERFORM * FROM public.record_fde_plan_review('f5000000-0000-4000-8000-000000000001',v_base,v_body,v_digest,
+      'rejected','History probe one.',repeat('a',64),'f2000000-0000-4000-8000-000000000001','[]'::jsonb,'[]'::jsonb,1);
+    RAISE EXCEPTION 'expected history ahead of the record accepted';
+  EXCEPTION WHEN SQLSTATE '40001' THEN NULL;
+  END;
+  SELECT r.review_version INTO STRICT v_version FROM public.record_fde_plan_review('f5000000-0000-4000-8000-000000000001',v_base,v_body,v_digest,
+    'rejected','History probe two.',repeat('9',64),'f2000000-0000-4000-8000-000000000001','[]'::jsonb,'[]'::jsonb,0) r;
+  IF v_version<>1 THEN RAISE EXCEPTION 'decision version not allocated from the seen history'; END IF;
+  BEGIN
+    PERFORM * FROM public.record_fde_plan_review('f5000000-0000-4000-8000-000000000001',v_base,v_body,v_digest,
+      'rejected','Unseen decision probe.',repeat('8',64),'f2000000-0000-4000-8000-000000000001','[]'::jsonb,'[]'::jsonb,0);
+    RAISE EXCEPTION 'unseen decision history accepted';
+  EXCEPTION WHEN SQLSTATE '40001' THEN NULL;
+  END;
+END $$;
+RESET request.jwt.claim.role;
+
 INSERT INTO public.fde_plan_supplemental_documents
   (id,organization_id,source_submission_id,assessment_id,base_snapshot_id,evidence_revision,
    uploaded_by_actor_id,upload_request_id,upload_request_digest_sha256,need_ids,original_filename,
@@ -127,7 +157,7 @@ BEGIN
     PERFORM * FROM public.record_fde_plan_review(
       'f5000000-0000-4000-8000-000000000001',v_base,v_body,v_digest,
       'rejected','Cross-tenant probe.',repeat('b',64),
-      'f2000000-0000-4000-8000-000000000002','[]'::jsonb,'[]'::jsonb);
+      'f2000000-0000-4000-8000-000000000002','[]'::jsonb,'[]'::jsonb,0);
     RAISE EXCEPTION 'cross-tenant FDE reviewer accepted';
   EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
   END;
@@ -135,7 +165,7 @@ BEGIN
     PERFORM * FROM public.record_fde_plan_review(
       'f5000000-0000-4000-8000-000000000001',v_base,v_body,repeat('0',64),
       'rejected','Digest probe.',repeat('c',64),
-      'f2000000-0000-4000-8000-000000000001','[]'::jsonb,'[]'::jsonb);
+      'f2000000-0000-4000-8000-000000000001','[]'::jsonb,'[]'::jsonb,0);
     RAISE EXCEPTION 'wrong resolved digest accepted';
   EXCEPTION WHEN SQLSTATE '23514' THEN NULL;
   END;
@@ -147,8 +177,38 @@ ROLLBACK;
 DO $$
 BEGIN
   BEGIN
-    PERFORM * FROM public.record_fde_plan_review(NULL,'invalid','{}','invalid','approved','x','invalid',NULL,'[]'::jsonb,'[]'::jsonb);
+    PERFORM * FROM public.record_fde_plan_review(NULL,'invalid','{}','invalid','approved','x','invalid',NULL,'[]'::jsonb,'[]'::jsonb,0);
     RAISE EXCEPTION 'invalid FDE identity unexpectedly accepted';
   EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
   END;
 END $$;
+
+-- Direct browser Storage access must not reach FDE evidence.
+DO $$ DECLARE policy_record record; BEGIN
+  IF to_regclass('storage.objects') IS NOT NULL THEN
+    SELECT * INTO policy_record FROM pg_policies WHERE schemaname='storage' AND tablename='objects' AND policyname='fde_plan_evidence_api_only';
+    IF NOT FOUND OR policy_record.permissive<>'RESTRICTIVE' OR policy_record.cmd<>'ALL'
+      OR NOT (policy_record.roles @> ARRAY['anon','authenticated']::name[])
+      OR policy_record.qual IS NULL OR policy_record.with_check IS NULL THEN
+      RAISE EXCEPTION 'FDE storage restrictive access boundary missing';
+    END IF;
+  END IF;
+END $$;
+BEGIN;
+DO $$ DECLARE v_deleted integer; BEGIN
+  IF obj_description(to_regclass('storage.objects'),'pg_class') = 'eightforge_disposable_storage_rls_fixture' THEN
+    INSERT INTO storage.objects VALUES ('f8000000-0000-4000-8000-000000000001','documents','f1000000-0000-4000-8000-000000000001/fde-plans/submission/file');
+    SET LOCAL ROLE authenticated;
+    IF EXISTS (SELECT 1 FROM storage.objects WHERE id='f8000000-0000-4000-8000-000000000001') THEN RAISE EXCEPTION 'direct FDE storage read bypass'; END IF;
+    DELETE FROM storage.objects WHERE id='f8000000-0000-4000-8000-000000000001';
+    GET DIAGNOSTICS v_deleted = ROW_COUNT;
+    IF v_deleted<>0 THEN RAISE EXCEPTION 'direct FDE storage delete bypass'; END IF;
+    BEGIN
+      INSERT INTO storage.objects VALUES ('f8000000-0000-4000-8000-000000000002','documents','org/fde-plans/submission/forged');
+      RAISE EXCEPTION 'direct FDE storage upload bypass';
+    EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+    RESET ROLE;
+  END IF;
+END $$;
+ROLLBACK;
+\echo FDE PLAN APPROVAL DATABASE BOUNDARY: PASS

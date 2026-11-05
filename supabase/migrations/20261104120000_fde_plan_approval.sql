@@ -249,7 +249,7 @@ GRANT EXECUTE ON FUNCTION public.record_fde_plan_supplemental_document(jsonb,tex
 CREATE FUNCTION public.record_fde_plan_review(
   p_base_snapshot_id uuid,p_base_digest_sha256 text,p_resolved_canonical_json text,p_resolved_digest_sha256 text,
   p_disposition text,p_rationale text,p_request_digest_sha256 text,p_actor_id uuid,
-  p_resolutions jsonb,p_waivers jsonb
+  p_resolutions jsonb,p_waivers jsonb,p_expected_review_version integer
 ) RETURNS TABLE(review_id uuid,review_version integer,inserted boolean)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
 DECLARE
@@ -343,7 +343,12 @@ BEGIN
     RETURN QUERY SELECT v_existing.id,v_existing.review_version,false;
     RETURN;
   END IF;
-  SELECT coalesce(max(r.review_version),0)+1 INTO v_version FROM public.fde_plan_reviews r WHERE r.source_submission_id=v_snapshot.source_submission_id;
+  SELECT coalesce(max(r.review_version),0) INTO v_version FROM public.fde_plan_reviews r WHERE r.source_submission_id=v_snapshot.source_submission_id;
+  -- A decision must be made against the decision history its reviewer actually saw.
+  IF p_expected_review_version IS DISTINCT FROM v_version THEN
+    RAISE EXCEPTION 'FDE decision history changed' USING ERRCODE='40001';
+  END IF;
+  v_version := v_version+1;
   INSERT INTO public.fde_plan_reviews (organization_id,source_submission_id,base_snapshot_id,base_plan_digest_sha256,
     resolved_plan_digest_sha256,resolved_plan_canonical_json,resolutions_canonical_json,waivers_canonical_json,
     review_version,reviewer_actor_id,disposition,rationale,request_digest_sha256)
@@ -368,5 +373,16 @@ BEGIN
   END LOOP;
   RETURN QUERY SELECT v_review_id,v_version,true;
 END $$;
-REVOKE ALL ON FUNCTION public.record_fde_plan_review(uuid,text,text,text,text,text,text,uuid,jsonb,jsonb) FROM PUBLIC, anon, authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.record_fde_plan_review(uuid,text,text,text,text,text,text,uuid,jsonb,jsonb) TO service_role;
+REVOKE ALL ON FUNCTION public.record_fde_plan_review(uuid,text,text,text,text,text,text,uuid,jsonb,jsonb,integer) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.record_fde_plan_review(uuid,text,text,text,text,text,text,uuid,jsonb,jsonb,integer) TO service_role;
+
+-- Existing permissive organization policies must not reach immutable FDE evidence.
+-- Same boundary as workflow_assessment_evidence_api_only; service storage is unchanged.
+DO $$ BEGIN
+ IF to_regclass('storage.objects') IS NOT NULL THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_class WHERE oid='storage.objects'::regclass AND relrowsecurity) THEN
+   RAISE EXCEPTION 'FDE plan storage requires existing storage.objects RLS';
+  END IF;
+  EXECUTE 'CREATE POLICY fde_plan_evidence_api_only ON storage.objects AS RESTRICTIVE FOR ALL TO anon, authenticated USING (bucket_id <> ''documents'' OR split_part(name, ''/'', 2) <> ''fde-plans'') WITH CHECK (bucket_id <> ''documents'' OR split_part(name, ''/'', 2) <> ''fde-plans'')';
+ END IF;
+END $$;

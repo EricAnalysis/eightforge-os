@@ -27,9 +27,9 @@ export function FdeEvidenceWaiverControl({ value, acknowledgmentText, sources, o
   return <div className="space-y-2 rounded border border-[var(--ef-warning-a)] p-3">
     <label className="block"><input type="checkbox" checked={value.enabled} onChange={(event) => onChange({ ...value, enabled: event.target.checked, acknowledged: false })} /> Proceed without supporting documents</label>
     {value.enabled && <>
-      <label className="block">Customer-provided statement or assumption<textarea className={field} rows={2} maxLength={4000} value={value.customerStatement} onChange={(event) => onChange({ ...value, customerStatement: event.target.value })} /></label>
+      <label className="block">Statement or assumption being relied on<textarea className={field} rows={2} maxLength={4000} value={value.customerStatement} onChange={(event) => onChange({ ...value, customerStatement: event.target.value })} /></label>
       <label className="block">Reason for waiver<textarea className={field} rows={2} maxLength={4000} value={value.reason} onChange={(event) => onChange({ ...value, reason: event.target.value })} /></label>
-      <label className="block">Customer statement source<select className={field} value={value.sourceId} onChange={(event) => onChange({ ...value, sourceId: event.target.value })}><option value="">Select a customer statement source</option>{sources.map((source) => <option key={source.id} value={source.id}>{source.label}</option>)}</select></label>
+      <label className="block">Statement source<select className={field} value={value.sourceId} onChange={(event) => onChange({ ...value, sourceId: event.target.value })}><option value="">Select a statement source</option>{sources.map((source) => <option key={source.id} value={source.id}>{source.label}</option>)}</select></label>
       <label className="block"><input type="checkbox" checked={value.acknowledged} onChange={(event) => onChange({ ...value, acknowledged: event.target.checked })} /> {acknowledgmentText}</label>
     </>}
   </div>;

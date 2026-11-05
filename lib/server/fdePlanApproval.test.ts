@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildFdeIntakePlan } from '@/lib/projectIntelligence/fdeIntakePlan';
 import { canonicalJson, hashCanonical, sha256Hex } from '@/lib/extraction/domain/hash';
-import { resolveFdePlan } from '@/lib/projectIntelligence/fdeResolvedPlan';
+import { FDE_WAIVER_ACKNOWLEDGMENT_TEXT, FDE_WAIVER_ACKNOWLEDGMENT_VERSION, resolveFdePlan } from '@/lib/projectIntelligence/fdeResolvedPlan';
 
 const mocks=vi.hoisted(()=>({actor:vi.fn(),admin:vi.fn(),packet:vi.fn()}));
 vi.mock('@/lib/server/getActorContext',()=>({getActorContext:mocks.actor}));
@@ -50,17 +50,34 @@ function admin({owned=true,existingSnapshot=true,latestAssessmentId=ASSESSMENT,p
 
 beforeEach(()=>{
   vi.clearAllMocks();
-  vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS','a@example.com');
+  vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS','');
   vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_ROLES','');
   mocks.actor.mockResolvedValue({ok:true,actor:{actorId:ACTOR,organizationId:ORG,email:'a@example.com',role:null,displayName:null}});
   mocks.packet.mockResolvedValue({status:'ok',packet:{fdeIntakePlan:plan,followUpAnswers:[],intake:{workflowDescription:'Review invoices'}}});
 });
 
 describe('FDE plan server authorization',()=>{
+  it('allows an authenticated organization member to read decision controls without a reviewer allowlist',async()=>{
+    mocks.actor.mockResolvedValue({ok:true,actor:{actorId:ACTOR,organizationId:ORG,email:'member@customer.example',role:null,displayName:null}});
+    const db=admin();mocks.admin.mockReturnValue(db);
+    const response=await readFdePlanApproval(new Request('http://localhost'),ASSESSMENT);
+    expect(response.status).toBe(200);
+    expect(await response.json()).not.toHaveProperty('reviewerEligible');
+  });
+
   it('rejects unauthenticated reads before querying the database',async()=>{
     mocks.actor.mockResolvedValue({ok:false,status:401,error:'Unauthorized'});
     const db=admin();mocks.admin.mockReturnValue(db);
     const response=await readFdePlanApproval(new Request('http://localhost'),ASSESSMENT);
+    expect(response.status).toBe(401);
+    expect(db.from).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unauthenticated decision before querying the database',async()=>{
+    mocks.actor.mockResolvedValue({ok:false,status:401,error:'Unauthorized'});
+    const db=admin();mocks.admin.mockReturnValue(db);
+    const response=await recordFdePlanReview(new Request('http://localhost'),ASSESSMENT,{
+      baseDigest:hashCanonical(plan),expectedReviewVersion:0,disposition:'approved',rationale:'Reviewed',resolutions:[],waivers:[]});
     expect(response.status).toBe(401);
     expect(db.from).not.toHaveBeenCalled();
   });
@@ -70,6 +87,21 @@ describe('FDE plan server authorization',()=>{
     const response=await recordFdePlanReview(new Request('http://localhost'),ASSESSMENT,{
       baseDigest:hashCanonical(plan),expectedReviewVersion:0,disposition:'approved',rationale:'Reviewed',resolutions:[],waivers:[]});
     expect(response.status).toBe(404);
+    expect(db.rpc).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {name:'unauthenticated',actor:{ok:false,status:401,error:'Unauthorized'},status:401},
+    {name:'cross-organization',actor:null,status:404},
+  ])('denies a waiver decision for a $name caller',async({actor,status})=>{
+    const db=admin({owned:status!==404});mocks.admin.mockReturnValue(db);
+    if(actor) mocks.actor.mockResolvedValue(actor);
+    const response=await recordFdePlanReview(new Request('http://localhost'),ASSESSMENT,{
+      baseDigest:hashCanonical(plan),expectedReviewVersion:0,disposition:'approved',rationale:'Reviewed',resolutions:[],
+      waivers:[{needId:'need_'+ 'a'.repeat(64),requirement:'Document',customerStatement:'Customer statement',
+        reason:'Proceed under uncertainty',acknowledgmentText:FDE_WAIVER_ACKNOWLEDGMENT_TEXT,
+        acknowledgmentVersion:FDE_WAIVER_ACKNOWLEDGMENT_VERSION,acknowledged:true,sourceRefs:[]}]});
+    expect(response.status).toBe(status);
     expect(db.rpc).not.toHaveBeenCalled();
   });
 
@@ -118,22 +150,38 @@ describe('FDE plan server authorization',()=>{
     }));
   });
 
-  it('rejects a decision from an organization member who is not an authorized reviewer',async()=>{
-    mocks.actor.mockResolvedValue({ok:true,actor:{actorId:ACTOR,organizationId:ORG,email:'member@customer.example',role:'owner',displayName:null}});
+  it.each(['approved','rejected','changes_requested'] as const)('allows a same-organization member to record %s regardless of role or reviewer allowlist',async(disposition)=>{
+    mocks.actor.mockResolvedValue({ok:true,actor:{actorId:ACTOR,organizationId:ORG,email:'member@customer.example',role:'viewer',displayName:null}});
     const db=admin();mocks.admin.mockReturnValue(db);
     const response=await recordFdePlanReview(new Request('http://localhost'),ASSESSMENT,{
-      baseDigest:hashCanonical(plan),expectedReviewVersion:0,disposition:'approved',rationale:'Reviewed',resolutions:[],waivers:[]});
-    expect(response.status).toBe(403);
-    expect(db.rpc).not.toHaveBeenCalled();
+      baseDigest:hashCanonical(plan),expectedReviewVersion:0,disposition,rationale:'Reviewed',resolutions:[],waivers:[]});
+    expect(response.status).toBe(201);
+    expect(db.rpc).toHaveBeenCalledWith('record_fde_plan_review',expect.objectContaining({p_actor_id:ACTOR,p_disposition:disposition}));
   });
 
-  it('fails closed when no reviewer allowlist is configured',async()=>{
-    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS','');
-    const db=admin();mocks.admin.mockReturnValue(db);
+  it('allows a same-organization member to acknowledge a per-need waiver without reviewer status',async()=>{
+    mocks.actor.mockResolvedValue({ok:true,actor:{actorId:ACTOR,organizationId:ORG,email:'member@customer.example',role:null,displayName:null}});
+    const waiverPlan=buildFdeIntakePlan({
+      assessmentId:ASSESSMENT,assessmentVersion:1,sourceSubmissionId:SUBMISSION,
+      intake:{workflowDescription:'Review invoices',successOutcome:'Reviewed invoice'},
+      assessment:{schemaVersion:'workflow_assessment_v2',workflowSteps:[{
+        stepId:'extract',classification:'EXTRACT',description:'Read invoice',proposedOutput:'Rows',
+        requiredInputs:[],unresolvedAssumptions:[],determinismGaps:[]}],
+        documents:[{documentId:'rates',name:'Rate schedule PDF',role:'Pricing'}],limitations:[]},
+      suppliedFiles:[],answers:[],existingReview:{reviewId:REVIEW_ID,reviewVersion:1,overallDisposition:'accepted'},
+    })!;
+    const need=waiverPlan.informationNeeds.find((entry)=>entry.needKind==='described_document')!;
+    const waiver={needId:need.needId,requirement:need.description,customerStatement:'The current schedule will be supplied later.',
+      reason:'Proceed with a recommendation under uncertainty.',acknowledgmentText:FDE_WAIVER_ACKNOWLEDGMENT_TEXT,
+      acknowledgmentVersion:FDE_WAIVER_ACKNOWLEDGMENT_VERSION,acknowledged:true,
+      sourceRefs:[{kind:'intake',id:SUBMISSION,digest:hashCanonical(waiverPlan.pinnedInputs.intakeDigest)}]};
+    mocks.packet.mockResolvedValue({status:'ok',packet:{fdeIntakePlan:waiverPlan,followUpAnswers:[],intake:{workflowDescription:'Review invoices'}}});
+    const db=admin({snapshotPlan:waiverPlan});mocks.admin.mockReturnValue(db);
     const response=await recordFdePlanReview(new Request('http://localhost'),ASSESSMENT,{
-      baseDigest:hashCanonical(plan),expectedReviewVersion:0,disposition:'rejected',rationale:'Reviewed',resolutions:[],waivers:[]});
-    expect(response.status).toBe(403);
-    expect(db.rpc).not.toHaveBeenCalled();
+      baseDigest:hashCanonical(waiverPlan),expectedReviewVersion:0,disposition:'approved',rationale:'Reviewed uncertainty',
+      resolutions:[],waivers:[waiver]});
+    expect(response.status).toBe(201);
+    expect(db.rpc).toHaveBeenCalledWith('record_fde_plan_review',expect.objectContaining({p_actor_id:ACTOR,p_waivers:[waiver]}));
   });
 
   it('never accepts an actor or organization from the request',async()=>{

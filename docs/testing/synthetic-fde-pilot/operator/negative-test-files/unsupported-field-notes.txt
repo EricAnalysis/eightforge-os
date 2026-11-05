@@ -1,0 +1,1 @@
+SYNTHETIC: this file type is deliberately unsupported.

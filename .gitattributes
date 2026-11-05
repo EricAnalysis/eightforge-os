@@ -47,3 +47,10 @@ supabase/migrations/**    text eol=lf
 # checkout. Phase 17 pins the exact runtime bytes and refuses a prompt with CR.
 
 lib/forgewing/prompts/**    text eol=lf
+
+# Synthetic FDE pilot baseline, pinned by its own SHA256SUMS.
+#
+# "-text" keeps disk bytes equal to blob bytes in both directions. Without it,
+# core.autocrlf=true would rewrite its PDFs, CSV, and manifest on checkout.
+
+docs/testing/synthetic-fde-pilot/** -text

@@ -1,0 +1,18 @@
+Record Label,Ticket No,Service Date,Truck ID,Debris Type,Load Call Pct,Certified Capacity CY,One-Way Miles,Disposal Site,Monitor Initials,Notes
+SYNTHETIC,T-100201,2026-06-10,TRK-11,Vegetative,80,60,12,Bellweather TDSR,KO,
+SYNTHETIC,T-100202,2026-06-10,TRK-14,Vegetative,75,72,22,Bellweather TDSR,KO,
+SYNTHETIC,T-100203,2026-06-12,TRK-11,C&D,90,60,9,Sable Creek Landfill,RM,
+SYNTHETIC,T-100204,2026-06-14,TRK-19,Vegetative,65,85,18,Bellweather TDSR,KO,
+SYNTHETIC,T-100205,2026-06-15,TRK-14,Vegetative,85,72,24,Bellweather TDSR,KO,
+SYNTHETIC,T-100206,2026-06-16,TRK-22,Vegetative,70,66,27,Bellweather TDSR,RM,
+SYNTHETIC,T-100206,2026-06-16,TRK-22,Vegetative,70,66,27,Bellweather TDSR,RM,Entered twice at the scale house
+SYNTHETIC,T-100208,2026-06-18,TRK-11,C&D,95,60,17,Sable Creek Landfill,RM,
+SYNTHETIC,T-100209,2026-06-19,TRK-31,Vegetative,80,78,14,Bellweather TDSR,KO,
+SYNTHETIC,T-100210,2026-06-20,TRK-14,C&D,45,72,11,Sable Creek Landfill,RM,"Light load, monitor flagged"
+SYNTHETIC,T-100211,2026-06-21,TRK-19,Mixed,70,85,13,Sable Creek Landfill,KO,Vegetative and C&D together
+SYNTHETIC,T-100212,2026-06-22,TRK-22,Vegetative,75,66,33,Bellweather TDSR,RM,
+SYNTHETIC,T-100213,2026-06-23,TRK-11,Vegetative,80,60,10,Bellweather TDSR,,Monitor initials missing
+SYNTHETIC,T-100214,2026-06-24,TRK-14,C&D,80,72,15,Sable Creek Landfill,RM,
+SYNTHETIC,T-100214,2026-06-24,TRK-14,C&D,85,72,15,Sable Creek Landfill,RM,Second entry shows a different load call
+SYNTHETIC,T-100215,2026-08-03,TRK-19,Vegetative,85,85,20,Bellweather TDSR,KO,
+SYNTHETIC,T-100216,2026-06-25,TRK-11,C&D,90,60,31,Sable Creek Landfill,RM,Long haul

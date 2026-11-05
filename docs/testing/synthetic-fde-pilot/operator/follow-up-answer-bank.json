@@ -1,0 +1,42 @@
+[
+  {
+    "topic": "Rounding of payable yards",
+    "answer": "The clerks have been rounding up because that's what our SOP says. I'd have to check the contract language, so please look at it.",
+    "answerSource": "customer_stated"
+  },
+  {
+    "topic": "Truck certification list",
+    "answer": "It exists, but I'm not supplying it right now because it's being recertified. The capacities on the tickets are what the scale house typed in.",
+    "answerSource": "customer_stated"
+  },
+  {
+    "topic": "Which rate applies and when",
+    "answer": "It should be whatever rate was in effect on the date of the work. We've received amendments from the County over time.",
+    "answerSource": "customer_stated"
+  },
+  {
+    "topic": "Mileage measurement",
+    "answer": "Dispatch uses a mileage chart by zone and site. I believe the contract says one-way miles.",
+    "answerSource": "customer_stated"
+  },
+  {
+    "topic": "Long C&D hauls over 30 miles",
+    "answer": "I don't think we ever agreed on a rate for those. We've had a few. Ask the contract administrator.",
+    "answerSource": "customer_stated"
+  },
+  {
+    "topic": "Tipping fees",
+    "answer": "They're passed through at cost with the landfill receipts. Those receipts aren't in what I sent you.",
+    "answerSource": "customer_stated"
+  },
+  {
+    "topic": "Accounting system",
+    "answer": "It's an old desktop package with no connection to anything, and someone rekeys the total. We aren't asking to replace it.",
+    "answerSource": "customer_stated"
+  },
+  {
+    "topic": "Anything not listed here",
+    "answer": "I don't know offhand. I'd have to ask my contract administrator.",
+    "answerSource": "customer_stated"
+  }
+]

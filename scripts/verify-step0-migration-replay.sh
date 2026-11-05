@@ -138,6 +138,7 @@ SQL
 "${psql[@]}" --file scripts/sql/verify-workflow-database-authority.sql
 "${psql[@]}" --file scripts/sql/verify-workflow-intake-v2.sql
 "${psql[@]}" --file scripts/sql/verify-workflow-assessment-evidence.sql
+"${psql[@]}" --file scripts/sql/verify-fde-plan-approval.sql
 "${psql[@]}" --file scripts/sql/verify-workflow-assessment-gates.sql
 "${psql[@]}" --file scripts/sql/verify-repository-plan-v2-persistence.sql
 "${psql[@]}" --file scripts/sql/verify-repository-plan-engineering-review.sql

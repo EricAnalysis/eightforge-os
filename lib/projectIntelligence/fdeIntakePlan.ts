@@ -55,6 +55,7 @@ function reviewSnapshot(review: NonNullable<FdeIntakePlanInput['existingReview']
 
 export type FdeIntakeFile = FdeSuppliedFile & Readonly<{
   attachmentId: string;
+  associatedNeedIds?: readonly string[];
   sourceSha256?: string | null;
   representationDigestSha256?: string | null;
   contextDigest?: string | null;
@@ -75,6 +76,10 @@ export type FdeIntakePlanInput = Readonly<{
   /** A failed or inconsistent attachment read is not evidence that a source was omitted. */
   attachmentEvidenceUnavailable?: boolean;
   manifestAttachments?: readonly Readonly<{ attachmentId: string; sourceSha256: string; representationDigestSha256: string }>[];
+  supplementalEvidence?: Readonly<{ evidenceRevision: number; documents: readonly Readonly<{
+    attachmentId: string; sourceSha256: string; representationDigestSha256: string | null; contextDigest: string | null;
+    status: 'processed' | 'failed'; associatedNeedIds: readonly string[];
+  }>[] }>;
   /** Null means the answer read failed; fail closed rather than treating it as an empty result. */
   answers: readonly FdeIntakeAnswer[] | null;
   existingReview?: Readonly<{
@@ -89,6 +94,18 @@ export type FdeIntakePlanInput = Readonly<{
 }>;
 
 export type FdeInformationState = 'not_supplied' | 'supplied_uninterpreted' | 'evidence_unavailable' | 'requires_clarification' | 'requires_relationship' | 'conflicting' | 'confirmed' | 'missing_human_decision';
+export type FdeInformationNeedKind = 'follow_up' | 'described_document' | 'unmatched_file' | 'limited_file'
+  | 'attachment_unavailable' | 'relationship' | 'assessment_limitation' | 'human_step'
+  | 'intake_objective' | 'intake_output' | 'follow_up_unavailable' | 'assessment_review_conflict' | 'owner_activation';
+export type FdeInformationNeed = Readonly<{
+  needId: string; needKind: FdeInformationNeedKind; needKey: string;
+  state: FdeInformationState; description: string; stepId: string | null; sourceIds: readonly string[];
+}>;
+function informationNeed(kind: FdeInformationNeedKind, key: string,
+  value: Pick<FdeInformationNeed, 'state' | 'description' | 'stepId' | 'sourceIds'>): FdeInformationNeed {
+  const needKey = `${kind}:${key}`;
+  return { needId: `need_${hashCanonical(needKey)}`, needKind: kind, needKey, ...value };
+}
 export type FdeIntakePlan = Readonly<{
   schemaVersion: 'fde_intake_plan_v1';
   authority: 'non_authoritative';
@@ -96,9 +113,13 @@ export type FdeIntakePlan = Readonly<{
     assessmentId: string; assessmentVersion: number; sourceSubmissionId: string;
     assessmentDigest: string; intakeDigest: string;
     manifestAttachments: readonly Readonly<{ attachmentId: string; sourceSha256: string; representationDigestSha256: string }>[];
+    supplementalEvidence: Readonly<{ evidenceRevision: number; documents: readonly Readonly<{
+      attachmentId: string; sourceSha256: string; representationDigestSha256: string | null; contextDigest: string | null;
+      status: 'processed' | 'failed'; associatedNeedIds: readonly string[];
+    }>[] }>;
     suppliedFiles: readonly Readonly<{
       attachmentId: string; filename: string; sourceSha256: string | null;
-      representationDigestSha256: string | null; contextDigest: string;
+      representationDigestSha256: string | null; contextDigest: string; associatedNeedIds: readonly string[];
     }>[];
     answers: readonly Readonly<{ answerId: string; followUpId: string; revision: number; assessmentId: string; assessmentVersion: number; digest: string }>[];
     assessmentReview: Readonly<{ reviewId: string; reviewVersion: number; digest: string }> | null;
@@ -111,7 +132,7 @@ export type FdeIntakePlan = Readonly<{
     state: 'partially_understood' | 'understood';
   }>;
   supportingEvidence: readonly Readonly<{ kind: 'assessment' | 'intake' | 'attachment' | 'follow_up_answer' | 'capability_catalogue' | 'assessment_review'; id: string; detail: string }> [];
-  informationNeeds: readonly Readonly<{ state: FdeInformationState; description: string; stepId: string | null; sourceIds: readonly string[] }> [];
+  informationNeeds: readonly FdeInformationNeed[];
   capabilityMatches: readonly Readonly<{
     stepId: string; requirement: string; capabilityId: string | null; catalogueVersion: typeof CAPABILITY_CATALOGUE_VERSION;
     status: string | null; configurationRequirements: readonly string[]; knownLimitations: readonly string[];
@@ -121,7 +142,7 @@ export type FdeIntakePlan = Readonly<{
   deploymentApproach: Readonly<{
     rung: FdeLadderRung | null; state: 'candidate_pending_review' | 'undetermined';
     rationale: string; lowerRungsToRuleOut: readonly FdeLadderRung[];
-    steps: readonly Readonly<{ stepId: string; rung: FdeLadderRung | null; basis: string; lowerRungsToRuleOut: readonly FdeLadderRung[] }> [];
+    steps: readonly Readonly<{ stepId: string; classification: string; rung: FdeLadderRung | null; basis: string; lowerRungsToRuleOut: readonly FdeLadderRung[] }> [];
   }>;
   affectedSystems: readonly string[];
   engineeringRequirements: readonly Readonly<{ stepId: string; kind: FdeLadderRung; description: string }> [];
@@ -156,57 +177,70 @@ export function buildFdeIntakePlan(input: FdeIntakePlanInput): FdeIntakePlan | n
     if (!prior || answer.revision > prior.revision || (answer.revision === prior.revision && compare(answer.answerId, prior.answerId) > 0)) latest.set(answer.followUpId, answer);
   }
   const latestAnswers = [...latest.values()].sort((a, b) => compare(a.followUpId, b.followUpId));
-  const informationNeeds: FdeIntakePlan['informationNeeds'][number][] = requested.map((question) => {
+  const informationNeeds: FdeInformationNeed[] = requested.map((question) => {
     const answer = latest.get(question.followUpId);
-    return {
-      state: answer ? 'supplied_uninterpreted' : 'requires_clarification',
+    const needId = informationNeed('follow_up', question.followUpId, {
+      state: 'requires_clarification', description: question.question, stepId: question.stepId, sourceIds: [],
+    }).needId;
+    const associatedFiles = files.filter((file) => file.associatedNeedIds?.includes(needId)).map((file) => file.attachmentId);
+    return informationNeed('follow_up', question.followUpId, {
+      state: answer || associatedFiles.length > 0 ? 'supplied_uninterpreted' : 'requires_clarification',
       description: question.question, stepId: question.stepId,
-      sourceIds: answer ? [answer.answerId, ...new Set(answer.evidenceAttachmentIds)].sort(compare) : [input.assessmentId],
-    };
+      sourceIds: answer || associatedFiles.length > 0
+        ? [...new Set([...(answer ? [answer.answerId, ...answer.evidenceAttachmentIds] : []), ...associatedFiles])].sort(compare)
+        : [input.assessmentId],
+    });
   });
   const matchedFileIds = new Set<string>();
-  for (const source of readiness.evidenceCompleteness.describedSources) {
+  for (const [sourceIndex, source] of readiness.evidenceCompleteness.describedSources.entries()) {
     // Filename similarity only suggests an inspection target. It does not prove
     // that the needed content is present, read, or authoritative.
-    const candidates = matchingFileCandidates(source.name, files);
+    const describedNeed = informationNeed('described_document', `${sourceIndex}:${source.name}`, {
+      state: 'not_supplied', description: source.name, stepId: null, sourceIds: [],
+    });
+    const candidates = [...new Map([
+      ...matchingFileCandidates(source.name, files),
+      ...files.filter((file) => file.associatedNeedIds?.includes(describedNeed.needId)),
+    ].map((file) => [file.attachmentId, file])).values()].sort((a, b) => compare(a.attachmentId, b.attachmentId));
     candidates.forEach((file) => matchedFileIds.add(file.attachmentId));
     const state: FdeInformationState = input.attachmentEvidenceUnavailable ? 'evidence_unavailable'
       : candidates.length > 0 ? 'supplied_uninterpreted'
       : files.length > 0 ? 'requires_clarification' : 'not_supplied';
-    informationNeeds.push({ state, description: source.name, stepId: null,
+    informationNeeds.push(informationNeed('described_document', `${sourceIndex}:${source.name}`, { state, description: source.name, stepId: null,
       sourceIds: candidates.length > 0 ? candidates.map((file) => file.attachmentId)
         : input.attachmentEvidenceUnavailable ? manifest.map((file) => file.attachmentId)
-          : files.length > 0 ? files.map((file) => file.attachmentId) : [input.assessmentId] });
+          : files.length > 0 ? files.map((file) => file.attachmentId) : [input.assessmentId] }));
   }
-  for (const file of files.filter((entry) => !matchedFileIds.has(entry.attachmentId))) {
-    informationNeeds.push({ state: 'supplied_uninterpreted', description: `Inspect supplied file ${file.filename} for relevant workflow information`, stepId: null, sourceIds: [file.attachmentId] });
+  for (const file of files.filter((entry) => !matchedFileIds.has(entry.attachmentId)
+    && !(entry.associatedNeedIds ?? []).some((needId) => informationNeeds.some((need) => need.needId === needId)))) {
+    informationNeeds.push(informationNeed('unmatched_file', file.attachmentId, { state: 'supplied_uninterpreted', description: `Inspect supplied file ${file.filename} for relevant workflow information`, stepId: null, sourceIds: [file.attachmentId] }));
   }
   for (const file of files.filter((entry) => entry.truncated || (entry.limitations?.length ?? 0) > 0)) {
     const limitations = file.limitations?.join('; ');
     const description = file.truncated
       ? `Review partially processed document ${file.filename}: only part of the document was processed${limitations ? `; ${limitations}` : ''}`
       : `Review parser limitations for ${file.filename}: ${limitations}`;
-    informationNeeds.push({ state: 'supplied_uninterpreted', description, stepId: null, sourceIds: [file.attachmentId] });
+    informationNeeds.push(informationNeed('limited_file', file.attachmentId, { state: 'supplied_uninterpreted', description, stepId: null, sourceIds: [file.attachmentId] }));
   }
-  if (input.attachmentEvidenceUnavailable) informationNeeds.push({
+  if (input.attachmentEvidenceUnavailable) informationNeeds.push(informationNeed('attachment_unavailable', input.sourceSubmissionId, {
     state: 'evidence_unavailable', description: 'Stored attachment evidence could not be read or reconciled; inspect the existing submission before requesting another source',
     stepId: null, sourceIds: manifest.map((file) => file.attachmentId),
-  });
+  }));
   for (const relationship of records(assessment.evidenceRelationships)) {
-    if (str(relationship.description)) informationNeeds.push({ state: 'requires_relationship', description: str(relationship.description), stepId: null, sourceIds: [input.assessmentId] });
+    if (str(relationship.description)) informationNeeds.push(informationNeed('relationship', str(relationship.relationshipId) || str(relationship.description), { state: 'requires_relationship', description: str(relationship.description), stepId: null, sourceIds: [input.assessmentId] }));
   }
-  for (const limitation of readiness.workflowUnderstood.limitations) {
-    informationNeeds.push({ state: /\b(conflict|contradic|inconsisten)/iu.test(limitation) ? 'conflicting' : 'requires_clarification', description: limitation, stepId: null, sourceIds: [input.assessmentId] });
+  for (const [limitationIndex, limitation] of readiness.workflowUnderstood.limitations.entries()) {
+    informationNeeds.push(informationNeed('assessment_limitation', `${limitationIndex}:${limitation}`, { state: /\b(conflict|contradic|inconsisten)/iu.test(limitation) ? 'conflicting' : 'requires_clarification', description: limitation, stepId: null, sourceIds: [input.assessmentId] }));
   }
   // A described human-held decision is a workflow boundary, not evidence it is missing.
   for (const step of steps.filter((entry) => entry.classification === 'HUMAN')) {
     if (!records(assessment.humanDecisionPoints).some((entry) => entry.stepId === step.stepId)) {
-      informationNeeds.push({ state: 'missing_human_decision', description: str(step.description), stepId: str(step.stepId), sourceIds: [input.assessmentId] });
+      informationNeeds.push(informationNeed('human_step', str(step.stepId), { state: 'missing_human_decision', description: str(step.description), stepId: str(step.stepId), sourceIds: [input.assessmentId] }));
     }
   }
-  if (!input.intake.workflowDescription) informationNeeds.push({ state: 'not_supplied', description: 'Customer workflow objective', stepId: null, sourceIds: [input.sourceSubmissionId] });
-  if (!input.intake.successOutcome && !steps.some((step) => str(step.proposedOutput))) informationNeeds.push({ state: 'not_supplied', description: 'Expected workflow output', stepId: null, sourceIds: [input.sourceSubmissionId] });
-  if (input.answers === null) informationNeeds.push({ state: 'requires_clarification', description: 'Stored follow-up answers could not be read', stepId: null, sourceIds: [input.assessmentId] });
+  if (!input.intake.workflowDescription) informationNeeds.push(informationNeed('intake_objective', input.sourceSubmissionId, { state: 'not_supplied', description: 'Customer workflow objective', stepId: null, sourceIds: [input.sourceSubmissionId] }));
+  if (!input.intake.successOutcome && !steps.some((step) => str(step.proposedOutput))) informationNeeds.push(informationNeed('intake_output', input.sourceSubmissionId, { state: 'not_supplied', description: 'Expected workflow output', stepId: null, sourceIds: [input.sourceSubmissionId] }));
+  if (input.answers === null) informationNeeds.push(informationNeed('follow_up_unavailable', input.sourceSubmissionId, { state: 'requires_clarification', description: 'Stored follow-up answers could not be read', stepId: null, sourceIds: [input.assessmentId] }));
   const stepReviews = new Map((input.existingReview?.stepReviews ?? []).map((step) => [step.assessmentStepId, step]));
   const conflictingStepIds = new Set<string>();
   for (const step of steps) {
@@ -214,17 +248,17 @@ export function buildFdeIntakePlan(input: FdeIntakePlanInput): FdeIntakePlan | n
     const reviewed = stepReviews.get(stepId);
     if (!reviewed || (reviewed.disposition === 'accepted' && reviewed.reviewedClassification === step.classification)) continue;
     conflictingStepIds.add(stepId);
-    informationNeeds.push({ state: 'conflicting', description: `Assessment review ${reviewed.disposition} step ${stepId}; reconcile the reviewed specification before planning deployment`,
-      stepId, sourceIds: [input.existingReview!.reviewId, input.assessmentId] });
+    informationNeeds.push(informationNeed('assessment_review_conflict', `${input.existingReview!.reviewId}:${stepId}`, { state: 'conflicting', description: `Assessment review ${reviewed.disposition} step ${stepId}; reconcile the reviewed specification before planning deployment`,
+      stepId, sourceIds: [input.existingReview!.reviewId, input.assessmentId] }));
   }
   if (input.existingReview && input.existingReview.overallDisposition !== 'accepted' && conflictingStepIds.size === 0) {
-    informationNeeds.push({ state: 'conflicting', description: 'Assessment review requires changes before this proposed workflow can be used for deployment planning',
-      stepId: null, sourceIds: [input.existingReview.reviewId, input.assessmentId] });
+    informationNeeds.push(informationNeed('assessment_review_conflict', input.existingReview.reviewId, { state: 'conflicting', description: 'Assessment review requires changes before this proposed workflow can be used for deployment planning',
+      stepId: null, sourceIds: [input.existingReview.reviewId, input.assessmentId] }));
   }
   for (const step of readiness.steps) {
     if (step.deployment?.capability?.status !== 'requires_owner_activation') continue;
-    informationNeeds.push({ state: 'missing_human_decision', description: `Owner activation is required for ${step.deployment.capability.capabilityId}`,
-      stepId: step.stepId, sourceIds: [input.assessmentId, catalogueIdentity] });
+    informationNeeds.push(informationNeed('owner_activation', `${step.stepId}:${step.deployment.capability.capabilityId}`, { state: 'missing_human_decision', description: `Owner activation is required for ${step.deployment.capability.capabilityId}`,
+      stepId: step.stepId, sourceIds: [input.assessmentId, catalogueIdentity] }));
   }
   const capabilityMatches = readiness.steps.map((step) => {
     const sourceStep = steps.find((candidate) => candidate.stepId === step.stepId);
@@ -263,11 +297,16 @@ export function buildFdeIntakePlan(input: FdeIntakePlanInput): FdeIntakePlan | n
       assessmentDigest: hashCanonical(assessmentSnapshot(assessment)),
       intakeDigest: hashCanonical(pick(input.intake, ['workflowDescription', 'documentsInvolved', 'informationOrSystems', 'manualChecks', 'frequencyAndVolume', 'exceptions', 'humanDecisions', 'successOutcome'])),
       manifestAttachments: manifest,
+      supplementalEvidence: {
+        evidenceRevision: input.supplementalEvidence?.evidenceRevision ?? 0,
+        documents: [...(input.supplementalEvidence?.documents ?? [])].sort((a, b) => compare(a.attachmentId, b.attachmentId)),
+      },
       suppliedFiles: files.map((file) => ({
         attachmentId: file.attachmentId, filename: file.filename,
         sourceSha256: file.sourceSha256 ?? null,
         representationDigestSha256: file.representationDigestSha256 ?? null,
         contextDigest: file.contextDigest ?? hashCanonical({ sectionLabels: file.sectionLabels, truncated: file.truncated, limitations: file.limitations ?? [] }),
+        associatedNeedIds: [...new Set(file.associatedNeedIds ?? [])].sort(compare),
       })),
       answers: latestAnswers.map((answer) => ({
         answerId: answer.answerId, followUpId: answer.followUpId, revision: answer.revision,
@@ -306,7 +345,7 @@ export function buildFdeIntakePlan(input: FdeIntakePlanInput): FdeIntakePlan | n
       rung, state: rung ? 'candidate_pending_review' : 'undetermined',
       rationale: rung ? 'Highest required step rung, subject to human confirmation of each lower rung.' : 'Missing or unreviewed information prevents a supported deployment rung.',
       lowerRungsToRuleOut: rung ? ladder.slice(0, ladder.indexOf(rung)) : [],
-      steps: readiness.steps.map((step) => ({ stepId: step.stepId,
+      steps: readiness.steps.map((step) => ({ stepId: step.stepId, classification: step.classification,
         rung: conflictingStepIds.has(step.stepId) ? null : step.deployment?.rung ?? null,
         basis: conflictingStepIds.has(step.stepId) ? 'Reviewed step differs from the assessment proposal; reconcile it first.' : step.basis,
         lowerRungsToRuleOut: step.deployment && !conflictingStepIds.has(step.stepId) ? ladder.slice(0, ladder.indexOf(step.deployment.rung)) : [] })),

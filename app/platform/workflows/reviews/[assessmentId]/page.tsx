@@ -363,6 +363,7 @@ export default function WorkflowReviewDetailPage() {
           )}
 
           {state.packet.fdeIntakePlan && <FdeIntakePlanCard plan={state.packet.fdeIntakePlan} />}
+          {state.packet.fdeIntakePlan && <Link className="inline-block text-sm underline" href={`/platform/workflows/fde-plans/${encodeURIComponent(state.packet.assessmentId)}`}>Open FDE plan approval</Link>}
           {state.packet.attachmentEvidenceUnavailable ? (
             <p className="rounded-md border border-[var(--ef-border-subtle)] bg-[var(--ef-background-panel)] p-4 text-xs text-[var(--ef-text-secondary)]">
               Preliminary deployment readiness is unavailable because attachment evidence could not be verified. Review the FDE intake plan above before treating any source as missing.

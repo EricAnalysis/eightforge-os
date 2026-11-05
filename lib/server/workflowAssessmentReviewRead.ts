@@ -231,6 +231,15 @@ async function loadSuppliedFiles(
 export async function readWorkflowReviewPacket(
   assessmentId: string,
   organizationId?: string,
+  supplemental?: Readonly<{
+    files: readonly FdeIntakeFile[];
+    evidenceRevision: number;
+    unavailable?: boolean;
+    documents: readonly Readonly<{
+      attachmentId: string; sourceSha256: string; representationDigestSha256: string | null;
+      contextDigest: string | null; status: 'processed' | 'failed'; associatedNeedIds: readonly string[];
+    }>[];
+  }>,
 ): Promise<WorkflowReviewPacketResult> {
   const admin = getSupabaseAdmin();
   if (!admin) return { status: 'not_configured' };
@@ -328,8 +337,9 @@ export async function readWorkflowReviewPacket(
       fdeIntakePlan: buildFdeIntakePlan({
         assessmentId, assessmentVersion, sourceSubmissionId,
         intake: submission.answers, assessment: row.assessment,
-        suppliedFiles, manifestAttachments: attachmentEvidence.manifestAttachments,
-        attachmentEvidenceUnavailable: attachmentEvidence.unavailable,
+        suppliedFiles: [...suppliedFiles, ...(supplemental?.files ?? [])], manifestAttachments: attachmentEvidence.manifestAttachments,
+        supplementalEvidence: { evidenceRevision: supplemental?.evidenceRevision ?? 0, documents: supplemental?.documents ?? [] },
+        attachmentEvidenceUnavailable: attachmentEvidence.unavailable || supplemental?.unavailable === true,
         answers: followUpAnswers, existingReview,
       }),
       followUpAnswers,

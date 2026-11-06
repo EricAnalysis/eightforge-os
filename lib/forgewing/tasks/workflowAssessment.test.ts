@@ -4,7 +4,8 @@ import {
   runForgewingWorkflowAssessment,
   type ForgewingWorkflowAssessmentInput,
 } from '@/lib/forgewing/tasks/workflowAssessment';
-import { WORKFLOW_DETERMINISM_CONDITIONS } from '@/lib/forgewing/runtime/workflowAssessmentStructuredOutput';
+import { WORKFLOW_ASSESSMENT_OUTPUT_JSON_SCHEMA, WORKFLOW_DETERMINISM_CONDITIONS }
+  from '@/lib/forgewing/runtime/workflowAssessmentStructuredOutput';
 import { hashCanonical } from '@/lib/extraction/domain/hash';
 import { parseAssessmentSupportingFileContext } from '@/lib/workflowAssessmentEvidenceContract';
 import {
@@ -24,6 +25,8 @@ const config = {
   maxOutputTokens: 4_000,
 } as const;
 
+const envelope = (body: Record<string, unknown>) => JSON.stringify({ assessmentJson: JSON.stringify(body) });
+
 function supportingContext() {
   const envelope = { attachmentId: '11111111-1111-4111-8111-111111111111',
     originalFilename: 'workflow.json', mediaType: 'application/json', sizeBytes: 500,
@@ -35,9 +38,31 @@ function supportingContext() {
 }
 
 describe('optional supporting context stays inside the assessment provider boundary', () => {
+  it('uses only a required JSON string in the provider grammar', () => {
+    expect(WORKFLOW_ASSESSMENT_OUTPUT_JSON_SCHEMA).toEqual({
+      type: 'object', additionalProperties: false, required: ['assessmentJson'],
+      properties: { assessmentJson: { type: 'string' } },
+    });
+  });
+
+  it.each([
+    ['malformed outer JSON', '{bad', 'invalid_model_envelope_json'],
+    ['missing property', '{}', 'invalid_model_envelope'],
+    ['extra property', JSON.stringify({ assessmentJson: '{}', approved: true }), 'invalid_model_envelope'],
+    ['wrong property type', JSON.stringify({ assessmentJson: {} }), 'invalid_model_envelope'],
+    ['empty string', JSON.stringify({ assessmentJson: '  ' }), 'invalid_model_envelope'],
+    ['malformed embedded JSON', JSON.stringify({ assessmentJson: '{bad' }), 'invalid_embedded_model_json'],
+    ['missing inner fields', envelope({ summary: 'Incomplete' }), 'model_schema_rejected'],
+    ['unknown inner property', envelope(output({ authority: 'authoritative' })), 'model_schema_rejected'],
+  ])('rejects %s without accepting an assessment', async (_label, raw, reason) => {
+    const fake = vi.fn(async () => raw);
+    const result = await runForgewingWorkflowAssessment(input(), { config, taskEnabled: true, provider: fake });
+    expect(result).toMatchObject({ status: 'structured_output_invalid', reason });
+    expect(fake).toHaveBeenCalledTimes(1);
+  });
   it('passes only bounded immutable representations and still requires human review', async () => {
     const context = supportingContext();
-    const fake = vi.fn(async (_request: { inputJson: string }) => JSON.stringify(output()));
+    const fake = vi.fn(async (_request: { inputJson: string }) => envelope(output()));
     const result = await runForgewingWorkflowAssessment({ ...input(), attachments: [context] }, {
       config, taskEnabled: true, provider: fake,
     });
@@ -50,6 +75,7 @@ describe('optional supporting context stays inside the assessment provider bound
     if (result.status === 'requires_human_review') {
       expect(result.assessment.authority).toBe('non_authoritative');
       expect(result.assessment.requiresHumanReview).toBe(true);
+      expect(result.assessment).not.toHaveProperty('assessmentJson');
     }
   });
 
@@ -61,7 +87,7 @@ describe('optional supporting context stays inside the assessment provider bound
       [{ ...context, originalFilename: 'x'.repeat(256) }],
       [{ ...context, signedUrl: 'https://example.test/private-file' }],
     ]) {
-      const fake = vi.fn(async (_request: { inputJson: string }) => JSON.stringify(output()));
+      const fake = vi.fn(async (_request: { inputJson: string }) => envelope(output()));
       const result = await runForgewingWorkflowAssessment({ ...input(), attachments } as ForgewingWorkflowAssessmentInput,
         { config, taskEnabled: true, provider: fake });
       expect(result.status).toBe('input_invalid');
@@ -70,7 +96,7 @@ describe('optional supporting context stays inside the assessment provider bound
   });
 
   it('preserves text-only historical request identity when attachments are absent or empty', async () => {
-    const fake = vi.fn(async (_request: { inputJson: string }) => JSON.stringify(output()));
+    const fake = vi.fn(async (_request: { inputJson: string }) => envelope(output()));
     const first = await runForgewingWorkflowAssessment(input(), { config, taskEnabled: true, provider: fake });
     const second = await runForgewingWorkflowAssessment({ ...input(), attachments: [] }, { config, taskEnabled: true, provider: fake });
     expect(fake.mock.calls[0]![0].inputJson).toBe(fake.mock.calls[1]![0].inputJson);
@@ -174,7 +200,7 @@ function output(overrides: Record<string, unknown> = {}): Record<string, unknown
 }
 
 const provider = (body: Record<string, unknown>) =>
-  vi.fn(async (_request: { inputJson: string }) => JSON.stringify(body));
+  vi.fn(async (_request: { inputJson: string }) => envelope(body));
 
 describe('versioned domain-neutral workflow assessment', () => {
   const v2 = (documentWorkflow: boolean): ForgewingWorkflowAssessmentInput => ({
@@ -235,13 +261,13 @@ describe('versioned domain-neutral workflow assessment', () => {
     expect(JSON.stringify(source)).toBe(before);
     const sent = JSON.parse(fake.mock.calls[0]?.[0]?.inputJson ?? '{}');
     expect(sent).toEqual({ task: 'workflow_assessment', ...source });
-    expect(result.metadata.promptTemplateVersion).toBe('v2');
+    expect(result.metadata.promptTemplateVersion).toBe('v3');
   });
 
   it('preserves historical six-answer identity and never manufactures a seventh answer', async () => {
     const source = input();
     const before = JSON.stringify(source);
-    const fake = vi.fn(async (_request: { inputJson: string }) => JSON.stringify(output()));
+    const fake = vi.fn(async (_request: { inputJson: string }) => envelope(output()));
     const result = await runForgewingWorkflowAssessment(source, { config, taskEnabled: true, provider: fake });
     expect(result.status).toBe('requires_human_review');
     if (result.status !== 'requires_human_review') throw new Error('expected assessment');

@@ -8,6 +8,7 @@ vi.mock('@/lib/server/ai/claudeClient', () => ({ getClaudeClient: () => ({ messa
 
 import { callClaudeForWorkflowAssessment } from '@/lib/forgewing/runtime/client';
 import { createObservedWorkflowAssessmentProvider } from '@/lib/forgewing/runtime/observedWorkflowAssessmentClient';
+import { parseWorkflowAssessmentModelOutput } from '@/lib/forgewing/runtime/workflowAssessmentStructuredOutput';
 
 const REQUEST = { model: 'claude-sonnet-4-6', timeoutMs: 15_000, maxOutputTokens: 4_000, inputJson: '{"task":"workflow_assessment"}' };
 const message = (stop = 'end_turn') => ({
@@ -19,12 +20,29 @@ afterEach(() => create.mockReset());
 
 describe('observed Workflow Assessment provider (S7)', () => {
   it('sends exactly the production request and returns the same output', async () => {
-    create.mockResolvedValue(message());
+    const assessment = {
+      summary: 'Human review of a workflow.', documents: [],
+      workflowSteps: [{ stepId: 's1', sourceQuestions: ['workflowDescription'],
+        description: 'Review the workflow.', classification: 'HUMAN', rationale: 'Human judgment.',
+        requiredInputs: [], evidenceRequirements: [], proposedOutput: 'Reviewed workflow.',
+        dependencies: [], failureConsequence: 'Decision remains open.', unresolvedAssumptions: [],
+        determinismBasis: null, determinismGaps: [], determinismSupport: [] }],
+      extractionRequirements: [], deterministicRuleProposals: [], evidenceRelationships: [],
+      verificationRuleProposals: [], forgewingRecoveryTasks: [],
+      humanDecisionPoints: [{ decisionId: 'd1', stepId: 's1',
+        description: 'Review the workflow.', whyHumanControlled: 'Human judgment.' }],
+      advisorySteps: [], failureConsequences: [], limitations: [],
+    };
+    create.mockResolvedValue({ ...message(), content: [{ type: 'text',
+      text: JSON.stringify({ assessmentJson: JSON.stringify(assessment) }) }] });
     const production = await callClaudeForWorkflowAssessment(REQUEST);
     const observer = vi.fn();
     const observed = await createObservedWorkflowAssessmentProvider(observer)(REQUEST);
 
     expect(observed).toBe(production);
+    expect(parseWorkflowAssessmentModelOutput(production)).toEqual(assessment);
+    expect(parseWorkflowAssessmentModelOutput(observed)).toEqual(assessment);
+    expect(create).toHaveBeenCalledTimes(2);
     const [productionBody, productionOptions] = create.mock.calls[0]!;
     const [observedBody, observedOptions] = create.mock.calls[1]!;
     expect(observedBody).toEqual(productionBody);

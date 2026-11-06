@@ -10,7 +10,6 @@ import { ForgewingCallBudget } from '@/lib/forgewing/runtime/budget';
 import {
   callClaudeForWorkflowAssessment,
   FORGEWING_WORKFLOW_ASSESSMENT_PROMPT_ID,
-  FORGEWING_WORKFLOW_ASSESSMENT_PROMPT_VERSION,
   type ForgewingProvider,
 } from '@/lib/forgewing/runtime/client';
 import {
@@ -22,6 +21,7 @@ import { resolveWorkflowAssessmentProposalClosure }
   from '@/lib/workflowAssessmentProposalClosure';
 import {
   parseWorkflowAssessmentModelOutput,
+  WORKFLOW_ASSESSMENT_ENVELOPE_PROMPT_VERSION,
   WORKFLOW_DETERMINISM_CONDITIONS,
   WORKFLOW_INTAKE_QUESTIONS,
   WORKFLOW_INTAKE_SOURCE_QUESTIONS,
@@ -170,7 +170,7 @@ export type ForgewingWorkflowAssessmentResult =
       metadata: Readonly<{
         model: string;
         promptTemplateId: typeof FORGEWING_WORKFLOW_ASSESSMENT_PROMPT_ID;
-        promptTemplateVersion: typeof FORGEWING_WORKFLOW_ASSESSMENT_PROMPT_VERSION;
+        promptTemplateVersion: typeof WORKFLOW_ASSESSMENT_ENVELOPE_PROMPT_VERSION;
         calls: number;
       }>;
     }>;
@@ -518,7 +518,7 @@ export async function runForgewingWorkflowAssessment(
     metadata: {
       model: config.model,
       promptTemplateId: FORGEWING_WORKFLOW_ASSESSMENT_PROMPT_ID,
-      promptTemplateVersion: FORGEWING_WORKFLOW_ASSESSMENT_PROMPT_VERSION,
+      promptTemplateVersion: WORKFLOW_ASSESSMENT_ENVELOPE_PROMPT_VERSION,
       calls: budget.used,
     },
   };

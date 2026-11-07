@@ -26,7 +26,14 @@ describe('owner-approved Phase 17 labels', () => {
       expect(unit.labeledBy).toBe('Eric Martin');
       expect(unit.labeledAt).not.toBeNull();
     }
-    expect(old.units.every(u => u.expected === null)).toBe(true);
+    // Until 2026-11-07 the v1 file was the empty template the owner labelled from (still in git history at
+    // e8f898c). With owner approval the v1 file now carries those same decisions verbatim, for the Sonnet 4.6
+    // v1 harness: same expected candidate, labeller and timestamp per unit.
+    for (const unit of next.units) {
+      const v1 = old.units.find(u => u.unitKey === unit.unitKey)!;
+      expect({ expected: v1.expected, labeledBy: v1.labeledBy, labeledAt: v1.labeledAt })
+        .toEqual({ expected: unit.expected, labeledBy: unit.labeledBy, labeledAt: unit.labeledAt });
+    }
   });
 
   it('binds a distinct runner identity while preserving every frozen request and semantic pin', () => {

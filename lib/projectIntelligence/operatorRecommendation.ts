@@ -84,6 +84,13 @@ function sourceGapText(primary: FindingAssessment): Readonly<{ answer: string; i
   const source = primary.neededSource ?? 'source';
   switch (primary.state) {
     case 'source_missing':
+      if (primary.unclassifiedDocuments?.length) {
+        const onFile = titled(primary.unclassifiedDocuments);
+        return {
+          answer: `No document in this project is established as the ${source}. ${onFile} is on file but has not been classified, so whether it holds this has not been established.`,
+          instruction: `Open ${onFile} and check whether it holds the ${source}. If it does, take it through classification, linking and validation. If it does not, request the ${source}.`,
+        };
+      }
       return {
         answer: `This project has no ${source}. It looks genuinely absent, not just unlinked.`,
         instruction: `Upload the ${source}, or request it from whoever holds it.`,
@@ -116,6 +123,11 @@ function sourceGapText(primary: FindingAssessment): Readonly<{ answer: string; i
   }
 }
 
+/** Where a rule's own question asks more of the operator than its step does. */
+const INSTRUCTION_BY_RULE: Readonly<Record<string, string>> = Object.freeze({
+  TRANSACTION_GROUP_EXISTS_FOR_INVOICE_LINE: 'Compare this billed line with the tickets and transactions on file, and how they are grouped. If that does not settle whether support is missing, take it to a person to decide.',
+});
+
 const NON_GAP_INSTRUCTIONS: Readonly<Partial<Record<NextStepKind, string>>> = Object.freeze({
   correct_source_data: 'Check the flagged line against its source, then correct it or its rate link.',
   review_ticket_or_transaction: 'Compare the flagged lines with their tickets or transactions.',
@@ -131,6 +143,25 @@ function actionForStep(step: NextStepKind): 'upload_document' | 'open_linked_doc
 }
 
 /**
+ * The documents a recommendation is about, first the one to open. A source reading is
+ * about the source it found, which the finding's own evidence need not be: reading the
+ * contract can raise a finding about its price sheet. When a source has been read, the
+ * one the reading rests on comes first. Any other finding is about its own evidence.
+ */
+function documentsTheStepNames(
+  primary: FindingAssessment,
+  finding: Readonly<{ evidenceDocumentIds: readonly string[] }>,
+): readonly string[] {
+  if (primary.neededSource == null) return [...finding.evidenceDocumentIds, ...primary.candidates.map((document) => document.id)];
+  const restsOn = (document: AssessedDocument) => document.read && document.linkedToContract && !document.authorityUnsettled;
+  const named = primary.unclassifiedDocuments?.length ? primary.unclassifiedDocuments
+    : primary.state === 'source_present'
+      ? [...primary.candidates.filter(restsOn), ...primary.candidates.filter((document) => !restsOn(document))]
+      : primary.candidates;
+  return [...named.map((document) => document.id), ...finding.evidenceDocumentIds];
+}
+
+/**
  * The existing route for a step, resolved by the catalogue's own resolver. A
  * step the rule does not offer, or that does not apply to this finding, has no
  * link rather than an approximate one.
@@ -143,10 +174,12 @@ export function nextStepActionHref(
 ): string | null {
   const wanted = actionForStep(step);
   if (!wanted || !primary?.ruleId || !finding) return null;
-  const evidenceIds = [...finding.evidenceDocumentIds, ...primary.candidates.map((document) => document.id)];
+  // A page number belongs to the finding's own document, wherever that now sorts.
+  const pagedDocumentId = finding.evidenceDocumentIds[0] ?? primary.candidates[0]?.id ?? primary.unclassifiedDocuments?.[0]?.id;
+  const evidenceIds = documentsTheStepNames(primary, finding);
   const resolved = resolveValidatorRuleActions({
     ruleId: primary.ruleId, projectId: context.projectId, findingId: primary.findingId, subjectId: finding.subjectId ?? '',
-    evidence: evidenceIds.map((documentId, index) => ({ documentId, page: index === 0 ? finding.page : null })),
+    evidence: evidenceIds.map((documentId) => ({ documentId, page: documentId === pagedDocumentId ? finding.page : null })),
   }).find((action) => action.kind === wanted);
   return resolved && 'href' in resolved ? resolved.href : null;
 }
@@ -234,7 +267,7 @@ function evidenceRecommendation(params: Readonly<{
   const step = primary.nextSteps[0] ?? 'operator_judgment_required';
   const text = primary.neededSource != null ? sourceGapText(primary) : {
     answer: `This project is flagged for: ${primary.title}.`,
-    instruction: NON_GAP_INSTRUCTIONS[step] ?? 'Review the cited records.',
+    instruction: (primary.ruleId ? INSTRUCTION_BY_RULE[primary.ruleId] : undefined) ?? NON_GAP_INSTRUCTIONS[step] ?? 'Review the cited records.',
   };
   const decisionNote = primary.linkedOpenDecisionId ? ' An open decision already covers this.' : '';
   return {

@@ -27,7 +27,7 @@ import { POST } from '@/app/api/projects/[id]/ask/route';
 import { askOperatorGuidanceWithClaude, OPERATOR_GUIDANCE_MAX_OUTPUT_TOKENS, OPERATOR_GUIDANCE_OUTPUT_JSON_SCHEMA, OPERATOR_GUIDANCE_SYSTEM_PROMPT } from '@/lib/server/ai/askProject';
 
 import { GUIDANCE_QUALIFICATION_MODEL } from '@/scripts/evaluation/operator-guidance/contract';
-import { QUALIFICATION_CASES } from '@/scripts/evaluation/operator-guidance/corpus';
+import { HELDOUT_CASES, V2_REGRESSION_CASES } from '@/scripts/evaluation/operator-guidance/corpus';
 import { createFixtureDatabase, materializeCase, QUALIFICATION_ORGANIZATION_ID } from '@/scripts/evaluation/operator-guidance/harness';
 
 /**
@@ -64,7 +64,7 @@ afterEach(() => {
 });
 
 describe('the Project Ask route sends what the qualification tests', () => {
-  it.each(QUALIFICATION_CASES.map((item) => [item.caseId, item] as const))('%s', async (_caseId, item) => {
+  it.each([...V2_REGRESSION_CASES, ...HELDOUT_CASES].map((item) => [item.caseId, item] as const))('%s', async (_caseId, item) => {
     const built = await materializeCase(item);
     const projectOrg = { ...built.projectRow, organization_id: QUALIFICATION_ORGANIZATION_ID };
     getSupabaseAdminMock.mockReturnValue(createFixtureDatabase({ ...built.tables, projects: [projectOrg] }).admin);

@@ -15,7 +15,11 @@ import { recordRegionBoundAssertion, type RecordRegionAssertionInput } from '@/l
  */
 
 const databaseUrl = process.env.B3_DATABASE_URL;
-if (!databaseUrl) throw new Error('B3_DATABASE_URL is required');
+const dockerContainer = process.env.B3_PSQL_DOCKER_CONTAINER;
+if (!databaseUrl && !dockerContainer) throw new Error('B3_DATABASE_URL or B3_PSQL_DOCKER_CONTAINER is required');
+if (dockerContainer && !/^supabase_db_[a-z0-9-]+$/.test(dockerContainer)) {
+  throw new Error('B3_PSQL_DOCKER_CONTAINER must name an isolated Supabase database container');
+}
 
 function literal(value: unknown): string {
   if (value == null) return 'NULL';
@@ -23,7 +27,11 @@ function literal(value: unknown): string {
 }
 
 function runSql(statement: string): unknown {
-  const output = execFileSync('psql', ['-X', '-q', '-v', 'ON_ERROR_STOP=1', '-At', '--dbname', databaseUrl!],
+  const command = dockerContainer ? 'docker' : 'psql';
+  const args = dockerContainer
+    ? ['exec', '-i', dockerContainer, 'psql', '-X', '-q', '-v', 'ON_ERROR_STOP=1', '-At', '-U', 'postgres', '-d', 'postgres']
+    : ['-X', '-q', '-v', 'ON_ERROR_STOP=1', '-At', '--dbname', databaseUrl!];
+  const output = execFileSync(command, args,
     { input: statement, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
   const text = output.trim();
   return text.length === 0 ? null : JSON.parse(text);
@@ -42,12 +50,13 @@ const RPC_ARGUMENT_ORDER = [
   'p_reason', 'p_source_artifact_id', 'p_physical_page_number', 'p_source_region',
   'p_page_representation_digest', 'p_parser_version', 'p_source_observation_ids', 'p_original_source_text',
   'p_anchor_key', 'p_review_origin', 'p_forgewing_proposal_id', 'p_supersedes_assertion_id',
-  'p_request_digest_sha256',
+  'p_request_digest_sha256', 'p_customer_mapping_evidence', 'p_source_extraction_id',
 ] as const;
 const RPC_CASTS: Record<string, string> = {
   p_organization_id: 'uuid', p_actor_id: 'uuid', p_source_document_id: 'uuid', p_source_artifact_id: 'uuid',
   p_supersedes_assertion_id: 'uuid', p_asserted_value: 'jsonb', p_source_region: 'jsonb',
   p_physical_page_number: 'integer', p_source_observation_ids: 'text[]',
+  p_customer_mapping_evidence: 'jsonb', p_source_extraction_id: 'uuid',
 };
 
 /** The minimal Supabase surface the adapter uses, backed by psql as service_role. */
@@ -110,7 +119,8 @@ const base: RecordRegionAssertionInput = {
   assertedValue: { description: 'Stump grinding', unit_type: 'EA', rate_amount: 45 },
   status: 'active',
   reason: 'Rate cell unreadable; operator read the source page',
-  sourceArtifactId: null,
+  sourceArtifactId: 'b3000000-0000-4000-8000-0000000000f1',
+  sourceExtractionId: 'b3000000-0000-4000-8000-0000000000e1',
   physicalPageNumber: 9,
   sourceRegion: { coordinate_space: 'source', boxes: [{ x_min: 1, x_max: 2, y_min: 3, y_max: 4 }] },
   pageRepresentationDigest: 'c'.repeat(64),

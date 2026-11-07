@@ -15,6 +15,22 @@ INSERT INTO public.user_profiles (id, organization_id) VALUES
 INSERT INTO public.documents (id, organization_id, name, storage_path) VALUES
   ('b3000000-0000-4000-8000-0000000000d1', 'b3000000-0000-4000-8000-000000000001',
    'generic-contract.pdf', 'b3/generic-contract.pdf');
+INSERT INTO public.extraction_source_artifacts (id, organization_id, source_document_id, source_sha256,
+  storage_object_version, media_type_sniffed, byte_length) VALUES
+  ('b3000000-0000-4000-8000-0000000000f1', 'b3000000-0000-4000-8000-000000000001',
+   'b3000000-0000-4000-8000-0000000000d1', repeat('3', 64), 'b3:1', 'application/pdf', 1),
+  ('b3000000-0000-4000-8000-0000000000f2', 'b3000000-0000-4000-8000-000000000001',
+   'b3000000-0000-4000-8000-0000000000d1', repeat('4', 64), 'b3:2', 'application/pdf', 1);
+INSERT INTO public.document_extractions (id, organization_id, document_id, data) VALUES
+  ('b3000000-0000-4000-8000-0000000000e1', 'b3000000-0000-4000-8000-000000000001',
+   'b3000000-0000-4000-8000-0000000000d1',
+   '{"extraction":{"content_layers_v1":{"pdf":{"layout_observations_v1":{"source_artifact_id":"b3000000-0000-4000-8000-0000000000f1"}}}}}'),
+  ('b3000000-0000-4000-8000-0000000000e2', 'b3000000-0000-4000-8000-000000000001',
+   'b3000000-0000-4000-8000-0000000000d1',
+   '{"extraction":{"content_layers_v1":{"pdf":{"layout_observations_v1":{"source_artifact_id":"b3000000-0000-4000-8000-0000000000f1"}}}}}'),
+  ('b3000000-0000-4000-8000-0000000000e3', 'b3000000-0000-4000-8000-000000000001',
+   'b3000000-0000-4000-8000-0000000000d1',
+   '{"extraction":{"content_layers_v1":{"pdf":{"layout_observations_v1":{"source_artifact_id":"b3000000-0000-4000-8000-0000000000f2"}}}}}');
 
 -- Rows of the pre-existing bindings still satisfy the replaced constraints.
 INSERT INTO public.human_fact_assertions (organization_id, fact_key, asserted_value,
@@ -31,12 +47,30 @@ CREATE FUNCTION pg_temp.rec(
 RETURNS TABLE(assertion_id uuid, inserted boolean) LANGUAGE sql AS $$
   SELECT * FROM public.record_region_bound_human_fact_assertion(
     p_org, p_actor, 'b3000000-0000-4000-8000-0000000000d1', 'contract_rate_row', p_value, p_status,
-    'Rate cell OCR damaged; value read from source', NULL, 8,
+    'Rate cell OCR damaged; value read from source', 'b3000000-0000-4000-8000-0000000000f1', 8,
     '{"coordinate_space":"source","boxes":[{"x_min":440,"x_max":520,"y_min":300,"y_max":312}]}',
     p_page_digest, 'priced_schedule_reconstruction_v2', ARRAY['obs-1', 'obs-2'], 'sia 50', 'p8:line:300',
-    p_origin, NULL, p_supersedes, p_request) $$;
+    p_origin, NULL, p_supersedes, p_request, NULL,
+    'b3000000-0000-4000-8000-0000000000e1') $$;
 CREATE FUNCTION pg_temp.req(p_char text) RETURNS uuid LANGUAGE sql AS $$
   SELECT id FROM public.human_fact_assertions WHERE request_digest_sha256 = repeat(p_char, 64) $$;
+CREATE FUNCTION pg_temp.replay_variant(
+  p_reason text DEFAULT 'Rate cell OCR damaged; value read from source',
+  p_artifact uuid DEFAULT 'b3000000-0000-4000-8000-0000000000f1',
+  p_page integer DEFAULT 8,
+  p_region jsonb DEFAULT '{"coordinate_space":"source","boxes":[{"x_min":440,"x_max":520,"y_min":300,"y_max":312}]}',
+  p_parser text DEFAULT 'priced_schedule_reconstruction_v2',
+  p_observations text[] DEFAULT ARRAY['obs-1', 'obs-2'],
+  p_original text DEFAULT 'sia 50',
+  p_producer uuid DEFAULT 'b3000000-0000-4000-8000-0000000000e1',
+  p_anchor text DEFAULT 'p8:line:300')
+RETURNS TABLE(assertion_id uuid, inserted boolean) LANGUAGE sql AS $$
+  SELECT * FROM public.record_region_bound_human_fact_assertion(
+    'b3000000-0000-4000-8000-000000000001', 'b3000000-0000-4000-8000-0000000000a1',
+    'b3000000-0000-4000-8000-0000000000d1', 'contract_rate_row',
+    '{"rate_amount":14.5,"unit_type":"CY","description":"Debris removal"}', 'active',
+    p_reason, p_artifact, p_page, p_region, repeat('a', 64), p_parser, p_observations,
+    p_original, p_anchor, 'operator_entered', NULL, NULL, repeat('1', 64), NULL, p_producer) $$;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA pg_temp TO service_role, authenticated;
 
 SET ROLE authenticated;
@@ -54,6 +88,42 @@ DO $$ DECLARE r record; BEGIN
   IF NOT r.inserted THEN RAISE EXCEPTION 'B3 FAIL: first insert'; END IF;
   SELECT * INTO r FROM pg_temp.rec('{"rate_amount":14.5,"unit_type":"CY","description":"Debris removal"}', 'active', NULL, repeat('1', 64));
   IF r.inserted THEN RAISE EXCEPTION 'B3 FAIL: idempotent replay inserted'; END IF;
+END $$;
+-- Replay uses stored reason trimming, JSONB structural equality, and the
+-- existing sorted/distinct source-observation set contract.
+DO $$ DECLARE r record; BEGIN
+  SELECT * INTO r FROM pg_temp.replay_variant(p_reason => '  Rate cell OCR damaged; value read from source  ',
+    p_observations => ARRAY['obs-2', 'obs-1']);
+  IF r.inserted OR r.assertion_id IS DISTINCT FROM pg_temp.req('1') THEN
+    RAISE EXCEPTION 'B3 FAIL: canonical replay did not return the original assertion';
+  END IF;
+END $$;
+DO $$ DECLARE
+  variant text;
+BEGIN
+  FOREACH variant IN ARRAY ARRAY['reason', 'artifact', 'page', 'region', 'parser', 'observations',
+    'original', 'producer', 'anchor'] LOOP
+    BEGIN
+      CASE variant
+        WHEN 'reason' THEN PERFORM pg_temp.replay_variant(p_reason => 'Different reviewed reason');
+        WHEN 'artifact' THEN PERFORM pg_temp.replay_variant(
+          p_artifact => 'b3000000-0000-4000-8000-0000000000f2',
+          p_producer => 'b3000000-0000-4000-8000-0000000000e3');
+        WHEN 'page' THEN PERFORM pg_temp.replay_variant(p_page => 9);
+        WHEN 'region' THEN PERFORM pg_temp.replay_variant(p_region => '{"coordinate_space":"source","boxes":[{"x_min":441,"x_max":520,"y_min":300,"y_max":312}]}');
+        WHEN 'parser' THEN PERFORM pg_temp.replay_variant(p_parser => 'priced_schedule_reconstruction_v3');
+        WHEN 'observations' THEN PERFORM pg_temp.replay_variant(p_observations => ARRAY['obs-3']);
+        WHEN 'original' THEN PERFORM pg_temp.replay_variant(p_original => 'different printed text');
+        WHEN 'producer' THEN PERFORM pg_temp.replay_variant(p_producer => 'b3000000-0000-4000-8000-0000000000e2');
+        WHEN 'anchor' THEN PERFORM pg_temp.replay_variant(p_anchor => 'p8:line:301');
+      END CASE;
+      RAISE EXCEPTION 'B3 FAIL: changed % accepted under original request digest', variant;
+    EXCEPTION WHEN unique_violation THEN NULL;
+    END;
+  END LOOP;
+  IF (SELECT count(*) FROM public.human_fact_assertions WHERE request_digest_sha256 = repeat('1', 64)) <> 1 THEN
+    RAISE EXCEPTION 'B3 FAIL: changed replay created another assertion';
+  END IF;
 END $$;
 DO $$ BEGIN PERFORM pg_temp.rec('{"rate_amount":99}', 'active', NULL, repeat('1', 64));
   RAISE EXCEPTION 'B3 FAIL: request digest collision accepted';

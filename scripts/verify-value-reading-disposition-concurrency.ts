@@ -47,7 +47,8 @@ function proposal(key: string) {
   const anchor = `p8:b44-concurrency:${key}`;
   db.runSql(`SET ROLE service_role; SET request.jwt.claim.role='service_role';
     SELECT json_agg(r) FROM public.record_forgewing_value_reading_proposal(
-      ${q(ORG)}, ${q(PROJECT)}, ${q(DOC)}, ${q(ARTIFACT)}, 'b44-concurrency-extraction', ${q(`case:${key}`)},
+      ${q(ORG)}, ${q(PROJECT)}, ${q(DOC)}, ${q(ARTIFACT)},
+      'b4200000-0000-4000-8000-0000000000c1', ${q(`case:${key}`)},
       8, ${q('a'.repeat(64))}, 'contract_rate_row', ${q(anchor)}, ARRAY['b44-observation'], ${region}::jsonb,
       'value', ${value}::jsonb, 'region_image', NULL, 'priced_value_reading', 'v1', 'forgewing-value-reading-proposal-v3',
       ${q(hash(`request:${key}`))}, ${q(hash(`output:${key}`))}, ${q(digest)}, ${q(id)}, 'Concurrency fixture') r;`);

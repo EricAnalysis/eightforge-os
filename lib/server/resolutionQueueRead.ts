@@ -25,6 +25,9 @@ import { resolveForgewingEntitlement, type OrganizationForgewingEntitlementResol
 import { readRecoveryReviewQueue, type RecoveryReviewCandidate } from '@/lib/server/forgewingRecoveryReviewRead';
 import { loadRegionBoundAssertionRows, type RegionAssertionClient } from '@/lib/server/regionBoundHumanAssertions';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
+import { resolveValueReadingEligibility } from '@/lib/server/forgewingGates';
+import { isValueReadingProviderConfigured, valueReadingProviderModel } from '@/lib/forgewing/runtime/valueReadingClient';
+import { isForgewingModelQualified } from '@/lib/forgewing/runtime/modelConfig';
 import { addValueReadingsToResolutionQueue } from '@/lib/server/valueReadingWorkspace';
 import type { ValidationEvidence, ValidationFinding } from '@/types/validator';
 
@@ -97,6 +100,7 @@ export async function readResolutionQueue(
     admin?: ResolutionReadClient | null;
     forgewingEnabled?: boolean;
     resolveEntitlement?: OrganizationForgewingEntitlementResolver;
+    resolveValueReadingAvailability?: (admin: ResolutionReadClient, organizationId: string) => Promise<boolean>;
     readRecoveryQueue?: typeof readRecoveryReviewQueue;
     loadPrecedence?: (query: { organizationId: string; projectId: string }) => Promise<ProjectDocumentPrecedenceSnapshot>;
   }> = {},
@@ -246,8 +250,17 @@ export async function readResolutionQueue(
   let withReadings = queue;
   if (forgewingEnabled) {
     try {
-      withReadings = await addValueReadingsToResolutionQueue(admin as never,
-        { organizationId: query.organizationId, queue, extractionDataByDocument, assertions: assertionRead.rows });
+      const available = await (dependencies.resolveValueReadingAvailability ?? (async (client, organizationId) => {
+        if (!isValueReadingProviderConfigured() || !isForgewingModelQualified(valueReadingProviderModel())) return false;
+        const eligibility = await resolveValueReadingEligibility(client as never,
+          { organizationId, contentClasses: ['page_region_images'] });
+        return eligibility.eligible;
+      }))(admin, query.organizationId);
+      if (available) withReadings = await addValueReadingsToResolutionQueue(admin as never,
+        { organizationId: query.organizationId, queue, extractionDataByDocument,
+          extractionSnapshotIdByDocument: new Map([...preferredExtractionByDocument]
+            .flatMap(([documentId, extraction]) => extraction?.id ? [[documentId, extraction.id] as const] : [])),
+          assertions: assertionRead.rows });
     } catch {
       // Optional Forgewing reads fail closed while manual Core review remains available.
       withReadings = queue;

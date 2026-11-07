@@ -55,7 +55,8 @@ export async function queue() {
     issues: [], evidence: [], recoveryProposals: [], forgewingEnabled: forgewing,
     reviewedValuesByDocument: new Map([[DOC, { history: assertions, effective: resolved.effective, held: resolved.held, entryTargets: [target] }]]) });
   return addValueReadingsToResolutionQueue(admin, { organizationId: ORG, queue: base,
-    extractionDataByDocument: new Map([[DOC, extraction]]), assertions });
+    extractionDataByDocument: new Map([[DOC, extraction]]),
+    extractionSnapshotIdByDocument: new Map([[DOC, 'fixture-extraction']]), assertions });
 }
 
 function reads(): ValidatorSourceReads {
@@ -116,7 +117,8 @@ export async function handle(method: string, url: string, body: Record<string, u
       }];
     }
     tables[VALUE_READING_OUTCOMES_TABLE] = [{ id: `outcome-${requestCount}`, organization_id: ORG, source_document_id: DOC,
-      source_artifact_id: 'fixture-artifact', physical_page_number: 2, page_representation_digest: DIGEST,
+      source_artifact_id: 'fixture-artifact', extraction_snapshot_id: 'fixture-extraction',
+      physical_page_number: 2, page_representation_digest: DIGEST,
       anchor_key: target.anchorKey, recovery_type: 'priced_value_reading', outcome_code: outcomeCode,
       sanitized_reason: outcomeCode === 'provider_failed' ? 'provider_error' : outcomeCode === 'budget_exhausted' ? 'budget_exhausted' : 'proposal_recorded',
       observed_at: '2026-10-04T01:00:00Z' }];

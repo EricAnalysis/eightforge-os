@@ -75,6 +75,9 @@ export async function recordRegionBoundAssertion(
   admin: RegionAssertionClient,
   input: RecordRegionAssertionInput,
 ): Promise<RecordRegionAssertionResult> {
+  if (!input.sourceExtractionId && !input.forgewingProposalId) {
+    return { status: 'rejected', reason: 'verified source extraction required' };
+  }
   const args: Record<string, unknown> = {
     p_organization_id: input.organizationId,
     p_actor_id: input.actorId,
@@ -99,16 +102,12 @@ export async function recordRegionBoundAssertion(
     p_request_digest_sha256: regionAssertionRequestDigest(input),
     ...(input.customerMappingEvidence ? { p_customer_mapping_evidence: input.customerMappingEvidence } : {}),
   };
-  let { data, error } = await admin.rpc(RECORD_REGION_BOUND_ASSERTION_RPC,
+  const { data, error } = await admin.rpc(RECORD_REGION_BOUND_ASSERTION_RPC,
     input.sourceExtractionId ? { ...args, p_source_extraction_id: input.sourceExtractionId } : args);
-  if (error && input.sourceExtractionId && (error.code === 'PGRST202' || error.code === '42883')) {
-    // The provenance parameter is not in this database yet (migration
-    // ordering): record the correction exactly as before, with no producer.
-    console.warn('[regionBoundHumanAssertionWriter] source extraction provenance unavailable; correction recorded without it');
-    ({ data, error } = await admin.rpc(RECORD_REGION_BOUND_ASSERTION_RPC, args));
-  }
   if (error) {
-    if (isRegionAssertionSchemaUnavailable(error) || error.code === '42883') return { status: 'unavailable' };
+    if (isRegionAssertionSchemaUnavailable(error) || error.code === 'PGRST202' || error.code === '42883') {
+      return { status: 'unavailable' };
+    }
     if (error.code === '40001') return { status: 'stale_chain_head' };
     if (input.forgewingProposalId && error.code === '23514') {
       return { status: 'proposal_not_bound', reason: error.message ?? 'proposal does not bind' };

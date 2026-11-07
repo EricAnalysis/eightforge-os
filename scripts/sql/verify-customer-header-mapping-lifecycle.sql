@@ -104,7 +104,8 @@ CREATE FUNCTION pg_temp.b8_assertion(request text,evidence jsonb, ids text[] DEF
  SELECT public.record_region_bound_human_fact_assertion('b8200000-0000-4000-8000-000000000001','b8200000-0000-4000-8000-000000000011',
  'b8200000-0000-4000-8000-000000000031','contract_rate_row','{"rate_amount":15}', 'active','reviewed generic source',artifact,1,
  '{"boxes":[{"x_min":1,"x_max":2,"y_min":1,"y_max":2}]}',repeat('b',64),'priced_schedule_reconstruction_v6',ids,
- 'generic','b8-anchor','operator_entered',NULL,NULL,request,evidence) $$;
+  'generic','b8-anchor','operator_entered',NULL,NULL,request,evidence,
+  'b8200000-0000-4000-8000-000000000041') $$;
 CREATE FUNCTION pg_temp.b8_pins() RETURNS jsonb LANGUAGE sql SECURITY DEFINER AS $$
  SELECT jsonb_build_object('extractionSnapshotId','b8200000-0000-4000-8000-000000000041','mappingPins',
  data #> '{extraction,content_layers_v1,pdf,priced_schedule_reconstruction_v1,pages,0,customer_header_mapping_pins}')

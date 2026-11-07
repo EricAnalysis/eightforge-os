@@ -109,13 +109,22 @@ export function phase17Sonnet55QualificationSemanticsDigest(repoRoot: string): s
   });
 }
 
+/**
+ * Digest of the output grammar this harness's own request builder actually sends. Hashed live (not
+ * copied from the v1 accepted pin) so a production grammar change is detected here too (2026-11-07).
+ */
+function sentOutputSchemaSha256(prompt: string): string {
+  const { body } = buildPhase17Sonnet55StructuredOutputRequest({ model: PHASE17_SONNET_55_MODEL, timeoutMs: 2_468,
+    maxOutputTokens: 357, inputJson: '{"phase17":"sonnet-5-5-schema-probe"}' }, prompt);
+  return hashCanonical(body.output_config.format.schema);
+}
 export function computePhase17Sonnet55ContractPins(repoRoot: string): Phase17Sonnet55ContractPins {
   const prompt = loadRecoveryCandidateV2Prompt();
   return {
     promptTemplateId: FORGEWING_RECOVERY_CANDIDATE_V2_PROMPT_ID,
     promptTemplateVersion: FORGEWING_RECOVERY_CANDIDATE_V2_PROMPT_VERSION,
     promptSha256: exactPromptSha256(prompt),
-    outputSchemaSha256: PHASE17_ACCEPTED_CONTRACT_PINS.outputSchemaSha256,
+    outputSchemaSha256: sentOutputSchemaSha256(prompt),
     requestBuilderSourceSha256: phase17Sonnet55RequestBuilderSourceDigest(readFileSync(
       path.join(repoRoot, PHASE17_SONNET_55_CONTRACT_FILES.requestBuilder), 'utf8')),
     clientSourceSha256: fileDigest(repoRoot, PHASE17_SONNET_55_CONTRACT_FILES.requestBuilder),

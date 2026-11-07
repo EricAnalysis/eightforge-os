@@ -17,6 +17,14 @@ const evidenceIds = (minimum: number, maximum?: number) => z.array(z.string().mi
   .max(maximum ?? 200)
   .refine((ids) => new Set(ids).size === ids.length, 'evidence IDs must be distinct');
 
+// Distinctness the provider grammar can no longer carry: the API rejects `uniqueItems` (claude-sonnet-4-6,
+// 2026-11-06). Used where the task grammar declared `uniqueItems` on missingEvidence, so the bound moves to the
+// strict parser instead of being dropped.
+const distinctMissingEvidenceCodes = z.array(ForgewingMissingEvidenceCodeSchema)
+  .min(1)
+  .max(6)
+  .refine((codes) => new Set(codes).size === codes.length, 'missing evidence codes must be distinct');
+
 const pricingRateClusterRationale = z.enum([
   'explicit_currency_marker',
   'numeric_rate_pattern',
@@ -66,11 +74,11 @@ export const PRICING_RATE_CLUSTER_RECOVERY_OUTPUT_JSON_SCHEMA = {
     candidateId: { type: 'string' },
     proposedRawValue: { type: 'string' },
     proposedNormalizedValue: { type: 'string' },
-    selectedObservationIds: { type: 'array', minItems: 1, maxItems: 8,
+    selectedObservationIds: { type: 'array', minItems: 1,
       items: { type: 'string' } },
-    alternativeObservationIds: { type: 'array', minItems: 1, maxItems: 8,
+    alternativeObservationIds: { type: 'array', minItems: 1,
       items: { type: 'string' } },
-    confidence: { type: 'number', minimum: 0, maximum: 1 },
+    confidence: { type: 'number' },
     rationaleCode: { type: 'string', enum: [
       'explicit_currency_marker', 'numeric_rate_pattern', 'row_structure_support',
       'competing_monetary_cluster', 'insufficient_semantic_context',
@@ -313,7 +321,7 @@ export const ObservationArbitrationModelOutputSchema = z.discriminatedUnion('sta
     state: z.literal('insufficient_evidence'),
     confidence: z.null(),
     evidenceIds: evidenceIds(0, 0),
-    missingEvidence: z.array(ForgewingMissingEvidenceCodeSchema).min(1).max(6),
+    missingEvidence: distinctMissingEvidenceCodes,
     rationaleCodes: z.array(ForgewingObservationArbitrationRationaleCodeSchema)
       .min(1)
       .max(4)
@@ -370,23 +378,17 @@ export const OBSERVATION_ARBITRATION_OUTPUT_JSON_SCHEMA = {
     preferredCandidateId: { type: 'string' },
     evidenceIds: {
       type: 'array',
-      maxItems: 2,
-      uniqueItems: true,
       items: { type: 'string' },
     },
-    confidence: { type: ['number', 'null'], minimum: 0, maximum: 1 },
+    confidence: { type: ['number', 'null'] },
     rationaleCodes: {
       type: 'array',
       minItems: 1,
-      maxItems: 4,
-      uniqueItems: true,
       items: { type: 'string', enum: OBSERVATION_ARBITRATION_RATIONALES },
     },
     missingEvidence: {
       type: 'array',
       minItems: 1,
-      maxItems: 6,
-      uniqueItems: true,
       items: {
         type: 'string',
         enum: [
@@ -499,7 +501,7 @@ export const TableContinuationModelOutputSchema = z.discriminatedUnion('state', 
   z.object({
     state: z.literal('insufficient_evidence'),
     evidenceIds: evidenceIds(0, 0),
-    missingEvidence: z.array(ForgewingMissingEvidenceCodeSchema).min(1).max(6),
+    missingEvidence: distinctMissingEvidenceCodes,
     ...continuationCommon,
   }).strict(),
 ]);
@@ -537,11 +539,9 @@ export const TABLE_CONTINUATION_OUTPUT_JSON_SCHEMA = {
     },
     evidenceIds: {
       type: 'array',
-      maxItems: 60,
-      uniqueItems: true,
       items: { type: 'string' },
     },
-    confidence: { type: ['number', 'null'], minimum: 0, maximum: 1 },
+    confidence: { type: ['number', 'null'] },
     rationaleCode: {
       type: 'string',
       enum: [
@@ -561,8 +561,6 @@ export const TABLE_CONTINUATION_OUTPUT_JSON_SCHEMA = {
     missingEvidence: {
       type: 'array',
       minItems: 1,
-      maxItems: 6,
-      uniqueItems: true,
       items: {
         type: 'string',
         enum: [
@@ -615,7 +613,7 @@ const ColumnMappingModelEntrySchema = z.discriminatedUnion('state', [
     state: z.literal('insufficient_evidence'),
     confidence: z.null(),
     evidenceIds: evidenceIds(0, 0),
-    missingEvidence: z.array(ForgewingMissingEvidenceCodeSchema).min(1).max(6),
+    missingEvidence: distinctMissingEvidenceCodes,
   }).strict(),
 ]);
 
@@ -680,7 +678,6 @@ export const COLUMN_MAPPING_OUTPUT_JSON_SCHEMA = {
     columnMappings: {
       type: 'array',
       minItems: 1,
-      maxItems: 12,
       items: {
         type: 'object',
         additionalProperties: false,
@@ -694,7 +691,7 @@ export const COLUMN_MAPPING_OUTPUT_JSON_SCHEMA = {
         ],
         properties: {
           columnId: { type: 'string' },
-          columnIndex: { type: 'integer', minimum: 0, maximum: 10_000 },
+          columnIndex: { type: 'integer' },
           state: {
             type: 'string',
             enum: ['observed', 'inferred', 'ambiguous', 'insufficient_evidence'],
@@ -703,29 +700,21 @@ export const COLUMN_MAPPING_OUTPUT_JSON_SCHEMA = {
           candidateRoles: {
             type: 'array',
             minItems: 1,
-            maxItems: 12,
-            uniqueItems: true,
             items: { type: 'string', enum: COLUMN_MAPPING_ROLE_VALUES },
           },
-          confidence: { type: ['number', 'null'], minimum: 0, maximum: 1 },
+          confidence: { type: ['number', 'null'] },
           rationaleCodes: {
             type: 'array',
             minItems: 1,
-            maxItems: 4,
-            uniqueItems: true,
             items: { type: 'string', enum: COLUMN_MAPPING_RATIONALE_VALUES },
           },
           evidenceIds: {
             type: 'array',
-            maxItems: 96,
-            uniqueItems: true,
             items: { type: 'string' },
           },
           missingEvidence: {
             type: 'array',
             minItems: 1,
-            maxItems: 6,
-            uniqueItems: true,
             items: {
               type: 'string',
               enum: [

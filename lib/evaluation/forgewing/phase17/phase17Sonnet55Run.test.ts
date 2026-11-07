@@ -99,7 +99,9 @@ describe('additive Phase 17 Sonnet 5.5 qualification path', () => {
   it('preserves every frozen Phase 17 v1 canonical source identity', () => {
     const expected: Record<string, string> = {
       'lib/evaluation/forgewing/phase17/phase17Contract.ts': 'b49a71118bbfbe3fa3841d26e255e98d0d8ef54b64be7b30124c67d60030c154',
-      'lib/evaluation/forgewing/phase17/phase17Pins.ts': '8dd074ebf24bbfefd692c7048bf375c61c104cdafd93b7074fff44b7b47366e4',
+      // Re-recorded 2026-11-07 (owner-approved): outputSchemaSha256 re-accepted after the
+      // provider-compatibility removal of confidence minimum/maximum. Was 8dd074eb...66e4.
+      'lib/evaluation/forgewing/phase17/phase17Pins.ts': 'f030ea3b68af9040825b2462df18234f142348b3a9101e4be994c4b788079266',
       'lib/evaluation/forgewing/phase17/phase17Run.ts': 'c28234135891bdecfe24090372b105b0b6ea4016c2600672fb4c93691c07ebfc',
       'lib/evaluation/forgewing/phase17/phase17Artifacts.ts': '2876aeb1424387bd9fde7dbe464ff5995e8c6b425b51aa4abef633a035d27524',
       'lib/forgewing/runtime/client.ts': 'a2d673c29a4cfa3917557602953e00231f6f2f2056093271f68ebec5088387de',

@@ -96,12 +96,20 @@ export type Phase17ContractPins = Readonly<{
  * 2026-10-03: the policy digest moved again when the header type was qualified
  * (corpus_qualified, controlled). The continuation entry and every other pin
  * are unchanged.
+ *
+ * 2026-11-07, provider grammar compatibility (owner-approved): outputSchemaSha256
+ * moved from c480562d6cbac049adc4ad6e0c4937399514bac6f43336e418c20b88e61b5b18 to
+ * e9bd736705d8b6e6c6109300e1c8ba6a77b242c4e79b6537cf5eca035ecc0864. The output
+ * schema dropped confidence minimum/maximum, which the provider rejects; the task
+ * parser still enforces 0..1. The new digest equals the reviewed Sonnet 5.5
+ * schema-compat variant's. Results recorded under c480562d stay as recorded and
+ * are not comparable for re-execution under this pin. Every other pin is unchanged.
  */
 export const PHASE17_ACCEPTED_CONTRACT_PINS: Phase17ContractPins = {
   promptTemplateId: 'forgewing-recovery-candidate-v2',
   promptTemplateVersion: 'v2',
   promptSha256: '55bb0262885388b2d96ce33075eac73df6ce25bc23a92a6ae204e5f3242214da',
-  outputSchemaSha256: 'c480562d6cbac049adc4ad6e0c4937399514bac6f43336e418c20b88e61b5b18',
+  outputSchemaSha256: 'e9bd736705d8b6e6c6109300e1c8ba6a77b242c4e79b6537cf5eca035ecc0864',
   requestBuilderSourceSha256: 'e2b6cd67cf01fb196924a3a68a79abee19698d47a2bf323f6efacf1a674d2845',
   requestContract: {
     temperature: 0,

@@ -7,7 +7,7 @@ import { z } from 'zod';
 
 import {
   buildStageAGrammar, buildStageBGrammar, partitionStageBSteps, STAGE_A_FIELDS, STAGE_B_DETAIL_SCHEMAS,
-  STAGE_B_MAX_STEPS_PER_CALL, toProviderGrammar, type ProviderGrammar, type StageStep,
+  STAGE_B_MAX_STEPS_PER_CALL, toProviderGrammar, LENGTH_HINT_RATIO, type ProviderGrammar, type StageStep,
 } from '@/lib/forgewing/runtime/workflowAssessmentStageGrammars';
 import {
   WORKFLOW_DETERMINISM_CONDITIONS, WORKFLOW_INTAKE_V1_QUESTIONS, WORKFLOW_INTAKE_V2_QUESTIONS, WorkflowAssessmentModelOutputSchema,
@@ -93,10 +93,13 @@ const mutate = (value: unknown, change: (copy: any) => void) => { const copy = s
 
 describe('stage grammars use only the provider-enforced subset', () => {
   const grammars = { A: buildStageAGrammar('workflow_intake_v2'), B: buildStageBGrammar(steps) };
-  it.each(Object.entries(grammars))('%s: no unsupported keyword, every object closed and fully required', (_name, grammar) => {
+  it.each(Object.entries(grammars))('%s: no unsupported keyword, every object closed and fully required', (name, grammar) => {
     const problems: string[] = [];
+    // L1: stage B emits maxLength as a length HINT (accepted, not enforced); stage A emits no length at all.
+    const forbidden = ['minLength', 'maxLength', 'minimum', 'maximum', 'multipleOf', 'pattern', 'format', 'maxItems', 'uniqueItems']
+      .filter((k) => !(name === 'B' && k === 'maxLength'));
     walk(grammar, (node, path) => {
-      for (const k of ['minLength', 'maxLength', 'minimum', 'maximum', 'multipleOf', 'pattern', 'format', 'maxItems', 'uniqueItems']) {
+      for (const k of forbidden) {
         if (k in node) problems.push(`${path}: ${k}`);
       }
       if (node.minItems !== undefined && node.minItems !== 1) problems.push(`${path}: minItems ${node.minItems}`);
@@ -178,7 +181,7 @@ describe('stage B: exactly one detail record per step, shaped by its classificat
   it('requires exactly the steps, in order, each referencing its classification shape', () => {
     expect(grammar.required).toEqual(steps.map((s) => s.stepId));
     for (const s of steps) expect(grammar.properties[s.stepId]).toEqual({ $ref: `#/$defs/${s.classification}` });
-    for (const [c, schema] of Object.entries(STAGE_B_DETAIL_SCHEMAS)) expect(grammar.$defs[c]).toEqual(toProviderGrammar(schema));
+    for (const [c, schema] of Object.entries(STAGE_B_DETAIL_SCHEMAS)) expect(grammar.$defs[c]).toEqual(toProviderGrammar(schema, 'x', { lengthHints: true }));
   });
 
   it('omits stepId and the derived detail IDs, and forces RECOVER extraction to be implausible', () => {
@@ -225,5 +228,59 @@ describe('derivation fails loudly instead of emitting an unenforceable grammar',
 
   it('a schema change reaches the grammar (no hand-written copy)', () => {
     expect((toProviderGrammar(z.object({ a: z.string(), b: z.boolean() }).strict()) as G).required).toEqual(['a', 'b']);
+  });
+});
+
+describe('L1: stage B length hints (owner-approved 2026-11-07)', () => {
+  // Every string in a stage-B detail record, with its strict Zod maximum (null when unbounded).
+  const stringBounds = (schema: z.ZodTypeAny, path: string, out: Map<string, number | null>) => {
+    let s = schema;
+    while (s instanceof z.ZodEffects || s instanceof z.ZodNullable) s = s instanceof z.ZodEffects ? s._def.schema : s._def.innerType;
+    if (s instanceof z.ZodString) {
+      out.set(path, (s._def.checks.find((c) => c.kind === 'max') as { value: number } | undefined)?.value ?? null);
+    } else if (s instanceof z.ZodArray) {
+      stringBounds(s._def.type, `${path}.items`, out);
+    } else if (s instanceof z.ZodObject) {
+      for (const [k, v] of Object.entries(s.shape as Record<string, z.ZodTypeAny>)) stringBounds(v, `${path}.properties.${k}`, out);
+    }
+    return out;
+  };
+  const at = (node: G, path: string) => path.split('.').filter(Boolean).reduce((n: G, k) => n?.[k], node);
+
+  it('emits maxLength = floor(0.85 x strict max) on every bounded stage-B string, and none on unbounded ones', () => {
+    expect(LENGTH_HINT_RATIO).toBe(0.85);
+    const grammar = buildStageBGrammar(Object.keys(STAGE_B_DETAIL_SCHEMAS).map((c, i) => ({ stepId: `s${i}`, classification: c }))) as G;
+    let bounded = 0;
+    for (const [c, schema] of Object.entries(STAGE_B_DETAIL_SCHEMAS)) {
+      for (const [path, max] of stringBounds(schema as z.ZodTypeAny, '', new Map())) {
+        const node = at(grammar.$defs[c], path) as G;
+        expect(node?.type === 'string' || (Array.isArray(node?.type) && node.type.includes('string')), `${c}${path}`).toBe(true);
+        if (max === null) { expect(node.maxLength, `${c}${path}`).toBeUndefined(); continue; }
+        bounded += 1;
+        expect(node.maxLength, `${c}${path}`).toBe(Math.floor(0.85 * max));
+        expect(node.maxLength).toBeLessThan(max);
+      }
+    }
+    expect(bounded).toBeGreaterThan(10);
+    // The P5 run 1 overruns are now hinted below their limits.
+    expect((at(grammar.$defs.ADVISORY, '.properties.description') as G).maxLength).toBe(680);
+  });
+
+  it('leaves stage A byte-identical to the grammar P5 run 1 compiled (no length hints)', async () => {
+    const { createHash } = await import('node:crypto');
+    const a = JSON.stringify(buildStageAGrammar('workflow_intake_v2'));
+    expect(a).not.toContain('maxLength');
+    expect(createHash('sha256').update(a).digest('hex')).toBe('1807182648bf7ada21d27efda08fa3be62ca957c3b5672b78d7fdf76d7f072ae');
+  });
+
+  it('a hint is never a bound: text between the hint and the strict max still validates, and the strict max still rejects', () => {
+    const advisory = STAGE_B_DETAIL_SCHEMAS.ADVISORY;
+    expect(advisory.safeParse({ description: 'x'.repeat(700) }).success).toBe(true); // > 680 hint, <= 800 limit
+    expect(advisory.safeParse({ description: 'x'.repeat(800) }).success).toBe(true);
+    expect(advisory.safeParse({ description: 'x'.repeat(801) }).success).toBe(false);
+  });
+
+  it('only stage B is hinted: toProviderGrammar without the option emits no maxLength', () => {
+    for (const schema of Object.values(STAGE_B_DETAIL_SCHEMAS)) expect(JSON.stringify(toProviderGrammar(schema))).not.toContain('maxLength');
   });
 });

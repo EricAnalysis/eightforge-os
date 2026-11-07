@@ -28,7 +28,7 @@ import {
  *
  * Every grammar is DERIVED from WorkflowAssessmentModelOutputSchema (pick/omit/
  * extend), never hand-written, and emits only what the provider enforces: types,
- * required keys, enum, const, $ref and additionalProperties:false. String lengths
+ * required keys, enum, const, $ref and additionalProperties:false. Stage B adds `maxLength` length HINTS (see LENGTH_HINT_RATIO); otherwise string lengths
  * and item counts are deliberately not emitted (the provider does not enforce
  * them); the unchanged strict schema still validates every composed assessment.
  *
@@ -52,15 +52,28 @@ function unwrap(schema: AnyZod): AnyZod {
   return current;
 }
 
+/**
+ * Stage B string length hints (L1, owner-approved 2026-11-07). The provider accepts `maxLength` but does not enforce it
+ * (p6-maxlength-probe: a 40-character hint produced 45 characters), so it is a target, never a bound.
+ * P5 run 1 failed only on stage-B detail lengths (5 overruns, up to 1063/800), so stage B emits
+ * `maxLength = floor(LENGTH_HINT_RATIO * max)` for every bounded string. The ~15% margin absorbs the
+ * observed overshoot, matching the v5 85% writing target. The strict schema still enforces the real max.
+ */
+export const LENGTH_HINT_RATIO = 0.85;
+export type ProviderGrammarOptions = Readonly<{ lengthHints?: boolean }>;
+
 /** Zod (v3) to the provider-supported JSON Schema subset. Throws on anything else. */
-export function toProviderGrammar(schema: AnyZod, path = 'root'): ProviderGrammar {
+export function toProviderGrammar(schema: AnyZod, path = 'root', options: ProviderGrammarOptions = {}): ProviderGrammar {
   const inner = unwrap(schema);
   if (inner instanceof z.ZodNullable) {
-    const base = toProviderGrammar(inner._def.innerType, path) as { type?: unknown };
+    const base = toProviderGrammar(inner._def.innerType, path, options) as { type?: unknown };
     if (typeof base.type !== 'string') throw new Error(`stage_grammar_unsupported_nullable:${path}`);
     return { ...base, type: [base.type, 'null'] };
   }
-  if (inner instanceof z.ZodString) return { type: 'string' };
+  if (inner instanceof z.ZodString) {
+    const max = inner._def.checks.find((check) => check.kind === 'max') as { value: number } | undefined;
+    return options.lengthHints && max ? { type: 'string', maxLength: Math.floor(LENGTH_HINT_RATIO * max.value) } : { type: 'string' };
+  }
   if (inner instanceof z.ZodBoolean) return { type: 'boolean' };
   if (inner instanceof z.ZodEnum) return { type: 'string', enum: [...inner._def.values as string[]] };
   if (inner instanceof z.ZodLiteral) {
@@ -70,14 +83,14 @@ export function toProviderGrammar(schema: AnyZod, path = 'root'): ProviderGramma
   }
   if (inner instanceof z.ZodArray) {
     const min = inner._def.minLength?.value ?? 0;
-    return { type: 'array', items: toProviderGrammar(inner._def.type, `${path}[]`), ...(min >= 1 ? { minItems: 1 } : {}) };
+    return { type: 'array', items: toProviderGrammar(inner._def.type, `${path}[]`, options), ...(min >= 1 ? { minItems: 1 } : {}) };
   }
   if (inner instanceof z.ZodObject) {
     if (inner._def.unknownKeys !== 'strict') throw new Error(`stage_grammar_non_strict_object:${path}`);
     const shape = inner.shape as Record<string, AnyZod>;
     return {
       type: 'object', additionalProperties: false, required: Object.keys(shape),
-      properties: Object.fromEntries(Object.entries(shape).map(([key, value]) => [key, toProviderGrammar(value, `${path}.${key}`)])),
+      properties: Object.fromEntries(Object.entries(shape).map(([key, value]) => [key, toProviderGrammar(value, `${path}.${key}`, options)])),
     };
   }
   throw new Error(`stage_grammar_unsupported_type:${path}:${inner.constructor.name}`);
@@ -156,7 +169,7 @@ export function buildStageBGrammar(steps: readonly StageStep[]): ProviderGrammar
   const used = [...new Set(steps.map((step) => step.classification))] as DetailClassification[];
   return {
     type: 'object', additionalProperties: false,
-    $defs: Object.fromEntries(used.map((c) => [c, toProviderGrammar(STAGE_B_DETAIL_SCHEMAS[c], `stageB.${c}`)])),
+    $defs: Object.fromEntries(used.map((c) => [c, toProviderGrammar(STAGE_B_DETAIL_SCHEMAS[c], `stageB.${c}`, { lengthHints: true })])),
     required: steps.map((step) => step.stepId),
     properties: Object.fromEntries(steps.map((step) => [step.stepId, { $ref: `#/$defs/${step.classification}` }])),
   };

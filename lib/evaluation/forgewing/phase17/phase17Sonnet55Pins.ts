@@ -140,7 +140,7 @@ export const PHASE17_SONNET_55_ACCEPTED_CONTRACT_PINS: Phase17Sonnet55ContractPi
   promptTemplateId: 'forgewing-recovery-candidate-v2',
   promptTemplateVersion: 'v2',
   promptSha256: '55bb0262885388b2d96ce33075eac73df6ce25bc23a92a6ae204e5f3242214da',
-  outputSchemaSha256: 'c480562d6cbac049adc4ad6e0c4937399514bac6f43336e418c20b88e61b5b18',
+  outputSchemaSha256: 'e9bd736705d8b6e6c6109300e1c8ba6a77b242c4e79b6537cf5eca035ecc0864',
   requestBuilderSourceSha256: '5f84dd3de7b3bd0a85d9ddd6ff49f0bad3039d6c6897419bd16ef716744cef4a',
   clientSourceSha256: 'f726bea91ac1fb6e3c15bf18dff47c6877f6792bf7671a4df9282a5ce812436d',
   runnerSourceSha256: '5545b509cb48fcb1dbbd82580fc236ba0c34981872efc5448dc0424c60ef28f0',

@@ -739,7 +739,9 @@ export const RECOVERY_CANDIDATE_V2_OUTPUT_JSON_SCHEMA = {
   required: ['selectedCandidateId', 'confidence', 'rationaleCode'],
   properties: {
     selectedCandidateId: { type: 'string' },
-    confidence: { type: 'number', minimum: 0, maximum: 1 },
+    // No number minimum/maximum: the provider rejects them (claude-sonnet-4-6, 2026-11-06; claude-sonnet-5-5).
+    // The 0..1 bound is enforced by the task parser (`confidence: z.number().min(0).max(1)`).
+    confidence: { type: 'number' },
     rationaleCode: { type: 'string' },
   },
 } as const;

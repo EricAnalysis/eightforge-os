@@ -28,20 +28,21 @@ const root = () => { const p = mkdtempSync(path.join(tmpdir(), 'phase17-schema-c
 afterEach(() => { for (const p of roots.splice(0)) rmSync(p, { recursive: true, force: true }); });
 
 describe('owner-approved additive Phase 17 schema compatibility', () => {
-  it('changes only transmitted confidence bounds; preserves request parameters and original schema', () => {
+  // 2026-11-07 (owner-approved): the production Recovery V2 grammar dropped confidence minimum/maximum
+  // for provider compatibility, so the schema-compat variant now equals the production request exactly.
+  // It previously asserted that the two differed only by those bounds.
+  it('sends the production request exactly: unbounded confidence, same request parameters', () => {
     const probe = { model: 'claude-sonnet-5-5', timeoutMs: 3000, maxOutputTokens: 400, inputJson: '{}' };
     const prompt = loadRecoveryCandidateV2Prompt();
     const before = oldRequest(probe, prompt), after = newRequest(probe, prompt);
     const baseline = JSON.stringify(before);
     expect(after.body.output_config.format.schema.properties.confidence).toEqual({ type: 'number' });
-    const expected = JSON.parse(baseline);
-    delete expected.body.output_config.format.schema.properties.confidence.minimum;
-    delete expected.body.output_config.format.schema.properties.confidence.maximum;
-    expect(after).toEqual(expected);
+    expect(before.body.output_config.format.schema.properties.confidence).toEqual({ type: 'number' });
+    expect(after).toEqual(JSON.parse(baseline));
     expect(JSON.stringify(oldRequest(probe, prompt))).toBe(baseline);
     expect(after.body).not.toHaveProperty('temperature');
     expect(after.body).not.toHaveProperty('thinking');
-    expect(hashCanonical(after)).not.toBe(hashCanonical(before));
+    expect(hashCanonical(after.body.output_config.format.schema)).toBe(accepted.outputSchemaSha256);
   });
 
   it.each([-0.01, 1.01, 0, 1])('retains actual task confidence validation at %s', async confidence => {

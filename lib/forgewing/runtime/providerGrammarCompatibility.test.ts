@@ -123,15 +123,10 @@ const grammarConstants = (): Map<unknown, string> => {
 };
 
 /**
- * The single known exception. Recovery V2's grammar is pinned by Phase 17 (`outputSchemaSha256` in phase17Pins.ts),
- * so correcting it needs its own reviewed pin migration. Listed exactly, so any change to it fails here.
+ * Known exceptions: none. Recovery V2 was the last one, corrected 2026-11-07 together with its reviewed
+ * Phase 17 pin migration. Adding an entry here requires the same kind of review.
  */
-const KNOWN_INCOMPATIBLE: Readonly<Record<string, readonly Violation[]>> = {
-  RECOVERY_CANDIDATE_V2_OUTPUT_JSON_SCHEMA: [
-    { path: '$.properties.confidence', keyword: 'minimum' },
-    { path: '$.properties.confidence', keyword: 'maximum' },
-  ],
-};
+const KNOWN_INCOMPATIBLE: Readonly<Record<string, readonly Violation[]>> = {};
 
 describe('provider grammar compatibility (offline)', () => {
   beforeEach(() => {
@@ -171,7 +166,7 @@ describe('provider grammar compatibility (offline)', () => {
     ]);
   });
 
-  it('every sent grammar uses only provider-verified keywords; Recovery V2 is the single exactly-listed exception', async () => {
+  it('every sent grammar uses only provider-verified keywords, with no exceptions', async () => {
     const captured = await captureProviderGrammars();
     const named = grammarConstants();
     const byName = new Map<string, Violation[]>();

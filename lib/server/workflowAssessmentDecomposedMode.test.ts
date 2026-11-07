@@ -112,7 +112,7 @@ describe('generation mode is opt-in (not activated by default)', () => {
     await expect(runAndRecordWorkflowAssessment(SUBMISSION_ID)).resolves.toMatchObject({ status: 'assessment_recorded' });
     expect(fake.singleCalls).toBe(1);
     expect(fake.stageCalls).toEqual([]);
-    expect(assessmentRows(db.inserts)[0]).toMatchObject({ prompt_template_id: 'forgewing-workflow-assessment', prompt_template_version: 'v8' });
+    expect(assessmentRows(db.inserts)[0]).toMatchObject({ prompt_template_id: 'forgewing-workflow-assessment', prompt_template_version: 'v9' });
     expect(ledgerRows(db.inserts)).toHaveLength(1);
   });
 
@@ -136,7 +136,7 @@ describe('decomposed mode through the server seam', () => {
     expect(fake.singleCalls).toBe(0);
     expect(fake.stageCalls).toEqual([{ stage: 'A', batch: 0 }, { stage: 'B', batch: 0 }]);
     const [row] = assessmentRows(db.inserts);
-    expect(row).toMatchObject({ prompt_template_id: 'forgewing-workflow-assessment-decomposed', prompt_template_version: 'v1',
+    expect(row).toMatchObject({ prompt_template_id: 'forgewing-workflow-assessment-decomposed', prompt_template_version: 'v2',
       authority: 'non_authoritative', requires_human_review: true, review_status: 'pending_human_review' });
     expect((row!.assessment as { advisorySteps: { description: string }[] }).advisorySteps[0]!.description).toHaveLength(650);
     expect(ledgerRows(db.inserts).map((r) => [r.provider_request_id, r.outcome, r.input_tokens, r.output_tokens]))
@@ -205,9 +205,9 @@ describe('decomposed mode through the server seam', () => {
     expect(assessmentRows(db.inserts)).toEqual([]);
   });
 
-  it('still rejects an advisory description above the 800-character contract', async () => {
+  it('still rejects an advisory description above the 1,200-character contract (D-6, then D-7)', async () => {
     const db = fakeAdmin(); fake.admin = db.admin;
-    const x = canonical(); x.advisorySteps[0]!.description = 'x'.repeat(801);
+    const x = canonical(); x.advisorySteps[0]!.description = 'x'.repeat(1201);
     useStages(x);
     await expect(runAndRecordWorkflowAssessment(SUBMISSION_ID)).resolves.toEqual({ status: 'assessment_not_produced', reason: 'structured_output_invalid' });
     expect(assessmentRows(db.inserts)).toEqual([]);

@@ -196,10 +196,24 @@ describe('Workflow Assessment prompt field contract (D3)', () => {
     expect(open).toEqual([]);
   });
 
-  it('gives every string an 85% writing target derived from its own hard limit (D4)', () => {
+  it('gives every string an 85% writing target derived from its own hard limit (D4), except the D-7 fields, which keep their pre-D-7 target', () => {
     const strings = sites.filter((site): site is Extract<Site, { kind: 'string' }> => site.kind === 'string');
     expect(strings.length).toBeGreaterThan(50);
-    const wrong = strings.filter((site) => site.target !== Math.floor(site.max * 0.85)
+    // D-7 (2026-11-07): the hard limit rose; the writing target stayed at 85% of the previous limit.
+    const D7: Record<string, { max: number; target: number }> = {
+      'deterministicRuleProposals.plainLanguageRule': { max: 1000, target: 510 },
+      'verificationRuleProposals.plainLanguageRule': { max: 1000, target: 510 },
+      'deterministicRuleProposals.expectedEvidence': { max: 300, target: 170 },
+      'verificationRuleProposals.expectedEvidence': { max: 300, target: 170 },
+      'extractionRequirements.describedFact': { max: 450, target: 255 },
+      'humanDecisionPoints.description': { max: 600, target: 340 },
+      'advisorySteps.description': { max: 1200, target: 680 },
+    };
+    const keyOf = (site: { path: Path }) => site.path.filter((p) => typeof p === 'string').join('.');
+    const declared = strings.filter((site) => keyOf(site) in D7);
+    expect(declared.map(keyOf).sort()).toEqual(Object.keys(D7).sort());
+    for (const site of declared) expect({ max: site.max, target: site.target }, keyOf(site)).toEqual(D7[keyOf(site)]);
+    const wrong = strings.filter((site) => (keyOf(site) in D7 ? false : site.target !== Math.floor(site.max * 0.85))
       || site.target >= site.max || site.target < site.min).map((site) => site.path.join('.'));
     expect(wrong).toEqual([]);
     const recordText = contract.split('\n').filter((line) => line.startsWith('- `assessment')).join('\n');
@@ -215,17 +229,17 @@ describe('Workflow Assessment prompt field contract (D3)', () => {
     // The pattern it addresses still exists in the schema: human-decision descriptions are shorter than step descriptions.
     const type = (record: string, key: string) => records.get(record)!.find((field) => field.key === key)!.type;
     expect(type('assessment.workflowSteps[]', 'description')).toBe('string(1-600, aim ≤510)');
-    expect(type('assessment.humanDecisionPoints[]', 'description')).toBe('string(1-400, aim ≤340)');
-    expect(type('assessment.advisorySteps[]', 'description')).toBe('string(1-800, aim ≤680)'); // D-6
+    expect(type('assessment.humanDecisionPoints[]', 'description')).toBe('string(1-600, aim ≤340)'); // D-7: limit 600, target kept
+    expect(type('assessment.advisorySteps[]', 'description')).toBe('string(1-1200, aim ≤680)'); // D-6 then D-7
   });
 
   it('names the exact fields that failed in D2 run 2', () => {
     for (const record of ['deterministicRuleProposals', 'verificationRuleProposals']) {
       const fields = records.get(`assessment.${record}[]`)!;
       const type = (key: string) => fields.find((field) => field.key === key)?.type;
-      expect(type('expectedEvidence')).toBe('array of string(1-200, aim ≤170) [1-12 items]');
+      expect(type('expectedEvidence')).toBe('array of string(1-300, aim ≤170) [1-12 items]'); // D-7
       expect(type('userDescribedExceptions')).toBe('array of string(1-300, aim ≤255) [0-12 items]');
-      expect(type('plainLanguageRule')).toBe('string(1-600, aim ≤510)');
+      expect(type('plainLanguageRule')).toBe('string(1-1000, aim ≤510)'); // D-7
     }
     expect(contract).toContain('evidenceRequirements: array of string(1-350, aim ≤297) [0-12 items]');
     expect(contract).toContain('limitations: array of string(1-300, aim ≤255) [0-16 items]');
@@ -258,7 +272,7 @@ describe('D3 leaves the D1 envelope and both provider paths aligned', () => {
     });
   });
 
-  it('sends identical v8 instructions through the standard and observed providers', async () => {
+  it('sends identical v9 instructions through the standard and observed providers', async () => {
     create.mockResolvedValue({ id: 'm', _request_id: 'r', model: 'claude-sonnet-4-6', stop_reason: 'end_turn',
       usage: { input_tokens: 1, output_tokens: 1 }, content: [{ type: 'text', text: '{}' }] });
     const request = { model: 'claude-sonnet-4-6', timeoutMs: 420_000, maxOutputTokens: 20_000, inputJson: '{}' };
@@ -269,6 +283,6 @@ describe('D3 leaves the D1 envelope and both provider paths aligned', () => {
     expect(observed.system).toBe(standard.system);
     expect(standard.system).toBe(loadObservedWorkflowAssessmentPrompt());
     expect(embeddedContract(standard.system)).toBe(buildWorkflowAssessmentFieldContract());
-    expect(WORKFLOW_ASSESSMENT_ENVELOPE_PROMPT_VERSION).toBe('v8');
+    expect(WORKFLOW_ASSESSMENT_ENVELOPE_PROMPT_VERSION).toBe('v9'); // D-7 changed the embedded contract
   });
 });

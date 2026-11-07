@@ -53,41 +53,49 @@ const optionalList = (max: number, maxItems: number) =>
  * operator approved, not a runtime artifact, and the absence of an executable
  * field is what keeps that true structurally rather than by convention.
  */
+/**
+ * D-7 (2026-11-07, owner-approved): plainLanguageRule 1,000, expectedEvidence items
+ * 300, describedFact 450 (EXTRACT and RECOVER), HUMAN description 600 and ADVISORY
+ * description 1,200, raised together with the proposal-side schema. This module may
+ * import only zod, so the bounds are restated; workflowAssessmentSchemaCapacity.test.ts
+ * keeps every reviewed field equal to the proposal field it is composed from.
+ */
 const reviewedRuleSpecification = z.object({
-  plainLanguageRule: text(600),
+  plainLanguageRule: text(1_000),
   requiredFacts: list(200, 12),
   conditionType: z.enum(WORKFLOW_REVIEWED_CONDITION_TYPES),
-  expectedEvidence: list(200, 12),
+  expectedEvidence: list(300, 12),
   expectedOutcome: text(400),
   userDescribedExceptions: optionalList(300, 12),
   unresolvedAssumptions: optionalList(300, 12),
 }).strict();
 
 const reviewedExtractionSpecification = z.object({
-  describedFact: text(300),
+  describedFact: text(450),
   sourceDocument: text(200),
   deterministicExtractionPlausible: z.boolean(),
 }).strict();
 
 const reviewedRecoverySpecification = z.object({
-  describedFact: text(300),
+  describedFact: text(450),
   sourceDocument: text(200),
   description: text(400),
   deterministicShortfall: text(400),
 }).strict();
 
 const reviewedHumanSpecification = z.object({
-  description: text(400),
+  description: text(600),
   whyHumanControlled: text(400),
 }).strict();
 
 /**
- * D-6 (2026-11-06, owner-approved): 800, raised together with the proposal-side
- * advisorySteps description. This module may import only zod, so the bound is
- * restated; workflowAssessmentSchemaCapacity.test.ts keeps the two equal.
+ * D-6 (2026-11-06, owner-approved): 400 -> 800; D-7 (2026-11-07, owner-approved):
+ * 800 -> 1,200. Raised together with the proposal-side advisorySteps description.
+ * This module may import only zod, so the bound is restated;
+ * workflowAssessmentSchemaCapacity.test.ts keeps the two equal.
  */
 const reviewedAdvisorySpecification = z.object({
-  description: text(800),
+  description: text(1_200),
 }).strict();
 
 /**

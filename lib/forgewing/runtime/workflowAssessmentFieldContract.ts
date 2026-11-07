@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { WorkflowAssessmentModelOutputSchema } from '@/lib/workflowAssessmentSchema';
+import { declaredWritingTarget, WorkflowAssessmentModelOutputSchema } from '@/lib/workflowAssessmentSchema';
 
 /**
  * The Workflow Assessment field contract, derived from the strict validator.
@@ -44,6 +44,7 @@ function unwrap(schema: z.ZodTypeAny): z.ZodTypeAny {
 
 function describe(schema: z.ZodTypeAny, path: string, lines: Line[]): string {
   const inner = unwrap(schema);
+  const declaredTarget = declaredWritingTarget(schema);
   if (inner instanceof z.ZodNullable) {
     return `${describe(inner._def.innerType, path, lines)} or null`;
   }
@@ -56,7 +57,7 @@ function describe(schema: z.ZodTypeAny, path: string, lines: Line[]): string {
       else throw new Error(`field_contract_unsupported_string_check:${check.kind}`);
     }
     if (max === null) throw new Error('field_contract_unbounded_string');
-    return `string(${min ?? 0}-${max}, aim ≤${workflowAssessmentWritingTarget(max)})`;
+    return `string(${min ?? 0}-${max}, aim ≤${declaredTarget ?? workflowAssessmentWritingTarget(max)})`;
   }
   if (inner instanceof z.ZodBoolean) return 'boolean';
   if (inner instanceof z.ZodEnum) return `enum(${(inner._def.values as string[]).join('|')})`;

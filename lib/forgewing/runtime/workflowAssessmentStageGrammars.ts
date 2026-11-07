@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import {
+  declaredWritingTarget,
   WORKFLOW_INTAKE_V1_QUESTIONS,
   WORKFLOW_INTAKE_V2_QUESTIONS,
   WorkflowAssessmentModelOutputSchema,
@@ -72,7 +73,9 @@ export function toProviderGrammar(schema: AnyZod, path = 'root', options: Provid
   }
   if (inner instanceof z.ZodString) {
     const max = inner._def.checks.find((check) => check.kind === 'max') as { value: number } | undefined;
-    return options.lengthHints && max ? { type: 'string', maxLength: Math.floor(LENGTH_HINT_RATIO * max.value) } : { type: 'string' };
+    if (!options.lengthHints || !max) return { type: 'string' };
+    // D-7: an explicitly declared writing target (kept at the pre-D-7 value) wins over the ratio.
+    return { type: 'string', maxLength: declaredWritingTarget(schema) ?? Math.floor(LENGTH_HINT_RATIO * max.value) };
   }
   if (inner instanceof z.ZodBoolean) return { type: 'boolean' };
   if (inner instanceof z.ZodEnum) return { type: 'string', enum: [...inner._def.values as string[]] };

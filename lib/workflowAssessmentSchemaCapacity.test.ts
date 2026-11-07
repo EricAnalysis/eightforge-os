@@ -13,7 +13,7 @@ import {
 } from '@/lib/workflowAssessmentProposalClosure';
 import { hashCanonical } from '@/lib/extraction/domain/hash';
 import { workflowAssessmentReviewInputSchema } from '@/lib/server/workflowAssessmentReview';
-import { WorkflowAssessmentModelOutputSchema as schema } from '@/lib/workflowAssessmentSchema';
+import { declaredWritingTarget, WorkflowAssessmentModelOutputSchema as schema } from '@/lib/workflowAssessmentSchema';
 import { resolveEffectiveReviewedSpecification } from '@/lib/workflowEffectiveReviewedSpecification';
 import { buildReviewedSpecification, REVIEWED_SPECIFICATION_SCHEMAS } from '@/lib/workflowReviewedSpecification';
 
@@ -135,41 +135,44 @@ describe('an assessment at the new limits flows through the unchanged approval c
 
   it('still rejects a detail field one character over its unchanged, reviewed-mirrored bound', () => {
     const value = assessment();
-    value.humanDecisionPoints[0]!.description = 'x'.repeat(401);
+    value.humanDecisionPoints[0]!.whyHumanControlled = 'x'.repeat(401); // still 400 on both sides (D-7 raised description only)
     expect(schema.safeParse(value).success).toBe(false);
     expect(resolveWorkflowAssessmentProposalClosure(value).compatible).toBe(false);
   });
 });
 
-describe('D-6: advisory description 400 -> 800 on the proposal and the reviewed specification together', () => {
+describe('D-6 then D-7: advisory description 400 -> 800 -> 1,200 on the proposal and the reviewed specification together', () => {
   const advisory = (length: number) => {
     const value = assessment();
     value.advisorySteps[0]!.description = 'x'.repeat(length);
     return value;
   };
 
-  it('accepts 401-800 characters on the proposal side and rejects 801', () => {
-    for (const length of [401, 650, 800]) {
+  it('accepts 401-1,200 characters on the proposal side and rejects 1,201', () => {
+    for (const length of [401, 650, 801, 1200]) {
       expect(schema.safeParse(advisory(length)).success).toBe(true);
       expect(resolveWorkflowAssessmentProposalClosure(advisory(length))).toEqual({ compatible: true });
     }
-    expect(schema.safeParse(advisory(801)).success).toBe(false);
-    expect(resolveWorkflowAssessmentProposalClosure(advisory(801)).compatible).toBe(false);
+    expect(schema.safeParse(advisory(1201)).success).toBe(false);
+    expect(resolveWorkflowAssessmentProposalClosure(advisory(1201)).compatible).toBe(false);
   });
 
-  it('accepts 401-800 characters through the reviewer\'s typed specification and rejects 801', () => {
-    for (const length of [401, 800]) expect(buildReviewedSpecification('ADVISORY', { description: 'x'.repeat(length) }).ok).toBe(true);
-    expect(buildReviewedSpecification('ADVISORY', { description: 'x'.repeat(801) }).ok).toBe(false);
-    // Other classifications keep their bounds: a 401-character HUMAN description is still refused.
-    expect(buildReviewedSpecification('HUMAN', { description: 'x'.repeat(401), whyHumanControlled: 'Authority.' }).ok).toBe(false);
+  it('accepts 401-1,200 characters through the reviewer\'s typed specification and rejects 1,201', () => {
+    for (const length of [401, 801, 1200]) expect(buildReviewedSpecification('ADVISORY', { description: 'x'.repeat(length) }).ok).toBe(true);
+    expect(buildReviewedSpecification('ADVISORY', { description: 'x'.repeat(1201) }).ok).toBe(false);
+    // Other bounds hold: a HUMAN description over its D-7 600 is still refused.
+    expect(buildReviewedSpecification('HUMAN', { description: 'x'.repeat(601), whyHumanControlled: 'Authority.' }).ok).toBe(false);
   });
 
-  it('keeps every other classification\'s bounds unchanged', () => {
-    expect(maxOf(record('humanDecisionPoints').description)).toBe(400);
+  it('holds every classification at exactly its approved bounds (D-7 raised five; the rest are unchanged)', () => {
+    expect(maxOf(record('humanDecisionPoints').description)).toBe(600); // D-7
+    expect(maxOf(record('humanDecisionPoints').whyHumanControlled)).toBe(400);
     expect(maxOf(record('forgewingRecoveryTasks').description)).toBe(400);
-    expect(maxOf(record('deterministicRuleProposals').plainLanguageRule)).toBe(600);
-    expect(maxOf(shapeOf(REVIEWED_SPECIFICATION_SCHEMAS.HUMAN).description)).toBe(400);
-    expect(maxOf(shapeOf(REVIEWED_SPECIFICATION_SCHEMAS.ADVISORY).description)).toBe(800);
+    expect(maxOf(record('forgewingRecoveryTasks').deterministicShortfall)).toBe(400);
+    expect(maxOf(record('deterministicRuleProposals').plainLanguageRule)).toBe(1000); // D-7
+    expect(maxOf(record('deterministicRuleProposals').expectedOutcome)).toBe(400);
+    expect(maxOf(shapeOf(REVIEWED_SPECIFICATION_SCHEMAS.HUMAN).description)).toBe(600);
+    expect(maxOf(shapeOf(REVIEWED_SPECIFICATION_SCHEMAS.ADVISORY).description)).toBe(1200);
   });
 
   it('leaves historical content and its digest untouched: parsing never rewrites stored values', () => {
@@ -211,8 +214,8 @@ describe('D-6: advisory description 400 -> 800 on the proposal and the reviewed 
     const modified = resolveEffectiveReviewedSpecification(evidence(replacement)) as typeof asProposed;
     expect(modified).toMatchObject({ ok: true });
     expect(modified.artifact!.steps.find((s) => s.stepId === 'a')!.effectiveSpecification.description).toHaveLength(780);
-    // Still bounded on the reviewer path: an 801-character replacement does not resolve.
-    expect(resolveEffectiveReviewedSpecification(evidence({ description: 'y'.repeat(801) }))).toMatchObject({ ok: false, code: 'invalid_specification' });
+    // Still bounded on the reviewer path: a replacement over 1,200 characters does not resolve.
+    expect(resolveEffectiveReviewedSpecification(evidence({ description: 'y'.repeat(1201) }))).toMatchObject({ ok: false, code: 'invalid_specification' });
   });
 });
 
@@ -254,5 +257,70 @@ describe('structural closure is exactly as strict, and the prompt states every e
   it('the prompt allows context to be split across ADVISORY steps instead of compressed', () => {
     expect(prompt).toContain('use one ADVISORY step per topic');
     expect(prompt).toContain('never two records of the same kind for one step');
+  });
+});
+
+describe('D-7: five detail limits raised on both sides of the approval chain, writing targets kept', () => {
+  // [collection, field, item?, reviewed classifications, old limit, new limit, kept writing target]
+  const cases = [
+    ['deterministicRuleProposals', 'plainLanguageRule', false, ['RULE'], 600, 1000, 510],
+    ['verificationRuleProposals', 'plainLanguageRule', false, ['VERIFY'], 600, 1000, 510],
+    ['deterministicRuleProposals', 'expectedEvidence', true, ['RULE'], 200, 300, 170],
+    ['verificationRuleProposals', 'expectedEvidence', true, ['VERIFY'], 200, 300, 170],
+    ['extractionRequirements', 'describedFact', false, ['EXTRACT', 'RECOVER'], 300, 450, 255],
+    ['humanDecisionPoints', 'description', false, ['HUMAN'], 400, 600, 340],
+    ['advisorySteps', 'description', false, ['ADVISORY'], 800, 1200, 680],
+  ] as const;
+
+  it.each(cases)('%s.%s: proposal and reviewed limits are both the new maximum', (collection, field, item, classifications, _old, max) => {
+    const proposal = item ? itemOf(record(collection)[field]) : record(collection)[field];
+    expect(maxOf(proposal)).toBe(max);
+    expect(proposal.safeParse('x'.repeat(max)).success).toBe(true);
+    expect(proposal.safeParse('x'.repeat(max + 1)).success).toBe(false);
+    for (const c of classifications) {
+      const reviewedField = shapeOf(REVIEWED_SPECIFICATION_SCHEMAS[c])[field]!;
+      expect(maxOf(item ? itemOf(reviewedField) : reviewedField), `${c}.${field}`).toBe(max);
+    }
+  });
+
+  it.each(cases)('%s.%s: the writing target stays at 85%% of the previous limit', (collection, field, item, _c, old, _max, target) => {
+    const proposal = item ? itemOf(record(collection)[field]) : record(collection)[field];
+    expect(declaredWritingTarget(proposal)).toBe(target);
+    expect(target).toBe(Math.floor(old * 0.85));
+  });
+
+  it('declares a writing target only on the D-7 fields', () => {
+    const declared: string[] = [];
+    const visit = (s: AnyZod, path: string) => {
+      if (declaredWritingTarget(s) !== null) declared.push(path);
+      const inner = unwrap(s);
+      if (inner._def.typeName === 'ZodArray') visit(inner._def.type, `${path}[]`);
+      else if (inner._def.typeName === 'ZodObject') for (const [k, v] of Object.entries(shapeOf(inner))) visit(v, `${path}.${k}`);
+      else if (inner._def.typeName === 'ZodNullable') visit(inner._def.innerType, path);
+    };
+    visit(schema, '$');
+    expect(declared.sort()).toEqual([
+      '$.advisorySteps[].description', '$.deterministicRuleProposals[].expectedEvidence[]', '$.deterministicRuleProposals[].plainLanguageRule',
+      '$.extractionRequirements[].describedFact', '$.humanDecisionPoints[].description',
+      '$.verificationRuleProposals[].expectedEvidence[]', '$.verificationRuleProposals[].plainLanguageRule',
+    ]);
+  });
+
+  it('an assessment at every D-7 maximum passes the strict schema and composes valid reviewed specifications', () => {
+    const value = assessment();
+    value.deterministicRuleProposals[0]!.plainLanguageRule = 'x'.repeat(1000);
+    value.deterministicRuleProposals[0]!.expectedEvidence = ['x'.repeat(300)];
+    value.verificationRuleProposals[0]!.plainLanguageRule = 'x'.repeat(1000);
+    value.extractionRequirements[0]!.describedFact = 'x'.repeat(450);
+    value.extractionRequirements[1]!.describedFact = 'x'.repeat(450);
+    value.humanDecisionPoints[0]!.description = 'x'.repeat(600);
+    value.advisorySteps[0]!.description = 'x'.repeat(1200);
+    expect(schema.safeParse(value).success).toBe(true);
+    const composed = composeAcceptedWorkflowProposals(value, value.workflowSteps.map((s) => s.stepId));
+    expect(composed.ok).toBe(true);
+    const byStep = new Map(value.workflowSteps.map((s) => [s.stepId, s.classification as keyof typeof REVIEWED_SPECIFICATION_SCHEMAS]));
+    for (const proposal of (composed as unknown as { proposals: { stepId: string; specification: unknown }[] }).proposals) {
+      expect(REVIEWED_SPECIFICATION_SCHEMAS[byStep.get(proposal.stepId)!].safeParse(proposal.specification).success).toBe(true);
+    }
   });
 });

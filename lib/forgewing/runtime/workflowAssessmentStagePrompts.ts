@@ -17,7 +17,7 @@ import { STAGE_A_SCHEMA, STAGE_B_DETAIL_SCHEMAS } from '@/lib/forgewing/runtime/
  * The v7 single-call prompt itself is not modified.
  */
 export const FORGEWING_WORKFLOW_ASSESSMENT_DECOMPOSED_PROMPT_ID = 'forgewing-workflow-assessment-decomposed' as const;
-export const FORGEWING_WORKFLOW_ASSESSMENT_DECOMPOSED_PROMPT_VERSION = 'v1' as const;
+export const FORGEWING_WORKFLOW_ASSESSMENT_DECOMPOSED_PROMPT_VERSION = 'v2' as const;
 
 export const SHARED_RULES_ANCHOR = "You are reading a person's plain-English description of how their team works.";
 

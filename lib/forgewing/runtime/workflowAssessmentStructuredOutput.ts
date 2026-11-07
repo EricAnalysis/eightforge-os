@@ -6,7 +6,7 @@ import {
 export * from '@/lib/workflowAssessmentSchema';
 
 /** Version of the prompt that instructs the compact transport envelope. */
-export const WORKFLOW_ASSESSMENT_ENVELOPE_PROMPT_VERSION = 'v8' as const;
+export const WORKFLOW_ASSESSMENT_ENVELOPE_PROMPT_VERSION = 'v9' as const;
 
 /**
  * The provider constrains only this transport envelope. The complete assessment

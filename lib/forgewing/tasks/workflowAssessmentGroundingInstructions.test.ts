@@ -18,9 +18,9 @@ import {
 
 const prompt = readFileSync('lib/forgewing/prompts/workflowAssessment.md', 'utf8').replace(/\r\n/g, '\n');
 
-describe('v8 prompt states the exact-quotation grounding rules', () => {
-  it('is v8, and both providers send it', () => {
-    expect(WORKFLOW_ASSESSMENT_ENVELOPE_PROMPT_VERSION).toBe('v8');
+describe('the v9 prompt (v8 grounding rules, D-7 contract) states the exact-quotation grounding rules', () => {
+  it('is v9, and both providers send it', () => {
+    expect(WORKFLOW_ASSESSMENT_ENVELOPE_PROMPT_VERSION).toBe('v9');
     expect(loadObservedWorkflowAssessmentPrompt().replace(/\r\n/g, '\n')).toBe(prompt);
   });
 

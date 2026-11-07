@@ -122,7 +122,7 @@ describe('the decomposed pipeline end to end (provider-free)', () => {
     if (result.status !== 'requires_human_review') return;
     expect(modelOutput(result.assessment as never)).toEqual(x);
     expect(result.assessment).toMatchObject({ authority: 'non_authoritative', requiresHumanReview: true });
-    expect(result.metadata).toMatchObject({ promptTemplateId: FORGEWING_WORKFLOW_ASSESSMENT_DECOMPOSED_PROMPT_ID, promptTemplateVersion: 'v1', calls: 2 });
+    expect(result.metadata).toMatchObject({ promptTemplateId: FORGEWING_WORKFLOW_ASSESSMENT_DECOMPOSED_PROMPT_ID, promptTemplateVersion: 'v2', calls: 2 });
     expect(result.metadata.stageCalls?.map((c) => [c.stage, c.batch, c.steps])).toEqual([['A', 0, 0], ['B', 0, x.workflowSteps.length]]);
   });
 

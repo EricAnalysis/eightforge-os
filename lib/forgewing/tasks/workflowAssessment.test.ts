@@ -261,7 +261,7 @@ describe('versioned domain-neutral workflow assessment', () => {
     expect(JSON.stringify(source)).toBe(before);
     const sent = JSON.parse(fake.mock.calls[0]?.[0]?.inputJson ?? '{}');
     expect(sent).toEqual({ task: 'workflow_assessment', ...source });
-    expect(result.metadata.promptTemplateVersion).toBe('v8');
+    expect(result.metadata.promptTemplateVersion).toBe('v9'); // D-7 regenerated the embedded contract
   });
 
   it('preserves historical six-answer identity and never manufactures a seventh answer', async () => {

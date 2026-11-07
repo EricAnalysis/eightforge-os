@@ -49,6 +49,42 @@ const prose = (max: number) => z.string().min(1).max(max)
   .refine((value) => value.trim() === value, 'prose whitespace');
 
 /**
+ * D-7 (2026-11-07, owner-approved): five detail-record limits raised together with
+ * the reviewed specification, on measured evidence from P5 runs 1-2 (decomposed
+ * Workflow Assessment), which failed ONLY on these lengths with zero structural
+ * defects. Each new hard limit is >=1.1x the largest observed output, rounded:
+ *   plainLanguageRule 600 -> 1,000 (observed 762 / 641 / 797)
+ *   expectedEvidence item 200 -> 300 (211, 211)
+ *   extraction describedFact 300 -> 450 (331)
+ *   humanDecisionPoints description 400 -> 600 (427)
+ *   advisorySteps description 800 -> 1,200 (1,063 / 806)
+ * The WRITING TARGET (prompt "aim <=T" and the stage-B maxLength hint) is kept at
+ * its previous value, 85% of the old limit, so the guidance the model writes to
+ * does not loosen; only the validation headroom grows. The target is declared
+ * here, on the schema, so the prompt contract and the provider grammar read one
+ * source. The reviewed specification restates the new limits (this module and it
+ * may import only zod); workflowAssessmentSchemaCapacity.test.ts keeps them equal.
+ */
+export const WORKFLOW_ASSESSMENT_WRITING_TARGET_PREFIX = 'writing-target:' as const;
+const targetedProse = (max: number, writingTarget: number) =>
+  prose(max).describe(`${WORKFLOW_ASSESSMENT_WRITING_TARGET_PREFIX}${writingTarget}`);
+
+/** An explicit writing target declared on a schema (any wrapper depth), or null when none is declared. */
+export function declaredWritingTarget(schema: z.ZodTypeAny): number | null {
+  let current: z.ZodTypeAny | undefined = schema;
+  while (current) {
+    const description = current._def.description as string | undefined;
+    if (description?.startsWith(WORKFLOW_ASSESSMENT_WRITING_TARGET_PREFIX)) {
+      const value = Number(description.slice(WORKFLOW_ASSESSMENT_WRITING_TARGET_PREFIX.length));
+      if (!Number.isSafeInteger(value) || value < 1) throw new Error(`invalid_writing_target:${description}`);
+      return value;
+    }
+    current = current instanceof z.ZodEffects ? current._def.schema : undefined;
+  }
+  return null;
+}
+
+/**
  * Every condition that must hold for a described operation to be a credible
  * deterministic candidate. The provider reports each one; the runtime, not the
  * provider, decides what a missing condition means.
@@ -81,10 +117,10 @@ const determinismSupportSchema = z.object({
 const ruleProposalSchema = z.object({
   ruleId: identifier,
   stepId: identifier,
-  plainLanguageRule: prose(600),
+  plainLanguageRule: targetedProse(1_000, 510),
   requiredFacts: z.array(prose(200)).min(1).max(12),
   conditionType: z.enum(WORKFLOW_RULE_CONDITION_TYPES),
-  expectedEvidence: z.array(prose(200)).min(1).max(12),
+  expectedEvidence: z.array(targetedProse(300, 170)).min(1).max(12),
   expectedOutcome: prose(400),
   userDescribedExceptions: z.array(prose(300)).max(12),
   unresolvedAssumptions: z.array(prose(300)).max(12),
@@ -136,7 +172,7 @@ export const WorkflowAssessmentModelOutputSchema = z.object({
   }).strict()).min(1).max(40),
   extractionRequirements: z.array(z.object({
     requirementId: identifier, stepId: identifier,
-    describedFact: prose(300), sourceDocument: prose(200),
+    describedFact: targetedProse(450, 255), sourceDocument: prose(200),
     deterministicExtractionPlausible: z.boolean(),
   }).strict()).max(40),
   deterministicRuleProposals: z.array(ruleProposalSchema).max(40),
@@ -151,10 +187,10 @@ export const WorkflowAssessmentModelOutputSchema = z.object({
   }).strict()).max(24),
   humanDecisionPoints: z.array(z.object({
     decisionId: identifier, stepId: identifier,
-    description: prose(400), whyHumanControlled: prose(400),
+    description: targetedProse(600, 340), whyHumanControlled: prose(400),
   }).strict()).max(24),
   advisorySteps: z.array(z.object({
-    advisoryId: identifier, stepId: identifier, description: prose(800),
+    advisoryId: identifier, stepId: identifier, description: targetedProse(1_200, 680),
   }).strict()).max(24),
   failureConsequences: z.array(z.object({
     consequenceId: identifier, stepId: identifier,

@@ -11,6 +11,7 @@ import {
 } from '@/lib/forgewing/runtime/workflowAssessmentStageGrammars';
 import {
   WORKFLOW_DETERMINISM_CONDITIONS, WORKFLOW_INTAKE_V1_QUESTIONS, WORKFLOW_INTAKE_V2_QUESTIONS, WorkflowAssessmentModelOutputSchema,
+  declaredWritingTarget,
 } from '@/lib/workflowAssessmentSchema';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- untyped JSON grammar traversal in tests
@@ -232,12 +233,13 @@ describe('derivation fails loudly instead of emitting an unenforceable grammar',
 });
 
 describe('L1: stage B length hints (owner-approved 2026-11-07)', () => {
-  // Every string in a stage-B detail record, with its strict Zod maximum (null when unbounded).
-  const stringBounds = (schema: z.ZodTypeAny, path: string, out: Map<string, number | null>) => {
+  // Every string in a stage-B detail record: its strict Zod maximum (null when unbounded) and any declared D-7 writing target.
+  const stringBounds = (schema: z.ZodTypeAny, path: string, out: Map<string, { max: number | null; target: number | null }>) => {
+    const target = declaredWritingTarget(schema);
     let s = schema;
     while (s instanceof z.ZodEffects || s instanceof z.ZodNullable) s = s instanceof z.ZodEffects ? s._def.schema : s._def.innerType;
     if (s instanceof z.ZodString) {
-      out.set(path, (s._def.checks.find((c) => c.kind === 'max') as { value: number } | undefined)?.value ?? null);
+      out.set(path, { max: (s._def.checks.find((c) => c.kind === 'max') as { value: number } | undefined)?.value ?? null, target });
     } else if (s instanceof z.ZodArray) {
       stringBounds(s._def.type, `${path}.items`, out);
     } else if (s instanceof z.ZodObject) {
@@ -247,23 +249,27 @@ describe('L1: stage B length hints (owner-approved 2026-11-07)', () => {
   };
   const at = (node: G, path: string) => path.split('.').filter(Boolean).reduce((n: G, k) => n?.[k], node);
 
-  it('emits maxLength = floor(0.85 x strict max) on every bounded stage-B string, and none on unbounded ones', () => {
+  it('emits maxLength = the declared writing target, else floor(0.85 x strict max), on every bounded stage-B string; none on unbounded', () => {
     expect(LENGTH_HINT_RATIO).toBe(0.85);
     const grammar = buildStageBGrammar(Object.keys(STAGE_B_DETAIL_SCHEMAS).map((c, i) => ({ stepId: `s${i}`, classification: c }))) as G;
     let bounded = 0;
     for (const [c, schema] of Object.entries(STAGE_B_DETAIL_SCHEMAS)) {
-      for (const [path, max] of stringBounds(schema as z.ZodTypeAny, '', new Map())) {
+      for (const [path, { max, target }] of stringBounds(schema as z.ZodTypeAny, '', new Map())) {
         const node = at(grammar.$defs[c], path) as G;
         expect(node?.type === 'string' || (Array.isArray(node?.type) && node.type.includes('string')), `${c}${path}`).toBe(true);
         if (max === null) { expect(node.maxLength, `${c}${path}`).toBeUndefined(); continue; }
         bounded += 1;
-        expect(node.maxLength, `${c}${path}`).toBe(Math.floor(0.85 * max));
+        expect(node.maxLength, `${c}${path}`).toBe(target ?? Math.floor(0.85 * max));
         expect(node.maxLength).toBeLessThan(max);
       }
     }
     expect(bounded).toBeGreaterThan(10);
-    // The P5 run 1 overruns are now hinted below their limits.
+    // The P5 overruns stay hinted at their pre-D-7 writing targets while the limits rose (D-7).
     expect((at(grammar.$defs.ADVISORY, '.properties.description') as G).maxLength).toBe(680);
+    expect((at(grammar.$defs.RULE, '.properties.plainLanguageRule') as G).maxLength).toBe(510);
+    expect((at(grammar.$defs.HUMAN, '.properties.description') as G).maxLength).toBe(340);
+    expect((at(grammar.$defs.EXTRACT, '.properties.describedFact') as G).maxLength).toBe(255);
+    expect((at(grammar.$defs.RULE, '.properties.expectedEvidence.items') as G).maxLength).toBe(170);
   });
 
   it('leaves stage A byte-identical to the grammar P5 run 1 compiled (no length hints)', async () => {
@@ -275,9 +281,9 @@ describe('L1: stage B length hints (owner-approved 2026-11-07)', () => {
 
   it('a hint is never a bound: text between the hint and the strict max still validates, and the strict max still rejects', () => {
     const advisory = STAGE_B_DETAIL_SCHEMAS.ADVISORY;
-    expect(advisory.safeParse({ description: 'x'.repeat(700) }).success).toBe(true); // > 680 hint, <= 800 limit
-    expect(advisory.safeParse({ description: 'x'.repeat(800) }).success).toBe(true);
-    expect(advisory.safeParse({ description: 'x'.repeat(801) }).success).toBe(false);
+    expect(advisory.safeParse({ description: 'x'.repeat(700) }).success).toBe(true); // > 680 hint, <= 1,200 limit (D-7)
+    expect(advisory.safeParse({ description: 'x'.repeat(1200) }).success).toBe(true);
+    expect(advisory.safeParse({ description: 'x'.repeat(1201) }).success).toBe(false);
   });
 
   it('only stage B is hinted: toProviderGrammar without the option emits no maxLength', () => {

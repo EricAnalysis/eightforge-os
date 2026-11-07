@@ -90,8 +90,28 @@ const ruleProposalSchema = z.object({
   unresolvedAssumptions: z.array(prose(300)).max(12),
 }).strict();
 
+/**
+ * Descriptive capacity (2026-11-06 schema capacity review). Four limits were raised
+ * on measured evidence from three complete live qualifications, and only on fields
+ * that never enter the reviewed specification (REVIEWED_SPECIFICATION_SCHEMAS), so
+ * the approval chain's bounds are unchanged:
+ *   summary 1,200 -> 2,000 (observed 1,034 / 1,085 / 1,438, non-repetitive);
+ *   evidenceRequirements item 200 -> 350 (largest single requirement 257 once
+ *     items stopped being bundled);
+ *   evidenceRelationships description 300 -> 600 (observed up to 420; this text
+ *     becomes an FDE information need, whose waiver text is capped at 2,000);
+ *   limitations 12 -> 16 items (every run reached the cap with distinct gaps).
+ * Detail-record fields keep the bounds the reviewed specification mirrors;
+ * changing one is an approval-chain contract change made on both sides at once.
+ * D-6 (2026-11-06, owner-approved) is the one such change: the advisory
+ * description 400 -> 800, on this schema and on reviewedAdvisorySpecification
+ * together. Observed 667 / 533 / 523 / 454 / 410 (every run overran 400;
+ * after decomposition it was the only residual failure in D3-D5). Both modules
+ * are sealed to import only zod, so the bound is restated and kept equal by
+ * the parity test in workflowAssessmentSchemaCapacity.test.ts.
+ */
 export const WorkflowAssessmentModelOutputSchema = z.object({
-  summary: prose(1200),
+  summary: prose(2000),
   documents: z.array(z.object({
     documentId: identifier, name: prose(200), role: prose(300),
   }).strict()).max(24),
@@ -102,7 +122,7 @@ export const WorkflowAssessmentModelOutputSchema = z.object({
     classification: z.enum(WORKFLOW_STEP_CLASSIFICATIONS),
     rationale: prose(600),
     requiredInputs: z.array(prose(200)).max(12),
-    evidenceRequirements: z.array(prose(200)).max(12),
+    evidenceRequirements: z.array(prose(350)).max(12),
     proposedOutput: prose(300),
     dependencies: z.array(identifier).max(12),
     failureConsequence: prose(400),
@@ -121,7 +141,7 @@ export const WorkflowAssessmentModelOutputSchema = z.object({
   }).strict()).max(40),
   deterministicRuleProposals: z.array(ruleProposalSchema).max(40),
   evidenceRelationships: z.array(z.object({
-    relationshipId: identifier, description: prose(300),
+    relationshipId: identifier, description: prose(600),
     relatedDocuments: z.array(prose(200)).min(1).max(12),
   }).strict()).max(24),
   verificationRuleProposals: z.array(ruleProposalSchema).max(40),
@@ -134,13 +154,13 @@ export const WorkflowAssessmentModelOutputSchema = z.object({
     description: prose(400), whyHumanControlled: prose(400),
   }).strict()).max(24),
   advisorySteps: z.array(z.object({
-    advisoryId: identifier, stepId: identifier, description: prose(400),
+    advisoryId: identifier, stepId: identifier, description: prose(800),
   }).strict()).max(24),
   failureConsequences: z.array(z.object({
     consequenceId: identifier, stepId: identifier,
     description: prose(400), severity: z.enum(['low', 'moderate', 'high']),
   }).strict()).max(40),
-  limitations: z.array(prose(300)).max(12),
+  limitations: z.array(prose(300)).max(16),
 }).strict();
 
 export type WorkflowAssessmentModelOutput = z.infer<

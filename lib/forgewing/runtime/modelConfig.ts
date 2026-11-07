@@ -140,6 +140,19 @@ export function isForgewingWorkflowAssessmentEnabled(): boolean {
     && qualifiedModelOrWarn('workflow_assessment').qualified;
 }
 
+export type WorkflowAssessmentGenerationMode = 'single_call' | 'decomposed';
+
+/**
+ * How an enabled Workflow Assessment is generated (DECOMPOSITION-PLAN.md, P4).
+ * Only the exact value `decomposed` selects the two-stage pipeline; anything
+ * else, including unset, keeps the single-call path. It never enables an
+ * assessment by itself: isForgewingWorkflowAssessmentEnabled() still gates both.
+ * Not to be set in production until the P5 live qualification passes.
+ */
+export function getForgewingWorkflowAssessmentGenerationMode(): WorkflowAssessmentGenerationMode {
+  return process.env.FORGEWING_WORKFLOW_ASSESSMENT_GENERATION === 'decomposed' ? 'decomposed' : 'single_call';
+}
+
 /** Repository-plan reasoning is separately default-off beneath the master gate. */
 export function isForgewingRepositoryPlanGuidanceEnabled(): boolean {
   return isForgewingShadowEnabled()
@@ -164,9 +177,28 @@ export function getForgewingRepositoryPlanRuntimeConfig(): ForgewingRepositoryPl
  * Workflow Assessment bounds (S3). An assessment reads seven answers and up to
  * five bounded attachment excerpts and returns every workflow step, so the
  * conservative shadow-extraction limits (3 s, 800 tokens) would truncate or
- * time out. One call per attempt. The timeout ceiling keeps a three-attempt
- * sweep inside its 60-second route budget.
+ * time out. One call per attempt.
+ *
+ * D2 (2026-11-06): a live claude-sonnet-4-6 call on the synthetic pilot intake
+ * (10,668 input tokens) reached the old 4,000-token cap after 76.9 s, about
+ * 52 tokens/s, so the old 15 s / 4,000-token contract could not complete an
+ * assessment. A second live call at a 16,000-token cap was accepted and reached
+ * 11 of 12 sections in 277.9 s (about 58 tokens/s) before truncating. At a
+ * 20,000 cap the same intake completed in 17,333 tokens and 314.4 s.
+ *
+ * D4 (2026-11-06): with the v4 field contract the same intake completed in
+ * 19,988 tokens and 344.0 s (about 58 tokens/s), 12 tokens under the 20,000 cap,
+ * so assessment size varies by more than 2,600 tokens between runs. The output
+ * ceiling is now 26,000 tokens, 30% above the largest observed run (about 520 s
+ * at a pessimistic 50 tokens/s). The timeout ceiling is 600 s, which leaves 60 s
+ * of the 660 s route budget for claim and finalization. The scheduled sweep
+ * still makes one attempt per run.
  */
+export const WORKFLOW_ASSESSMENT_DEFAULT_TIMEOUT_MS = 600_000;
+export const WORKFLOW_ASSESSMENT_MAX_TIMEOUT_MS = 600_000;
+export const WORKFLOW_ASSESSMENT_DEFAULT_MAX_OUTPUT_TOKENS = 26_000;
+export const WORKFLOW_ASSESSMENT_MAX_OUTPUT_TOKENS = 26_000;
+
 export function getForgewingWorkflowAssessmentRuntimeConfig(): ForgewingRuntimeConfig {
   const resolution = resolveForgewingModel();
   const enabled = isForgewingWorkflowAssessmentEnabled();
@@ -174,9 +206,11 @@ export function getForgewingWorkflowAssessmentRuntimeConfig(): ForgewingRuntimeC
     enabled,
     disabledReason: enabled ? null : resolution.qualified ? 'gate_off' : 'model_unqualified',
     model: resolution.model,
-    timeoutMs: boundedInteger(process.env.FORGEWING_WORKFLOW_ASSESSMENT_TIMEOUT_MS, 15_000, 1_000, 18_000),
+    timeoutMs: boundedInteger(process.env.FORGEWING_WORKFLOW_ASSESSMENT_TIMEOUT_MS,
+      WORKFLOW_ASSESSMENT_DEFAULT_TIMEOUT_MS, 1_000, WORKFLOW_ASSESSMENT_MAX_TIMEOUT_MS),
     maxCalls: 1,
-    maxOutputTokens: boundedInteger(process.env.FORGEWING_WORKFLOW_ASSESSMENT_MAX_OUTPUT_TOKENS, 4_000, 800, 8_000),
+    maxOutputTokens: boundedInteger(process.env.FORGEWING_WORKFLOW_ASSESSMENT_MAX_OUTPUT_TOKENS,
+      WORKFLOW_ASSESSMENT_DEFAULT_MAX_OUTPUT_TOKENS, 800, WORKFLOW_ASSESSMENT_MAX_OUTPUT_TOKENS),
   };
 }
 

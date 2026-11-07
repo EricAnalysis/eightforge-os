@@ -81,8 +81,13 @@ const reviewedHumanSpecification = z.object({
   whyHumanControlled: text(400),
 }).strict();
 
+/**
+ * D-6 (2026-11-06, owner-approved): 800, raised together with the proposal-side
+ * advisorySteps description. This module may import only zod, so the bound is
+ * restated; workflowAssessmentSchemaCapacity.test.ts keeps the two equal.
+ */
 const reviewedAdvisorySpecification = z.object({
-  description: text(400),
+  description: text(800),
 }).strict();
 
 /**

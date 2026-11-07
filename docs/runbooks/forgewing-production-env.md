@@ -80,8 +80,9 @@ code, after a canonical qualification result explicitly qualifies another model
 | `FORGEWING_MAX_CALLS` | 1 | 1-4 per document run |
 | `FORGEWING_TIMEOUT_MS` | 3000 | 100-8000 (shadow and recovery tasks) |
 | `FORGEWING_MAX_OUTPUT_TOKENS` | 800 | 128-2000 |
-| `FORGEWING_WORKFLOW_ASSESSMENT_TIMEOUT_MS` | 15000 | 1000-18000 (a three-attempt sweep fits the 60 s route) |
-| `FORGEWING_WORKFLOW_ASSESSMENT_MAX_OUTPUT_TOKENS` | 4000 | 800-8000 |
+| `FORGEWING_WORKFLOW_ASSESSMENT_TIMEOUT_MS` | 600000 | 1000-600000 (one attempt fits the 660 s route; see D2/D4 note below) |
+| `FORGEWING_WORKFLOW_ASSESSMENT_MAX_OUTPUT_TOKENS` | 26000 | 800-26000 |
+| `FORGEWING_WORKFLOW_ASSESSMENT_GENERATION` | unset (single call) | `decomposed` only; **do not set until the P5 live qualification passes** (see decomposed note below) |
 | `FORGEWING_REPOSITORY_PLAN_TIMEOUT_MS` | 60000 | 1000-120000 |
 | `FORGEWING_REPOSITORY_PLAN_MAX_OUTPUT_TOKENS` | 8000 | 1024-16000 |
 | `FORGEWING_SHADOW_TTL_DAYS` | 5 | Shadow artifact retention (cleanup cron `17 3 * * *`) |
@@ -90,6 +91,29 @@ Out-of-range values fall back to the default and log a warning. Non-Forgewing
 Claude calls use fixed bounds in `lib/server/ai/claudeRequestOptions.ts`
 (S6): reserved calls get 45 s and no retry; internal diagnostics get 90 s and
 one retry.
+
+Workflow Assessment capacity (D2 and D4, 2026-11-06). A live call on the synthetic pilot
+intake reached the old 4,000-token cap after 76.9 s, so D2 allowed
+20,000 output tokens and a 420 s timeout. A second call at a 16,000 cap truncated
+after 277.9 s with 11 of 12 sections written. At the 20,000 cap the same intake
+completed in 17,333 tokens and 314.4 s; a later run with the v4 field contract used
+19,988 tokens and 344.0 s, 12 under the cap. D4 therefore allows 26,000 output
+tokens and a 600 s timeout. Both internal routes
+(`/api/internal/workflow-assessment` and its sweep) declare `maxDuration = 660`.
+That needs Vercel Pro or Enterprise with Fluid compute, whose maximum is 800 s;
+Hobby is capped at 300 s. The sweep makes one attempt per run. The shared Claude
+client raises Node fetch's 300 s header and body defaults to 720 s
+(`CLAUDE_TRANSPORT_TIMEOUT_MS`), so the per-call timeout is always the one that
+fires.
+
+Decomposed generation (P4, 2026-11-06; not active). With `FORGEWING_WORKFLOW_ASSESSMENT_GENERATION=decomposed`
+an enabled assessment runs as stage A (structure and determinism, fixed grammar; 20,000 tokens, 400 s)
+then stage B (one detail record per step, batches of at most 30 steps in parallel; 8,000 tokens, 200 s
+per call): at most 3 provider calls per attempt, no retries. One attempt is still one claim and one
+organization budget slot, and the two-attempt lifetime limit is unchanged. Each provider call writes its
+own `forgewing_provider_call_observations` row with its own outcome. Nothing is persisted unless the
+composed assessment passes the strict schema and the shared final validation. Stage A plus stage B is
+600 s, inside the 660 s routes. Any other value, or unset, keeps the single-call path.
 
 ## Organization ledgers (database, not env)
 
@@ -114,7 +138,7 @@ Always record `recorded_by`.
 
 | Item | Where | Notes |
 |---|---|---|
-| `CRON_SECRET` | Vercel | Internal routes return 503 without it. Crons: shadow cleanup `17 3 * * *`, Workflow Assessment sweep `41 4 * * *` (three attempts per sweep at most) |
+| `CRON_SECRET` | Vercel | Internal routes return 503 without it. Crons: shadow cleanup `17 3 * * *`, Workflow Assessment sweep `41 4 * * *` (one attempt per sweep, 660 s route) |
 | Engineering Worker | Separate host (`Dockerfile.worker`) | `FORGEWING_ENGINEERING_WORKER_ACCESS_TOKEN` (dedicated-role JWT), `FORGEWING_REPOSITORY_ROOT=/repository`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `ANTHROPIC_API_KEY`, optionally `FORGEWING_REPOSITORY_PLAN_POLL_INTERVAL_MS` / `FORGEWING_REPOSITORY_PLAN_ONE_SHOT`. Never on Vercel |
 | Legacy OpenAI Instructor assist | Vercel | **Provider path disabled (D4).** The opt-in `EIGHTFORGE_INSTRUCTOR_ENABLED=1` is kept, but no provider client is built: OpenAI is not an approvable data-policy provider and the path has no entitlement, budget or qualified model. The assist is skipped with an auditable warning. Evidence-only (S1) |
 | Legacy document AI enrichment | Per org | **Provider path disabled (D4).** An org with `analysis_mode='ai_enriched'` gets a stored result with an auditable `disabled` note and no provider call (Claude used an unqualified legacy model; OpenAI is not an approvable data-policy provider). Evidence-only (S1). Re-enabling is a governed project |

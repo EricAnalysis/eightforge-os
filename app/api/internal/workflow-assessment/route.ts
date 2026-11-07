@@ -15,7 +15,11 @@ import { z } from 'zod';
 import { executeClaimedWorkflowAssessment } from '@/lib/server/workflowAssessmentClaim';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60;
+// One provider call of up to 600 s (WORKFLOW_ASSESSMENT_MAX_TIMEOUT_MS) plus
+// claim and finalization. Requires Vercel Pro or Enterprise with Fluid
+// compute (maximum 800 s). If the route stops before finalization, the attempt
+// stays claimed, so the budget must exceed the provider timeout.
+export const maxDuration = 660;
 
 function authorized(request: Request, secret: string): boolean {
   const expected = Buffer.from(`Bearer ${secret}`);

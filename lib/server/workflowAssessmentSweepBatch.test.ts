@@ -1,8 +1,9 @@
-// Bounded daily batch: at most three provider attempts per scheduled sweep.
+// Bounded daily batch: at most one provider attempt per scheduled sweep (D2).
 //
-// The cron is daily because the hosting plan permits nothing finer, so this
-// constant is the scheduled ceiling on provider spend. It counts attempts, not
-// successes, and never relaxes the per-submission lifetime cap.
+// The cron is daily, so this constant is the scheduled ceiling on provider
+// spend. It counts attempts, not successes, and never relaxes the
+// per-submission lifetime cap. It was three until D2 (2026-11-06): one
+// attempt may now run up to 420 s, and only one fits the 480 s sweep route.
 //
 // Every test is provider-free.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -115,8 +116,8 @@ describe('bounded daily sweep batch', () => {
     enabled.mockReturnValue(true);
   });
 
-  it('caps a scheduled sweep at three attempts', () => {
-    expect(WORKFLOW_ASSESSMENT_SWEEP_BATCH_SIZE).toBe(3);
+  it('caps a scheduled sweep at one attempt', () => {
+    expect(WORKFLOW_ASSESSMENT_SWEEP_BATCH_SIZE).toBe(1);
     // Independent of the per-submission lifetime ceiling.
     expect(WORKFLOW_ASSESSMENT_MAX_ATTEMPTS).toBe(2);
   });
@@ -137,21 +138,30 @@ describe('bounded daily sweep batch', () => {
     expect(providerCalls).toEqual(['a']);
   });
 
-  // 3/4. three pending -> three; four+ -> still three
+  // 3/4. three pending -> one; five pending -> still one, oldest first
   it.each([
-    ['three pending', ['a', 'b', 'c'], ['a', 'b', 'c']],
-    ['five pending', ['a', 'b', 'c', 'd', 'e'], ['a', 'b', 'c']],
-  ])('%s attempts at most three, oldest first', async (_label, ids, expected) => {
+    ['three pending', ['a', 'b', 'c'], ['a']],
+    ['five pending', ['a', 'b', 'c', 'd', 'e'], ['a']],
+  ])('%s attempts at most one, oldest first', async (_label, ids, expected) => {
     const { providerCalls } = database(pending(...ids));
     const result = await sweepWorkflowAssessments();
     expect(providerCalls).toEqual(expected);
-    expect(result.attempted).toBe(3);
+    expect(result.attempted).toBe(1);
     expect(result.stoppedBecause).toBe('batch_full');
   });
 
-  // 5. first item fails -> later eligible items still run
-  it('continues past a failure instead of aborting the batch', async () => {
-    const { providerCalls, finalized } = database(pending('a', 'b', 'c'));
+  it('drains a backlog one oldest-first submission per sweep', async () => {
+    const { providerCalls } = database(pending('a', 'b', 'c'));
+    for (let run = 0; run < 3; run += 1) {
+      expect(await sweepWorkflowAssessments()).toMatchObject({ attempted: 1, recorded: 1, stoppedBecause: 'batch_full' });
+    }
+    expect(providerCalls).toEqual(['a', 'b', 'c']);
+    expect(await sweepWorkflowAssessments()).toMatchObject({ attempted: 0, stoppedBecause: 'nothing_claimable' });
+  });
+
+  // 5. a failure is finalized and never blocks the queue past its lifetime cap
+  it('finalizes a failure and moves on once the submission exhausts its lifetime attempts', async () => {
+    const { providerCalls, finalized } = database(pending('a', 'b'));
     runAssessment.mockImplementation(async (submissionId: string) => {
       providerCalls.push(submissionId);
       if (submissionId === 'a') return { status: 'provider_failed', reason: 'timeout' };
@@ -159,10 +169,15 @@ describe('bounded daily sweep batch', () => {
         sourceSubmissionId: submissionId, assessmentVersion: 1,
         requiresHumanReview: true, authority: 'non_authoritative' };
     });
-    const result = await sweepWorkflowAssessments();
-    expect(providerCalls).toEqual(['a', 'b', 'c']);
-    expect(result).toMatchObject({ attempted: 3, recorded: 2 });
+    const first = await sweepWorkflowAssessments();
+    expect(first).toMatchObject({ attempted: 1, recorded: 0, stoppedBecause: 'batch_full' });
     expect(finalized[0]).toEqual({ id: 'a', status: 'failed' });
+    // Oldest first, so 'a' takes its final lifetime attempt next, then 'b' runs.
+    await sweepWorkflowAssessments();
+    const third = await sweepWorkflowAssessments();
+    expect(providerCalls).toEqual(['a', 'a', 'b']);
+    expect(providerCalls.filter((id) => id === 'a')).toHaveLength(WORKFLOW_ASSESSMENT_MAX_ATTEMPTS);
+    expect(third).toMatchObject({ attempted: 1, recorded: 1 });
   });
 
   // 9. no submission receives two attempts in one sweep
@@ -177,7 +192,7 @@ describe('bounded daily sweep batch', () => {
     });
     const result = await sweepWorkflowAssessments();
     expect(providerCalls).toEqual(['a']);
-    expect(result).toMatchObject({ attempted: 1, stoppedBecause: 'nothing_claimable' });
+    expect(result).toMatchObject({ attempted: 1, stoppedBecause: 'batch_full' });
   });
 
   // 6. exhausted oldest item -> later items run
@@ -217,9 +232,9 @@ describe('bounded daily sweep batch', () => {
   it('lets two concurrent sweeps share the work without overlap', async () => {
     const { providerCalls } = database(pending('a', 'b', 'c', 'd', 'e', 'f'));
     await Promise.all([sweepWorkflowAssessments(), sweepWorkflowAssessments()]);
-    // Six attempts across two sweeps, each capped at three, none repeated.
-    expect(providerCalls).toHaveLength(6);
-    expect(new Set(providerCalls).size).toBe(6);
+    // Two attempts across two sweeps, each capped at one, none repeated.
+    expect(providerCalls).toHaveLength(2);
+    expect(new Set(providerCalls).size).toBe(2);
   });
 
   // 11. feature flag off -> zero claims and zero provider attempts
@@ -262,7 +277,7 @@ describe('bounded daily sweep batch', () => {
     expect(submissions[1]!.attempts).toBe(0);
   });
 
-  it.each([true, false])('preserves earlier outcomes when second finalization fails, recorded=%s', async (recorded) => {
+  it.each([true, false])('reports a later sweep finalization failure without disturbing an earlier finalized attempt, recorded=%s', async (recorded) => {
     const submissions = pending('a', 'b', 'c');
     const { rpc, finalized } = database(submissions);
     const normalRpc = rpc.getMockImplementation()!;
@@ -280,11 +295,15 @@ describe('bounded daily sweep batch', () => {
       return normalRunner(submissionId);
     });
 
+    const first = await sweepWorkflowAssessments();
+    expect(first).toMatchObject({
+      attempted: 1, recorded: 1, stoppedBecause: 'batch_full',
+      outcomes: [{ status: 'attempt_completed', submissionId: 'a', recorded: true }],
+    });
     const result = await sweepWorkflowAssessments();
     expect(result).toMatchObject({
-      attempted: 2, recorded: recorded ? 2 : 1, stoppedBecause: 'attempt_finalization_failed',
+      attempted: 1, recorded: recorded ? 1 : 0, stoppedBecause: 'attempt_finalization_failed',
       outcomes: [
-        { status: 'attempt_completed', submissionId: 'a', recorded: true },
         { status: 'attempt_finalization_failed', submissionId: 'b', recorded,
           outcome: recorded ? 'assessment_recorded' : 'persist_failed',
           reason: 'finalization_rpc_threw' },
@@ -312,7 +331,8 @@ describe('bounded daily sweep batch', () => {
         requiresHumanReview: true, authority: 'non_authoritative' };
     });
     await sweepWorkflowAssessments();
-    // Three simultaneous provider calls would be three simultaneous costs.
+    // One sweep holds at most one provider call: never two simultaneous costs.
+    expect(providerCalls).toEqual(['a']);
     expect(peak).toBe(1);
   });
 });

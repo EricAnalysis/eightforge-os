@@ -278,7 +278,9 @@ describe('Forgewing Claude adapter', () => {
             type: 'json_schema',
             schema: expect.objectContaining({
               properties: expect.objectContaining({
-                columnMappings: expect.objectContaining({ maxItems: 12 }),
+                // The 12-mapping bound is enforced by parseColumnMappingModelOutput; the provider
+                // rejects `maxItems`, so the grammar carries only the verified `minItems: 1`.
+                columnMappings: expect.objectContaining({ type: 'array', minItems: 1 }),
               }),
             }),
           }),

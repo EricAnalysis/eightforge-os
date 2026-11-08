@@ -2891,6 +2891,9 @@ WSLENV="${WSLENV:+${WSLENV}:}B3_DATABASE_URL" \
 # B4.2 value-reading proposals: immutable, non-authoritative, promoted only by
 # a database-verified human fact assertion.
 "${psql[@]}" --file scripts/sql/verify-forgewing-value-reading.sql
+# C1B source-region guard: same fictional B4.2 identities, rollback-only.
+# ON_ERROR_STOP makes a failed assertion fail the PR migration replay job.
+"${psql[@]}" --file scripts/sql/verify-c1b-proposal-region-integrity.sql
 B42_DATABASE_URL="${replay_database_url}" \
 WSLENV="${WSLENV:+${WSLENV}:}B42_DATABASE_URL" \
   npx --no-install vite-node --config vitest.config.ts \

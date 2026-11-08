@@ -1781,6 +1781,7 @@ export default function DocumentDetailPage({
         navigationProjectId={requestedProjectId}
         navigationDecisionHref={navigationDecisionHref}
         navigationValidatorHref={navigationValidatorHref}
+        resolutionProjectId={project?.id ?? doc.project_id ?? null}
         evaluationNode={evaluationSection}
         managementNode={(
           <div className="space-y-4">

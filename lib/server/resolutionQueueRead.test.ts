@@ -141,10 +141,22 @@ describe('resolution queue server read (B5-A)', () => {
       return fake.client.from(table);
     } };
     const result = await readResolutionQueue({ organizationId: ORG, projectId: PROJECT }, { admin: client,
-      forgewingEnabled: true, readRecoveryQueue: vi.fn(async () => ({ status: 'ok' as const, candidates: [] })) });
+      forgewingEnabled: true, resolveValueReadingAvailability: async () => true,
+      readRecoveryQueue: vi.fn(async () => ({ status: 'ok' as const, candidates: [] })) });
     expect(result.status).toBe('ok');
     if (result.status !== 'ok') return;
     expect(result.queue.cases[0]!.actions.map((action) => action.kind)).toEqual(['enter_reviewed_value', 'record_disposition', 'open_document']);
+    expect(result.queue.cases[0]!.suggestions).toEqual([]);
+  });
+
+  it('keeps human review available but offers no Value Reading action while activation is disabled', async () => {
+    const { client } = fakeClient({ documents: [{ id: DOC }], document_extractions: [extraction] });
+    const result = await readResolutionQueue({ organizationId: ORG, projectId: PROJECT }, { admin: client,
+      forgewingEnabled: true, readRecoveryQueue: vi.fn(async () => ({ status: 'ok' as const, candidates: [] })) });
+    expect(result.status).toBe('ok');
+    if (result.status !== 'ok') return;
+    expect(result.queue.cases[0]!.actions.some((action) => action.kind === 'enter_reviewed_value')).toBe(true);
+    expect(result.queue.cases[0]!.actions.some((action) => action.kind === 'request_value_reading')).toBe(false);
     expect(result.queue.cases[0]!.suggestions).toEqual([]);
   });
 });

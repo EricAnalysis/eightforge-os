@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { ProjectValidationRunStatus } from '@/components/validator/ProjectValidationRunStatus';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { SourceEvidencePage } from '@/components/recovery/SourceEvidencePage';
@@ -643,9 +644,10 @@ export function ResolutionWorkspace({ projectId, link }: { projectId: string; li
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [decisionRevision, setDecisionRevision] = useState(0);
-  const [documentFilter, setDocumentFilter] = useState<string | null | undefined>(undefined);
+  const [validationRefreshKey, setValidationRefreshKey] = useState(0);
+  const [documentFilter, setDocumentFilter] = useState<string | null | undefined>(link.documentId ?? undefined);
   // Async writes/refreshes must use the operator's current display filter.
-  const documentFilterRef = useRef<string | null | undefined>(undefined);
+  const documentFilterRef = useRef<string | null | undefined>(link.documentId ?? undefined);
 
   const fetchQueue = useCallback(async (): Promise<ResolutionQueue | null> => {
     const token = await accessToken();
@@ -713,6 +715,10 @@ export function ResolutionWorkspace({ projectId, link }: { projectId: string; li
     setSaving(false);
     const outcome = classifyResolutionWriteStatus(response.status);
     if (outcome === 'saved') {
+      if (input.kind === 'enter_reviewed_value' || input.kind === 'withdraw_reviewed_value') {
+        setValidationRefreshKey((key) => key + 1);
+        setNotice('Reviewed value saved. Project revalidation may still be pending.');
+      }
       if (input.kind === 'request_value_reading' || input.kind === 'review_value_reading') {
         const refreshed = await fetchQueue();
         if (refreshed && filterResolutionQueue(refreshed, documentFilterRef.current).cases.some((candidate) => candidate.caseId === entry.caseId)) setSelectedId(entry.caseId);
@@ -760,6 +766,7 @@ export function ResolutionWorkspace({ projectId, link }: { projectId: string; li
             Back to project
           </Link>
         </div>
+        <ProjectValidationRunStatus projectId={projectId} refreshKey={validationRefreshKey} />
         {queue.cases.length === 0 ? (
           <p className="text-xs text-[var(--ef-text-muted)]">Nothing to resolve.</p>
         ) : <ResolutionQueueSummaryLine summary={summarizeResolutionQueue(queue.cases)} />}
@@ -813,7 +820,9 @@ export function ResolutionWorkspace({ projectId, link }: { projectId: string; li
 
       <main className="min-w-0 rounded border border-white/5 bg-[var(--ef-background-secondary)] p-4">
         {selected ? <ResolutionEvidencePane key={selected.caseId} entry={selected} />
-          : <p className="text-xs text-[var(--ef-text-muted)]">Select a case.</p>}
+          : <p className="text-xs text-[var(--ef-text-muted)]">{initialLink.caseId || initialLink.findingId || initialLink.anchorKey
+            ? 'This linked case is no longer available for this project and document. Select a current case from the queue.'
+            : 'Select a case.'}</p>}
       </main>
 
       <aside className="rounded border border-white/5 bg-[var(--ef-background-secondary)] p-4">

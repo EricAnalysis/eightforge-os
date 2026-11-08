@@ -22,6 +22,7 @@ import {
   type ValueReadingEligibility,
 } from '@/lib/server/forgewingGates';
 import { canonicalBoxesForObservations } from '@/lib/recovery/visualSourceEvidence';
+import { resolveValueReadingCategoryEvidence, type ValueReadingCategoryEvidence } from '@/lib/server/valueReadingCategoryEvidence';
 import { loadRegionBoundAssertionRows } from '@/lib/server/regionBoundHumanAssertions';
 import {
   buildValueReadingProposal,
@@ -97,6 +98,8 @@ export type ValueReadingCropSpec = Readonly<{
   pageRepresentationDigest: string;
   /** Identity geometry, exactly as the binding carries it. Never used to draw. */
   sourceRegion: SourceRegion;
+  /** Same-row Category evidence, supplemental to the assertion target. */
+  categoryEvidence?: Omit<ValueReadingCategoryEvidence, 'canonicalBoxes'>;
   /** The line's boxes in canonical_v1, one per source observation, sorted by observation id. */
   canonicalBoxes: readonly CanonicalBox[];
   scale: number;
@@ -174,6 +177,13 @@ export function buildValueReadingCropSpec(target: ValueReadingTarget): ValueRead
     || visual.pageRepresentationDigest !== binding.pageRepresentationDigest) return null;
   const canonicalBoxes = canonicalBoxesForObservations(visual, binding.sourceObservationIds);
   if (!canonicalBoxes) return null;
+  if (target.categoryRequired && !target.categoryEvidence) return null;
+  if (target.categoryEvidence && (target.categoryEvidence.sourceDocumentId !== binding.sourceDocumentId
+    || target.categoryEvidence.sourceArtifactId !== binding.sourceArtifactId
+    || target.categoryEvidence.extractionSnapshotId !== binding.extractionSnapshotId
+    || target.categoryEvidence.physicalPageNumber !== binding.physicalPageNumber
+    || target.categoryEvidence.pageRepresentationDigest !== binding.pageRepresentationDigest)) return null;
+  const { canonicalBoxes: categoryBoxes, ...categoryEvidence } = target.categoryEvidence ?? { canonicalBoxes: [] as CanonicalBox[] };
   return {
     renderer: VALUE_READING_EXECUTION.cropRenderer,
     organizationId: binding.organizationId,
@@ -182,7 +192,8 @@ export function buildValueReadingCropSpec(target: ValueReadingTarget): ValueRead
     physicalPageNumber: binding.physicalPageNumber,
     pageRepresentationDigest: binding.pageRepresentationDigest,
     sourceRegion: binding.sourceRegion,
-    canonicalBoxes,
+    ...(target.categoryEvidence ? { categoryEvidence: categoryEvidence as Omit<ValueReadingCategoryEvidence, 'canonicalBoxes'> } : {}),
+    canonicalBoxes: [...canonicalBoxes, ...categoryBoxes],
     scale: VALUE_READING_EXECUTION.cropScale,
     paddingPoints: VALUE_READING_EXECUTION.cropPaddingPoints,
     maxWidthPx: VALUE_READING_EXECUTION.cropMaxWidthPx,
@@ -209,7 +220,13 @@ export function buildValueReadingRequest(params: Readonly<{
   if (!SHA256_HEX.test(params.renderDigestSha256)) throw new Error('A value-reading request needs the rendered image digest');
   if (crop.organizationId !== binding.organizationId || crop.sourceDocumentId !== binding.sourceDocumentId
     || crop.sourceArtifactId !== binding.sourceArtifactId || crop.physicalPageNumber !== binding.physicalPageNumber
-    || crop.pageRepresentationDigest !== binding.pageRepresentationDigest) {
+    || crop.pageRepresentationDigest !== binding.pageRepresentationDigest
+    || hashCanonical(crop.sourceRegion) !== hashCanonical(binding.sourceRegion)
+    || (crop.categoryEvidence != null && (crop.categoryEvidence.sourceDocumentId !== binding.sourceDocumentId
+      || crop.categoryEvidence.sourceArtifactId !== binding.sourceArtifactId
+      || crop.categoryEvidence.extractionSnapshotId !== binding.extractionSnapshotId
+      || crop.categoryEvidence.physicalPageNumber !== binding.physicalPageNumber
+      || crop.categoryEvidence.pageRepresentationDigest !== binding.pageRepresentationDigest))) {
     throw new Error('The crop is bound to other evidence');
   }
   const textExcerpts = params.includeTextExcerpts ? {
@@ -223,6 +240,7 @@ export function buildValueReadingRequest(params: Readonly<{
     organizationId: binding.organizationId,
     sourceDocumentId: binding.sourceDocumentId,
     sourceArtifactId: binding.sourceArtifactId,
+    extractionSnapshotId: binding.extractionSnapshotId,
     physicalPageNumber: binding.physicalPageNumber,
     pageRepresentationDigest: binding.pageRepresentationDigest,
     factKey: binding.factKey,
@@ -305,6 +323,8 @@ export type ValueReadingTarget = Readonly<{
   binding: ValueReadingBinding;
   entryTarget: RegionAssertionEntryTarget;
   neighbouringLineTexts: readonly string[];
+  categoryRequired: boolean;
+  categoryEvidence: ValueReadingCategoryEvidence | null;
 }>;
 
 export type ValueReadingTargetRefusal = 'case_not_found' | 'target_not_open' | 'source_artifact_unknown' | 'read_failed' | 'request_key_collision';
@@ -355,6 +375,10 @@ export async function resolveValueReadingTarget(
     sourceObservationIds: entryTarget.sourceObservationIds,
   });
   if (evidence.status !== 'verified' || !evidence.sourceArtifactId) return { ok: false, reason: 'source_artifact_unknown' };
+  const category = resolveValueReadingCategoryEvidence({ extractionData: preferred.data,
+    sourceDocumentId: parsed.documentId, sourceArtifactId: evidence.sourceArtifactId,
+    extractionSnapshotId: preferred.id, physicalPageNumber: entryTarget.physicalPageNumber,
+    pageRepresentationDigest: entryTarget.pageRepresentationDigest, anchorKey: entryTarget.anchorKey });
   const samePage = familyTargets.filter((target) => target.physicalPageNumber === entryTarget.physicalPageNumber);
   const index = samePage.findIndex((target) => target.anchorKey === entryTarget.anchorKey);
   const half = Math.floor(VALUE_READING_EXECUTION.maxNeighbouringLines / 2);
@@ -367,6 +391,8 @@ export async function resolveValueReadingTarget(
     target: {
       entryTarget,
       neighbouringLineTexts,
+      categoryRequired: category.required,
+      categoryEvidence: category.evidence,
       binding: {
         organizationId: query.organizationId,
         projectId: query.projectId,
@@ -387,10 +413,17 @@ export async function resolveValueReadingTarget(
 
 function sameBinding(left: ValueReadingBinding, right: ValueReadingBinding): boolean {
   return left.sourceDocumentId === right.sourceDocumentId && left.sourceArtifactId === right.sourceArtifactId
+    && left.extractionSnapshotId === right.extractionSnapshotId
     && left.physicalPageNumber === right.physicalPageNumber
     && left.pageRepresentationDigest === right.pageRepresentationDigest
     && left.anchorKey === right.anchorKey
-    && hashCanonical([...left.sourceObservationIds].sort()) === hashCanonical([...right.sourceObservationIds].sort());
+    && hashCanonical([...left.sourceObservationIds].sort()) === hashCanonical([...right.sourceObservationIds].sort())
+    && hashCanonical(left.sourceRegion) === hashCanonical(right.sourceRegion);
+}
+
+function sameCategoryEvidence(left: ValueReadingTarget, right: ValueReadingTarget): boolean {
+  return left.categoryRequired === right.categoryRequired
+    && hashCanonical(left.categoryEvidence) === hashCanonical(right.categoryEvidence);
 }
 
 export type ValueReadingRunInput = Readonly<{
@@ -501,6 +534,7 @@ export async function runValueReading(
     // changed evidence must never disclose/replay that earlier answer.
     if (previous.sourceDocumentId !== target.binding.sourceDocumentId
       || previous.sourceArtifactId !== target.binding.sourceArtifactId
+      || previous.extractionSnapshotId !== target.binding.extractionSnapshotId
       || previous.physicalPageNumber !== target.binding.physicalPageNumber
       || previous.pageRepresentationDigest !== target.binding.pageRepresentationDigest
       || previous.anchorKey !== target.binding.anchorKey) {
@@ -604,10 +638,15 @@ export async function runValueReading(
 
   const parsed = parseValueReadingOutput(called.raw);
   if (!parsed.ok) return finish(parsed.outcomeCode, parsed.reason, true);
+  if (parsed.reading.kind === 'value' && parsed.reading.rateRow.category !== null
+    && parsed.reading.rateRow.category !== target.categoryEvidence?.supportedCategory) {
+    return finish('deterministic_validation_failed', 'proposal_value_validation_failed', true);
+  }
 
   // The page may have been re-extracted, or the line reviewed, while the provider was reading.
   const current = await resolveValueReadingTarget(admin, input);
-  if (!current.ok || !sameBinding(current.target.binding, target.binding)) {
+  if (!current.ok || !sameBinding(current.target.binding, target.binding)
+    || !sameCategoryEvidence(current.target, target)) {
     return finish('evidence_binding_failed', 'binding_changed', true);
   }
 

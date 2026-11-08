@@ -27,6 +27,7 @@ export async function addValueReadingsToResolutionQueue(
     organizationId: string;
     queue: ResolutionQueue;
     extractionDataByDocument: ReadonlyMap<string, unknown>;
+    extractionSnapshotIdByDocument: ReadonlyMap<string, string>;
     assertions: readonly HumanFactAssertionRow[];
   }>,
 ): Promise<ResolutionQueue> {
@@ -37,7 +38,7 @@ export async function addValueReadingsToResolutionQueue(
   if (documentIds.length === 0) return queue;
   const records = await loadValueReadingRecords(admin, { organizationId, documentIds });
   const outcomesRead = await admin.from(VALUE_READING_OUTCOMES_TABLE)
-    .select('id, organization_id, source_document_id, source_artifact_id, physical_page_number, page_representation_digest, '
+    .select('id, organization_id, source_document_id, source_artifact_id, extraction_snapshot_id, physical_page_number, page_representation_digest, '
       + 'anchor_key, recovery_type, outcome_code, sanitized_reason, observed_at')
     .eq('organization_id', organizationId).eq('recovery_type', VALUE_READING_RECOVERY_TYPE).in('source_document_id', documentIds);
   if (outcomesRead.error) throw new Error('Value-reading outcomes unavailable');
@@ -47,6 +48,8 @@ export async function addValueReadingsToResolutionQueue(
     const enter = entry.actions.find((action) => action.kind === 'enter_reviewed_value');
     if (!enter || enter.kind !== 'enter_reviewed_value') return entry;
     const target = enter.target;
+    const currentExtractionSnapshotId = params.extractionSnapshotIdByDocument.get(entry.documentId);
+    if (!currentExtractionSnapshotId) return entry;
     const evidence = verifyRegionEvidence({ extractionData: params.extractionDataByDocument.get(entry.documentId),
       physicalPageNumber: target.physicalPageNumber, pageRepresentationDigest: target.pageRepresentationDigest,
       sourceObservationIds: target.sourceObservationIds });
@@ -55,6 +58,7 @@ export async function addValueReadingsToResolutionQueue(
       const binding = proposal.binding;
       return binding.organizationId === organizationId && binding.projectId === queue.projectId
         && binding.resolutionCaseId === entry.caseId && binding.sourceDocumentId === entry.documentId
+        && binding.extractionSnapshotId === currentExtractionSnapshotId
         && binding.sourceArtifactId === evidence.sourceArtifactId && binding.physicalPageNumber === target.physicalPageNumber
         && binding.pageRepresentationDigest === target.pageRepresentationDigest && binding.anchorKey === target.anchorKey
         && hashCanonical([...binding.sourceObservationIds].sort()) === hashCanonical([...target.sourceObservationIds].sort())
@@ -71,6 +75,7 @@ export async function addValueReadingsToResolutionQueue(
     const latestOutcome = outcomes.filter((row) => row.organization_id === organizationId
       && row.recovery_type === VALUE_READING_RECOVERY_TYPE && row.source_document_id === entry.documentId
       && row.source_artifact_id === evidence.sourceArtifactId && row.physical_page_number === target.physicalPageNumber
+      && row.extraction_snapshot_id === currentExtractionSnapshotId
       && row.page_representation_digest === target.pageRepresentationDigest && row.anchor_key === target.anchorKey
       && typeof row.id === 'string' && typeof row.observed_at === 'string' && Number.isFinite(Date.parse(row.observed_at))
       && CODES.includes(row.outcome_code as ValueReadingOutcomeCode) && REASONS.includes(row.sanitized_reason as ValueReadingOutcomeReason))

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import Link from 'next/link';
+import { ProjectValidationRunStatus } from '@/components/validator/ProjectValidationRunStatus';
 
 import { resolutionWorkspaceHref } from '@/lib/resolution/resolutionDeepLink';
 import { supabase } from '@/lib/supabaseClient';
@@ -142,6 +143,10 @@ export function ReviewedValuesPanel({ documentId, projectId = null, onChanged }:
     if (!response.ok) {
       const body = await response.json().catch(() => null) as { error?: string } | null;
       setError(body?.error ?? 'The reviewed value was not saved.');
+      if (response.status === 409) {
+        setReloadKey((key) => key + 1);
+        onChanged?.();
+      }
       return;
     }
     setOpenAnchor(null);
@@ -163,6 +168,7 @@ export function ReviewedValuesPanel({ documentId, projectId = null, onChanged }:
           Values an operator entered where extraction could not read the source. They are the authority for
           pricing and validation, and are always shown as human-reviewed. What extraction read is never changed.
         </p>
+        {projectId ? <div className="mt-2"><ProjectValidationRunStatus projectId={projectId} refreshKey={reloadKey} /></div> : null}
       </header>
       {error ? <p className="mb-2 text-xs text-[var(--ef-critical)]">{error}</p> : null}
 

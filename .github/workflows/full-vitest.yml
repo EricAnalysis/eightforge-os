@@ -21,6 +21,9 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Fetch pinned historical qualification source
+        run: git fetch --no-tags --depth=1 origin e3ee0c6f21d8175b6d034c32b9c95f5249c56dc2
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:

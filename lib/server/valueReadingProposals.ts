@@ -511,6 +511,7 @@ export type StoredValueReadingOutcome = Readonly<{
   observedAt: string;
   sourceDocumentId: string;
   sourceArtifactId: string;
+  extractionSnapshotId: string;
   physicalPageNumber: number;
   pageRepresentationDigest: string;
 }>;
@@ -522,7 +523,7 @@ export async function loadValueReadingOutcome(
 ): Promise<StoredValueReadingOutcome | null> {
   const read = await admin.from(VALUE_READING_OUTCOMES_TABLE)
     .select('outcome_code, sanitized_reason, provider_invoked, proposal_id, anchor_key, requested_by, observed_at, '
-      + 'source_document_id, source_artifact_id, physical_page_number, page_representation_digest')
+      + 'source_document_id, source_artifact_id, extraction_snapshot_id, physical_page_number, page_representation_digest')
     .eq('organization_id', query.organizationId)
     .eq('recovery_type', VALUE_READING_RECOVERY_TYPE)
     .eq('diagnostic_id', valueReadingRequestKeyDigest(query));
@@ -532,6 +533,7 @@ export async function loadValueReadingOutcome(
     || typeof row.sanitized_reason !== 'string' || typeof row.provider_invoked !== 'boolean'
     || typeof row.anchor_key !== 'string' || typeof row.observed_at !== 'string'
     || typeof row.source_document_id !== 'string' || typeof row.source_artifact_id !== 'string'
+    || typeof row.extraction_snapshot_id !== 'string'
     || typeof row.physical_page_number !== 'number' || typeof row.page_representation_digest !== 'string') return null;
   return {
     outcomeCode: row.outcome_code as ValueReadingOutcomeCode,
@@ -542,6 +544,7 @@ export async function loadValueReadingOutcome(
     observedAt: row.observed_at,
     sourceDocumentId: row.source_document_id,
     sourceArtifactId: row.source_artifact_id,
+    extractionSnapshotId: row.extraction_snapshot_id,
     physicalPageNumber: row.physical_page_number,
     pageRepresentationDigest: row.page_representation_digest,
   };

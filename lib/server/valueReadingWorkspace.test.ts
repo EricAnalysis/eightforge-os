@@ -39,6 +39,7 @@ const proposal: ValueReadingProposalRecord = {
   readingBasis: 'region_image', providerModel: null, rationale: 'Read rate cell', createdAt: '2026-10-04T01:00:00Z',
 };
 const outcome = { id: 'outcome1', organization_id: ORG, source_document_id: DOC, source_artifact_id: ARTIFACT,
+  extraction_snapshot_id: 'extraction',
   physical_page_number: 2, page_representation_digest: DIGEST, anchor_key: target.anchorKey,
   recovery_type: 'priced_value_reading', outcome_code: 'activation_not_allowed', sanitized_reason: 'activation_disabled',
   observed_at: '2026-10-04T01:00:00Z' };
@@ -52,9 +53,10 @@ function admin(outcomes: unknown[] = [outcome], error: unknown = null) {
   const query = { eq: () => query, in: () => query, then: (resolve: (data: unknown) => unknown) => Promise.resolve(result).then(resolve) };
   return { from: vi.fn(() => ({ select: () => query })), rpc: vi.fn() } as unknown as ValueReadingClient;
 }
-async function read(options: { enabled?: boolean; outcomes?: unknown[]; client?: ValueReadingClient } = {}) {
+async function read(options: { enabled?: boolean; outcomes?: unknown[]; client?: ValueReadingClient; currentSnapshotId?: string } = {}) {
   return addValueReadingsToResolutionQueue(options.client ?? admin(options.outcomes), { organizationId: ORG,
-    queue: queue(options.enabled), extractionDataByDocument: new Map([[DOC, extraction]]), assertions: [] });
+    queue: queue(options.enabled), extractionDataByDocument: new Map([[DOC, extraction]]),
+    extractionSnapshotIdByDocument: new Map([[DOC, options.currentSnapshotId ?? 'extraction']]), assertions: [] });
 }
 
 describe('B4.4 value readings in the server-derived workspace', () => {
@@ -87,11 +89,19 @@ describe('B4.4 value readings in the server-derived workspace', () => {
     expect(result.cases[0]!.actions.find((action) => action.kind === 'enter_reviewed_value')).not.toHaveProperty('forgewingProposalId');
   });
 
-  it.each(['sourceArtifactId', 'pageRepresentationDigest', 'anchorKey', 'resolutionCaseId', 'projectId'] as const)(
+  it.each(['sourceArtifactId', 'extractionSnapshotId', 'pageRepresentationDigest', 'anchorKey', 'resolutionCaseId', 'projectId'] as const)(
     'does not offer a proposal with stale or mismatched %s', async (field) => {
       vi.mocked(loadValueReadingRecords).mockResolvedValue({ proposals: [{ ...proposal, binding: { ...proposal.binding, [field]: 'changed' } }], reviews: [] });
       expect((await read()).cases[0]!.suggestions).toEqual([]);
     });
+
+  it('does not offer an old proposal after re-extraction with identical page evidence', async () => {
+    const result = await read({ currentSnapshotId: 'new-extraction' });
+    expect(result.cases[0]!.suggestions).toEqual([]);
+    expect(result.cases[0]!.valueReadingOutcome).toBeNull();
+    expect(result.cases[0]!.actions.find((action) => action.kind === 'enter_reviewed_value'))
+      .not.toHaveProperty('forgewingProposalId');
+  });
 
   it('renders unreadable outcomes without fabricating a suggestion', async () => {
     vi.mocked(loadValueReadingRecords).mockResolvedValue({ proposals: [{ ...proposal, reading: { kind: 'unreadable' } }], reviews: [] });
@@ -102,7 +112,8 @@ describe('B4.4 value readings in the server-derived workspace', () => {
 
   it('does not offer a reading already used by a durable human assertion', async () => {
     const result = await addValueReadingsToResolutionQueue(admin(), { organizationId: ORG, queue: queue(),
-      extractionDataByDocument: new Map([[DOC, extraction]]), assertions: [{ id: 'assertion', organization_id: ORG,
+      extractionDataByDocument: new Map([[DOC, extraction]]), extractionSnapshotIdByDocument: new Map([[DOC, 'extraction']]),
+      assertions: [{ id: 'assertion', organization_id: ORG,
         forgewing_proposal_id: proposal.proposalId, status: 'active', review_origin: 'ai_proposed_operator_approved',
         asserted_at: '2026-10-04T02:00:00Z' } as HumanFactAssertionRow] });
     expect(result.cases[0]!.suggestions).toEqual([]);
@@ -110,7 +121,8 @@ describe('B4.4 value readings in the server-derived workspace', () => {
 
   it('offers no reading action when the current artifact cannot be verified', async () => {
     const result = await addValueReadingsToResolutionQueue(admin(), { organizationId: ORG, queue: queue(),
-      extractionDataByDocument: new Map([[DOC, null]]), assertions: [] });
+      extractionDataByDocument: new Map([[DOC, null]]), extractionSnapshotIdByDocument: new Map([[DOC, 'extraction']]),
+      assertions: [] });
     expect(result.cases[0]!.actions.map((action) => action.kind)).toEqual(['enter_reviewed_value', 'record_disposition', 'open_document']);
   });
 

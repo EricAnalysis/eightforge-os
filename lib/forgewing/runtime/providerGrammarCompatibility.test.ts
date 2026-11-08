@@ -8,6 +8,13 @@
 // provider is covered automatically. The gate then walks every nested schema position and fails on any keyword
 // outside the verified subset. Bounds the grammar cannot carry stay enforced by each task's strict Zod parser;
 // the parser parity tests prove that. This file makes no network call.
+//
+// The decomposed Workflow Assessment (P4) sends grammars generated at runtime from the strict Zod schema through
+// createObservedWorkflowAssessmentStageProvider: stage A for each intake version, and stage B shaped by each
+// step's classification. They are not registered constants, so they are captured separately by driving that
+// provider over every shape the pipeline can send. Stage B uses `$defs`/`$ref`, accepted on claude-sonnet-4-6
+// in the 2026-11-06 P1 compile probes (p1-probes); the walker allows them only at the root, and every `$ref`
+// must resolve.
 import { createHash } from 'node:crypto';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -23,7 +30,11 @@ import * as structuredOutput from '@/lib/forgewing/runtime/structuredOutput';
 import * as repositoryPlanOutput from '@/lib/forgewing/runtime/repositoryPlanGuidanceStructuredOutput';
 import * as workflowAssessmentOutput from '@/lib/forgewing/runtime/workflowAssessmentStructuredOutput';
 import { createObservedForgewingProvider, OBSERVED_PROVIDER_TASKS, type ObservedProviderTask } from '@/lib/forgewing/runtime/observedProviders';
-import { createObservedWorkflowAssessmentProvider } from '@/lib/forgewing/runtime/observedWorkflowAssessmentClient';
+import { createObservedWorkflowAssessmentProvider, createObservedWorkflowAssessmentStageProvider } from '@/lib/forgewing/runtime/observedWorkflowAssessmentClient';
+import {
+  buildStageAGrammar, buildStageBGrammar, STAGE_B_DETAIL_SCHEMAS, STAGE_B_MAX_STEPS_PER_CALL, STAGE_SOURCE_QUESTIONS,
+  type StageIntakeVersion, type StageStep,
+} from '@/lib/forgewing/runtime/workflowAssessmentStageGrammars';
 import { buildCaseInvestigationMessagesRequest, CASE_INVESTIGATION_OUTPUT_JSON_SCHEMA } from '@/lib/forgewing/runtime/caseInvestigationClient';
 import { buildValueReadingMessagesRequest } from '@/lib/forgewing/runtime/valueReadingClient';
 import { buildValueReadingMessagesRequestV2 } from '@/lib/forgewing/runtime/valueReadingClientV2';
@@ -37,34 +48,43 @@ const VERIFIED_KEYWORDS = new Set([
   'minItems', // only 0 or 1
   'pattern', // only fixed-count quantifiers; range quantifiers are rejected on Sonnet 5.5
   'minLength', 'maxLength', // accepted; maxLength is a hint, not enforced (the Zod parser is the bound)
+  '$defs', '$ref', // accepted in the P1 compile probes; root-level $defs only, and every $ref must resolve
 ]);
 const KNOWN_REJECTED = ['maxItems', 'uniqueItems', 'minimum', 'maximum', 'oneOf'];
 
 type Violation = Readonly<{ path: string; keyword: string }>;
 
 /** Walks schema positions only (not property names or enum values) and reports every unverified construct. */
-function grammarViolations(schema: unknown, path = '$'): Violation[] {
-  if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return [{ path, keyword: '<non-object schema>' }];
-  const out: Violation[] = [];
-  const node = schema as Record<string, unknown>;
-  for (const [keyword, value] of Object.entries(node)) {
-    if (!VERIFIED_KEYWORDS.has(keyword)) { out.push({ path, keyword }); continue; }
-    if (keyword === 'minItems' && value !== 0 && value !== 1) out.push({ path, keyword: `minItems=${String(value)}` });
-    if (keyword === 'pattern' && (typeof value !== 'string' || /\{\d*,\d*\}/.test(value))) out.push({ path, keyword: 'pattern range quantifier' });
-    if (keyword === 'additionalProperties' && value !== false) out.push({ path, keyword: 'additionalProperties!=false' });
-    if (keyword === 'properties') {
-      for (const [name, child] of Object.entries(value as Record<string, unknown>)) out.push(...grammarViolations(child, `${path}.properties.${name}`));
+function grammarViolations(root: unknown): Violation[] {
+  const defs = (root && typeof root === 'object' ? (root as { $defs?: unknown }).$defs : undefined) as Record<string, unknown> | undefined;
+  const walk = (schema: unknown, path: string): Violation[] => {
+    if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return [{ path, keyword: '<non-object schema>' }];
+    const out: Violation[] = [];
+    const node = schema as Record<string, unknown>;
+    for (const [keyword, value] of Object.entries(node)) {
+      if (!VERIFIED_KEYWORDS.has(keyword)) { out.push({ path, keyword }); continue; }
+      if (keyword === 'minItems' && value !== 0 && value !== 1) out.push({ path, keyword: `minItems=${String(value)}` });
+      if (keyword === 'pattern' && (typeof value !== 'string' || /\{\d*,\d*\}/.test(value))) out.push({ path, keyword: 'pattern range quantifier' });
+      if (keyword === 'additionalProperties' && value !== false) out.push({ path, keyword: 'additionalProperties!=false' });
+      if (keyword === '$defs' && path !== '$') out.push({ path, keyword: 'nested $defs' });
+      if (keyword === '$ref' && !(typeof value === 'string' && value.startsWith('#/$defs/') && defs && value.slice(8) in defs)) {
+        out.push({ path, keyword: `unresolved $ref ${String(value)}` });
+      }
+      if (keyword === 'properties' || keyword === '$defs') {
+        for (const [name, child] of Object.entries(value as Record<string, unknown>)) out.push(...walk(child, `${path}.${keyword}.${name}`));
+      }
+      if (keyword === 'items') out.push(...walk(value, `${path}.items`));
+      if (keyword === 'anyOf') (value as unknown[]).forEach((child, index) => out.push(...walk(child, `${path}.anyOf[${index}]`)));
     }
-    if (keyword === 'items') out.push(...grammarViolations(value, `${path}.items`));
-    if (keyword === 'anyOf') (value as unknown[]).forEach((child, index) => out.push(...grammarViolations(child, `${path}.anyOf[${index}]`)));
-  }
-  const declaresObject = node.type === 'object' || 'properties' in node;
-  if (declaresObject && node.additionalProperties !== false) out.push({ path, keyword: 'open object' });
-  if ('properties' in node) {
-    const declared = new Set(Object.keys(node.properties as object));
-    for (const key of (node.required as string[] | undefined) ?? []) if (!declared.has(key)) out.push({ path, keyword: `required '${key}' undeclared` });
-  }
-  return out;
+    const declaresObject = node.type === 'object' || 'properties' in node;
+    if (declaresObject && node.additionalProperties !== false) out.push({ path, keyword: 'open object' });
+    if ('properties' in node) {
+      const declared = new Set(Object.keys(node.properties as object));
+      for (const key of (node.required as string[] | undefined) ?? []) if (!declared.has(key)) out.push({ path, keyword: `required '${key}' undeclared` });
+    }
+    return out;
+  };
+  return walk(root, '$');
 }
 
 const REQUEST = { model: 'claude-sonnet-4-6', timeoutMs: 1_000, maxOutputTokens: 16, inputJson: '{}' };
@@ -110,6 +130,28 @@ async function captureProviderGrammars(): Promise<Map<string, unknown>> {
   return captured;
 }
 
+/** The decomposed Workflow Assessment's runtime-generated grammars, captured from the real stage provider. */
+async function captureStageGrammars(): Promise<Map<string, unknown>> {
+  const provider = createObservedWorkflowAssessmentStageProvider(() => undefined);
+  const classifications = Object.keys(STAGE_B_DETAIL_SCHEMAS) as (keyof typeof STAGE_B_DETAIL_SCHEMAS)[];
+  const steps = (count: number): StageStep[] => Array.from({ length: count },
+    (_, i) => ({ stepId: `step-${String(i + 1).padStart(2, '0')}`, classification: classifications[i % classifications.length]! }));
+  const shapes: [string, 'A' | 'B', unknown][] = [
+    ...(Object.keys(STAGE_SOURCE_QUESTIONS) as StageIntakeVersion[]).map((v): [string, 'A', unknown] => [`stageA.${v}`, 'A', buildStageAGrammar(v)]),
+    ...classifications.map((c): [string, 'B', unknown] => [`stageB.single.${c}`, 'B', buildStageBGrammar([{ stepId: 'step-01', classification: c }])]),
+    ['stageB.allClassifications', 'B', buildStageBGrammar(steps(classifications.length))],
+    ['stageB.maxBatch', 'B', buildStageBGrammar(steps(STAGE_B_MAX_STEPS_PER_CALL))],
+  ];
+  const captured = new Map<string, unknown>();
+  for (const [name, stage, grammar] of shapes) {
+    await provider(REQUEST, { stage, batch: 0, prompt: 'STAGE PROMPT', grammar: grammar as never });
+    const schema = sentSchema();
+    expect(schema, `${name} is sent unchanged`).toBe(grammar);
+    captured.set(name, schema);
+  }
+  return captured;
+}
+
 /** Every exported provider grammar constant, by name. */
 const grammarConstants = (): Map<unknown, string> => {
   const named = new Map<unknown, string>();
@@ -147,6 +189,23 @@ describe('provider grammar compatibility (offline)', () => {
     expect(grammarViolations({ type: 'string', format: 'uri' })).toEqual([{ path: '$', keyword: 'format' }]);
     // A property NAMED like a keyword is not a keyword.
     expect(grammarViolations({ type: 'object', additionalProperties: false, required: ['maximum'], properties: { maximum: { type: 'number' } } })).toEqual([]);
+    // $defs are walked, nested $defs are refused, and every $ref must resolve to a root definition.
+    for (const keyword of KNOWN_REJECTED) {
+      expect(grammarViolations({ type: 'object', additionalProperties: false, required: ['s'], properties: { s: { $ref: '#/$defs/X' } },
+        $defs: { X: { type: 'object', additionalProperties: false, properties: { n: { type: 'number', [keyword]: 1 } } } } }))
+        .toEqual([{ path: '$.$defs.X.properties.n', keyword }]);
+    }
+    expect(grammarViolations({ type: 'object', additionalProperties: false, properties: { s: { $ref: '#/$defs/Missing' } }, $defs: {} }))
+      .toEqual([{ path: '$.properties.s', keyword: 'unresolved $ref #/$defs/Missing' }]);
+    expect(grammarViolations({ type: 'object', additionalProperties: false, properties: { s: { $defs: {} } } }))
+      .toEqual([{ path: '$.properties.s', keyword: 'nested $defs' }]);
+  });
+
+  it('every decomposed Workflow Assessment stage grammar the stage provider sends uses only provider-verified keywords', async () => {
+    const captured = await captureStageGrammars();
+    // 2 intake versions, one single-step stage B per classification, all classifications, and a full 30-step batch.
+    expect(captured.size).toBe(Object.keys(STAGE_SOURCE_QUESTIONS).length + Object.keys(STAGE_B_DETAIL_SCHEMAS).length + 2);
+    for (const [name, grammar] of captured) expect(grammarViolations(grammar), name).toEqual([]);
   });
 
   it('enumerates every provider grammar from the actual request builders, and the enumeration is complete', async () => {

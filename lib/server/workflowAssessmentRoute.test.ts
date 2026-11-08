@@ -8,7 +8,23 @@ vi.mock('@/lib/server/workflowAssessmentClaim', () => ({
   executeClaimedWorkflowAssessment: runAssessment,
 }));
 
-import { POST } from '@/app/api/internal/workflow-assessment/route';
+import { maxDuration, POST } from '@/app/api/internal/workflow-assessment/route';
+import { WORKFLOW_ASSESSMENT_MAX_TIMEOUT_MS } from '@/lib/forgewing/runtime/modelConfig';
+import { WORKFLOW_ASSESSMENT_STAGE_LIMITS } from '@/lib/forgewing/tasks/workflowAssessmentDecomposed';
+
+describe('internal workflow assessment route budget (D2/D4)', () => {
+  it('declares 660 s, enough for one 600 s call plus claim and finalization', () => {
+    expect(maxDuration).toBe(660);
+    expect(maxDuration * 1000).toBeGreaterThanOrEqual(WORKFLOW_ASSESSMENT_MAX_TIMEOUT_MS + 60_000);
+    // Vercel Pro/Enterprise with Fluid compute allow at most 800 s.
+    expect(maxDuration).toBeLessThanOrEqual(800);
+  });
+
+  it('also fits the decomposed pipeline: stage A then stage B (batches in parallel) plus 60 s', () => {
+    const { A, B } = WORKFLOW_ASSESSMENT_STAGE_LIMITS;
+    expect(maxDuration * 1000).toBeGreaterThanOrEqual(A.timeoutMs + B.timeoutMs + 60_000);
+  });
+});
 
 const SUBMISSION_ID = '11111111-1111-4111-8111-111111111111';
 const SECRET = 'workflow-assessment-review-secret';

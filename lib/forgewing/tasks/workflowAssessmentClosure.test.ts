@@ -69,7 +69,8 @@ const out = (o: Record<string, unknown> = {}) => ({
 });
 
 const run = (body: Record<string, unknown>) => runForgewingWorkflowAssessment(
-  input(), { config, taskEnabled: true, provider: vi.fn(async () => JSON.stringify(body)) },
+  input(), { config, taskEnabled: true,
+    provider: vi.fn(async () => JSON.stringify({ assessmentJson: JSON.stringify(body) })) },
 );
 
 describe('exactly-one classification/detail closure', () => {

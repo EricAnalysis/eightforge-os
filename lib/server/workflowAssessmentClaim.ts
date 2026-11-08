@@ -59,9 +59,13 @@ export const WORKFLOW_ASSESSMENT_MAX_ATTEMPTS = 2;
  * Maximum provider attempts one scheduled sweep may make.
  *
  * The cron is daily, so this is the scheduled ceiling on provider spend: at
- * most three attempts per day, independent of how many submissions are waiting.
- * It counts ATTEMPTS, not successes -- three failures consume the batch just as
- * three successes would.
+ * most one attempt per day, independent of how many submissions are waiting.
+ * It counts ATTEMPTS, not successes -- a failure consumes the batch just as a
+ * success would.
+ *
+ * One, not three, since D2 (2026-11-06): a single attempt may run up to 600 s (D4),
+ * so only one fits the sweep route's 660 s budget. Sequential attempts beyond
+ * the route budget would leave a claimed attempt unfinalized.
  *
  * It does not interact with the per-submission ceiling. A submission still gets
  * at most WORKFLOW_ASSESSMENT_MAX_ATTEMPTS across its whole lifetime, and never
@@ -71,7 +75,7 @@ export const WORKFLOW_ASSESSMENT_MAX_ATTEMPTS = 2;
  * before there is any usage, latency, failure-rate or cost measurement to tune
  * against. Server-side only, never client- or provider-configurable.
  */
-export const WORKFLOW_ASSESSMENT_SWEEP_BATCH_SIZE = 3;
+export const WORKFLOW_ASSESSMENT_SWEEP_BATCH_SIZE = 1;
 
 /**
  * Organizations whose submissions may be claimed, resolved through the shared

@@ -10,7 +10,6 @@ import { ForgewingCallBudget } from '@/lib/forgewing/runtime/budget';
 import {
   callClaudeForWorkflowAssessment,
   FORGEWING_WORKFLOW_ASSESSMENT_PROMPT_ID,
-  FORGEWING_WORKFLOW_ASSESSMENT_PROMPT_VERSION,
   type ForgewingProvider,
 } from '@/lib/forgewing/runtime/client';
 import {
@@ -22,6 +21,7 @@ import { resolveWorkflowAssessmentProposalClosure }
   from '@/lib/workflowAssessmentProposalClosure';
 import {
   parseWorkflowAssessmentModelOutput,
+  WORKFLOW_ASSESSMENT_ENVELOPE_PROMPT_VERSION,
   WORKFLOW_DETERMINISM_CONDITIONS,
   WORKFLOW_INTAKE_QUESTIONS,
   WORKFLOW_INTAKE_SOURCE_QUESTIONS,
@@ -30,6 +30,10 @@ import {
   WORKFLOW_STEP_CLASSIFICATIONS,
   type WorkflowAssessmentModelOutput,
 } from '@/lib/forgewing/runtime/workflowAssessmentStructuredOutput';
+import {
+  FORGEWING_WORKFLOW_ASSESSMENT_DECOMPOSED_PROMPT_ID,
+  FORGEWING_WORKFLOW_ASSESSMENT_DECOMPOSED_PROMPT_VERSION,
+} from '@/lib/forgewing/runtime/workflowAssessmentStagePrompts';
 
 export const FORGEWING_WORKFLOW_ASSESSMENT_SCHEMA_VERSION =
   'workflow_assessment_v2' as const;
@@ -169,9 +173,13 @@ export type ForgewingWorkflowAssessmentResult =
       assessment: ForgewingWorkflowAssessment;
       metadata: Readonly<{
         model: string;
-        promptTemplateId: typeof FORGEWING_WORKFLOW_ASSESSMENT_PROMPT_ID;
-        promptTemplateVersion: typeof FORGEWING_WORKFLOW_ASSESSMENT_PROMPT_VERSION;
+        promptTemplateId: typeof FORGEWING_WORKFLOW_ASSESSMENT_PROMPT_ID
+          | typeof FORGEWING_WORKFLOW_ASSESSMENT_DECOMPOSED_PROMPT_ID;
+        promptTemplateVersion: typeof WORKFLOW_ASSESSMENT_ENVELOPE_PROMPT_VERSION
+          | typeof FORGEWING_WORKFLOW_ASSESSMENT_DECOMPOSED_PROMPT_VERSION;
         calls: number;
+        /** Decomposed mode only: one entry per provider call, digests of what was sent. */
+        stageCalls?: readonly Readonly<{ stage: 'A' | 'B'; batch: number; steps: number; promptSha256: string; grammarSha256: string }>[];
       }>;
     }>;
 
@@ -182,7 +190,7 @@ export type ForgewingWorkflowAssessmentDependencies = Readonly<{
   budget?: ForgewingCallBudget;
 }>;
 
-function failureReason(error: unknown): string {
+export function failureReason(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   const name = error && typeof error === 'object' ? error.constructor?.name ?? '' : '';
   if (message === 'provider_timeout' || message === 'Request timed out'
@@ -191,7 +199,7 @@ function failureReason(error: unknown): string {
   return message || 'provider_error';
 }
 
-async function callWithin(
+export async function callWithin(
   provider: ForgewingProvider,
   request: Parameters<ForgewingProvider>[0],
 ): Promise<string> {
@@ -417,10 +425,23 @@ function automationAssessment(
  * browser-supplied prose, never reads or writes a database, and never emits
  * executable rule logic. Its output is a proposal that a person must review.
  */
-export async function runForgewingWorkflowAssessment(
+export type PreparedWorkflowAssessmentInput = Readonly<{
+  config: ForgewingRuntimeConfig;
+  input: z.infer<typeof inputSchema>;
+  bounded: Readonly<Record<string, unknown>> & Readonly<{ task: 'workflow_assessment' }>;
+  sourceSubmissionDigestSha256: string;
+}>;
+
+/**
+ * The enablement gate, input closure and the bounded provider input with its
+ * digest. Shared by the single-call and decomposed paths so both assess the
+ * same, identically bounded submission.
+ */
+export function prepareWorkflowAssessmentInput(
   rawInput: ForgewingWorkflowAssessmentInput,
-  dependencies: ForgewingWorkflowAssessmentDependencies = {},
-): Promise<ForgewingWorkflowAssessmentResult> {
+  dependencies: ForgewingWorkflowAssessmentDependencies,
+): PreparedWorkflowAssessmentInput | Extract<ForgewingWorkflowAssessmentResult,
+  { status: 'assessment_disabled' | 'input_invalid' }> {
   const config = dependencies.config ?? getForgewingWorkflowAssessmentRuntimeConfig();
   if (!config.enabled
     || !(dependencies.taskEnabled ?? isForgewingWorkflowAssessmentEnabled())) {
@@ -438,7 +459,16 @@ export async function runForgewingWorkflowAssessment(
     answers: parsed.data.answers,
     ...(parsed.data.attachments?.length ? { attachments: parsed.data.attachments } : {}),
   });
-  const sourceSubmissionDigestSha256 = hashCanonical(bounded);
+  return { config, input: parsed.data, bounded, sourceSubmissionDigestSha256: hashCanonical(bounded) };
+}
+
+export async function runForgewingWorkflowAssessment(
+  rawInput: ForgewingWorkflowAssessmentInput,
+  dependencies: ForgewingWorkflowAssessmentDependencies = {},
+): Promise<ForgewingWorkflowAssessmentResult> {
+  const prepared = prepareWorkflowAssessmentInput(rawInput, dependencies);
+  if ('status' in prepared) return prepared;
+  const { config, bounded } = prepared;
 
   const budget = dependencies.budget ?? new ForgewingCallBudget(1);
   if (!budget.tryConsume()) {
@@ -467,6 +497,31 @@ export async function runForgewingWorkflowAssessment(
     return { status: 'structured_output_invalid', reason: failureReason(error) };
   }
 
+  const finalized = finalizeWorkflowAssessmentOutput(output, prepared);
+  if (!finalized.ok) return { status: 'deterministic_validation_failed', reason: finalized.reason };
+  return {
+    status: 'requires_human_review',
+    assessment: finalized.assessment,
+    metadata: {
+      model: config.model,
+      promptTemplateId: FORGEWING_WORKFLOW_ASSESSMENT_PROMPT_ID,
+      promptTemplateVersion: WORKFLOW_ASSESSMENT_ENVELOPE_PROMPT_VERSION,
+      calls: budget.used,
+    },
+  };
+}
+
+/**
+ * Everything after a strictly parsed model output: source keys, the determinism
+ * gate, canonical proposal closure, grounding qualification and the
+ * non-authority stamp. The single validation path for every generation mode.
+ */
+export function finalizeWorkflowAssessmentOutput(
+  output: WorkflowAssessmentModelOutput,
+  prepared: PreparedWorkflowAssessmentInput,
+): Readonly<{ ok: false; reason: string }> | Readonly<{ ok: true; assessment: ForgewingWorkflowAssessment }> {
+  const parsed = { data: prepared.input };
+  const { sourceSubmissionDigestSha256 } = prepared;
   // Closure is answered by the one canonical validator, the same one that
   // later decides whether a historical assessment may be accepted as proposed.
   // A second copy here would eventually disagree with it, and the disagreement
@@ -488,7 +543,7 @@ export async function runForgewingWorkflowAssessment(
     ...(closure.compatible ? [] : closure.violations),
   ];
   if (violations.length > 0) {
-    return { status: 'deterministic_validation_failed', reason: violations.slice(0, 8).join(',') };
+    return { ok: false, reason: violations.slice(0, 8).join(',') };
   }
 
   const openAssumptions = stepsWithOpenAssumptions(output);
@@ -511,15 +566,5 @@ export async function runForgewingWorkflowAssessment(
       output.workflowSteps, qualifications, openAssumptions,
     ),
   });
-
-  return {
-    status: 'requires_human_review',
-    assessment,
-    metadata: {
-      model: config.model,
-      promptTemplateId: FORGEWING_WORKFLOW_ASSESSMENT_PROMPT_ID,
-      promptTemplateVersion: FORGEWING_WORKFLOW_ASSESSMENT_PROMPT_VERSION,
-      calls: budget.used,
-    },
-  };
+  return { ok: true, assessment };
 }

@@ -91,16 +91,30 @@ describe('Forgewing runtime configuration', () => {
     vi.stubEnv('FORGEWING_SHADOW_ENABLED', '1');
     vi.stubEnv('FORGEWING_WORKFLOW_ASSESSMENT_ENABLED', '1');
     vi.stubEnv('FORGEWING_MODEL', 'claude-sonnet-4-6');
+    // D2/D4 defaults: a complete assessment needs more than the old 4,000 tokens / 15 s.
     expect(getForgewingWorkflowAssessmentRuntimeConfig()).toMatchObject({
       enabled: true, disabledReason: null, model: 'claude-sonnet-4-6',
-      timeoutMs: 15_000, maxCalls: 1, maxOutputTokens: 4_000,
+      timeoutMs: 600_000, maxCalls: 1, maxOutputTokens: 26_000,
     });
-    // A three-attempt sweep must fit its 60-second route budget.
-    vi.stubEnv('FORGEWING_WORKFLOW_ASSESSMENT_TIMEOUT_MS', '60000');
-    vi.stubEnv('FORGEWING_WORKFLOW_ASSESSMENT_MAX_OUTPUT_TOKENS', '64000');
-    expect(getForgewingWorkflowAssessmentRuntimeConfig()).toMatchObject({ timeoutMs: 15_000, maxOutputTokens: 4_000 });
+    // The exact ceilings are accepted from the environment.
+    vi.stubEnv('FORGEWING_WORKFLOW_ASSESSMENT_TIMEOUT_MS', '600000');
+    vi.stubEnv('FORGEWING_WORKFLOW_ASSESSMENT_MAX_OUTPUT_TOKENS', '26000');
+    expect(getForgewingWorkflowAssessmentRuntimeConfig()).toMatchObject({ timeoutMs: 600_000, maxOutputTokens: 26_000 });
+    // Lower in-range values are honoured.
     vi.stubEnv('FORGEWING_WORKFLOW_ASSESSMENT_TIMEOUT_MS', '18000');
-    expect(getForgewingWorkflowAssessmentRuntimeConfig().timeoutMs).toBe(18_000);
+    vi.stubEnv('FORGEWING_WORKFLOW_ASSESSMENT_MAX_OUTPUT_TOKENS', '8000');
+    expect(getForgewingWorkflowAssessmentRuntimeConfig()).toMatchObject({ timeoutMs: 18_000, maxOutputTokens: 8_000 });
+    // One past each ceiling, below each floor, or non-numeric falls back to the default
+    // (existing policy). The one-attempt sweep must keep fitting its 660 s route.
+    for (const [timeout, tokens] of [['600001', '26001'], ['999', '799'], ['seven minutes', '16k']] as const) {
+      vi.stubEnv('FORGEWING_WORKFLOW_ASSESSMENT_TIMEOUT_MS', timeout);
+      vi.stubEnv('FORGEWING_WORKFLOW_ASSESSMENT_MAX_OUTPUT_TOKENS', tokens);
+      expect(getForgewingWorkflowAssessmentRuntimeConfig()).toMatchObject({ timeoutMs: 600_000, maxOutputTokens: 26_000 });
+    }
+    vi.stubEnv('FORGEWING_WORKFLOW_ASSESSMENT_TIMEOUT_MS', '');
+    vi.stubEnv('FORGEWING_WORKFLOW_ASSESSMENT_MAX_OUTPUT_TOKENS', '');
+    // Unrelated Forgewing workflows keep their own limits.
+    expect(getForgewingRepositoryPlanRuntimeConfig()).toMatchObject({ timeoutMs: 60_000, maxOutputTokens: 8_000 });
 
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     vi.stubEnv('FORGEWING_MODEL', 'claude-sonnet-5-5');

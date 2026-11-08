@@ -19,7 +19,9 @@ import { timingSafeEqual } from 'node:crypto';
 import { sweepWorkflowAssessments } from '@/lib/server/workflowAssessmentClaim';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60;
+// Same budget as the manual trigger: the sweep makes one attempt of up to
+// 600 s (WORKFLOW_ASSESSMENT_SWEEP_BATCH_SIZE = 1), plus claim and finalization.
+export const maxDuration = 660;
 
 function authorized(request: Request, secret: string): boolean {
   const provided = request.headers.get('authorization') ?? '';

@@ -22,7 +22,14 @@ import {
 } from '@/lib/forgewing/tasks/workflowAssessment';
 import { hashCanonical } from '@/lib/extraction/domain/hash';
 import type { ForgewingProviderObservation } from '@/lib/forgewing/runtime/client';
-import { createObservedWorkflowAssessmentProvider } from '@/lib/forgewing/runtime/observedWorkflowAssessmentClient';
+import {
+  createObservedWorkflowAssessmentProvider,
+  createObservedWorkflowAssessmentStageProvider,
+} from '@/lib/forgewing/runtime/observedWorkflowAssessmentClient';
+import {
+  runDecomposedWorkflowAssessment,
+  type WorkflowAssessmentStageOutcome,
+} from '@/lib/forgewing/tasks/workflowAssessmentDecomposed';
 import {
   providerFailureOutcome,
   recordForgewingProviderCallObservation,
@@ -31,7 +38,10 @@ import {
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 
 export const WORKFLOW_ASSESSMENT_TABLE = 'workflow_assessments' as const;
-import { isForgewingWorkflowAssessmentEnabled } from '@/lib/forgewing/runtime/modelConfig';
+import {
+  getForgewingWorkflowAssessmentGenerationMode,
+  isForgewingWorkflowAssessmentEnabled,
+} from '@/lib/forgewing/runtime/modelConfig';
 import { loadWorkflowIntakeSubmission } from '@/lib/server/workflowIntakeRead';
 import { loadAssessmentAttachmentContext } from '@/lib/server/workflowAssessmentEvidence';
 
@@ -158,37 +168,17 @@ export async function runAndRecordWorkflowAssessment(
     return { status: 'assessment_not_produced', reason: 'attachment_identity_closure_failed' };
   }
 
-  // S7: observe the one provider call (metadata only) for the telemetry ledger.
-  let invokedModel: string | null = null;
-  let observation: ForgewingProviderObservation | null = null;
-  const startedAt = performance.now();
-  const observedProvider = createObservedWorkflowAssessmentProvider((observed) => { observation = observed; });
-  const result = await runForgewingWorkflowAssessment({
+  const taskInput = {
     submissionId: submission.submissionId,
     submissionSchemaVersion: submission.submissionSchemaVersion,
     answers: submission.answers,
     ...(attachments.length ? { attachments } : {}),
-  }, {
-    provider: async (request) => {
-      invokedModel = request.model;
-      return observedProvider(request);
-    },
-  });
-  if (invokedModel) {
-    const observed = observation as ForgewingProviderObservation | null;
-    await recordForgewingProviderCallObservation(admin, {
-      workflow: 'workflow_assessment',
-      organizationId: submission.organizationId ?? null,
-      model: invokedModel,
-      returnedModel: observed?.returnedModel,
-      providerRequestId: observed?.requestId,
-      stopReason: observed?.stopReason,
-      inputTokens: observed?.inputTokens,
-      outputTokens: observed?.outputTokens,
-      latencyMs: observed?.latencyMs ?? performance.now() - startedAt,
-      outcome: workflowAssessmentCallOutcome(result),
-    });
-  }
+  };
+  // P4: the decomposed pipeline is selected only by its own explicit mode flag,
+  // beneath the same enablement gate; the default stays single-call.
+  const result = getForgewingWorkflowAssessmentGenerationMode() === 'decomposed'
+    ? await runDecomposedAndRecordCalls(admin, submission.organizationId ?? null, taskInput)
+    : await runSingleCallAndRecordCall(admin, submission.organizationId ?? null, taskInput);
 
   if (result.status !== 'requires_human_review') {
     // Reason codes only. The source answers describe a visitor's business process
@@ -207,4 +197,84 @@ export async function runAndRecordWorkflowAssessment(
     requiresHumanReview: true,
     authority: 'non_authoritative',
   };
+}
+
+type TaskInput = Parameters<typeof runForgewingWorkflowAssessment>[0];
+type TaskResult = Awaited<ReturnType<typeof runForgewingWorkflowAssessment>>;
+
+/**
+ * Decomposed mode (DECOMPOSITION-PLAN.md, P4). One durable ledger row per
+ * provider call actually made -- stage A and each stage B batch -- with that
+ * call's own outcome, so a partial failure (for example stage A succeeded, a
+ * stage B batch was rejected) is recorded call by call. Metadata only.
+ */
+async function runDecomposedAndRecordCalls(
+  admin: AdminClient, organizationId: string | null, input: TaskInput,
+): Promise<TaskResult> {
+  const observations = new Map<string, ForgewingProviderObservation>();
+  const invoked = new Map<string, { model: string; startedAt: number }>();
+  const observed = createObservedWorkflowAssessmentStageProvider((observation, call) => {
+    observations.set(`${call.stage}:${call.batch}`, observation);
+  });
+  // Each row is written as soon as its call settles (onStageCallSettled is awaited
+  // before any later spend), never deferred to the end of the attempt: a stage A
+  // call is already recorded while stage B runs, so a later stage failure, the
+  // route budget or a process exit cannot lose the accounting of a paid call.
+  const recordSettled = async (entry: WorkflowAssessmentStageOutcome) => {
+    const key = `${entry.stage}:${entry.batch}`;
+    const call = invoked.get(key);
+    if (!call) return;
+    const observation = observations.get(key);
+    await recordForgewingProviderCallObservation(admin, {
+      workflow: 'workflow_assessment',
+      organizationId,
+      model: call.model,
+      returnedModel: observation?.returnedModel,
+      providerRequestId: observation?.requestId,
+      stopReason: observation?.stopReason,
+      inputTokens: observation?.inputTokens,
+      outputTokens: observation?.outputTokens,
+      latencyMs: observation?.latencyMs ?? performance.now() - call.startedAt,
+      outcome: entry.outcome,
+    });
+  };
+  return runDecomposedWorkflowAssessment(input, {
+    stageProvider: async (request, call) => {
+      invoked.set(`${call.stage}:${call.batch}`, { model: request.model, startedAt: performance.now() });
+      return observed(request, call);
+    },
+    onStageCallSettled: recordSettled,
+  });
+}
+
+async function runSingleCallAndRecordCall(
+  admin: AdminClient, organizationId: string | null, input: TaskInput,
+): Promise<TaskResult> {
+  // S7: observe the one provider call (metadata only) for the telemetry ledger.
+  let invokedModel: string | null = null;
+  let observation: ForgewingProviderObservation | null = null;
+  const startedAt = performance.now();
+  const observedProvider = createObservedWorkflowAssessmentProvider((observed) => { observation = observed; });
+  const result = await runForgewingWorkflowAssessment(input, {
+    provider: async (request) => {
+      invokedModel = request.model;
+      return observedProvider(request);
+    },
+  });
+  if (invokedModel) {
+    const observed = observation as ForgewingProviderObservation | null;
+    await recordForgewingProviderCallObservation(admin, {
+      workflow: 'workflow_assessment',
+      organizationId,
+      model: invokedModel,
+      returnedModel: observed?.returnedModel,
+      providerRequestId: observed?.requestId,
+      stopReason: observed?.stopReason,
+      inputTokens: observed?.inputTokens,
+      outputTokens: observed?.outputTokens,
+      latencyMs: observed?.latencyMs ?? performance.now() - startedAt,
+      outcome: workflowAssessmentCallOutcome(result),
+    });
+  }
+  return result;
 }

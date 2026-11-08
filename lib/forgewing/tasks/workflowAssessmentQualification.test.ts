@@ -52,7 +52,8 @@ const out = (o: Record<string, unknown> = {}) => ({
   limitations: ['No tolerance stated.'], ...o,
 });
 const run = (body: Record<string, unknown>) => runForgewingWorkflowAssessment(
-  input(), { config, taskEnabled: true, provider: vi.fn(async () => JSON.stringify(body)) });
+  input(), { config, taskEnabled: true,
+    provider: vi.fn(async () => JSON.stringify({ assessmentJson: JSON.stringify(body) })) });
 
 describe('F2 REMEDIATION: provider cannot manufacture trusted determinism', () => {
   it('no state name implies trusted qualification', async () => {

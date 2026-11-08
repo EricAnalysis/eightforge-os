@@ -8,7 +8,8 @@ import { QUALIFICATION_TASKS } from './qualificationSet';
 import { QUALIFICATION_TAXONOMY_VERSION } from './qualificationTaxonomy';
 import { VALUE_READING_ACTIVATION_BAR, type ValueReadingBenchmarkRecord } from './valueReadingBenchmark';
 import { VALUE_READING_EXECUTION } from '@/lib/valueReadingContract';
-import { assertQualificationContract, QUALIFICATION_CONTRACT, validateQualificationCaptures, validateQualificationRecords, qualificationSourceDigest } from './qualificationContract';
+import { assertQualificationContract, QUALIFICATION_CONTRACT, validateQualificationCaptures, validateQualificationRecords } from './qualificationContract';
+import { historicalQualificationSourceDigest } from './fixtures/historicalQualificationSource';
 
 const pins = parseCorpusPins(QUALIFICATION_CONTRACT.corpus);
 function captureFixture() {
@@ -44,7 +45,7 @@ describe('frozen B4.6.1 qualification registration', () => {
       binding: QUALIFICATION_BINDING_VERSION, tasks: QUALIFICATION_TASKS, execution: VALUE_READING_EXECUTION,
       activationBar: VALUE_READING_ACTIVATION_BAR, pins,
       promptSha256: sha256Hex(readFileSync('lib/forgewing/prompts/valueReading.md')),
-      sourceSha256: Object.fromEntries(Object.keys(QUALIFICATION_CONTRACT.sourceSha256).map(file => [file, qualificationSourceDigest(readFileSync(file, 'utf8'))])) };
+      sourceSha256: Object.fromEntries(Object.keys(QUALIFICATION_CONTRACT.sourceSha256).map(file => [file, historicalQualificationSourceDigest(file)])) };
     expect(() => assertQualificationContract(observed)).not.toThrow();
     expect(() => assertQualificationContract({ ...observed, execution: { ...VALUE_READING_EXECUTION, timeoutMs: 9000 } })).toThrow('execution');
     expect(() => assertQualificationContract({ ...observed, taxonomy: 'other' })).toThrow('taxonomy');

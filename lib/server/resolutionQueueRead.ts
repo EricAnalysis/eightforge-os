@@ -26,8 +26,6 @@ import { readRecoveryReviewQueue, type RecoveryReviewCandidate } from '@/lib/ser
 import { loadRegionBoundAssertionRows, type RegionAssertionClient } from '@/lib/server/regionBoundHumanAssertions';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { resolveValueReadingEligibility } from '@/lib/server/forgewingGates';
-import { isValueReadingProviderConfigured, valueReadingProviderModel } from '@/lib/forgewing/runtime/valueReadingClient';
-import { isForgewingModelQualified } from '@/lib/forgewing/runtime/modelConfig';
 import { addValueReadingsToResolutionQueue } from '@/lib/server/valueReadingWorkspace';
 import type { ValidationEvidence, ValidationFinding } from '@/types/validator';
 
@@ -251,7 +249,6 @@ export async function readResolutionQueue(
   if (forgewingEnabled) {
     try {
       const available = await (dependencies.resolveValueReadingAvailability ?? (async (client, organizationId) => {
-        if (!isValueReadingProviderConfigured() || !isForgewingModelQualified(valueReadingProviderModel())) return false;
         const eligibility = await resolveValueReadingEligibility(client as never,
           { organizationId, contentClasses: ['page_region_images'] });
         return eligibility.eligible;

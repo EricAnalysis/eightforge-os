@@ -24,7 +24,13 @@ import {
   admitDocumentProcessing,
   closeDocumentProcessingAdmission,
   documentProcessingRefusalResponse,
+  documentProcessingWriteFencedResponse,
 } from '@/lib/server/documentProcessingHold';
+import {
+  assertNoDocumentProcessingFenceRefusal,
+  DocumentProcessingWriteFencedError,
+  runWithDocumentProcessingAdmission,
+} from '@/lib/server/documentProcessingAdmissionContext';
 import type { RuleEvalResult } from '@/lib/types/rules';
 
 export async function POST(
@@ -112,10 +118,17 @@ export async function POST(
   let admissionOutcome: 'completed' | 'failed' = 'failed';
 
   try {
-    const canonicalResult = await generateAndPersistCanonicalIntelligence({
-      admin,
-      documentId,
-      organizationId: document.organization_id,
+    // The extraction snapshot rewrite is a protected write: it runs under the
+    // admission, and a fence refusal stops the evaluation before it records
+    // anything as decisioned.
+    const canonicalResult = await runWithDocumentProcessingAdmission(admission.admissionId, async () => {
+      const result = await generateAndPersistCanonicalIntelligence({
+        admin,
+        documentId,
+        organizationId: document.organization_id,
+      });
+      assertNoDocumentProcessingFenceRefusal();
+      return result;
     });
 
     if (canonicalResult.handled) {
@@ -277,6 +290,11 @@ export async function POST(
       },
     });
   } catch (error) {
+    if (error instanceof DocumentProcessingWriteFencedError) {
+      // Not a document failure: the fence stopped a stale or revoked run.
+      console.warn('[evaluate] protected write fenced', { documentId, reasons: error.reasons });
+      return documentProcessingWriteFencedResponse(error.reasons);
+    }
     console.error('[evaluate] unhandled error:', error);
 
     // Mark document as failed

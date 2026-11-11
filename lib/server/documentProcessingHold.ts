@@ -22,7 +22,8 @@ export type DocumentProcessingEntryPoint =
   | 'documents_process'
   | 'document_analyze'
   | 'job_process'
-  | 'document_evaluate';
+  | 'document_evaluate'
+  | 'project_rerun';
 
 export type DocumentProcessingAdmission =
   | Readonly<{
@@ -46,6 +47,7 @@ export type DocumentProcessingHoldRpcClient = {
 
 export const DOCUMENT_PROCESSING_HELD_CODE = 'DOCUMENT_PROCESSING_HELD' as const;
 export const DOCUMENT_PROCESSING_HOLD_UNVERIFIED_CODE = 'DOCUMENT_PROCESSING_HOLD_UNVERIFIED' as const;
+export const DOCUMENT_PROCESSING_WRITE_FENCED_CODE = 'DOCUMENT_PROCESSING_WRITE_FENCED' as const;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -181,11 +183,24 @@ export function documentProcessingRefusalResponse(refusal: DocumentProcessingRef
 // Operator control
 // ---------------------------------------------------------------------------
 
-export type DocumentProcessingHoldAction = 'hold' | 'release';
+/**
+ * The typed 409 for an admitted request whose protected writes the database
+ * refused (its admission was revoked, closed, expired or superseded). Nothing
+ * protected was written by the refused statements.
+ */
+export function documentProcessingWriteFencedResponse(reasons: readonly string[]): NextResponse {
+  const message = 'Processing was stopped by the processing fence before its output could be saved. Please try again later.';
+  return NextResponse.json(
+    { success: false, code: DOCUMENT_PROCESSING_WRITE_FENCED_CODE, message, error: message, reasons },
+    { status: 409 },
+  );
+}
+
+export type DocumentProcessingHoldAction = 'hold' | 'release' | 'revoke';
 
 export type DocumentProcessingHoldTransitionResult =
   | Readonly<{ status: 'ok'; transition: Record<string, unknown> }>
-  | Readonly<{ status: 'replay_conflict' | 'invalid_input' | 'not_configured' | 'failed'; message: string }>;
+  | Readonly<{ status: 'replay_conflict' | 'not_held' | 'invalid_input' | 'not_configured' | 'failed'; message: string }>;
 
 export async function setDocumentProcessingHold(
   admin: DocumentProcessingHoldRpcClient | null | undefined,
@@ -209,6 +224,9 @@ export async function setDocumentProcessingHold(
     if (error) {
       if (error.details === 'document_processing_hold_replay_conflict') {
         return { status: 'replay_conflict', message: error.message };
+      }
+      if (error.details === 'document_processing_hold_not_held') {
+        return { status: 'not_held', message: error.message };
       }
       if (error.code === '22023') return { status: 'invalid_input', message: error.message };
       return { status: 'failed', message: error.message };

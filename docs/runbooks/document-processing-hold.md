@@ -1,112 +1,130 @@
-# Document processing hold
+# Document processing hold and write fence
 
-Migration `20261111210000_document_processing_hold.sql`. Server module `lib/server/documentProcessingHold.ts`. Operator route `/api/internal/document-processing-hold`.
+Migrations:
+- `20261111210000_document_processing_hold.sql`: control, audit, admissions, job fence.
+- `20261111220000_document_processing_write_fence.sql`: protected-write fence, revoke, drain by writer authority.
 
-This is a durable, platform-wide stop for new document processing. It exists so that a maintenance window, the A1/A2 source-authority release first, can **hold → drain → verify** before migrating. It does not migrate, backfill or deploy anything.
+Server modules:
+- `lib/server/documentProcessingHold.ts`
+- `lib/server/documentProcessingAdmissionContext.ts`
 
-**Status: not deployed.** Merging this PR to `main` applies the migration to production. The migration is additive and does **not** activate a hold: the default state is processing allowed.
+Operator route: `/api/internal/document-processing-hold`.
 
-## 1. What is fenced
+This is a durable, platform-wide stop for document processing. It lets a maintenance window, the A1/A2 source-authority release first, **hold → drain → verify** before migrating. It does not migrate, backfill or deploy anything.
 
-| Entry point | Writes | Admission | DB fence for older builds |
-|---|---|---|---|
-| `POST /api/documents/process` (upload, reprocess, recovery reprocess) | job, blob, facts, canonical intelligence, sibling reruns (7b) | `documents_process`, before `processDocument` creates its job | job insert refused while held |
-| `POST /api/documents/[id]/analyze` | job, then dispatches `/api/jobs/process` | `document_analyze`, before `createAnalysisJob` | job insert refused while held |
-| `POST /api/jobs/process/[jobId]` | claims a queued job, blob, decisions | `job_process`, before any job, document or storage access | queued→running claim refused while held |
-| `POST /api/documents/[id]/evaluate` | blob diagnostics, decisions, tasks, document status | `document_evaluate`, before canonical evaluation | **none**: it writes no job row |
+**Status: not deployed.** Merging to `main` applies both migrations to production.
+- They are additive and do **not** activate a hold: the default state is processing allowed.
+- They add triggers to `document_extractions`. Each migration sets `lock_timeout = '10s'`; if that expires, the migration fails cleanly and can be re-run.
 
-Not fenced, by design:
+## 1. Writers and what is fenced
 
-- **Reads**, and **terminal status writes** (`completed`/`failed`): in-flight work must always be able to record its outcome.
-- **Crons.** `forgewing-shadow-cleanup` and `workflow-assessment-sweep` write neither jobs nor extraction output.
-- **`/api/admin/reset-stuck-documents`.** It only fails stuck jobs and documents; it is a drain tool.
-- **Scripts.** `scripts/reprocess-*.ts` only write `documents.intelligence_trace` and run from an operator's machine, not the deployment.
-- **Sources inside admitted work.** `after()` tasks (compliance shadow, Step 1 shadow) and `void triggerProjectValidation()` run inside an admitted request. The lease covers them; see §4.
+**Protected processing output:** `document_extractions` `INSERT` and `UPDATE`, which covers blob rows and normalized fact rows. That is the surface the A1/A2 guards protect. Its application writers are:
 
-## 2. Schema and API
+| Writer | Reached from | Under admission |
+|---|---|---|
+| Blob insert (`processDocument`) | `documents/process` | `documents_process` |
+| Fact supersede + insert (`upsertManyExtractionFacts`) | `processDocument` (normalization) | `documents_process` |
+| Blob diagnostics update (`intelligencePersistence`, canonical persistence) | `processDocument`; 7b project reruns; `evaluate` | the caller's admission; each 7b sibling gets its own `project_rerun` admission |
+| Blob insert (`jobs/process`) | `analyze` → `jobs/process`, or direct dispatch | `job_process` (claim admission) |
 
-- `document_processing_control`, a singleton:
-  - `held`, `hold_version` (+1 on every applied transition), `held_since`, `admission_lease_seconds` (900; CHECK 900–3600), `last_transition_id`.
-  - A missing row refuses all admission.
-- `document_processing_hold_transitions`: append-only (UPDATE/DELETE/TRUNCATE refused). One row per operator request: `request_key` (unique), request digest, `action`, `outcome` (`applied` | `already_held` | `already_released`), actor id and email, reason, before/after state.
-- `document_processing_admissions`:
-  - One row per admitted request: `entry_point`, organization, document, `job_id` (job_process only), `admitted_hold_version`, `admitted_at`, `lease_expires_at`.
-  - It can only be closed, once (`closed_at`, `outcome`). Its identity and lease are immutable, and rows are never deleted.
-- `document_analysis_jobs.admission_id` / `claim_admission_id`: nullable, so rows written by older builds stay valid.
-- Trigger `document_analysis_jobs_hold_fence`: while held, it refuses `INSERT` and any queued→running claim unless the row carries a live, open admission for the same document. SQLSTATE `55000`, detail `document_processing_hold_active` (or `…_unverified` when the control row is missing).
-- Functions: `admit_document_processing`, `close_document_processing_admission`, `set_document_processing_hold`, `read_document_processing_hold_state`.
-  - All are `SECURITY DEFINER`, executable by `service_role` only.
-  - `anon` and `authenticated` cannot call them or read the tables; `service_role` can only `SELECT` them.
+The admission travels with the work through AsyncLocalStorage, so it also covers `after()` tasks, stages abandoned by `withStageTimeout`, and fire-and-forget calls.
 
-**Concurrency.** Admission and the job fence take a transaction-scoped advisory lock in shared mode; a transition takes it exclusive.
-- Each admission therefore commits wholly before or wholly after a hold, and every admission of a hold version has `admitted_at < held_since`.
-- Heavyweight lock queues are fair, so a burst of admissions cannot starve a hold. Row-level `FOR SHARE` / `FOR UPDATE` could: the first offline run measured a hold delayed behind 100 parallel admissions.
+**Job fence** (migration 1): job creation and queued→running claims, as before.
 
-**Application behaviour.** A refused request returns `503` with a typed body, and nothing has been written:
-- `code: DOCUMENT_PROCESSING_HELD`, plus `holdVersion`;
-- or `DOCUMENT_PROCESSING_HOLD_UNVERIFIED`, when the hold state cannot be read: RPC missing, network failure, malformed reply. The request fails closed.
+**Permitted terminal bookkeeping**, never fenced: job `completed`/`failed` updates, document status updates, and `reset-stuck-documents`.
 
-Both carry `message` and `error`. The upload itself still succeeds; the document stays `uploaded` and can be processed after release.
+**Unrelated, not fenced:**
+- Validator writes, because `triggerProjectValidation` only *reads* extractions.
+- Compliance and Step 1 shadow RPCs, which write shadow tables.
+- Decisions, tasks and activity events.
+- Document edits and deletes. `DELETE` on `document_extractions` is not fenced: the app never deletes extraction rows, and document deletion cascades.
 
-## 3. Operator procedure
+**Direct database sessions** have no PostgREST request context: migrations, backfills, the SQL editor. They are not application writes and are not fenced.
+- Every application write reaches the database through PostgREST.
+- The only direct-driver code in the repository is the offline Phase 17 evaluation runners, which never touch `document_extractions`.
+
+## 2. The write fence
+
+A row trigger on `document_extractions` checks every application write. A deferred constraint trigger checks it again at commit.
+
+| Request | While not held | While held |
+|---|---|---|
+| No admission header (5a7fb05, browser, any unadmitted path) | allowed | refused `held_unadmitted` |
+| Header names an admission that is: unknown / malformed | refused | refused |
+| … for another document / organization | refused | refused |
+| … closed / revoked / expired | refused | refused |
+| … superseded by a newer admission for the document | refused | refused |
+| … open, in lease, newest for its document | allowed | allowed (in-flight work) |
+
+- **Database authority.** The header (`x-eightforge-processing-admission`) only names the admission. The database decides validity from the admission row, whose identity, sequence and lease are immutable. A caller cannot supply or extend a lease, and the service role cannot write the admission table.
+- **Commit-time recheck.** A transaction that wrote under a valid admission cannot commit after that admission expires, is closed, revoked or superseded. The deferred check runs at commit and aborts the whole transaction.
+- **Lock order.** Each check holds the shared hold advisory lock until commit. Hold, revoke and the drain read take it exclusively, so they are ordered after every in-flight protected write.
+- **Observable refusals.** SQLSTATE `55000`, detail `document_processing_write_fenced:<reason>`.
+  - The admission transport records each refusal.
+  - `processDocument` refuses to mark a fenced run `completed`; it fails the job.
+  - `evaluate` returns `409 DOCUMENT_PROCESSING_WRITE_FENCED` without marking the document failed.
+- **Fact writes are not atomic.** The fact writer supersedes and inserts in two requests, which predates this change. A refusal between them leaves the old facts superseded and no new ones, but the job is failed, not completed. A2's R1 makes this atomic.
+
+## 3. Drain semantics
+
+`drain_state = drained` ⇔ the control is held **and** no admission is write-valid (open, with its lease running).
+
+Why that proves no pre-hold attempt can still commit a protected write:
+- An unadmitted application write is refused while held, whatever build sends it.
+- An admitted write needs an open admission with a running lease. Nothing in the database can create one while held (admission is refused), reopen one (closing is one-way), or extend one (leases are immutable).
+- The drain read takes the exclusive hold lock. Every protected write that already passed its checks has committed, and is visible, before the read. Every later one re-checks and is refused.
+- So `drained` is stable until release.
+
+It is not defined by job status, lease arithmetic, request counts, or elapsed time.
+
+## 4. Operator procedure
 
 Authority is the platform-operator allowlist: `INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS` / `_ROLES`.
 - It fails closed when unconfigured.
 - Organization admins are not operators.
-- The actor comes from the session; the body is strict.
+- The actor comes from the session.
 
 ```http
 GET  /api/internal/document-processing-hold
 POST /api/internal/document-processing-hold
-     {"action":"hold","requestKey":"<new uuid>","reason":"A1/A2 maintenance window"}
+     {"action":"hold" | "release" | "revoke","requestKey":"<new uuid>","reason":"..."}
 ```
 
-Retrying with the same `requestKey` and the same body replays the recorded result. The same key with a different body returns `409`.
+Every POST is audited. The same `requestKey` with the same body replays; with a different body it returns `409`.
 
-1. **Hold.** `POST action=hold`. Confirm `GET` shows `held: true` and a new `hold_version`.
-2. **Confirm refusal.** Any process request returns `503 DOCUMENT_PROCESSING_HELD`.
-3. **Drain.** Poll `GET` until `drain_state` is `drained`. That requires all of:
-   - `now ≥ held_since + admission_lease_seconds`, which bounds any request a pre-hold build started before the hold;
-   - no admission whose lease is still running, closed or not, because a closed request's `after()` work may still be writing.
+1. **Hold.** `action=hold`. New processing returns `503 DOCUMENT_PROCESSING_HELD`.
+2. **Drain.** Either:
+   - wait until in-flight requests close or their leases (15 min) expire; or
+   - `action=revoke` (only while held, otherwise `409 not_held`), which closes every write-valid admission. In-flight requests then fail at their next protected write.
+3. **Verify.** `GET` until `drain_state` is `drained`. The counts below are evidence only:
+   - `admissions_write_valid`, `natural_drain_at`;
+   - `admissions_abandoned`;
+   - `jobs_queued` / `jobs_running`.
 
-   `drain_not_before` says when the first condition is met.
-4. **Inspect, don't trust, statuses.** These counts are evidence for a human. None of them proves activity or inactivity:
-   - `jobs_queued` / `jobs_running` / `jobs_running_without_claim_admission`;
-   - `admissions_abandoned`: open, lease expired, so the request died without closing.
+   Queued jobs stay queued.
+4. **Migrate / backfill** with direct database sessions. They are not fenced.
+5. **Release.** `action=release`. Nothing releases a hold implicitly; a failed deploy leaves it on.
 
-   A queued job stays queued through the window. Resolve stale `running` jobs or `processing` documents explicitly (`/api/admin/reset-stuck-documents`), never by reprocessing during the window.
-5. **Release.** Release is only ever explicit: `POST action=release`.
-   - Nothing releases a hold on timeout, restart or failed deploy.
-   - A failed deploy leaves the hold on: fix forward.
+## 5. Deployment prerequisites and limits
 
-## 4. When the hold can be trusted
+- **Header passthrough must be verified on the hosted gateway.** Confirm the Supabase API gateway forwards `x-eightforge-processing-admission` to PostgREST, on staging or a disposable branch project. If it were stripped:
+  - safety holds: writes look unadmitted, so they are allowed only while not held, and refused while held;
+  - but admitted in-flight work would fail as soon as a hold starts, so `revoke` would be the only way to drain cleanly.
+- **Statement timeouts bound lock waits.** A hold, revoke or drain read waits for in-flight protected-write transactions; the role's `statement_timeout` bounds them.
+- **Bypasses that need privilege.** `SET CONSTRAINTS ALL IMMEDIATE` or `session_replication_role = replica` can skip the commit re-check or the triggers. Neither is reachable through the PostgREST table API; they need direct database privilege.
+- **Migration order.** These versions sort after #305, FDE `1108*`, the RPC fix `1109120000`, A1 `20261109033515`, and A2. Merging the hold first makes those older than the production head (see the A1/A2 runbook §2.2).
+- **Build memory.** `npm run build` needs `NODE_OPTIONS=--max-old-space-size=8192` locally.
 
-The hold's own guarantees hold from the moment the migration is applied. The **drain** is only as strong as the following assumptions.
-
-1. **No pre-hold build is still serving.** A 5a7fb05 instance cannot create or claim a job while held, because the database refuses it. But its `evaluate` route writes the blob with no job row, so the database cannot see or stop it.
-
-   Trust the hold only after Vercel serves the hold build exclusively: the promoted deployment, with no older deployment receiving traffic, plus one lease (15 min) for in-flight requests on the old deployment.
-
-2. **No admitted work outlives its lease** (900 s). The processing routes export no `maxDuration`, so they run at the Vercel project's default. Before the window, confirm in Vercel that this default (and any per-route override) is below 900 s. The admission ledger tracks every admitted request by time, not by status. But the application has writers that are not bound to the request:
-   - **`withStageTimeout`** (`lib/server/stageTimeout.ts`) abandons a timed-out stage without cancelling it: 120 s for the blob insert, 300 s for canonical persistence. Canonical persistence then keeps writing, including the blob diagnostics update, after the job was marked failed and the response was sent.
-   - **`void triggerProjectValidation(...)`** is fire-and-forget. It runs outside `after()`, and writes Validator tables only.
-
-   On Fluid Compute an instance can stay alive after the request, so these promises are not provably bounded by `maxDuration`. The hold does not fence `document_extractions` writes at the database, by design (no per-row checks). An orphan that survives its lease could write after `drained`. The offline gate demonstrates this (`18`).
-
-Closing assumption 2 needs one of:
-- a write-time fence on the guarded tables, keyed by admission (A1's publication RPC is the natural place);
-- or cancellable stages (an `AbortSignal` threaded into each Supabase call) and no un-awaited writers.
-
-## 5. Offline qualification
+## 6. Offline qualification
 
 ```bash
 bash scripts/qualify-document-processing-hold.sh
 ```
 
 Docker only. The script:
-- creates disposable PostgreSQL 17 + three PostgREST v14.7 containers (instance A, instance B, and the pre-hold schema);
+- creates disposable PostgreSQL 17 + three PostgREST v14.7 containers;
 - replays every migration;
-- runs `lib/server/documentProcessingHold.postgres.test.ts`;
+- runs `lib/server/documentProcessingHold.postgres.test.ts`: the 20 hold scenarios and the W01–W16 write-fence races;
 - removes everything on exit.
 
 It accepts no database URL.

@@ -240,7 +240,7 @@ describe('POST /api/jobs/process/[jobId]', { timeout: 30_000 }, () => {
 });
 
 describe('POST /api/documents/[id]/evaluate', () => {
-  async function post(admit: RpcReply) {
+  async function post(admit: RpcReply, canonicalWritesFenced = false) {
     const rpc = rpcClient(admit);
     const update = vi.fn();
     const from = vi.fn(() => {
@@ -251,11 +251,21 @@ describe('POST /api/documents/[id]/evaluate', () => {
       query.update = vi.fn(() => { update(); return query; });
       return query;
     });
-    const generateAndPersistCanonicalIntelligence = vi.fn(async () => ({
-      handled: true, family: 'contract', intelligence: { decisions: [] },
-      decisions_created: 0, decisions_updated: 0, decisions_preserved: 0,
-      tasks_created: 0, tasks_updated: 0, tasks_preserved: 0,
-    }));
+    const generateAndPersistCanonicalIntelligence = vi.fn(async () => {
+      if (canonicalWritesFenced) {
+        // The snapshot rewrite goes through the real admission transport and
+        // the database answers with a fence refusal (the writer only logs it).
+        const context = await import('@/lib/server/documentProcessingAdmissionContext');
+        await context.withDocumentProcessingAdmissionHeader(async () => Response.json(
+          { code: '55000', details: 'document_processing_write_fenced:revoked' }, { status: 400 },
+        ))('http://x/rest/v1/document_extractions', { method: 'PATCH' });
+      }
+      return {
+        handled: true, family: 'contract', intelligence: { decisions: [] },
+        decisions_created: 0, decisions_updated: 0, decisions_preserved: 0,
+        tasks_created: 0, tasks_updated: 0, tasks_preserved: 0,
+      };
+    });
     vi.doMock('@/lib/server/getActorContext', () => ({ getActorContext: vi.fn(async () => ACTOR) }));
     vi.doMock('@/lib/server/supabaseAdmin', () => ({ getSupabaseAdmin: vi.fn(() => ({ from, rpc })) }));
     vi.doMock('@/lib/server/intelligencePersistence', () => ({ generateAndPersistCanonicalIntelligence }));
@@ -284,6 +294,18 @@ describe('POST /api/documents/[id]/evaluate', () => {
     expect(response.status).toBe(503);
     expect(generateAndPersistCanonicalIntelligence).not.toHaveBeenCalled();
     expect(update).not.toHaveBeenCalled();
+  });
+
+  it('fenced protected write: typed 409, nothing recorded as decisioned, document not marked failed', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { response, update, rpc } = await post(ADMITTED, true);
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: 'DOCUMENT_PROCESSING_WRITE_FENCED', reasons: ['revoked'] });
+    expect(update).not.toHaveBeenCalled();
+    expect(rpc).toHaveBeenCalledWith('close_document_processing_admission', {
+      p_admission_id: ADMISSION_ID, p_outcome: 'failed',
+    });
   });
 });
 
@@ -366,6 +388,19 @@ describe('/api/internal/document-processing-hold', () => {
     } });
     const { POST } = await route(OPERATOR);
     expect((await POST(postBody({ action: 'release', requestKey: KEY, reason: 'done' }))).status).toBe(409);
+  });
+
+  it('revokes write-valid admissions, and refuses revoke without a hold', async () => {
+    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS', 'operator@example.test');
+    const { POST } = await route(OPERATOR);
+    expect((await POST(postBody({ action: 'revoke', requestKey: KEY, reason: 'drain now' }))).status).toBe(200);
+    expect(rpc).toHaveBeenCalledWith('set_document_processing_hold', expect.objectContaining({ p_action: 'revoke' }));
+    rpc.mockResolvedValueOnce({ data: null, error: {
+      message: 'revoking admissions requires an active hold', code: '55000', details: 'document_processing_hold_not_held',
+    } });
+    const refused = await POST(postBody({ action: 'revoke', requestKey: '00000000-0000-4000-8000-0000000000ab', reason: 'x' }));
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toEqual({ ok: false, error: 'not_held' });
   });
 
   it('reads hold and drain state', async () => {

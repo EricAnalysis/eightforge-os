@@ -69,11 +69,19 @@ GRANT USAGE ON SCHEMA storage TO anon, authenticated, service_role;
 GRANT SELECT,INSERT,UPDATE,DELETE ON storage.objects TO anon,authenticated,service_role;
 SQL
 
-hold_migration="supabase/migrations/20261111210000_document_processing_hold.sql"
+hold_migrations=(
+  "supabase/migrations/20261111210000_document_processing_hold.sql"
+  "supabase/migrations/20261111220000_document_processing_write_fence.sql"
+)
+is_hold_migration() {
+  local candidate
+  for candidate in "${hold_migrations[@]}"; do [[ "$1" == "${candidate}" ]] && return 0; done
+  return 1
+}
 mapfile -t migrations < <(find supabase/migrations -maxdepth 1 -type f -name '*.sql' | sort)
 replayed=0
 for migration in "${migrations[@]}"; do
-  [[ "${migration}" == "${hold_migration}" ]] && continue
+  is_hold_migration "${migration}" && continue
   LC_ALL=C perl -0777 -pe 's/\r\n/\n/g' "${migration}" > "${work}/m.sql"
   if ! psql_db postgres < "${work}/m.sql" > "${work}/replay.log" 2>&1; then
     echo "FRESH REPLAY: FAILED AT ${migration}"; tail -40 "${work}/replay.log"; exit 1
@@ -88,14 +96,15 @@ SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'postgres
 SQL
 docker exec "${db}" createdb -U postgres -T postgres prehold
 
-LC_ALL=C perl -0777 -pe 's/\r\n/\n/g' "${hold_migration}" > "${work}/m.sql"
-psql_db postgres < "${work}/m.sql"
-echo "HOLD MIGRATION APPLY: PASS ($((replayed + 1)) migrations total)"
-# Idempotence guard: a second apply must fail (no silent re-creation).
-if psql_db postgres < "${work}/m.sql" >/dev/null 2>&1; then
-  echo "HOLD MIGRATION REAPPLY: UNEXPECTEDLY SUCCEEDED"; exit 1
-fi
-echo "HOLD MIGRATION REAPPLY: refused as expected"
+for migration in "${hold_migrations[@]}"; do
+  LC_ALL=C perl -0777 -pe 's/\r\n/\n/g' "${migration}" > "${work}/m.sql"
+  psql_db postgres < "${work}/m.sql"
+  # Idempotence guard: a second apply must fail (no silent re-creation).
+  if psql_db postgres < "${work}/m.sql" >/dev/null 2>&1; then
+    echo "HOLD MIGRATION REAPPLY: UNEXPECTEDLY SUCCEEDED (${migration})"; exit 1
+  fi
+done
+echo "HOLD MIGRATIONS APPLY: PASS ($((replayed + ${#hold_migrations[@]})) migrations total); reapply refused"
 
 start_rest() {
   docker run -d --name "$1" --network "${network}" -p 127.0.0.1::3000 \

@@ -3,7 +3,10 @@
 // Operator control for the platform-wide document processing hold.
 //
 //   GET  -> current hold state and drain state (read-only)
-//   POST -> { action: 'hold' | 'release', requestKey: uuid, reason: string }
+//   POST -> { action: 'hold' | 'release' | 'revoke', requestKey: uuid, reason: string }
+//
+// revoke (only while held) closes every admission that could still write, so
+// the database refuses their protected writes and the drain completes at once.
 //
 // Authority: the platform-operator allowlist (INTERNAL_ORCHESTRATOR_ALLOWED_*),
 // fail-closed when unconfigured. Organization admins are not operators: the
@@ -30,7 +33,7 @@ export const runtime = 'nodejs';
 export const maxDuration = 30;
 
 const HoldTransitionSchema = z.object({
-  action: z.enum(['hold', 'release']),
+  action: z.enum(['hold', 'release', 'revoke']),
   requestKey: z.string().uuid(),
   reason: z.string().trim().min(1).max(1000),
 }).strict();
@@ -83,6 +86,8 @@ export async function POST(request: Request): Promise<Response> {
       return Response.json({ ok: true, transition: result.transition });
     case 'replay_conflict':
       return Response.json({ ok: false, error: 'request_key_conflict' }, { status: 409 });
+    case 'not_held':
+      return Response.json({ ok: false, error: 'not_held' }, { status: 409 });
     case 'invalid_input':
       return Response.json({ ok: false, error: 'invalid_request' }, { status: 400 });
     case 'not_configured':

@@ -11,6 +11,7 @@ import {
   closeDocumentProcessingAdmission,
   documentProcessingRefusalResponse,
 } from '@/lib/server/documentProcessingHold';
+import { runWithDocumentProcessingAdmission } from '@/lib/server/documentProcessingAdmissionContext';
 
 function jsonError(
   message: string,
@@ -116,7 +117,9 @@ export async function POST(req: Request) {
 
     let result: Awaited<ReturnType<typeof processDocument>> | null = null;
     try {
-      result = await processDocument({
+      // Everything the pipeline starts, after() tasks and abandoned stages
+      // included, writes under this admission; the database fences it.
+      result = await runWithDocumentProcessingAdmission(admission.admissionId, () => processDocument({
         documentId,
         organizationId,
         analysisMode,
@@ -124,7 +127,7 @@ export async function POST(req: Request) {
         registerBackgroundTask: (task) => after(task),
         admissionId: admission.admissionId,
         ...(processingPurpose === 'recovery_reprocess' ? { processingPurpose } : {}),
-      });
+      }));
     } finally {
       await closeDocumentProcessingAdmission(
         admin,

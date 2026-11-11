@@ -36,6 +36,7 @@ import {
   closeDocumentProcessingAdmission,
   documentProcessingRefusalResponse,
 } from '@/lib/server/documentProcessingHold';
+import { runWithDocumentProcessingAdmission } from '@/lib/server/documentProcessingAdmissionContext';
 
 const BUCKET = process.env.NEXT_PUBLIC_SUPABASE_DOCS_BUCKET || 'documents';
 
@@ -266,15 +267,21 @@ export async function POST(
       console.log('AI decision persistence result', aiDecisionResult);
     }
 
-    const { data: inserted, error: insertError } = await admin
-      .from('document_extractions')
-      .insert({
-        document_id: job.document_id,
-        organization_id: job.organization_id,
-        data: payload,
-      })
-      .select('id, data, created_at')
-      .single();
+    // Protected write: carries this dispatch's admission; the database fence
+    // refuses it if the admission was revoked, closed, expired or superseded.
+    const extractionJob = job;
+    const { data: inserted, error: insertError } = await runWithDocumentProcessingAdmission(
+      admission.admissionId,
+      async () => await admin
+        .from('document_extractions')
+        .insert({
+          document_id: extractionJob.document_id,
+          organization_id: extractionJob.organization_id,
+          data: payload,
+        })
+        .select('id, data, created_at')
+        .single(),
+    );
 
     if (insertError) {
       await markJobFailed(jobId, job.document_id, insertError.message);

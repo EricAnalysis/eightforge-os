@@ -36,6 +36,13 @@ describe('job processing compliance shadow isolation', () => {
       })),
     };
     const admin = {
+      rpc: vi.fn(async () => ({
+        data: {
+          admitted: true, admission_id: '00000000-0000-4000-8000-000000000001',
+          hold_version: 0, lease_expires_at: '2026-07-23T00:15:00Z',
+        },
+        error: null,
+      })),
       from: vi.fn((table: string) => {
         if (table === 'documents') {
           return { select: vi.fn(() => documentChain) };

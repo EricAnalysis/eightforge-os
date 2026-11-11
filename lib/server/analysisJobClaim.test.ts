@@ -21,9 +21,11 @@ describe('claimQueuedJob', () => {
     vi.doMock('@/lib/server/supabaseAdmin', () => ({ getSupabaseAdmin: () => admin }));
     const { claimQueuedJob } = await import('@/lib/server/analysisJobService');
 
-    await expect(claimQueuedJob({ jobId: 'job-1', attemptCount: 2, startedAt: '2026-10-10T00:00:00Z' }))
+    await expect(claimQueuedJob({ jobId: 'job-1', attemptCount: 2, startedAt: '2026-10-10T00:00:00Z', claimAdmissionId: 'admission-1' }))
       .resolves.toBe(true);
-    expect(calls.update).toEqual({ status: 'running', started_at: '2026-10-10T00:00:00Z', attempt_count: 3 });
+    expect(calls.update).toEqual({
+      status: 'running', started_at: '2026-10-10T00:00:00Z', attempt_count: 3, claim_admission_id: 'admission-1',
+    });
     expect(calls.eq).toEqual([['id', 'job-1'], ['status', 'queued']]);
   });
 
@@ -32,7 +34,7 @@ describe('claimQueuedJob', () => {
     vi.doMock('@/lib/server/supabaseAdmin', () => ({ getSupabaseAdmin: () => admin }));
     const { claimQueuedJob } = await import('@/lib/server/analysisJobService');
 
-    await expect(claimQueuedJob({ jobId: 'job-1', attemptCount: 0, startedAt: 'now' })).resolves.toBe(false);
+    await expect(claimQueuedJob({ jobId: 'job-1', attemptCount: 0, startedAt: 'now', claimAdmissionId: 'admission-1' })).resolves.toBe(false);
   });
 
   it('fails loudly when the claim itself errors', async () => {
@@ -40,7 +42,7 @@ describe('claimQueuedJob', () => {
     vi.doMock('@/lib/server/supabaseAdmin', () => ({ getSupabaseAdmin: () => admin }));
     const { claimQueuedJob } = await import('@/lib/server/analysisJobService');
 
-    await expect(claimQueuedJob({ jobId: 'job-1', attemptCount: 0, startedAt: 'now' }))
+    await expect(claimQueuedJob({ jobId: 'job-1', attemptCount: 0, startedAt: 'now', claimAdmissionId: 'admission-1' }))
       .rejects.toThrow('job claim failed: connection reset');
   });
 });
@@ -64,6 +66,13 @@ describe('job processing route claim', { timeout: 30_000 }, () => {
     documentChain.eq.mockReturnValue(documentChain);
     const admin = {
       from: vi.fn(() => ({ select: vi.fn(() => documentChain) })),
+      rpc: vi.fn(async () => ({
+        data: {
+          admitted: true, admission_id: '00000000-0000-4000-8000-000000000001',
+          hold_version: 0, lease_expires_at: '2026-10-10T00:15:00Z',
+        },
+        error: null,
+      })),
       storage: { from: vi.fn(() => ({ download })) },
     };
     const updateJobStatus = vi.fn(async () => undefined);

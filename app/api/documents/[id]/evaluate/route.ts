@@ -20,6 +20,11 @@ import { createDecisionsFromRules } from '@/lib/server/decisionEngine';
 import { createTasksFromDecisions } from '@/lib/server/workflowEngine';
 import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
 import { generateAndPersistCanonicalIntelligence } from '@/lib/server/intelligencePersistence';
+import {
+  admitDocumentProcessing,
+  closeDocumentProcessingAdmission,
+  documentProcessingRefusalResponse,
+} from '@/lib/server/documentProcessingHold';
 import type { RuleEvalResult } from '@/lib/types/rules';
 
 export async function POST(
@@ -93,6 +98,19 @@ export async function POST(
     );
   }
 
+  // ── 2b. Processing hold ──────────────────────────────────────────────
+  // Evaluation rewrites extraction diagnostics, decisions and tasks, so it is
+  // admitted like any other processing entry point. Refusal touches nothing.
+  const admission = await admitDocumentProcessing(admin, {
+    entryPoint: 'document_evaluate',
+    organizationId: document.organization_id,
+    documentId,
+  });
+  if (admission.status !== 'admitted') {
+    return documentProcessingRefusalResponse(admission);
+  }
+  let admissionOutcome: 'completed' | 'failed' = 'failed';
+
   try {
     const canonicalResult = await generateAndPersistCanonicalIntelligence({
       admin,
@@ -131,6 +149,7 @@ export async function POST(
         // Activity logging is best-effort — don't fail the request
       }
 
+      admissionOutcome = 'completed';
       return NextResponse.json({
         document_id: documentId,
         domain: document.domain,
@@ -235,6 +254,7 @@ export async function POST(
     }
 
     // ── 10. Return summary (with debug for manual testing) ───────────────
+    admissionOutcome = 'completed';
     return NextResponse.json({
       document_id: documentId,
       domain: document.domain,
@@ -276,5 +296,7 @@ export async function POST(
       },
       { status: 500 },
     );
+  } finally {
+    await closeDocumentProcessingAdmission(admin, admission.admissionId, admissionOutcome);
   }
 }

@@ -33,7 +33,14 @@ function adminStub() {
     };
     return query;
   });
-  return { from };
+  const rpc = vi.fn(async () => ({
+    data: {
+      admitted: true, admission_id: '00000000-0000-4000-8000-000000000001',
+      hold_version: 0, lease_expires_at: '2026-10-10T00:15:00Z',
+    },
+    error: null,
+  }));
+  return { from, rpc };
 }
 
 function call() {

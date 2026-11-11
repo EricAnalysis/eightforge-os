@@ -256,6 +256,8 @@ export async function processDocument(params: {
   triggeredBy: JobTrigger;
   registerBackgroundTask?: (task: Promise<unknown>) => void;
   processingPurpose?: 'standard' | 'recovery_reprocess';
+  /** Granted by admitDocumentProcessing before this call; the job records it. */
+  admissionId: string;
 }): Promise<ProcessDocumentResult> {
   const admin = getSupabaseAdmin();
   if (!admin) return { success: false, error: 'Server not configured' };
@@ -265,6 +267,7 @@ export async function processDocument(params: {
     organizationId: params.organizationId,
     analysisMode: params.analysisMode,
     triggeredBy: params.triggeredBy,
+    admissionId: params.admissionId,
   });
   if (!job) return { success: false, error: 'Failed to create analysis job' };
 

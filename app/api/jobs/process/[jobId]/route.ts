@@ -31,6 +31,11 @@ import { getLocatedOcrObservations } from '@/lib/extraction/ocrObservationSideca
 import { buildStep3SemanticInterpretation } from '@/lib/interpretation/step3ShadowBridge';
 import { persistUploadedSourceArtifactIdentity } from '@/lib/extraction/persistence/sourceArtifactIdentity';
 import { loadExtractionPageGuidance } from '@/lib/contracts/contractUploadGuidance';
+import {
+  admitDocumentProcessing,
+  closeDocumentProcessingAdmission,
+  documentProcessingRefusalResponse,
+} from '@/lib/server/documentProcessingHold';
 
 const BUCKET = process.env.NEXT_PUBLIC_SUPABASE_DOCS_BUCKET || 'documents';
 
@@ -59,6 +64,8 @@ export async function POST(
 
   let jobId: string | null = null;
   let job: Awaited<ReturnType<typeof getJob>> = null;
+  let admissionId: string | null = null;
+  let admissionOutcome: 'completed' | 'failed' = 'failed';
   try {
     const resolved = await params;
     jobId = resolved.jobId ?? null;
@@ -86,6 +93,19 @@ export async function POST(
       return jsonError('Server not configured', 503);
     }
 
+    // Processing hold: decided by the database before this dispatch touches
+    // the job or the document. A refused dispatch leaves the job queued.
+    const admission = await admitDocumentProcessing(admin, {
+      entryPoint: 'job_process',
+      organizationId: job.organization_id,
+      documentId: job.document_id,
+      jobId,
+    });
+    if (admission.status !== 'admitted') {
+      return documentProcessingRefusalResponse(admission);
+    }
+    admissionId = admission.admissionId;
+
     const { data: docRow, error: docError } = await admin
       .from('documents')
       .select('id, title, name, document_type, status, storage_path, organization_id, project_id')
@@ -109,6 +129,7 @@ export async function POST(
         jobId,
         attemptCount: job.attempt_count ?? 0,
         startedAt: new Date().toISOString(),
+        claimAdmissionId: admission.admissionId,
       });
     } catch (claimError) {
       // The claim outcome is unknown, so another dispatch may own the job:
@@ -330,6 +351,7 @@ export async function POST(
       void triggerProjectValidation(docRow.project_id, 'document_processed');
     }
 
+    admissionOutcome = 'completed';
     return NextResponse.json({
       success: true,
       extraction: inserted,
@@ -350,5 +372,9 @@ export async function POST(
     }
 
     return NextResponse.json({ error: 'Job processing failed' }, { status: 500 });
+  } finally {
+    if (admissionId) {
+      await closeDocumentProcessingAdmission(getSupabaseAdmin(), admissionId, admissionOutcome);
+    }
   }
 }

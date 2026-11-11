@@ -10,6 +10,8 @@ type CreateAnalysisJobParams = {
   organizationId: string;
   analysisMode: string;
   triggeredBy: JobTrigger;
+  /** The processing admission this job runs under (documentProcessingHold). */
+  admissionId: string;
 };
 
 export async function createAnalysisJob(
@@ -26,6 +28,7 @@ export async function createAnalysisJob(
       analysis_mode: params.analysisMode,
       status: 'queued',
       triggered_by: params.triggeredBy,
+      admission_id: params.admissionId,
     })
     .select()
     .single();
@@ -77,6 +80,8 @@ export async function claimQueuedJob(params: {
   jobId: string;
   attemptCount: number;
   startedAt: string;
+  /** This dispatch's own processing admission; the hold fence checks it. */
+  claimAdmissionId: string;
 }): Promise<boolean> {
   const admin = getSupabaseAdmin();
   if (!admin) return false;
@@ -87,6 +92,7 @@ export async function claimQueuedJob(params: {
       status: 'running',
       started_at: params.startedAt,
       attempt_count: params.attemptCount + 1,
+      claim_admission_id: params.claimAdmissionId,
     })
     .eq('id', params.jobId)
     .eq('status', 'queued')

@@ -1,18 +1,25 @@
 -- Document processing write fence.
 --
--- Builds on 20261111210000_document_processing_hold. The hold refuses new
+-- Builds on 20261105120000_document_processing_hold. The hold refuses new
 -- admissions; this migration makes the database refuse protected writes
 -- (document_extractions INSERT/UPDATE: blobs and normalized facts) from any
 -- application request that does not hold a currently valid admission:
 --
 --   * no admission while held             -> refused   (5a7fb05 included)
 --   * expired / closed / revoked          -> refused
---   * superseded by a newer admission for the same document -> refused
+--   * superseded by a newer SOURCE-processing admission (documents_process,
+--     document_analyze, job_process) for the same document -> refused.
+--     Derived refreshes (document_evaluate, project_rerun) never supersede.
 --   * another document or organization    -> refused
+--   * an admission presented by any role other than service_role -> refused
 --
 -- The admission travels as the PostgREST request header
 -- x-eightforge-processing-admission. The database decides validity from the
 -- immutable admission row; a caller cannot supply a lease or timestamp.
+--
+-- Requires PostgreSQL 16+ (pg_input_is_valid). Asserted below, because
+-- PL/pgSQL resolves functions at run time: on an older server the migration
+-- would apply and every application extraction write would then fail.
 --
 -- Validity is checked when each row is written AND again at commit (deferred
 -- constraint trigger), so a transaction that started under a valid admission
@@ -24,6 +31,15 @@
 -- Writes with no PostgREST request context (direct database sessions:
 -- migrations, backfills, the SQL editor) are not application writes and are
 -- not fenced. All application traffic reaches the database through PostgREST.
+
+DO $$
+BEGIN
+  IF current_setting('server_version_num')::integer < 160000 THEN
+    RAISE EXCEPTION 'document processing write fence requires PostgreSQL 16 or later (found %)',
+      current_setting('server_version');
+  END IF;
+END;
+$$;
 
 SET lock_timeout = '10s';
 
@@ -50,7 +66,7 @@ ALTER TABLE public.document_processing_admissions
 CREATE OR REPLACE FUNCTION public.document_processing_admissions_close_only()
 RETURNS trigger
 LANGUAGE plpgsql
-SET search_path = pg_catalog, public
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 BEGIN
   IF OLD.closed_at IS NOT NULL
@@ -108,7 +124,11 @@ CREATE OR REPLACE FUNCTION public.set_document_processing_hold(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = pg_catalog, public
+SET search_path = pg_catalog, public, pg_temp
+-- Bounds how long a transition queues behind in-flight protected writes (and
+-- so how long it can hold up the admissions queued behind it). On timeout it
+-- fails with 55P03 and nothing changes; the operator retries.
+SET lock_timeout = '5s'
 AS $$
 DECLARE
   v_control public.document_processing_control%ROWTYPE;
@@ -229,7 +249,7 @@ CREATE FUNCTION public.document_processing_write_fence()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = pg_catalog, public
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
   v_headers text := nullif(current_setting('request.headers', true), '');
@@ -288,25 +308,45 @@ BEGIN
     v_reason := 'held_unadmitted';
   ELSIF v_reason IS NULL AND NOT pg_catalog.pg_input_is_valid(v_header, 'uuid') THEN
     v_reason := 'malformed_admission';
+  ELSIF v_reason IS NULL
+        AND (v_claims IS NULL OR NOT pg_catalog.pg_input_is_valid(v_claims, 'jsonb')
+             OR (v_claims::jsonb ->> 'role') IS DISTINCT FROM 'service_role') THEN
+    -- Admissions are issued to the server only. Their ids are readable by
+    -- organization members (document_analysis_jobs RLS), so a browser session
+    -- presenting one is refused rather than allowed to borrow it.
+    v_reason := 'admission_role_mismatch';
   ELSIF v_reason IS NULL THEN
-    IF TG_OP = 'UPDATE' AND OLD.document_id IS DISTINCT FROM NEW.document_id THEN
-      v_reason := 'document_mismatch';
+    IF TG_OP = 'UPDATE' AND (OLD.document_id IS DISTINCT FROM NEW.document_id
+                             OR OLD.organization_id IS DISTINCT FROM NEW.organization_id) THEN
+      -- An admitted write may not move a row to another document or tenant.
+      v_reason := CASE WHEN OLD.document_id IS DISTINCT FROM NEW.document_id
+        THEN 'document_mismatch' ELSE 'organization_mismatch' END;
     ELSE
       SELECT * INTO v_admission
       FROM public.document_processing_admissions
       WHERE id = v_header::uuid;
       v_reason := CASE
         WHEN v_admission.id IS NULL THEN 'unknown_admission'
-        WHEN v_admission.document_id <> NEW.document_id THEN 'document_mismatch'
-        WHEN NEW.organization_id IS NOT NULL
+        -- NULL-safe: a row without a document is never covered by an admission.
+        WHEN v_admission.document_id IS DISTINCT FROM NEW.document_id THEN 'document_mismatch'
+        -- New rows must name the admission's organization. Updates keep the
+        -- row's organization (checked above); legacy rows with no organization
+        -- may still be updated inside the admitted document.
+        WHEN TG_OP = 'INSERT'
+             AND NEW.organization_id IS DISTINCT FROM v_admission.organization_id THEN 'organization_mismatch'
+        WHEN TG_OP = 'UPDATE' AND NEW.organization_id IS NOT NULL
              AND NEW.organization_id <> v_admission.organization_id THEN 'organization_mismatch'
         WHEN v_admission.outcome = 'revoked' THEN 'revoked'
         WHEN v_admission.closed_at IS NOT NULL THEN 'closed'
         WHEN v_admission.lease_expires_at <= clock_timestamp() THEN 'expired'
+        -- Only a newer SOURCE-processing attempt makes this one stale. Derived
+        -- refreshes (evaluate, project reruns) read existing extraction output
+        -- and must never knock out the run that is producing new output.
         WHEN EXISTS (
           SELECT 1 FROM public.document_processing_admissions b
           WHERE b.document_id = v_admission.document_id
             AND b.admission_seq > v_admission.admission_seq
+            AND b.entry_point IN ('documents_process', 'document_analyze', 'job_process')
         ) THEN 'superseded'
       END;
       IF v_reason IS NULL THEN
@@ -336,18 +376,24 @@ CREATE CONSTRAINT TRIGGER document_extractions_processing_write_fence_commit
 -- 5. Drain state, by writer authority
 -- ---------------------------------------------------------------------------
 -- 'drained' = held, and no admission can still commit a protected write:
--- none is open with a running lease. Taken under the exclusive hold lock, so
--- every protected write that passed its checks has committed and is visible,
--- and every later one re-checks against the state read here. Nothing in the
--- database can reopen, extend or create an admission while held, so drained
--- is stable until release. Volatile: each statement reads a fresh snapshot
--- after the lock is granted.
+-- none is open with a running lease. While held, the read is taken under the
+-- exclusive hold lock, so every protected write that passed its checks has
+-- committed and is visible, and every later one re-checks against the state
+-- read here. Nothing in the database can reopen, extend or create an
+-- admission while held, so drained is stable until release.
+--
+-- When not held the read takes no exclusive lock, so polling never stalls
+-- normal processing. lock_timeout bounds how long an exclusive request can
+-- queue (and so how long it can hold up the shared requests queued behind
+-- it); on timeout the read fails with 55P03 and can simply be retried.
+-- Volatile: each statement reads a fresh snapshot.
 CREATE OR REPLACE FUNCTION public.read_document_processing_hold_state()
 RETURNS jsonb
 LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
-SET search_path = pg_catalog, public
+SET search_path = pg_catalog, public, pg_temp
+SET lock_timeout = '5s'
 AS $$
 DECLARE
   v_control public.document_processing_control%ROWTYPE;
@@ -359,15 +405,18 @@ DECLARE
   v_running bigint;
   v_running_unadmitted bigint;
 BEGIN
-  PERFORM pg_catalog.pg_advisory_xact_lock(
-    pg_catalog.hashtextextended('eightforge:document_processing_hold', 0));
-  v_now := clock_timestamp();
-
   SELECT * INTO v_control FROM public.document_processing_control WHERE singleton;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'document processing control is missing'
       USING ERRCODE = '55000', DETAIL = 'document_processing_hold_unverified';
   END IF;
+  IF v_control.held THEN
+    PERFORM pg_catalog.pg_advisory_xact_lock(
+      pg_catalog.hashtextextended('eightforge:document_processing_hold', 0));
+    -- Fresh snapshot after the lock: a release may have committed meanwhile.
+    SELECT * INTO v_control FROM public.document_processing_control WHERE singleton;
+  END IF;
+  v_now := clock_timestamp();
 
   SELECT count(*), max(lease_expires_at) INTO v_valid, v_natural_drain
   FROM public.document_processing_admissions

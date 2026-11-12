@@ -1,8 +1,8 @@
 # Document processing hold and write fence
 
 Migrations:
-- `20261111210000_document_processing_hold.sql`: control, audit, admissions, job fence.
-- `20261111220000_document_processing_write_fence.sql`: protected-write fence, revoke, drain by writer authority.
+- `20261105120000_document_processing_hold.sql`: control, audit, admissions, job fence.
+- `20261105120100_document_processing_write_fence.sql`: protected-write fence, revoke, drain by writer authority.
 
 Server modules:
 - `lib/server/documentProcessingHold.ts`
@@ -51,14 +51,22 @@ A row trigger on `document_extractions` checks every application write. A deferr
 |---|---|---|
 | No admission header (5a7fb05, browser, any unadmitted path) | allowed | refused `held_unadmitted` |
 | Header names an admission that is: unknown / malformed | refused | refused |
-| … for another document / organization | refused | refused |
+| … presented by any role other than `service_role` (e.g. a browser that read an id from `document_analysis_jobs`) | refused `admission_role_mismatch` | refused |
+| … for another document; a row with no document | refused | refused |
+| … insert for another or no organization; update that changes the row's organization | refused | refused |
 | … closed / revoked / expired | refused | refused |
-| … superseded by a newer admission for the document | refused | refused |
-| … open, in lease, newest for its document | allowed | allowed (in-flight work) |
+| … superseded by a newer **source-processing** admission for the document | refused | refused |
+| … open, in lease, not superseded | allowed | allowed (in-flight work) |
 
 - **Database authority.** The header (`x-eightforge-processing-admission`) only names the admission. The database decides validity from the admission row, whose identity, sequence and lease are immutable. A caller cannot supply or extend a lease, and the service role cannot write the admission table.
+- **Supersession follows lineage.**
+  - Only a newer *source-processing* admission (`documents_process`, `document_analyze`, `job_process`) makes older admissions for the same document stale.
+  - Derived refreshes (`document_evaluate`, `project_rerun`) never supersede anything. They read existing output, so a sibling's 7b rerun or a user's evaluate can't knock out the run producing new output.
+- **Legacy rows.** Rows with no organization can still be updated inside the admitted document, but an admitted write can never move a row to another document or tenant.
 - **Commit-time recheck.** A transaction that wrote under a valid admission cannot commit after that admission expires, is closed, revoked or superseded. The deferred check runs at commit and aborts the whole transaction.
-- **Lock order.** Each check holds the shared hold advisory lock until commit. Hold, revoke and the drain read take it exclusively, so they are ordered after every in-flight protected write.
+- **Lock order.** Each check holds the shared hold advisory lock until commit. Hold, revoke and (while held) the drain read take it exclusively, so they are ordered after every in-flight protected write.
+  - Polling the state while not held takes no exclusive lock.
+  - Hold, revoke and the drain read give up after `lock_timeout = 5s` with `55P03`. The route returns `503 hold_lock_busy` and nothing changes; retry. This bounds how long they, and the admissions queued behind them, can wait on a long in-flight write.
 - **Observable refusals.** SQLSTATE `55000`, detail `document_processing_write_fenced:<reason>`.
   - The admission transport records each refusal.
   - `processDocument` refuses to mark a fenced run `completed`; it fails the job.
@@ -110,9 +118,19 @@ Every POST is audited. The same `requestKey` with the same body replays; with a 
 - **Header passthrough must be verified on the hosted gateway.** Confirm the Supabase API gateway forwards `x-eightforge-processing-admission` to PostgREST, on staging or a disposable branch project. If it were stripped:
   - safety holds: writes look unadmitted, so they are allowed only while not held, and refused while held;
   - but admitted in-flight work would fail as soon as a hold starts, so `revoke` would be the only way to drain cleanly.
-- **Statement timeouts bound lock waits.** A hold, revoke or drain read waits for in-flight protected-write transactions; the role's `statement_timeout` bounds them.
-- **Bypasses that need privilege.** `SET CONSTRAINTS ALL IMMEDIATE` or `session_replication_role = replica` can skip the commit re-check or the triggers. Neither is reachable through the PostgREST table API; they need direct database privilege.
-- **Migration order.** These versions sort after #305, FDE `1108*`, the RPC fix `1109120000`, A1 `20261109033515`, and A2. Merging the hold first makes those older than the production head (see the A1/A2 runbook §2.2).
+- **PostgreSQL 16+.** The fence uses `pg_input_is_valid`. The write-fence migration asserts `server_version_num >= 160000` and fails before changing anything on an older server. Production was recorded as 17; confirm read-only before merge.
+- **Lock waits are bounded.** Hold, revoke and the held drain read use `lock_timeout = 5s` (§2). Writers waiting behind them are therefore bounded by that plus the in-flight transaction.
+- **Direct SQL is trusted.** A session that can run SQL can skip or pre-empt the fence:
+  - `SET CONSTRAINTS ALL IMMEDIATE`;
+  - `session_replication_role = replica`;
+  - pre-seeding the `eightforge.write_fence_*` cache settings;
+  - clearing `request.headers`.
+
+  None of these is reachable through the PostgREST table API, and no RPC calls `set_config`.
+- **Migration order.**
+  - The two hold migrations are versioned `20261105120000` / `20261105120100`. That is above the production head (`20261104120000`, inferred) and below every pending stream: #305 `1106*`/`1107*`, FDE `1108*`, A1 `1109033515`, RPC `1109120000`, A2 `1110*`/`1111*`.
+  - So the hold can merge **first** without re-stamping anything.
+  - Rule: it must merge before any of those. Otherwise, re-stamp it just above the production head at merge time.
 - **Build memory.** `npm run build` needs `NODE_OPTIONS=--max-old-space-size=8192` locally.
 
 ## 6. Offline qualification
@@ -124,7 +142,7 @@ bash scripts/qualify-document-processing-hold.sh
 Docker only. The script:
 - creates disposable PostgreSQL 17 + three PostgREST v14.7 containers;
 - replays every migration;
-- runs `lib/server/documentProcessingHold.postgres.test.ts`: the 20 hold scenarios and the W01–W16 write-fence races;
+- runs `lib/server/documentProcessingHold.postgres.test.ts`: the 20 hold scenarios, the W01–W16 write-fence races, and the B1/B3/B4/B5 regressions;
 - removes everything on exit.
 
 It accepts no database URL.

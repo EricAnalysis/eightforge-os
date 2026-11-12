@@ -58,6 +58,10 @@ export async function GET(request: Request): Promise<Response> {
   if (!auth.ok) return auth.response;
   const result = await readDocumentProcessingHoldState(getSupabaseAdmin());
   if (result.status === 'ok') return Response.json({ ok: true, state: result.state });
+  if (result.status === 'busy') {
+    // Protected writes are in flight; the exclusive read timed out. Retry.
+    return Response.json({ ok: false, error: 'hold_lock_busy' }, { status: 503 });
+  }
   console.error('[document-processing-hold] state read failed', { message: result.message });
   return Response.json(
     { ok: false, error: result.status === 'not_configured' ? 'not_configured' : 'hold_state_unavailable' },
@@ -86,6 +90,9 @@ export async function POST(request: Request): Promise<Response> {
       return Response.json({ ok: true, transition: result.transition });
     case 'replay_conflict':
       return Response.json({ ok: false, error: 'request_key_conflict' }, { status: 409 });
+    case 'busy':
+      // Nothing changed; in-flight protected writes held the lock. Retry.
+      return Response.json({ ok: false, error: 'hold_lock_busy' }, { status: 503 });
     case 'not_held':
       return Response.json({ ok: false, error: 'not_held' }, { status: 409 });
     case 'invalid_input':

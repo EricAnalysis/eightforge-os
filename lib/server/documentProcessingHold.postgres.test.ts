@@ -515,16 +515,20 @@ describe.skipIf(!enabled)('document processing hold — disposable PostgreSQL/Po
       WHERE admitted_at > (SELECT held_since FROM public.document_processing_control)`)).toBe('0');
     expect(await state()).toMatchObject({ held: true, drain_state: 'draining', admissions_write_valid: 2 });
 
-    // B: hold transition holds FOR UPDATE; admission must wait, then refuse.
-    const h = session(`BEGIN; SELECT public.set_document_processing_hold('${randomUUID()}','release','race 2','${OPERATOR}')->>'outcome';
-      SELECT pg_sleep(1); SELECT public.set_document_processing_hold('${randomUUID()}','hold','race 2','${OPERATOR}')->>'outcome';
-      SELECT pg_sleep(1); COMMIT;`);
-    await waitFor(() => sql(`SELECT count(*) FROM pg_stat_activity WHERE query LIKE '%pg_sleep(1)%' AND pid <> pg_backend_pid() AND state = 'active'`) !== '0', 'hold session');
+    // B: an uncommitted hold holds the exclusive lock; an admission issued
+    // meanwhile must wait, then refuse. Starting from the released state, an
+    // admission that did NOT wait would read the committed 'not held' and be
+    // admitted, so the refusal itself proves the wait.
+    await hold('release', 'race 2 start');
+    const h = session(`BEGIN; SELECT public.set_document_processing_hold('${randomUUID()}','hold','race 2','${OPERATOR}')->>'outcome';
+      SELECT pg_sleep(4); COMMIT;`);
+    await waitFor(() => sql(`SELECT count(*) FROM pg_stat_activity WHERE query LIKE '%pg_sleep(4)%' AND pid <> pg_backend_pid() AND state = 'active'`) !== '0', 'hold session');
+    expect(sql(`SELECT held FROM public.document_processing_control`)).toBe('f');
     const late = session(`SELECT public.admit_document_processing('documents_process','${ORG}','${DOC}')::text;`);
-    await waitFor(() => sql(`SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%admit_document_processing%'`) !== '0', 'admission waits on hold');
     const [rh, rl] = await Promise.all([h, late]);
     expect(rh.code).toBe(0);
     expect(JSON.parse(rl.out)).toMatchObject({ admitted: false, reason: 'held' });
+    expect(rl.ms).toBeGreaterThan(1000);
 
     // C: 100 parallel admissions racing one hold over REST.
     await hold('release', 'parallel race');
@@ -532,14 +536,14 @@ describe.skipIf(!enabled)('document processing hold — disposable PostgreSQL/Po
     const startedCount = Number(sql(`SELECT count(*) FROM public.document_processing_admissions`));
     const t0 = performance.now();
     // 50 admissions start at once; the hold fires alongside them; 50 more are
-    // staggered over 0-490 ms, well past the hold's ~20 ms commit.
+    // staggered over 0-1225 ms: the hold's HTTP request can queue in PostgREST's own pool behind the burst, so the window must outlast that.
     let holdReturned = Infinity;
     const holding = hold('hold', 'parallel race hold').then((r) => { holdReturned = performance.now(); return r; });
     const lateIssued: number[] = [];
     const replies = await Promise.all([
       ...Array.from({ length: 50 }, () => admit(DOC_PERF)),
       ...Array.from({ length: 50 }, async (_, i) => {
-        await new Promise((r) => setTimeout(r, i * 10));
+        await new Promise((r) => setTimeout(r, i * 25));
         lateIssued[i] = performance.now();
         return admit(DOC_PERF);
       }),
@@ -652,7 +656,7 @@ describe.skipIf(!enabled)('document processing hold — disposable PostgreSQL/Po
 });
 
 // ---------------------------------------------------------------------------
-// Write-time fence (migration 20261111220000)
+// Write-time fence (migration 20261105120100)
 // ---------------------------------------------------------------------------
 
 const ORG2 = 'f0000000-0000-4000-8000-000000000002';
@@ -664,8 +668,12 @@ const FPERF = 'f0000000-0000-4000-8000-000000000105';
 const FD = 'f0000000-0000-4000-8000-000000000106';
 const fenceTimings: Record<string, string> = {};
 
-async function admitFor(documentId: string, organizationId = ORG): Promise<string> {
-  const a = await admitDocumentProcessing(rpcA, { entryPoint: 'documents_process', organizationId, documentId });
+async function admitFor(
+  documentId: string,
+  organizationId = ORG,
+  entryPoint: 'documents_process' | 'document_analyze' | 'document_evaluate' | 'project_rerun' = 'documents_process',
+): Promise<string> {
+  const a = await admitDocumentProcessing(rpcA, { entryPoint, organizationId, documentId });
   if (a.status !== 'admitted') throw new Error(`expected admission for ${documentId}, got ${a.status}`);
   return a.admissionId;
 }
@@ -850,23 +858,98 @@ describe.skipIf(!enabled)('document processing write fence — disposable Postgr
     expect((await blob(admin, FA, ORG, 'w14-legacy-normal')).error).toBeNull();
   });
 
+  it('B1 derived refreshes never supersede source processing; a newer source run supersedes everything older', async () => {
+    const run = await admitFor(FB);                                   // in-flight documents_process
+    const evaluate = await admitFor(FB, ORG, 'document_evaluate');    // user clicks evaluate
+    const rerun = await admitFor(FB, ORG, 'project_rerun');           // sibling's 7b rerun
+    // The run producing new output keeps writing; the derived refreshes also write.
+    expect((await blob(headerClient(run), FB, ORG, 'b1-run')).error).toBeNull();
+    expect((await blob(headerClient(evaluate), FB, ORG, 'b1-evaluate')).error).toBeNull();
+    expect((await blob(headerClient(rerun), FB, ORG, 'b1-rerun')).error).toBeNull();
+    // A newer source run makes all three stale.
+    const newer = await admitFor(FB, ORG, 'document_analyze');
+    for (const [id, marker] of [[run, 'b1-run-2'], [evaluate, 'b1-evaluate-2'], [rerun, 'b1-rerun-2']]) {
+      expect(fenceDetail(await blob(headerClient(id), FB, ORG, marker))).toBe('document_processing_write_fenced:superseded');
+      expect(markerCount(marker)).toBe('0');
+    }
+    for (const id of [run, evaluate, rerun, newer]) await closeDocumentProcessingAdmission(rpcA, id, 'completed');
+  });
+
+  it('B3 a browser session presenting a valid server admission is refused', async () => {
+    const serverAdmission = await admitFor(FA);
+    const browser = client(urls[0]!, 'authenticated', { [ADMISSION_HEADER]: serverAdmission });
+    const r = await blob(browser, FA, ORG, 'b3-borrowed');
+    expect(fenceDetail(r)).toBe('document_processing_write_fenced:admission_role_mismatch');
+    expect(markerCount('b3-borrowed')).toBe('0');
+    // The server itself still writes under it.
+    expect((await blob(headerClient(serverAdmission), FA, ORG, 'b3-server')).error).toBeNull();
+    await closeDocumentProcessingAdmission(rpcA, serverAdmission, 'completed');
+  });
+
+  it('B5 null document or organization never rides an admission; legacy null-org rows stay updatable', async () => {
+    const id = await admitFor(FA);
+    const c = headerClient(id);
+    expect(fenceDetail(await c.from('document_extractions').insert({ document_id: null, organization_id: ORG, data: { marker: 'b5-nodoc' } })))
+      .toBe('document_processing_write_fenced:document_mismatch');
+    expect(fenceDetail(await blob(c, FA, null, 'b5-noorg'))).toBe('document_processing_write_fenced:organization_mismatch');
+    expect(fenceDetail(await c.from('document_extractions').update({ organization_id: ORG2 }).eq('data->>marker', 'b3-server')))
+      .toBe('document_processing_write_fenced:organization_mismatch');
+    expect(fenceDetail(await c.from('document_extractions').update({ organization_id: null }).eq('data->>marker', 'b3-server')))
+      .toBe('document_processing_write_fenced:organization_mismatch');
+    // A legacy row with no organization, inside the admitted document.
+    sql(`INSERT INTO public.document_extractions(document_id, organization_id, data)
+      VALUES ('${FA}', NULL, '{"marker":"b5-legacy"}');`);
+    const legacy = await c.from('document_extractions').update({ data: { marker: 'b5-legacy-updated' } })
+      .eq('data->>marker', 'b5-legacy');
+    expect(legacy.error).toBeNull();
+    expect(markerCount('b5-legacy-updated')).toBe('1');
+    expect(markerCount('b5-nodoc') + markerCount('b5-noorg')).toBe('00');
+    await closeDocumentProcessingAdmission(rpcA, id, 'completed');
+  });
+
+  it('B4 no exclusive lock when not held; transitions give up after lock_timeout instead of stalling', async () => {
+    const id = await admitFor(FB);
+    const writer = session(`BEGIN; ${asPostgrest(id)}
+      INSERT INTO public.document_extractions(document_id, organization_id, data) VALUES ('${FB}', '${ORG}', '{"marker":"b4-long"}');
+      SELECT pg_sleep(8); COMMIT;`);
+    await waitFor(() => sql(`SELECT count(*) FROM pg_stat_activity WHERE query LIKE '%pg_sleep(8)%' AND pid <> pg_backend_pid() AND state = 'active'`) !== '0', 'long writer in flight');
+    // Not held: the drain read does not queue behind the writer.
+    let t = performance.now();
+    expect((await state()).drain_state).toBe('not_held');
+    const readMs = performance.now() - t;
+    expect(readMs).toBeLessThan(2000);
+    // A hold would queue behind the writer: it gives up at lock_timeout (5 s),
+    // changes nothing, and reports busy.
+    t = performance.now();
+    const busy = await hold('hold', 'b4 hold behind long writer');
+    const holdMs = performance.now() - t;
+    expect(busy.status).toBe('busy');
+    expect(holdMs).toBeGreaterThan(4000);
+    expect((await state()).held).toBe(false);
+    expect((await writer).code).toBe(0);
+    expect(markerCount('b4-long')).toBe('1');
+    fenceTimings['B4 drain read (not held) beside an in-flight writer'] = `${readMs.toFixed(0)}ms`;
+    fenceTimings['B4 hold behind an 8 s writer gave up after'] = `${holdMs.toFixed(0)}ms (lock_timeout 5 s)`;
+    await closeDocumentProcessingAdmission(rpcA, id, 'completed');
+  });
+
   let inFlight = '';
   it('W06a concurrent hold and protected write: the hold waits for the in-flight writer', async () => {
     inFlight = await admitFor(FD);
+    // The writer prints its clock just before COMMIT. If the hold waited for
+    // it, held_since (stamped after the lock is granted) is later than that.
+    // 3 s stays inside the hold's 5 s lock_timeout.
     const writer = session(`BEGIN; ${asPostgrest(inFlight)}
       INSERT INTO public.document_extractions(document_id, organization_id, data) VALUES ('${FD}', '${ORG}', '{"marker":"w06a"}');
-      SELECT pg_sleep(2); COMMIT;`);
-    await waitFor(() => sql(`SELECT count(*) FROM pg_stat_activity WHERE query LIKE '%pg_sleep(2)%' AND pid <> pg_backend_pid() AND state = 'active'`) !== '0', 'writer in flight');
+      SELECT pg_sleep(3); SELECT 'writer_done_at=' || clock_timestamp()::text; COMMIT;`);
+    await waitFor(() => sql(`SELECT count(*) FROM pg_stat_activity WHERE query LIKE '%pg_sleep(3)%' AND pid <> pg_backend_pid() AND state = 'active'`) !== '0', 'writer in flight');
     const holder = session(`SELECT public.set_document_processing_hold('${randomUUID()}','hold','w06a hold','${OPERATOR}')->>'outcome';`);
-    await waitFor(() => sql(`SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%set_document_processing_hold%'`) !== '0', 'hold waits on the writer');
     const [w, h] = await Promise.all([writer, holder]);
     expect(w.code).toBe(0);
     expect(h.out).toBe('applied');
-    // The hold's lock wait was observed above; elapsed time is corroboration.
-    expect(h.ms).toBeGreaterThan(500);
-    // The writer committed before the hold took effect.
-    expect(sql(`SELECT count(*) FROM public.document_extractions e, public.document_processing_control c
-      WHERE e.data->>'marker' = 'w06a' AND e.created_at < c.held_since`)).toBe('1');
+    const writerDoneAt = w.out.split('\n').find((l) => l.startsWith('writer_done_at='))!.slice('writer_done_at='.length);
+    expect(sql(`SELECT held_since > '${writerDoneAt}'::timestamptz FROM public.document_processing_control`)).toBe('t');
+    expect(markerCount('w06a')).toBe('1');
   });
 
   it('W05 writer resumes after hold activation: still valid, tracked, and the drain waits for it', async () => {
@@ -916,7 +999,7 @@ describe.skipIf(!enabled)('document processing write fence — disposable Postgr
     expect(['document_processing_write_fenced:held_unadmitted', 'privilege_or_rls']).toContain(plain);
     const forged = client(urls[0]!, 'authenticated', { [ADMISSION_HEADER]: randomUUID() });
     const forgedBy = refusedBy(await blob(forged, FA, ORG, 'w14-browser-forged'));
-    expect(['document_processing_write_fenced:unknown_admission', 'privilege_or_rls']).toContain(forgedBy);
+    expect(['document_processing_write_fenced:admission_role_mismatch', 'privilege_or_rls']).toContain(forgedBy);
     fenceTimings['browser write while held refused by'] = `${plain}; forged header: ${forgedBy}`;
     expect((await blob(client(urls[0]!, 'anon'), FA, ORG, 'w14-anon')).error).not.toBeNull();
     const noPrivilege = await browser.rpc('admit_document_processing', {

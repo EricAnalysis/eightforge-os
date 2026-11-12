@@ -70,8 +70,8 @@ GRANT SELECT,INSERT,UPDATE,DELETE ON storage.objects TO anon,authenticated,servi
 SQL
 
 hold_migrations=(
-  "supabase/migrations/20261111210000_document_processing_hold.sql"
-  "supabase/migrations/20261111220000_document_processing_write_fence.sql"
+  "supabase/migrations/20261105120000_document_processing_hold.sql"
+  "supabase/migrations/20261105120100_document_processing_write_fence.sql"
 )
 is_hold_migration() {
   local candidate

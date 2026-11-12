@@ -390,6 +390,19 @@ describe('/api/internal/document-processing-hold', () => {
     expect((await POST(postBody({ action: 'release', requestKey: KEY, reason: 'done' }))).status).toBe(409);
   });
 
+  it('maps a lock timeout (55P03) to a retryable 503 on both transition and read', async () => {
+    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS', 'operator@example.test');
+    const busy = { data: null, error: { message: 'canceling statement due to lock timeout', code: '55P03' } };
+    rpc.mockResolvedValueOnce(busy).mockResolvedValueOnce(busy);
+    const { POST, GET } = await route(OPERATOR);
+    const transition = await POST(postBody({ action: 'hold', requestKey: KEY, reason: 'window' }));
+    expect(transition.status).toBe(503);
+    expect(await transition.json()).toEqual({ ok: false, error: 'hold_lock_busy' });
+    const read = await GET(new Request('http://localhost/x'));
+    expect(read.status).toBe(503);
+    expect(await read.json()).toEqual({ ok: false, error: 'hold_lock_busy' });
+  });
+
   it('revokes write-valid admissions, and refuses revoke without a hold', async () => {
     vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS', 'operator@example.test');
     const { POST } = await route(OPERATOR);

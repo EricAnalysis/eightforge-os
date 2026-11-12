@@ -112,7 +112,7 @@ CREATE INDEX document_analysis_jobs_nonterminal_idx
 CREATE FUNCTION public.document_processing_hold_refuse_mutation()
 RETURNS trigger
 LANGUAGE plpgsql
-SET search_path = pg_catalog, public
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 BEGIN
   RAISE EXCEPTION '% is append-only', TG_TABLE_NAME
@@ -146,7 +146,7 @@ CREATE TRIGGER document_processing_admissions_no_truncate
 CREATE FUNCTION public.document_processing_admissions_close_only()
 RETURNS trigger
 LANGUAGE plpgsql
-SET search_path = pg_catalog, public
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 BEGIN
   IF OLD.closed_at IS NOT NULL
@@ -182,7 +182,7 @@ CREATE FUNCTION public.document_analysis_jobs_hold_fence()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = pg_catalog, public
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
   v_held boolean;
@@ -246,7 +246,7 @@ CREATE FUNCTION public.admit_document_processing(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = pg_catalog, public
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
   v_control public.document_processing_control%ROWTYPE;
@@ -307,7 +307,7 @@ CREATE FUNCTION public.close_document_processing_admission(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = pg_catalog, public
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
   v_row public.document_processing_admissions%ROWTYPE;
@@ -346,7 +346,7 @@ CREATE FUNCTION public.set_document_processing_hold(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = pg_catalog, public
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
   v_control public.document_processing_control%ROWTYPE;
@@ -456,7 +456,7 @@ RETURNS jsonb
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = pg_catalog, public
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
   v_control public.document_processing_control%ROWTYPE;

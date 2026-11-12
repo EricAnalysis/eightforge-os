@@ -3,7 +3,7 @@
 // Carries a processing admission to the database on every request made
 // inside an admitted unit of work.
 //
-// The database fence (migration 20261111220000) decides whether a protected
+// The database fence (migration 20261105120100) decides whether a protected
 // write (document_extractions) may commit, from the admission named in the
 // x-eightforge-processing-admission request header. This module attaches that
 // header through AsyncLocalStorage, so it follows the work into every promise

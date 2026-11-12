@@ -200,7 +200,10 @@ export type DocumentProcessingHoldAction = 'hold' | 'release' | 'revoke';
 
 export type DocumentProcessingHoldTransitionResult =
   | Readonly<{ status: 'ok'; transition: Record<string, unknown> }>
-  | Readonly<{ status: 'replay_conflict' | 'not_held' | 'invalid_input' | 'not_configured' | 'failed'; message: string }>;
+  | Readonly<{ status: 'replay_conflict' | 'not_held' | 'busy' | 'invalid_input' | 'not_configured' | 'failed'; message: string }>;
+
+/** 55P03: the hold lock was not granted within the function's lock_timeout. */
+const LOCK_NOT_AVAILABLE = '55P03';
 
 export async function setDocumentProcessingHold(
   admin: DocumentProcessingHoldRpcClient | null | undefined,
@@ -225,6 +228,7 @@ export async function setDocumentProcessingHold(
       if (error.details === 'document_processing_hold_replay_conflict') {
         return { status: 'replay_conflict', message: error.message };
       }
+      if (error.code === LOCK_NOT_AVAILABLE) return { status: 'busy', message: error.message };
       if (error.details === 'document_processing_hold_not_held') {
         return { status: 'not_held', message: error.message };
       }
@@ -242,7 +246,7 @@ export async function setDocumentProcessingHold(
 
 export type DocumentProcessingHoldStateResult =
   | Readonly<{ status: 'ok'; state: Record<string, unknown> }>
-  | Readonly<{ status: 'not_configured' | 'failed'; message: string }>;
+  | Readonly<{ status: 'not_configured' | 'busy' | 'failed'; message: string }>;
 
 export async function readDocumentProcessingHoldState(
   admin: DocumentProcessingHoldRpcClient | null | undefined,
@@ -250,6 +254,7 @@ export async function readDocumentProcessingHoldState(
   if (!admin) return { status: 'not_configured', message: 'Server not configured' };
   try {
     const { data, error } = await admin.rpc('read_document_processing_hold_state');
+    if (error?.code === LOCK_NOT_AVAILABLE) return { status: 'busy', message: error.message };
     if (error) return { status: 'failed', message: error.message };
     if (!isRecord(data) || typeof data.held !== 'boolean' || typeof data.drain_state !== 'string') {
       return { status: 'failed', message: 'malformed hold state reply' };

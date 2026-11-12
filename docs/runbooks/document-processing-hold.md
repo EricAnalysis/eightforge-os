@@ -117,9 +117,15 @@ Every POST is audited. The same `requestKey` with the same body replays; with a 
 
 - **Header passthrough must be verified on the hosted gateway.** Confirm the Supabase API gateway forwards `x-eightforge-processing-admission` to PostgREST, on staging or a disposable branch project. If it were stripped:
   - safety holds: writes look unadmitted, so they are allowed only while not held, and refused while held;
-  - but admitted in-flight work would fail as soon as a hold starts, so `revoke` would be the only way to drain cleanly.
+  - but admitted in-flight work would fail as soon as a hold starts, so `revoke` would be the only way to drain cleanly;
+  - and with no hold active, supersession and the document/tenant binding would silently stop applying, because every write would look unadmitted.
+
+  Live check, on a hosted preview or branch project: present one superseded admission and confirm the response detail is `document_processing_write_fenced:superseded`.
 - **PostgreSQL 16+.** The fence uses `pg_input_is_valid`. The write-fence migration asserts `server_version_num >= 160000` and fails before changing anything on an older server. Production was recorded as 17; confirm read-only before merge.
 - **Lock waits are bounded.** Hold, revoke and the held drain read use `lock_timeout = 5s` (§2). Writers waiting behind them are therefore bounded by that plus the in-flight transaction.
+  - A single protected-write transaction that runs longer than 5 s makes hold and revoke return `503 hold_lock_busy` until it finishes.
+  - Retry with the same `requestKey`; replays are idempotent.
+- **A1/A2 publication callers need admissions.** A1's and A2's publication RPCs write `document_extractions` inside PostgREST requests, so the fence applies to them. Before the A1/A2 application ships, its publication callers must run inside `runWithDocumentProcessingAdmission`. Otherwise every publication is refused while a hold is active. A1's own guard trigger fires first (alphabetical order), which doesn't change this.
 - **Direct SQL is trusted.** A session that can run SQL can skip or pre-empt the fence:
   - `SET CONSTRAINTS ALL IMMEDIATE`;
   - `session_replication_role = replica`;

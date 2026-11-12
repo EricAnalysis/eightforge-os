@@ -907,6 +907,41 @@ describe.skipIf(!enabled)('document processing write fence — disposable Postgr
     await closeDocumentProcessingAdmission(rpcA, id, 'completed');
   });
 
+  it('B5b multi-row statements: an accepted row never vouches for a later row that moves tenant or document', async () => {
+    const id = await admitFor(FA);
+    const c = headerClient(id);
+    // Fixture rows written directly (no request context). Inserted in this
+    // order, so a sequential scan visits the org-matching row FIRST: before the
+    // cache-key fix it filled the per-transaction cache and let the next rows
+    // through.
+    sql(`INSERT INTO public.document_extractions(document_id, organization_id, data) VALUES
+      ('${FA}', '${ORG}',  '{"marker":"b5b-own"}'),
+      ('${FA}', NULL,      '{"marker":"b5b-null-org"}'),
+      ('${FA}', '${ORG2}', '{"marker":"b5b-other-org"}');`);
+    const moveTenant = await c.from('document_extractions').update({ organization_id: ORG })
+      .in('data->>marker', ['b5b-own', 'b5b-null-org', 'b5b-other-org']);
+    expect(fenceDetail(moveTenant)).toBe('document_processing_write_fenced:organization_mismatch');
+    expect(sql(`SELECT string_agg(data->>'marker' || '=' || coalesce(organization_id::text, 'null'), ',' ORDER BY data->>'marker')
+      FROM public.document_extractions WHERE data->>'marker' LIKE 'b5b-%'`))
+      .toBe(`b5b-null-org=null,b5b-other-org=${ORG2},b5b-own=${ORG}`);
+
+    // Two-row upsert: a genuine insert first, then an ON CONFLICT update that
+    // would pull a document-less row (another tenant) into the admitted
+    // document. Before the fix the UPDATE reused the INSERT's cache key.
+    const strayId = randomUUID();
+    sql(`INSERT INTO public.document_extractions(id, document_id, organization_id, data)
+      VALUES ('${strayId}', NULL, '${ORG2}', '{"marker":"b5c-stray"}');`);
+    const upsert = await c.from('document_extractions').upsert([
+      { id: randomUUID(), document_id: FA, organization_id: ORG, data: { marker: 'b5c-new' } },
+      { id: strayId, document_id: FA, organization_id: ORG, data: { marker: 'b5c-moved' } },
+    ], { onConflict: 'id' });
+    expect(fenceDetail(upsert)).toBe('document_processing_write_fenced:document_mismatch');
+    expect(markerCount('b5c-new') + markerCount('b5c-moved')).toBe('00');
+    expect(sql(`SELECT coalesce(document_id::text, 'null') || '|' || organization_id FROM public.document_extractions WHERE id = '${strayId}'`))
+      .toBe(`null|${ORG2}`);
+    await closeDocumentProcessingAdmission(rpcA, id, 'completed');
+  });
+
   it('B4 no exclusive lock when not held; transitions give up after lock_timeout instead of stalling', async () => {
     const id = await admitFor(FB);
     const writer = session(`BEGIN; ${asPostgrest(id)}

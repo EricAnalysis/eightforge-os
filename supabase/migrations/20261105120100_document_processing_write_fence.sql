@@ -276,8 +276,13 @@ BEGIN
   -- re-check.
   v_cache_key := CASE WHEN TG_WHEN = 'BEFORE'
     THEN 'eightforge.write_fence_statement' ELSE 'eightforge.write_fence_commit' END;
-  v_cache_value := md5(coalesce(v_headers, '') || '|' || coalesce(v_claims, '') || '|'
+  -- The key covers every input the full check reads from the row: the
+  -- operation, and for UPDATE the old document AND old organization, so an
+  -- accepted row can never vouch for a later row that moves document or
+  -- tenant (or for an UPDATE that looks like an earlier INSERT).
+  v_cache_value := md5(coalesce(v_headers, '') || '|' || coalesce(v_claims, '') || '|' || TG_OP || '|'
     || coalesce(CASE WHEN TG_OP = 'UPDATE' THEN OLD.document_id::text END, '') || '|'
+    || coalesce(CASE WHEN TG_OP = 'UPDATE' THEN OLD.organization_id::text END, '') || '|'
     || coalesce(NEW.document_id::text, '') || '|' || coalesce(NEW.organization_id::text, ''));
   IF current_setting(v_cache_key, true) = v_cache_value THEN
     RETURN CASE WHEN TG_WHEN = 'BEFORE' THEN NEW ELSE NULL END;

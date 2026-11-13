@@ -19,19 +19,59 @@ It replaces the `INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS` / `_ROLES` environment al
 - **Organization roles grant nothing platform-wide.** `owner` and `admin` stay tenant-scoped.
 - **Only a direct database session can write the ledger,** i.e. the Supabase SQL editor. `anon`, `authenticated` and `service_role` cannot insert, update or delete, so compromising the application cannot create a platform owner.
 - **One active owner at a time.** Change owners by revoking, then granting.
-- **Every event records** the subject, who recorded it, why, when, and the database role used. Nothing is ever updated or deleted.
+  - Grants are refused under `REPEATABLE READ` (55000 `platform_owner_grant_isolation`), where two racing grants could both commit.
+  - The SQL editor's default, `READ COMMITTED`, is fine.
+- **Every event records** the subject, who recorded it, why, when, and the database role used.
+  - The database stamps the role and the time itself; values supplied in the `INSERT` are overwritten.
+  - Nothing is ever updated or deleted.
 - **Fail-closed.** With no active grant, or if the lookup fails, nobody is platform owner and the tools return 403. Normal sign-in is never affected.
 
 ## Bootstrap (once, after the migration is applied)
 
-In the production SQL editor, signed in as the project owner:
+In the production SQL editor, signed in as the project owner, replace `<your login email>` and run:
 
 ```sql
-INSERT INTO public.platform_owner_grant_events (subject_user_id, granted, recorded_by, reason)
-SELECT id, true, id, 'Founder bootstrap: platform owner for EightForge and Forgewing'
-FROM auth.users
-WHERE email = '<your login email>';
+DO $bootstrap$
+DECLARE
+  v_email   constant text := lower(btrim('<your login email>'));
+  v_matches integer;
+  v_user    uuid;
+BEGIN
+  IF v_email = '' OR v_email LIKE '<%' THEN
+    RAISE EXCEPTION 'bootstrap refused: replace <your login email> first';
+  END IF;
+  SELECT count(*) INTO v_matches FROM auth.users u WHERE lower(btrim(u.email)) = v_email;
+  IF v_matches <> 1 THEN
+    RAISE EXCEPTION 'bootstrap refused: % accounts have that login email (need exactly 1)', v_matches;
+  END IF;
+  SELECT u.id INTO v_user FROM auth.users u
+  WHERE lower(btrim(u.email)) = v_email
+    AND u.deleted_at IS NULL AND u.email_confirmed_at IS NOT NULL
+    AND NOT coalesce(u.is_anonymous, false)
+    AND (u.banned_until IS NULL OR u.banned_until <= now());
+  IF v_user IS NULL THEN
+    RAISE EXCEPTION 'bootstrap refused: the account is unconfirmed, anonymous, banned or deleted';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.user_profiles p WHERE p.id = v_user) THEN
+    RAISE EXCEPTION 'bootstrap refused: the account has no EightForge user profile';
+  END IF;
+  IF public.is_platform_owner(v_user) THEN
+    RAISE NOTICE 'already the platform owner; nothing recorded';
+    RETURN;
+  END IF;
+  INSERT INTO public.platform_owner_grant_events (subject_user_id, granted, recorded_by, reason)
+  VALUES (v_user, true, v_user, 'Founder bootstrap: platform owner for EightForge and Forgewing');
+END
+$bootstrap$;
 ```
+
+The statement:
+- resolves exactly one account, case-insensitively;
+- refuses a missing, ambiguous, unconfirmed, banned, deleted or profile-less account;
+- records exactly one grant, or nothing;
+- is safe to re-run.
+
+Do not use a bare `INSERT … SELECT … WHERE email = …`: it silently records nothing when the email does not match.
 
 Verify:
 

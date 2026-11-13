@@ -9,17 +9,19 @@
 -- Authority is an append-only grant ledger keyed by auth user id:
 --   * a user is the platform owner iff their latest event is a grant;
 --   * every grant and revocation names who recorded it, why, when, and the
---     database role that recorded it;
+--     database role that recorded it. The database stamps the role and the
+--     time; a writer cannot supply them;
 --   * no API role (anon, authenticated, service_role) can write the ledger:
 --     grants are made only by a direct database session (the owner's SQL
 --     editor). Compromising the application cannot create a platform owner;
 --   * at most one platform owner is active at a time ("one identity, for
---     now"); change owners by revoking, then granting.
+--     now"); change owners by revoking, then granting. Grants are refused
+--     under REPEATABLE READ, the one isolation level where two racing grants
+--     could both commit.
 --
--- Bootstrap (owner, once, after this migration is applied):
---   INSERT INTO public.platform_owner_grant_events (subject_user_id, granted, recorded_by, reason)
---   SELECT id, true, id, 'Founder bootstrap: platform owner for EightForge and Forgewing'
---   FROM auth.users WHERE email = '<owner login email>';
+-- Bootstrap (owner, once, after this migration is applied): use the guarded
+-- statement in docs/runbooks/platform-owner.md. It resolves exactly one
+-- confirmed account with a profile and refuses missing or ambiguous identity.
 -- Until then nobody is platform owner, so the platform tools stay closed, as
 -- they are today with the allowlists unset.
 
@@ -59,6 +61,37 @@ CREATE TRIGGER platform_owner_grant_events_immutable
 CREATE TRIGGER platform_owner_grant_events_no_truncate
   BEFORE TRUNCATE ON public.platform_owner_grant_events
   FOR EACH STATEMENT EXECUTE FUNCTION public.platform_owner_grant_events_refuse_mutation();
+
+-- Attribution and isolation. SECURITY INVOKER on purpose: current_user must
+-- be the role performing the INSERT, not the function owner. It fires before
+-- platform_owner_grant_events_validate (same timing; trigger names sort).
+--   * recorded_by_db_role and recorded_at are always stamped here; values a
+--     writer supplies are overwritten.
+--   * Grants are refused under REPEATABLE READ. There, the one-owner check in
+--     _validate would read the transaction's snapshot, taken before the
+--     advisory-lock wait, so two racing grants could both commit.
+--     READ COMMITTED (the default) re-reads after the lock; SERIALIZABLE
+--     aborts one racer. Revocations are always allowed.
+CREATE FUNCTION public.platform_owner_grant_events_stamp()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF NEW.granted AND pg_catalog.current_setting('transaction_isolation') = 'repeatable read' THEN
+    RAISE EXCEPTION 'platform owner grants cannot be recorded under REPEATABLE READ'
+      USING ERRCODE = '55000', DETAIL = 'platform_owner_grant_isolation',
+            HINT = 'Use READ COMMITTED (the default) or SERIALIZABLE.';
+  END IF;
+  NEW.recorded_by_db_role := current_user;
+  NEW.recorded_at := pg_catalog.clock_timestamp();
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER platform_owner_grant_events_stamp
+  BEFORE INSERT ON public.platform_owner_grant_events
+  FOR EACH ROW EXECUTE FUNCTION public.platform_owner_grant_events_stamp();
 
 -- Every event names real accounts, and at most one owner is active.
 -- No foreign keys: deleting an account must not be blocked by (or erase) the
@@ -124,6 +157,7 @@ GRANT SELECT ON TABLE public.platform_owner_grant_events TO service_role;
 
 REVOKE ALL ON FUNCTION
   public.platform_owner_grant_events_refuse_mutation(),
+  public.platform_owner_grant_events_stamp(),
   public.platform_owner_grant_events_validate(),
   public.is_platform_owner(uuid)
 FROM PUBLIC, anon, authenticated, service_role;

@@ -522,7 +522,8 @@ describe.skipIf(!enabled)('document processing hold — disposable PostgreSQL/Po
     await hold('release', 'race 2 start');
     const h = session(`BEGIN; SELECT public.set_document_processing_hold('${randomUUID()}','hold','race 2','${OPERATOR}')->>'outcome';
       SELECT pg_sleep(4); COMMIT;`);
-    await waitFor(() => sql(`SELECT count(*) FROM pg_stat_activity WHERE query LIKE '%pg_sleep(4)%' AND pid <> pg_backend_pid() AND state = 'active'`) !== '0', 'hold session');
+    await waitFor(() => sql(`SELECT count(*) FROM pg_stat_activity WHERE query LIKE '%pg_sleep(4)%' AND pid <> pg_backend_pid() AND state = 'active'`) !== '0', 'hold session')
+      .catch(async (e) => { const r = await h; throw new Error(`${(e as Error).message}; hold session exited ${r.code}: ${r.out}`); });
     expect(sql(`SELECT held FROM public.document_processing_control`)).toBe('f');
     const late = session(`SELECT public.admit_document_processing('documents_process','${ORG}','${DOC}')::text;`);
     const [rh, rl] = await Promise.all([h, late]);
@@ -1282,5 +1283,40 @@ describe.skipIf(!enabled)('platform-owner grant ledger — disposable PostgreSQL
     expect((await grant(active, false, active, 'revoked')).code).toBe(0);
     expect(await isOwner(active)).toBe(false);
     expect(Number(sql(`SELECT count(*) FROM public.platform_owner_grant_events`))).toBeGreaterThanOrEqual(8);
+  });
+
+  const activeOwnerCount = () => Number(sql(`SELECT count(*) FROM (SELECT DISTINCT ON (subject_user_id) granted
+    FROM public.platform_owner_grant_events ORDER BY subject_user_id, event_seq DESC) l WHERE l.granted`));
+  const racingGrants = (isolation: string) => Promise.all([OPERATOR, OWNER_B].map((subject) =>
+    session(`BEGIN ISOLATION LEVEL ${isolation}; INSERT INTO public.platform_owner_grant_events (subject_user_id, granted, recorded_by, reason)
+      VALUES ('${subject}', true, '${OPERATOR}', 'race ${isolation}'); SELECT pg_sleep(1); COMMIT;`)));
+
+  it('P8 one owner holds at every isolation level: REPEATABLE READ grants refused; SERIALIZABLE race yields one', async () => {
+    expect(activeOwnerCount()).toBe(0);
+    // Without the stamp trigger's refusal, both of these commit (two owners).
+    const rr = await racingGrants('REPEATABLE READ');
+    expect(rr.map((r) => r.code)).not.toContain(0);
+    for (const r of rr) expect(r.out).toContain('cannot be recorded under REPEATABLE READ');
+    expect(activeOwnerCount()).toBe(0);
+
+    const ser = await racingGrants('SERIALIZABLE');
+    expect(ser.filter((r) => r.code === 0)).toHaveLength(1);
+    expect(activeOwnerCount()).toBe(1);
+
+    // Revocation is never blocked by isolation level.
+    const active = (await isOwner(OPERATOR)) ? OPERATOR : OWNER_B;
+    const revoke = await session(`BEGIN ISOLATION LEVEL REPEATABLE READ; INSERT INTO public.platform_owner_grant_events
+      (subject_user_id, granted, recorded_by, reason) VALUES ('${active}', false, '${OPERATOR}', 'revoke under RR'); COMMIT;`);
+    expect(revoke.code).toBe(0);
+    expect(activeOwnerCount()).toBe(0);
+  });
+
+  it('P9 the database stamps attribution: a writer cannot supply the role or the time', async () => {
+    const forged = await session(`INSERT INTO public.platform_owner_grant_events
+      (subject_user_id, granted, recorded_by, reason, recorded_by_db_role, recorded_at)
+      VALUES ('${OPERATOR}', false, '${OPERATOR}', 'forged attribution', 'service_role', '2000-01-01T00:00:00Z');`);
+    expect(forged.code).toBe(0);
+    expect(sql(`SELECT recorded_by_db_role, recorded_at > now() - interval '5 minutes'
+      FROM public.platform_owner_grant_events ORDER BY event_seq DESC LIMIT 1`)).toBe('postgres|t');
   });
 });

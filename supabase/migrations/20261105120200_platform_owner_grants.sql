@@ -19,6 +19,12 @@
 --     under REPEATABLE READ, the one isolation level where two racing grants
 --     could both commit.
 --
+-- Trust boundary: these guarantees are triggers. They bind every API role and
+-- every ordinary direct session, but not a direct session that switches
+-- triggers off (SET session_replication_role = replica, which Supabase allows
+-- for postgres) or alters the table as its owner. That is the same boundary
+-- as owning the schema. API roles cannot set session_replication_role.
+--
 -- Bootstrap (owner, once, after this migration is applied): use the guarded
 -- statement in docs/runbooks/platform-owner.md. It resolves exactly one
 -- confirmed account with a profile and refuses missing or ambiguous identity.

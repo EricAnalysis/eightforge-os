@@ -25,6 +25,13 @@ It replaces the `INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS` / `_ROLES` environment al
   - The database stamps the role and the time itself; values supplied in the `INSERT` are overwritten.
   - Nothing is ever updated or deleted.
 - **Fail-closed.** With no active grant, or if the lookup fails, nobody is platform owner and the tools return 403. Normal sign-in is never affected.
+- **Trust boundary.** Triggers enforce append-only, one owner and attribution.
+  - They bind every API role and every ordinary direct session.
+  - They do not bind a direct session that turns triggers off with `SET session_replication_role = replica`. Supabase lets `postgres` set it, and in that mode a session can record a second owner, forge attribution, or delete events.
+  - They also do not bind a session that alters the table as its owner.
+  - That is the same boundary as owning the schema, and the same one the processing hold's write fence documents.
+  - `anon`, `authenticated` and `service_role` cannot set `session_replication_role`.
+  - The bootstrap below refuses to run with triggers off. For hand-over and revocation, run the statements in a fresh SQL editor session, where the setting is `origin`.
 
 ## Bootstrap (once, after the migration is applied)
 
@@ -39,6 +46,10 @@ DECLARE
 BEGIN
   IF v_email = '' OR v_email LIKE '<%' THEN
     RAISE EXCEPTION 'bootstrap refused: replace <your login email> first';
+  END IF;
+  IF current_setting('session_replication_role') <> 'origin' THEN
+    RAISE EXCEPTION 'bootstrap refused: triggers are off (session_replication_role = %); run SET session_replication_role = origin',
+      current_setting('session_replication_role');
   END IF;
   SELECT count(*) INTO v_matches FROM auth.users u WHERE lower(btrim(u.email)) = v_email;
   IF v_matches <> 1 THEN
@@ -68,6 +79,7 @@ $bootstrap$;
 The statement:
 - resolves exactly one account, case-insensitively;
 - refuses a missing, ambiguous, unconfirmed, banned, deleted or profile-less account;
+- refuses to run while triggers are off, so the ledger's one-owner check and attribution stamp always apply to it;
 - records exactly one grant, or nothing;
 - is safe to re-run.
 

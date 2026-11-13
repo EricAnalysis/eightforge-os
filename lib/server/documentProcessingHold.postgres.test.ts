@@ -9,6 +9,8 @@
 
 import { execFileSync, spawn } from 'node:child_process';
 import { createHmac, randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -1318,5 +1320,46 @@ describe.skipIf(!enabled)('platform-owner grant ledger — disposable PostgreSQL
     expect(forged.code).toBe(0);
     expect(sql(`SELECT recorded_by_db_role, recorded_at > now() - interval '5 minutes'
       FROM public.platform_owner_grant_events ORDER BY event_seq DESC LIMIT 1`)).toBe('postgres|t');
+  });
+
+  it('P10 the runbook bootstrap runs as written, refuses with triggers off, and is idempotent', async () => {
+    // The exact statement an operator pastes, read from the runbook.
+    const runbook = readFileSync(join(process.cwd(), 'docs/runbooks/platform-owner.md'), 'utf8').replace(/\r\n/g, '\n');
+    const block = /```sql\n(DO \$bootstrap\$[\s\S]*?\$bootstrap\$;)\n```/.exec(runbook)?.[1];
+    expect(block, 'runbook bootstrap block').toBeTruthy();
+    // The hosted auth.users columns the bootstrap filters on (the harness stub has only id and email).
+    sql(`ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS deleted_at timestamptz,
+        ADD COLUMN IF NOT EXISTS email_confirmed_at timestamptz,
+        ADD COLUMN IF NOT EXISTS is_anonymous boolean,
+        ADD COLUMN IF NOT EXISTS banned_until timestamptz;
+      UPDATE auth.users SET email_confirmed_at = now() WHERE id = '${OWNER_B}';`);
+    const events = () => Number(sql(`SELECT count(*) FROM public.platform_owner_grant_events`));
+    expect(activeOwnerCount()).toBe(0);
+    const before = events();
+
+    const unedited = await session(block!);
+    expect(unedited.code).not.toBe(0);
+    expect(unedited.out).toContain('replace <your login email> first');
+
+    const bootstrap = block!.replace('<your login email>', 'second@example.test');
+    // With triggers off, neither the one-owner check nor the stamp would run: refused.
+    const replica = await session(`SET session_replication_role = replica;\n${bootstrap}`);
+    expect(replica.code).not.toBe(0);
+    expect(replica.out).toContain('triggers are off');
+    expect(events()).toBe(before);
+    expect(activeOwnerCount()).toBe(0);
+
+    const first = await session(bootstrap);
+    expect(first.code, first.out).toBe(0);
+    expect(await isOwner(OWNER_B)).toBe(true);
+    expect(activeOwnerCount()).toBe(1);
+    expect(events()).toBe(before + 1);
+    expect(sql(`SELECT recorded_by_db_role FROM public.platform_owner_grant_events ORDER BY event_seq DESC LIMIT 1`))
+      .toBe('postgres');
+
+    const again = await session(bootstrap);
+    expect(again.code).toBe(0);
+    expect(again.out).toContain('already the platform owner');
+    expect(events()).toBe(before + 1);
   });
 });

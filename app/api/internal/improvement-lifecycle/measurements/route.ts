@@ -26,7 +26,7 @@ export async function POST(request: Request): Promise<Response> {
   if (!body.success) return Response.json({ ok: false, error: 'invalid_input' }, { status: 400 });
 
   const result = await measureImprovement(body.data,
-    { actorId: actor.actor.actorId, email: actor.actor.email, role: actor.actor.role });
+    { actorId: actor.actor.actorId, email: actor.actor.email, role: actor.actor.role, platformOwner: actor.actor.platformOwner });
   if (result.status === 'recorded') return Response.json({ ok: true, ...result }, { status: 201 });
   const status = STATUS[result.status];
   if (status === undefined) console.error('[improvementMeasurement] measurement failed', { status: result.status });

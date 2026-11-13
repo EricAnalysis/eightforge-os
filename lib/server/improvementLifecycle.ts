@@ -26,7 +26,7 @@ export const ImprovementFixAttestationInputSchema = ApprovedEngineeringRequestPi
 }).strict();
 export type ImprovementFixAttestationInput = z.infer<typeof ImprovementFixAttestationInputSchema>;
 
-export type SessionDerivedAttester = Readonly<{ actorId: string; email: string | null; role: string | null }>;
+export type SessionDerivedAttester = Readonly<{ actorId: string; email: string | null; role: string | null; platformOwner?: boolean | null }>;
 
 export type ImprovementFixAttestationResult =
   | Readonly<{ status: 'attested'; eventId: string; inserted: boolean; recordedAt: string;

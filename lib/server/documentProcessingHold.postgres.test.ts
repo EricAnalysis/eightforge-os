@@ -1183,3 +1183,104 @@ describe.skipIf(!enabled)('document processing write fence — disposable Postgr
     await closeDocumentProcessingAdmission(rpcA, id, 'completed');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Platform-owner grant ledger (migration 20261105120200)
+// ---------------------------------------------------------------------------
+
+const OWNER_B = 'e0000000-0000-4000-8000-0000000000b2';
+const NO_PROFILE = 'e0000000-0000-4000-8000-0000000000ff';
+
+describe.skipIf(!enabled)('platform-owner grant ledger — disposable PostgreSQL/PostgREST', { timeout: 600_000 }, () => {
+  /** A direct database session, as the owner's SQL editor would be. */
+  const grant = (subject: string, granted: boolean, recordedBy: string, reason: string) =>
+    session(`INSERT INTO public.platform_owner_grant_events (subject_user_id, granted, recorded_by, reason)
+      VALUES ('${subject}', ${granted}, '${recordedBy}', '${reason}');`);
+  const isOwner = async (userId: string) => {
+    const { data, error } = await admin.rpc('is_platform_owner', { p_user_id: userId });
+    if (error) throw new Error(error.message);
+    return data;
+  };
+
+  beforeAll(() => {
+    sql(`INSERT INTO auth.users(id, email) VALUES ('${OWNER_B}', 'second@example.test');
+      INSERT INTO public.user_profiles(id, organization_id, role) VALUES ('${OWNER_B}', '${ORG}', 'admin');`);
+  });
+
+  it('P1 nobody is platform owner until the bootstrap grant; then exactly the granted account is', async () => {
+    expect(await isOwner(OPERATOR)).toBe(false);
+    const boot = await grant(OPERATOR, true, OPERATOR, 'Founder bootstrap');
+    expect(boot.code).toBe(0);
+    expect(await isOwner(OPERATOR)).toBe(true);
+    expect(await isOwner(OWNER_B)).toBe(false);
+    // Provenance: who, why, when, and which database role recorded it.
+    expect(sql(`SELECT recorded_by, reason, recorded_by_db_role, recorded_at IS NOT NULL
+      FROM public.platform_owner_grant_events WHERE subject_user_id = '${OPERATOR}'`))
+      .toBe(`${OPERATOR}|Founder bootstrap|postgres|t`);
+  });
+
+  it('P2 no API role can grant, alter or erase ownership, or even ask the ledger as a browser', async () => {
+    const forged = await admin.from('platform_owner_grant_events')
+      .insert({ subject_user_id: OWNER_B, granted: true, recorded_by: OWNER_B, reason: 'self-grant via API' });
+    expect(forged.error?.code).toBe('42501');
+    expect((await admin.from('platform_owner_grant_events').update({ granted: false }).eq('subject_user_id', OPERATOR)).error?.code).toBe('42501');
+    expect((await admin.from('platform_owner_grant_events').delete().eq('subject_user_id', OPERATOR)).error?.code).toBe('42501');
+    for (const role of ['authenticated', 'anon'] as const) {
+      const r = await client(urls[0]!, role).rpc('is_platform_owner', { p_user_id: OPERATOR });
+      expect(r.error?.code).toBe('42501');
+      expect((await client(urls[0]!, role).from('platform_owner_grant_events').select('*')).error?.code).toBe('42501');
+    }
+    expect(await isOwner(OWNER_B)).toBe(false);
+    expect(await isOwner(OPERATOR)).toBe(true);
+  });
+
+  it('P3 the ledger is append-only even for a direct session', async () => {
+    const update = await session(`UPDATE public.platform_owner_grant_events SET granted = false WHERE subject_user_id = '${OPERATOR}';`);
+    expect(update.out).toContain('append-only');
+    const del = await session(`DELETE FROM public.platform_owner_grant_events;`);
+    expect(del.out).toContain('append-only');
+    const trunc = await session(`TRUNCATE public.platform_owner_grant_events;`);
+    expect(trunc.out).toContain('append-only');
+    expect(await isOwner(OPERATOR)).toBe(true);
+  });
+
+  it('P4 one platform owner at a time: a second grant is refused until the first is revoked', async () => {
+    const second = await grant(OWNER_B, true, OPERATOR, 'second owner while first active');
+    expect(second.out).toContain('another platform owner is active');
+    expect(await isOwner(OWNER_B)).toBe(false);
+    expect((await grant(OPERATOR, false, OPERATOR, 'hand over')).code).toBe(0);
+    expect(await isOwner(OPERATOR)).toBe(false);
+    expect((await grant(OWNER_B, true, OPERATOR, 'hand over')).code).toBe(0);
+    expect(await isOwner(OWNER_B)).toBe(true);
+    // Hand back for the remaining tests.
+    expect((await grant(OWNER_B, false, OWNER_B, 'hand back')).code).toBe(0);
+    expect((await grant(OPERATOR, true, OWNER_B, 'hand back')).code).toBe(0);
+    expect(await isOwner(OPERATOR)).toBe(true);
+    expect(await isOwner(OWNER_B)).toBe(false);
+  });
+
+  it('P5 every event names real accounts', async () => {
+    expect((await grant(NO_PROFILE, true, OPERATOR, 'ghost subject')).out).toContain('subject has no user profile');
+    expect((await grant(OPERATOR, true, NO_PROFILE, 'ghost recorder')).out).toContain('recorder has no user profile');
+  });
+
+  it('P6 concurrent grants for two accounts: exactly one can become active', async () => {
+    expect((await grant(OPERATOR, false, OPERATOR, 'reset for race')).code).toBe(0);
+    const [a, b] = await Promise.all([
+      session(`BEGIN; INSERT INTO public.platform_owner_grant_events (subject_user_id, granted, recorded_by, reason)
+        VALUES ('${OPERATOR}', true, '${OPERATOR}', 'race a'); SELECT pg_sleep(1); COMMIT;`),
+      session(`BEGIN; INSERT INTO public.platform_owner_grant_events (subject_user_id, granted, recorded_by, reason)
+        VALUES ('${OWNER_B}', true, '${OPERATOR}', 'race b'); SELECT pg_sleep(1); COMMIT;`),
+    ]);
+    expect([a.code, b.code].filter((c) => c === 0)).toHaveLength(1);
+    const owners = [await isOwner(OPERATOR), await isOwner(OWNER_B)].filter(Boolean);
+    expect(owners).toHaveLength(1);
+  });
+
+  it('P7 revocation takes effect immediately and stays audited', async () => {
+    const active = (await isOwner(OPERATOR)) ? OPERATOR : OWNER_B;
+    expect((await grant(active, false, active, 'revoked')).code).toBe(0);
+    expect(await isOwner(active)).toBe(false);
+    expect(Number(sql(`SELECT count(*) FROM public.platform_owner_grant_events`))).toBeGreaterThanOrEqual(8);
+  });
+});

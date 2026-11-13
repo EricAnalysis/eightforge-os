@@ -17,7 +17,7 @@ export async function GET(request: Request): Promise<Response> {
   }
   const submissionId = new URL(request.url).searchParams.get('submissionId');
   const result = await readImprovementLifecycle({ submissionId },
-    { email: actor.actor.email, role: actor.actor.role });
+    { email: actor.actor.email, role: actor.actor.role, platformOwner: actor.actor.platformOwner });
   if (result.status === 'ok') return Response.json({ ok: true, ...result.view });
   const status = { reviewer_not_eligible: 403, invalid_input: 400, not_configured: 503, read_failed: 502 }[result.status];
   return Response.json({ ok: false, error: result.status }, { status });

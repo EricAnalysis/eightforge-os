@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({ actor: vi.fn(), admin: vi.fn(), resolve: vi.fn() }));
 vi.mock('@/lib/server/getActorContext', () => ({ getActorContext: mocks.actor }));
@@ -59,12 +59,9 @@ describe('effective reviewed specification read authorization and pinning', () =
   });
   beforeEach(() => {
     vi.resetAllMocks();
-    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS', actor.email);
-    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_ROLES', '');
-    mocks.actor.mockResolvedValue({ ok: true, actor });
+    mocks.actor.mockResolvedValue({ ok: true, actor: { ...actor, platformOwner: true } });
     mocks.resolve.mockReturnValue({ ok: true, artifact: { test: 'resolved' } });
   });
-  afterEach(() => vi.unstubAllEnvs());
 
   it('resolves session identity before reading exactly the pinned assessment and review', async () => {
     const { from, queries } = client();
@@ -107,16 +104,17 @@ describe('effective reviewed specification read authorization and pinning', () =
     expect(mocks.admin).not.toHaveBeenCalled();
   });
 
-  it('fails closed when allowlists are empty', async () => {
-    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS', '');
+  it.each([undefined, false])('fails closed without platformOwner (%s)', async (platformOwner) => {
+    mocks.actor.mockResolvedValue({ ok: true, actor: { ...actor, platformOwner } });
     expect(await readEffectiveReviewedSpecification(request(), pin)).toEqual({ ok: false, code: 'reviewer_not_eligible' });
     expect(mocks.admin).not.toHaveBeenCalled();
   });
 
-  it('honors an explicitly allowlisted verified role', async () => {
-    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS', '');
-    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_ROLES', 'workflow-reviewer');
+  it('does not grant access from a role name alone; only platformOwner does', async () => {
     mocks.actor.mockResolvedValue({ ok: true, actor: { ...actor, role: 'workflow-reviewer' } });
+    expect(await readEffectiveReviewedSpecification(request(), pin)).toEqual({ ok: false, code: 'reviewer_not_eligible' });
+    expect(mocks.admin).not.toHaveBeenCalled();
+    mocks.actor.mockResolvedValue({ ok: true, actor: { ...actor, role: 'workflow-reviewer', platformOwner: true } });
     client();
     expect((await readEffectiveReviewedSpecification(request(), pin)).ok).toBe(true);
   });

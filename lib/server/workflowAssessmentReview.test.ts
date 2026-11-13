@@ -13,11 +13,12 @@ import {
 const ASSESSMENT_ID = '22222222-2222-4222-8222-222222222222';
 const REVIEWER_ID = '33333333-3333-4333-8333-333333333333';
 const REVIEWER_EMAIL = 'platform.reviewer@example.test';
-// Authorization is now platform-wide and allowlist-driven. An organization
-// role such as 'admin' no longer grants review access on its own, so tests that
-// exercise an authorized path must configure the allowlist explicitly.
+// Authorization is platform-wide and comes only from the platform-owner grant
+// ledger (resolved by getActorContext). An organization role such as 'admin'
+// does not grant review access, so tests that exercise an authorized path give
+// the reviewer platformOwner: true explicitly.
 const REVIEWER = {
-  actorId: REVIEWER_ID, role: 'admin', email: REVIEWER_EMAIL,
+  actorId: REVIEWER_ID, role: 'admin', email: REVIEWER_EMAIL, platformOwner: true,
 } as const;
 
 type RpcArgs = Record<string, unknown>;
@@ -84,13 +85,9 @@ const recorded = {
 describe('workflow assessment review seam', () => {
   beforeEach(() => {
     getAdmin.mockReset();
-    process.env.INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS = REVIEWER_EMAIL;
-    delete process.env.INTERNAL_ORCHESTRATOR_ALLOWED_ROLES;
   });
   afterEach(() => {
     vi.clearAllMocks();
-    delete process.env.INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS;
-    delete process.env.INTERNAL_ORCHESTRATOR_ALLOWED_ROLES;
   });
 
   it('writes only through the validated SECURITY DEFINER function', async () => {
@@ -363,7 +360,7 @@ describe('workflow assessment review seam', () => {
   // workflow assessment belongs to no organization, so an organization
   // administrator has no claim on another tenant's submitted business process.
   it.each([['owner'], ['admin'], ['Admin'], ['  OWNER  ']])(
-    'refuses organization role %s when it is not allowlisted', async (role) => {
+    'refuses organization role %s when it is not the platform owner', async (role) => {
       const rpc = rpcClient(recorded);
       const result = await recordWorkflowAssessmentReview(
         input(), { actorId: REVIEWER_ID, role, email: 'someone@other.test' } as never,
@@ -373,31 +370,46 @@ describe('workflow assessment review seam', () => {
     },
   );
 
-  it('allows an allowlisted platform reviewer email', async () => {
+  it('allows the platform owner', async () => {
     const rpc = rpcClient(recorded);
     const result = await recordWorkflowAssessmentReview(input(), REVIEWER);
     expect(result.status).toBe('review_recorded');
     expect(rpc).toHaveBeenCalledTimes(1);
   });
 
-  it('allows an allowlisted platform role', async () => {
-    process.env.INTERNAL_ORCHESTRATOR_ALLOWED_ROLES = 'platform_reviewer';
-    delete process.env.INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS;
+  it('refuses a platform-sounding role without platform-owner status', async () => {
     const rpc = rpcClient(recorded);
     const result = await recordWorkflowAssessmentReview(
       input(), { actorId: REVIEWER_ID, role: 'platform_reviewer', email: null } as never,
+    );
+    expect(result).toMatchObject({
+      status: 'reviewer_not_eligible', reason: 'not_platform_owner',
+    });
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('allows any role, including a non-organization one, when platformOwner is true', async () => {
+    const rpc = rpcClient(recorded);
+    const result = await recordWorkflowAssessmentReview(
+      input(), {
+        actorId: REVIEWER_ID, role: 'platform_reviewer', email: null, platformOwner: true,
+      } as never,
     );
     expect(result.status).toBe('review_recorded');
     expect(rpc).toHaveBeenCalledTimes(1);
   });
 
-  it('fails closed when no allowlist is configured at all', async () => {
-    delete process.env.INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS;
-    delete process.env.INTERNAL_ORCHESTRATOR_ALLOWED_ROLES;
+  it.each([
+    ['absent', undefined],
+    ['false', false],
+    ['null', null],
+  ])('fails closed when platformOwner is %s', async (_label, platformOwner) => {
     const rpc = rpcClient(recorded);
-    const result = await recordWorkflowAssessmentReview(input(), REVIEWER);
+    const result = await recordWorkflowAssessmentReview(
+      input(), { ...REVIEWER, platformOwner } as never,
+    );
     expect(result).toMatchObject({
-      status: 'reviewer_not_eligible', reason: 'not_configured',
+      status: 'reviewer_not_eligible', reason: 'not_platform_owner',
     });
     expect(rpc).not.toHaveBeenCalled();
   });

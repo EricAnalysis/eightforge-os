@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { hashCanonical } from '@/lib/extraction/domain/hash';
 import { buildLinearCapabilityProjection } from '@/lib/linearCapabilityProjection';
 import { repositoryContentEvidenceId } from '@/lib/repositoryPlanContent';
@@ -10,7 +10,7 @@ const classification = 'RULE' as const;
 const path = 'lib/rules/check.ts';
 const blob = '7'.repeat(40);
 const evidenceRef = repositoryContentEvidenceId({ commitSha: commit, classification, filePath: path, blobSha: blob });
-const reviewer = { email: 'reviewer@example.com', role: null };
+const reviewer = { email: 'reviewer@example.com', role: null, platformOwner: true };
 
 function request() {
   const envelope = { domain:'eightforge.approved-engineering-request' as const,schemaVersion:1 as const,
@@ -44,8 +44,6 @@ function harness(status:'acquired'|'recovered'|'busy'|'existing_projected'='acqu
     readApproved:vi.fn(async()=>({ok:true as const,request:request()})),readPlan:vi.fn(async()=>plan)};
   return {calls,admin,client,dependencies};
 }
-
-beforeEach(()=>{process.env.INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS='reviewer@example.com';delete process.env.INTERNAL_ORCHESTRATOR_ALLOWED_ROLES;});
 
 describe('manual Linear projection delivery',()=>{
   it('searches before a fresh acquired create and creates once only after a lookup miss',async()=>{const h=harness();

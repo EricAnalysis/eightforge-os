@@ -40,15 +40,14 @@ describe('workflow assessment review route', () => {
   beforeEach(() => {
     recordReview.mockReset();
     actorContext.mockReset();
-    // Review access is platform-wide and allowlist-driven; an organization role
-    // no longer grants it on its own.
-    process.env.INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS = PLATFORM_EMAIL;
-    delete process.env.INTERNAL_ORCHESTRATOR_ALLOWED_ROLES;
+    // Review access is platform-wide and comes only from platform-owner status
+    // (resolved server-side by getActorContext); an organization role does not
+    // grant it.
     actorContext.mockResolvedValue({
       ok: true,
       actor: {
         actorId: REVIEWER_ID, organizationId: 'org-1', displayName: 'Op',
-        role: 'admin', email: PLATFORM_EMAIL,
+        role: 'admin', email: PLATFORM_EMAIL, platformOwner: true,
       },
     });
     recordReview.mockResolvedValue({
@@ -74,7 +73,7 @@ describe('workflow assessment review route', () => {
     expect(recordReview).toHaveBeenCalledTimes(1);
     // Identity AND the fields eligibility is rechecked from, all session-derived.
     expect(recordReview.mock.calls[0]![1]).toEqual({
-      actorId: REVIEWER_ID, role: 'admin', email: PLATFORM_EMAIL,
+      actorId: REVIEWER_ID, role: 'admin', email: PLATFORM_EMAIL, platformOwner: true,
     });
   });
 
@@ -192,7 +191,7 @@ describe('workflow assessment review route', () => {
   });
 
   it.each([['owner'], ['admin']])(
-    'refuses organization role %s that is not allowlisted', async (role) => {
+    'refuses organization role %s that is not the platform owner', async (role) => {
       actorContext.mockResolvedValue({
         ok: true,
         actor: {
@@ -202,6 +201,9 @@ describe('workflow assessment review route', () => {
       });
       const response = await POST(request(body()));
       expect(response.status).toBe(403);
+      await expect(response.json()).resolves.toMatchObject({
+        error: 'reviewer_not_eligible', reason: 'not_platform_owner',
+      });
       expect(recordReview).not.toHaveBeenCalled();
     },
   );

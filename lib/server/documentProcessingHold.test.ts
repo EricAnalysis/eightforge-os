@@ -314,7 +314,10 @@ describe('POST /api/documents/[id]/evaluate', () => {
 // ---------------------------------------------------------------------------
 
 describe('/api/internal/document-processing-hold', () => {
-  const OPERATOR = { ok: true, actor: { actorId: 'op-1', organizationId: 'org-1', displayName: null, role: 'member', email: 'Operator@Example.test' } };
+  // The platform owner: platformOwner is resolved server-side by getActorContext
+  // from the grant ledger. Its organization role is irrelevant.
+  const OPERATOR = { ok: true, actor: { actorId: 'op-1', organizationId: 'org-1', displayName: null, role: 'member', email: 'Operator@Example.test', platformOwner: true } };
+  const notOwner = (overrides: Record<string, unknown>) => ({ ...OPERATOR, actor: { ...OPERATOR.actor, platformOwner: false, ...overrides } });
   const KEY = '00000000-0000-4000-8000-0000000000aa';
   let rpc: ReturnType<typeof vi.fn>;
 
@@ -341,24 +344,37 @@ describe('/api/internal/document-processing-hold', () => {
     expect(rpc).not.toHaveBeenCalled();
   });
 
-  it('refuses everyone when no operator allowlist is configured', async () => {
-    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS', '');
-    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_ROLES', '');
-    const { POST, GET } = await route({ ...OPERATOR, actor: { ...OPERATOR.actor, role: 'owner' } });
-    expect((await POST(postBody({ action: 'hold', requestKey: KEY, reason: 'x' }))).status).toBe(403);
+  it.each([
+    ['an organization owner', notOwner({ role: 'owner' })],
+    ['an organization admin', notOwner({ role: 'admin' })],
+    ['a viewer', notOwner({ role: 'viewer' })],
+    ['an actor with no platform-owner flag at all', { ok: true, actor: { actorId: 'u-2', organizationId: 'org-2', displayName: null, role: 'admin', email: 'x@example.test' } }],
+    ['a truthy but non-boolean flag', notOwner({ platformOwner: 'true' })],
+  ])('refuses %s who is not the platform owner (read and write)', async (_label, actor) => {
+    // Environment allowlists no longer grant anything.
+    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS', 'operator@example.test,x@example.test');
+    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_ROLES', 'owner,admin,viewer');
+    const { POST, GET } = await route(actor);
+    const write = await POST(postBody({ action: 'hold', requestKey: KEY, reason: 'x' }));
+    expect(write.status).toBe(403);
+    expect(await write.json()).toEqual({ ok: false, error: 'operator_not_eligible', reason: 'not_platform_owner' });
     expect((await GET(new Request('http://localhost/x'))).status).toBe(403);
     expect(rpc).not.toHaveBeenCalled();
   });
 
-  it('refuses an organization admin who is not an allowlisted operator', async () => {
-    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS', 'someone-else@example.test');
-    const { POST } = await route({ ...OPERATOR, actor: { ...OPERATOR.actor, role: 'admin' } });
-    expect((await POST(postBody({ action: 'hold', requestKey: KEY, reason: 'x' }))).status).toBe(403);
+  it('a non-owner cannot claim platform ownership in the body', async () => {
+    const { POST } = await route(notOwner({}));
+    expect((await POST(postBody({ action: 'hold', requestKey: KEY, reason: 'x', platformOwner: true }))).status).toBe(403);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('even the owner cannot send identity fields in the body (strict schema)', async () => {
+    const { POST } = await route(OPERATOR);
+    expect((await POST(postBody({ action: 'hold', requestKey: KEY, reason: 'x', platformOwner: true }))).status).toBe(400);
     expect(rpc).not.toHaveBeenCalled();
   });
 
   it('records a hold attributed to the session actor, never the body', async () => {
-    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS', 'operator@example.test');
     const { POST } = await route(OPERATOR);
     const response = await POST(postBody({ action: 'hold', requestKey: KEY, reason: ' A1/A2 window ' }));
     expect(response.status).toBe(200);
@@ -374,14 +390,12 @@ describe('/api/internal/document-processing-hold', () => {
     ['a non-uuid key', { action: 'hold', requestKey: 'abc', reason: 'x' }],
     ['a blank reason', { action: 'release', requestKey: KEY, reason: '   ' }],
   ])('rejects %s', async (_label, body) => {
-    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS', 'operator@example.test');
     const { POST } = await route(OPERATOR);
     expect((await POST(postBody(body))).status).toBe(400);
     expect(rpc).not.toHaveBeenCalled();
   });
 
   it('maps a changed replay to 409', async () => {
-    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS', 'operator@example.test');
     rpc.mockResolvedValueOnce({ data: null, error: {
       message: 'request key was already used for a different request', code: '22023',
       details: 'document_processing_hold_replay_conflict',
@@ -391,7 +405,6 @@ describe('/api/internal/document-processing-hold', () => {
   });
 
   it('maps a lock timeout (55P03) to a retryable 503 on both transition and read', async () => {
-    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS', 'operator@example.test');
     const busy = { data: null, error: { message: 'canceling statement due to lock timeout', code: '55P03' } };
     rpc.mockResolvedValueOnce(busy).mockResolvedValueOnce(busy);
     const { POST, GET } = await route(OPERATOR);
@@ -404,7 +417,6 @@ describe('/api/internal/document-processing-hold', () => {
   });
 
   it('revokes write-valid admissions, and refuses revoke without a hold', async () => {
-    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS', 'operator@example.test');
     const { POST } = await route(OPERATOR);
     expect((await POST(postBody({ action: 'revoke', requestKey: KEY, reason: 'drain now' }))).status).toBe(200);
     expect(rpc).toHaveBeenCalledWith('set_document_processing_hold', expect.objectContaining({ p_action: 'revoke' }));
@@ -416,9 +428,8 @@ describe('/api/internal/document-processing-hold', () => {
     expect(await refused.json()).toEqual({ ok: false, error: 'not_held' });
   });
 
-  it('reads hold and drain state', async () => {
-    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_ROLES', 'platform_operator');
-    const { GET } = await route({ ...OPERATOR, actor: { ...OPERATOR.actor, email: null, role: 'platform_operator' } });
+  it('reads hold and drain state as the platform owner', async () => {
+    const { GET } = await route({ ...OPERATOR, actor: { ...OPERATOR.actor, email: null, role: 'viewer' } });
     const response = await GET(new Request('http://localhost/x'));
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true, state: { held: true, drain_state: 'draining' } });

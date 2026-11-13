@@ -50,7 +50,7 @@ async function first(query: QueryResult): Promise<Record<string, unknown> | null
 
 export async function recordRecurrenceSuccessor(
   input: unknown,
-  reviewer: Readonly<{ actorId: string; email: string | null; role: string | null }>,
+  reviewer: Readonly<{ actorId: string; email: string | null; role: string | null; platformOwner?: boolean | null }>,
   dependencies: Readonly<{ admin?: RecurrenceAdmin | null; readReport?: typeof readFrictionReport; newId?: () => string }> = {},
 ): Promise<RecurrenceSuccessorResult> {
   if (!resolveWorkflowPlatformReviewAccess(reviewer).allowed) return { status: 'reviewer_not_eligible' };

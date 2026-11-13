@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/server/supabaseAdmin', () => ({ getSupabaseAdmin: () => null }));
 
@@ -18,7 +18,7 @@ import {
 
 /** B8.3c: human triage of improvement signal submissions. Synthetic records only. */
 
-const REVIEWER = { actorId: '22222222-2222-4222-8222-222222222222', email: 'platform.reviewer@example.test', role: 'admin' };
+const REVIEWER = { actorId: '22222222-2222-4222-8222-222222222222', email: 'platform.reviewer@example.test', role: 'admin', platformOwner: true };
 const SUBMISSION = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1';
 const ORG = '11111111-1111-4111-8111-111111111111';
 
@@ -56,9 +56,6 @@ const triage = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe('recordImprovementSignalTriage (B8.3c)', () => {
-  beforeEach(() => { vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS', REVIEWER.email); vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_ROLES', ''); });
-  afterEach(() => { vi.unstubAllEnvs(); });
-
   it('records version 1, binding the submission organization and signal kind, from a session reviewer', async () => {
     const fake = fakeClient({ submissions: [SEMANTICS] });
     const result = await recordImprovementSignalTriage(triage(), REVIEWER, { admin: fake.client, newId: () => 'triage-1' });
@@ -71,14 +68,12 @@ describe('recordImprovementSignalTriage (B8.3c)', () => {
     }]);
   });
 
-  it('uses the existing platform-review allowlist and never a body-supplied reviewer', async () => {
+  it('requires the platform-owner grant and never a body-supplied reviewer', async () => {
     const fake = fakeClient({ submissions: [SEMANTICS] });
-    expect(await recordImprovementSignalTriage(triage(), { ...REVIEWER, email: 'tenant.admin@example.test' }, { admin: fake.client }))
-      .toEqual({ status: 'reviewer_not_eligible', reason: 'not_allowlisted' });
-    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS', '');
-    expect(await recordImprovementSignalTriage(triage(), REVIEWER, { admin: fake.client }))
-      .toEqual({ status: 'reviewer_not_eligible', reason: 'not_configured' });
-    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS', REVIEWER.email);
+    expect(await recordImprovementSignalTriage(triage(), { ...REVIEWER, email: 'tenant.admin@example.test', platformOwner: false }, { admin: fake.client }))
+      .toEqual({ status: 'reviewer_not_eligible', reason: 'not_platform_owner' });
+    expect(await recordImprovementSignalTriage(triage(), { ...REVIEWER, platformOwner: undefined }, { admin: fake.client }))
+      .toEqual({ status: 'reviewer_not_eligible', reason: 'not_platform_owner' });
     expect(await recordImprovementSignalTriage(triage(), { ...REVIEWER, actorId: 'not-a-uuid' }, { admin: fake.client }))
       .toEqual({ status: 'reviewer_unresolved' });
     expect((await recordImprovementSignalTriage({ ...triage(), reviewerActorId: REVIEWER.actorId } as never, REVIEWER,

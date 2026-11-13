@@ -1,98 +1,48 @@
 // lib/server/workflowPlatformReviewAccess.ts
-// Who is allowed to review workflow assessments, platform-wide.
+// Who may use EightForge's and Forgewing's platform-wide tools: the processing
+// hold, workflow assessment review, improvement lifecycle, project
+// intelligence signals and repository plan runs.
 //
-// Workflow intake is public and unassigned: a submission has no actor and no
-// organization, and the assessment derived from it is global. Organization
-// membership therefore cannot scope it. Reusing owner/admin meant any tenant's
-// administrator could enumerate and review every other tenant's submitted
-// business process, which is the defect this module exists to close.
+// One authority: the PLATFORM OWNER. An account is the platform owner iff its
+// latest event in the append-only public.platform_owner_grant_events ledger is
+// a grant (migration 20261105120200; read by public.is_platform_owner).
+// getActorContext resolves it server-side, from the verified session's user
+// id, on every authenticated request. Nothing a client sends can set it.
 //
-// The repository already has exactly one platform-wide authorization concept:
-// the explicit internal-operator allowlists behind
-// INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS / INTERNAL_ORCHESTRATOR_ALLOWED_ROLES.
-// This reuses that vocabulary rather than inventing a second one, and reuses it
-// WITHOUT the project-admin fallback that isAllowedInternalOrchestratorOperator
-// applies. That fallback is precisely what re-admits every organization
-// administrator, so inheriting it would rename the defect rather than fix it.
+// What does NOT grant platform authority:
+//   * organization roles (owner/admin). They are tenant-scoped; reusing them
+//     would let any tenant's administrator review every tenant's submissions,
+//     which is the defect this module exists to prevent;
+//   * an email address, a role name or any environment variable. The
+//     INTERNAL_ORCHESTRATOR_ALLOWED_* allowlists no longer apply here.
 //
-// Fail-closed by construction: with neither allowlist configured, nobody is a
-// platform reviewer. An unconfigured deployment therefore has no reviewers
-// rather than every administrator, which is the safe direction for a surface
-// whose output is immutable audit truth.
+// Fail-closed: no ledger grant (or a failed lookup) means no platform owner,
+// so the tools refuse everyone, which is today's production state.
 //
-// Server-only. It reads process.env, and eligibility is never a client
-// decision: hiding a control is a courtesy, this is the authority.
-
-export const WORKFLOW_REVIEW_ALLOWED_EMAILS_ENV =
-  'INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS' as const;
-export const WORKFLOW_REVIEW_ALLOWED_ROLES_ENV =
-  'INTERNAL_ORCHESTRATOR_ALLOWED_ROLES' as const;
+// Server-only. Eligibility is never a client decision: hiding a control is a
+// courtesy, this is the authority.
 
 export type WorkflowPlatformReviewer = Readonly<{
-  email: string | null | undefined;
-  role: string | null | undefined;
+  email?: string | null | undefined;
+  role?: string | null | undefined;
+  /** Resolved by getActorContext from the platform-owner ledger. */
+  platformOwner?: boolean | null | undefined;
 }>;
 
 export type WorkflowPlatformReviewAccess =
-  | Readonly<{ allowed: true; basis: 'allowlisted_email' | 'allowlisted_role' }>
-  | Readonly<{
-      allowed: false;
-      reason: 'not_configured' | 'identity_missing' | 'not_allowlisted';
-    }>;
+  | Readonly<{ allowed: true; basis: 'platform_owner' }>
+  | Readonly<{ allowed: false; reason: 'identity_missing' | 'not_platform_owner' }>;
 
-/**
- * Case-insensitive, whitespace-tolerant list parsing.
- *
- * Empty entries are dropped so a stray comma cannot widen access, and a value
- * of "" yields an empty list rather than a list containing "".
- */
-function parseAllowlist(raw: string | undefined): readonly string[] {
-  return (raw ?? '')
-    .split(',')
-    .map((entry) => entry.trim().toLowerCase())
-    .filter((entry) => entry.length > 0);
-}
-
-function normalize(value: string | null | undefined): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim().toLowerCase();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-/**
- * Resolves platform review access for one authenticated actor.
- *
- * Both identity fields come from the verified session -- the email from
- * Supabase Auth, the role from the actor's user_profiles row -- never from a
- * request body.
- */
+/** Resolves platform-wide access for one authenticated actor. */
 export function resolveWorkflowPlatformReviewAccess(
-  reviewer: WorkflowPlatformReviewer,
+  reviewer: WorkflowPlatformReviewer | null | undefined,
 ): WorkflowPlatformReviewAccess {
-  const allowedEmails = parseAllowlist(process.env[WORKFLOW_REVIEW_ALLOWED_EMAILS_ENV]);
-  const allowedRoles = parseAllowlist(process.env[WORKFLOW_REVIEW_ALLOWED_ROLES_ENV]);
-
-  // No allowlist means no platform reviewers. Deliberately not "everyone with
-  // an admin role": an unconfigured deployment must not silently grant global
-  // access to every tenant administrator.
-  if (allowedEmails.length === 0 && allowedRoles.length === 0) {
-    return { allowed: false, reason: 'not_configured' };
-  }
-
-  const email = normalize(reviewer?.email);
-  const role = normalize(reviewer?.role);
-  if (!email && !role) return { allowed: false, reason: 'identity_missing' };
-
-  if (email && allowedEmails.includes(email)) {
-    return { allowed: true, basis: 'allowlisted_email' };
-  }
-  if (role && allowedRoles.includes(role)) {
-    return { allowed: true, basis: 'allowlisted_role' };
-  }
-
-  return { allowed: false, reason: 'not_allowlisted' };
+  if (!reviewer) return { allowed: false, reason: 'identity_missing' };
+  // Strictly `true`: a missing, null or truthy-but-not-boolean value refuses.
+  if (reviewer.platformOwner === true) return { allowed: true, basis: 'platform_owner' };
+  return { allowed: false, reason: 'not_platform_owner' };
 }
 
-export function isWorkflowPlatformReviewer(reviewer: WorkflowPlatformReviewer): boolean {
+export function isWorkflowPlatformReviewer(reviewer: WorkflowPlatformReviewer | null | undefined): boolean {
   return resolveWorkflowPlatformReviewAccess(reviewer).allowed;
 }

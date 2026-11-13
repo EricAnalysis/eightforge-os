@@ -27,7 +27,7 @@ export async function POST(request: Request): Promise<Response> {
   if (!body.success) return Response.json({ ok: false, error: 'invalid triage request' }, { status: 400 });
 
   const result = await recordImprovementSignalTriage(body.data,
-    { actorId: actor.actor.actorId, email: actor.actor.email, role: actor.actor.role });
+    { actorId: actor.actor.actorId, email: actor.actor.email, role: actor.actor.role, platformOwner: actor.actor.platformOwner });
   switch (result.status) {
     case 'triage_recorded':
       return Response.json({ ok: true, ...result }, { status: 201 });

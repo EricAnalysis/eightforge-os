@@ -1,9 +1,9 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import { readImprovementLifecycle, type LifecycleReadAdmin } from '@/lib/server/improvementLifecycleRead';
 
 const SUBMISSION = 'b84d0000-0000-4000-8000-000000000301';
-const REVIEWER = { email: 'reviewer@example.invalid', role: null };
+const REVIEWER = { email: 'reviewer@example.invalid', role: null, platformOwner: true };
 
 function admin(tables: Record<string, Record<string, unknown>[]>) {
   const from = (table: string) => ({ select: () => {
@@ -20,11 +20,8 @@ function admin(tables: Record<string, Record<string, unknown>[]>) {
   return { from } as unknown as LifecycleReadAdmin;
 }
 
-afterEach(() => vi.unstubAllEnvs());
-
 describe('improvement lifecycle read (B8.4d)', () => {
   it('lists approved requests of the triage-sourced plans, marks superseded ones, and shows Linear as a copy only', async () => {
-    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS', REVIEWER.email);
     const result = await readImprovementLifecycle({ submissionId: SUBMISSION }, REVIEWER, { admin: admin({
       improvement_signal_triage_reviews: [{ id: 't1', submission_id: SUBMISSION }],
       workflow_repository_plan_v2_runs: [{ id: 'run1', plan_v2_digest_sha256: 'd', triage_review_id: 't1' }],
@@ -47,10 +44,10 @@ describe('improvement lifecycle read (B8.4d)', () => {
   });
 
   it('refuses non-reviewers and malformed queries', async () => {
-    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS', 'someone-else@example.invalid');
-    expect(await readImprovementLifecycle({ submissionId: SUBMISSION }, REVIEWER, { admin: admin({}) }))
-      .toEqual({ status: 'reviewer_not_eligible' });
-    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS', REVIEWER.email);
+    for (const nonOwner of [{ ...REVIEWER, platformOwner: false }, { ...REVIEWER, platformOwner: undefined }]) {
+      expect(await readImprovementLifecycle({ submissionId: SUBMISSION }, nonOwner, { admin: admin({}) }))
+        .toEqual({ status: 'reviewer_not_eligible' });
+    }
     expect(await readImprovementLifecycle({ submissionId: 'x' }, REVIEWER, { admin: admin({}) }))
       .toEqual({ status: 'invalid_input' });
   });

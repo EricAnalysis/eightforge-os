@@ -111,8 +111,13 @@ describe('workflow review surface has no execution affordance', () => {
     // which is the defect this predicate exists to close.
     expect(predicate).not.toContain('hasProjectAdminRole');
     expect(predicate).not.toContain('isAllowedInternalOrchestratorOperator');
-    // Fail closed with nothing configured.
-    expect(predicate).toContain("reason: 'not_configured'");
+    // One authority: the platform owner from the grant ledger, accepted only
+    // as exactly `true`. No environment allowlist, email or role basis.
+    expect(predicate).toContain('reviewer.platformOwner === true');
+    expect(predicate).not.toContain('process.env');
+    expect(predicate).not.toMatch(/\.role\b|\.email\b/);
+    // Fail closed for everyone else.
+    expect(predicate).toContain("reason: 'not_platform_owner'");
   });
 
   it('submits only through the existing immutable review-write seam', () => {

@@ -8,10 +8,11 @@
 // revoke (only while held) closes every admission that could still write, so
 // the database refuses their protected writes and the drain completes at once.
 //
-// Authority: the platform-operator allowlist (INTERNAL_ORCHESTRATOR_ALLOWED_*),
-// fail-closed when unconfigured. Organization admins are not operators: the
-// hold stops processing for every tenant. The actor comes from the verified
-// session, never the body; the body schema is strict.
+// Authority: the platform owner (append-only grant ledger, resolved by
+// getActorContext), fail-closed until the owner is granted. Organization
+// admins are not platform owners: the hold stops processing for every tenant.
+// The actor comes from the verified session, never the body; the body schema
+// is strict.
 //
 // Every POST is recorded in document_processing_hold_transitions, including
 // no-op repeats. Re-sending the same requestKey with the same request replays

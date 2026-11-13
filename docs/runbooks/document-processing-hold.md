@@ -87,9 +87,10 @@ It is not defined by job status, lease arithmetic, request counts, or elapsed ti
 
 ## 4. Operator procedure
 
-Authority is the platform-operator allowlist: `INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS` / `_ROLES`.
-- It fails closed when unconfigured.
-- Organization admins are not operators.
+Authority is the **platform owner** (see `docs/runbooks/platform-owner.md`).
+- It is resolved from the append-only grant ledger for the signed-in account.
+- It fails closed until the owner is granted.
+- Organization owners and admins are not platform owners.
 - The actor comes from the session.
 
 ```http

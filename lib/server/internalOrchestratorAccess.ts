@@ -1,32 +1,30 @@
+// lib/server/internalOrchestratorAccess.ts
+// Who may use the Improvement Orchestrator (/api/internal/orchestrator): the
+// engineering-facing, advisory AI that analyzes internal diagnostics and
+// drafts implementation prompts for EightForge itself.
+//
+// One authority: the PLATFORM OWNER, from the append-only grant ledger
+// (public.is_platform_owner, migration 20261105120200), resolved server-side
+// for the verified session's user id. The same identity governs every other
+// platform-wide tool (workflowPlatformReviewAccess).
+//
+// What does NOT grant access: organization roles (owner/admin), emails, and
+// the retired INTERNAL_ORCHESTRATOR_ALLOWED_* environment allowlists. The
+// former "any organization administrator" fallback is gone: the orchestrator
+// works at platform level, not inside one tenant.
+//
+// This grants access only. It does not relax the orchestrator's own
+// protections, which stay independent: the route is unavailable in
+// production builds, output is advisory text and a prompt file, and provider
+// configuration is checked separately.
+
 import { createClient } from '@supabase/supabase-js';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
-import { hasProjectAdminRole, normalizeUserRole } from '@/lib/projectAdmin';
+import { resolvePlatformOwner } from '@/lib/server/getActorContext';
 
 export type InternalOrchestratorAccessResult =
   | { ok: true; userId: string; email: string | null; role: string | null }
   | { ok: false; status: number; error: string };
-
-function parseAllowlist(value: string | undefined): string[] {
-  return (value ?? '')
-    .split(',')
-    .map((item) => item.trim().toLowerCase())
-    .filter(Boolean);
-}
-
-export function isAllowedInternalOrchestratorOperator(params: {
-  email: string | null | undefined;
-  role: string | null | undefined;
-}): boolean {
-  const allowedEmails = parseAllowlist(process.env.INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS);
-  const allowedRoles = parseAllowlist(process.env.INTERNAL_ORCHESTRATOR_ALLOWED_ROLES);
-  const normalizedEmail = params.email?.trim().toLowerCase() ?? null;
-  const normalizedRole = normalizeUserRole(params.role);
-
-  if (normalizedEmail && allowedEmails.includes(normalizedEmail)) return true;
-  if (normalizedRole && allowedRoles.includes(normalizedRole)) return true;
-
-  return hasProjectAdminRole(normalizedRole);
-}
 
 export async function getInternalOrchestratorAccess(
   req: Request,
@@ -61,27 +59,24 @@ export async function getInternalOrchestratorAccess(
     return { ok: false, status: 503, error: 'Server not configured' };
   }
 
-  const { data: profile, error: profileError } = await admin
-    .from('user_profiles')
-    .select('role')
-    .eq('id', user.id)
-    .single();
+  // Role and email are kept for provenance only; they grant nothing here.
+  const [{ data: profile, error: profileError }, platformOwner] = await Promise.all([
+    admin.from('user_profiles').select('role').eq('id', user.id).single(),
+    resolvePlatformOwner(admin, user.id),
+  ]);
 
   if (profileError || !profile) {
     return { ok: false, status: 403, error: 'User profile not found' };
   }
 
-  const email = typeof user.email === 'string' ? user.email : null;
-  const role = typeof profile.role === 'string' ? profile.role : null;
-
-  if (!isAllowedInternalOrchestratorOperator({ email, role })) {
+  if (!platformOwner) {
     return { ok: false, status: 403, error: 'Forbidden' };
   }
 
   return {
     ok: true,
     userId: user.id,
-    email,
-    role,
+    email: typeof user.email === 'string' ? user.email : null,
+    role: typeof profile.role === 'string' ? profile.role : null,
   };
 }

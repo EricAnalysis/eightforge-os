@@ -63,4 +63,13 @@ FROM public.platform_owner_grant_events
 ORDER BY event_seq;
 ```
 
-**Not covered:** `/api/internal/orchestrator` still uses its older check (`internalOrchestratorAccess.ts`). That check admits the allowlists *or any organization admin*. Moving it onto the platform owner is a separate, deliberate change.
+**Improvement Orchestrator:** `/api/internal/orchestrator` (`internalOrchestratorAccess.ts`) also requires the platform owner. The former "allowlist or any organization admin" rule is gone.
+- The grant opens access only.
+- The orchestrator's own protections are unchanged:
+  - it is unavailable in production builds;
+  - its output is advisory text and a prompt file;
+  - provider configuration is checked separately.
+
+**Not platform-owner scoped, by design:**
+- **Organization-scoped tools:** Ask This Project, document diagnostics, recovery review, Forgewing friction intake, customer header mappings.
+- **Scheduled crons:** authorized by `CRON_SECRET`.

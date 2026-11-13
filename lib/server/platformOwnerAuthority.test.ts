@@ -118,3 +118,73 @@ describe('getActorContext carries platformOwner without risking sign-in', () => 
     expect(await getActorContext(new Request('http://localhost/x'))).toEqual({ ok: false, status: 401, error: 'Unauthorized' });
   });
 });
+
+describe('Improvement Orchestrator access: platform owner only', () => {
+  afterEach(() => {
+    vi.resetModules();
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  async function orchestratorAccess(
+    profile: { role: string } | null,
+    ownerReply: () => Promise<unknown>,
+    headers: Record<string, string> = { Authorization: 'Bearer t' },
+    user: { id: string; email: string } | null = { id: 'user-1', email: 'u@example.test' },
+  ) {
+    vi.resetModules();
+    vi.stubEnv('SUPABASE_URL', 'https://example.invalid');
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY', 'anon');
+    vi.doMock('@supabase/supabase-js', () => ({ createClient: () => ({
+      auth: { getUser: async () => ({ data: { user }, error: user ? null : { message: 'invalid' } }) },
+    }) }));
+    const profileQuery = {
+      select: () => profileQuery,
+      eq: () => profileQuery,
+      single: async () => ({ data: profile, error: profile ? null : { message: 'no rows', code: 'PGRST116' } }),
+    };
+    const rpc = vi.fn(ownerReply);
+    vi.doMock('@/lib/server/supabaseAdmin', () => ({ getSupabaseAdmin: () => ({ from: () => profileQuery, rpc }) }));
+    const { getInternalOrchestratorAccess } = await import('@/lib/server/internalOrchestratorAccess');
+    return { result: await getInternalOrchestratorAccess(new Request('http://localhost/x', { headers })), rpc };
+  }
+
+  it('allows the platform owner, whatever their organization role', async () => {
+    const { result, rpc } = await orchestratorAccess({ role: 'viewer' }, async () => ({ data: true, error: null }));
+    expect(result).toEqual({ ok: true, userId: 'user-1', email: 'u@example.test', role: 'viewer' });
+    expect(rpc).toHaveBeenCalledWith('is_platform_owner', { p_user_id: 'user-1' });
+  });
+
+  it.each(['owner', 'admin', 'member', 'viewer'])('refuses an organization %s who is not the platform owner', async (role) => {
+    // The retired allowlists would previously have admitted these callers.
+    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS', 'u@example.test');
+    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_ROLES', role);
+    const { result } = await orchestratorAccess({ role }, async () => ({ data: false, error: null }));
+    expect(result).toEqual({ ok: false, status: 403, error: 'Forbidden' });
+  });
+
+  it('refuses when the ownership lookup fails', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { result } = await orchestratorAccess({ role: 'admin' }, async () => { throw new Error('ledger unavailable'); });
+    expect(result).toEqual({ ok: false, status: 403, error: 'Forbidden' });
+  });
+
+  it('refuses unauthenticated and invalid sessions', async () => {
+    expect((await orchestratorAccess({ role: 'admin' }, async () => ({ data: true, error: null }), {})).result)
+      .toEqual({ ok: false, status: 401, error: 'Unauthorized' });
+    expect((await orchestratorAccess({ role: 'admin' }, async () => ({ data: true, error: null }), undefined, null)).result)
+      .toEqual({ ok: false, status: 401, error: 'Unauthorized' });
+  });
+
+  it('keeps no organization-admin fallback or environment allowlist in the source', async () => {
+    const { readFileSync } = await import('node:fs');
+    const code = readFileSync('lib/server/internalOrchestratorAccess.ts', 'utf8')
+      .split('\n').filter((line) => !line.trim().startsWith('//')).join('\n');
+    expect(code).toContain('resolvePlatformOwner(admin, user.id)');
+    expect(code).not.toMatch(/hasProjectAdminRole|PROJECT_ADMIN_ROLES|process\.env\.INTERNAL_ORCHESTRATOR/);
+    // The route keeps its production shutdown ahead of authorization.
+    const route = readFileSync('app/api/internal/orchestrator/route.ts', 'utf8');
+    expect(route.indexOf("process.env.NODE_ENV === 'production'")).toBeGreaterThan(-1);
+    expect(route.indexOf("process.env.NODE_ENV === 'production'")).toBeLessThan(route.indexOf('getInternalOrchestratorAccess(request)'));
+  });
+});

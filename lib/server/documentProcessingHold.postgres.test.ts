@@ -1322,44 +1322,99 @@ describe.skipIf(!enabled)('platform-owner grant ledger — disposable PostgreSQL
       FROM public.platform_owner_grant_events ORDER BY event_seq DESC LIMIT 1`)).toBe('postgres|t');
   });
 
-  it('P10 the runbook bootstrap runs as written, refuses with triggers off, and is idempotent', async () => {
-    // The exact statement an operator pastes, read from the runbook.
+  it('P10 the runbook blocks run as written: guarded bootstrap, hand-over and revoke', async () => {
+    // The exact statements an operator pastes, read from the runbook.
+    // Note: this harness's postgres is a superuser; the same blocks were also
+    // checked by hand on the Supabase image as its non-superuser postgres.
     const runbook = readFileSync(join(process.cwd(), 'docs/runbooks/platform-owner.md'), 'utf8').replace(/\r\n/g, '\n');
-    const block = /```sql\n(DO \$bootstrap\$[\s\S]*?\$bootstrap\$;)\n```/.exec(runbook)?.[1];
-    expect(block, 'runbook bootstrap block').toBeTruthy();
-    // The hosted auth.users columns the bootstrap filters on (the harness stub has only id and email).
+    const blockNamed = (tag: string) => {
+      const found = new RegExp('```sql\\n(DO \\$' + tag + '\\$[\\s\\S]*?\\$' + tag + '\\$;)\\n```').exec(runbook)?.[1];
+      expect(found, `runbook ${tag} block`).toBeTruthy();
+      return found!;
+    };
+    // The hosted auth.users columns the blocks filter on (the harness stub has only id and email).
     sql(`ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS deleted_at timestamptz,
         ADD COLUMN IF NOT EXISTS email_confirmed_at timestamptz,
         ADD COLUMN IF NOT EXISTS is_anonymous boolean,
         ADD COLUMN IF NOT EXISTS banned_until timestamptz;
-      UPDATE auth.users SET email_confirmed_at = now() WHERE id = '${OWNER_B}';`);
+      UPDATE auth.users SET email_confirmed_at = now() WHERE id IN ('${OWNER_B}', '${OPERATOR}');`);
     const events = () => Number(sql(`SELECT count(*) FROM public.platform_owner_grant_events`));
+    const unchanged = (before: number, owners: number) => {
+      expect(events()).toBe(before);
+      expect(activeOwnerCount()).toBe(owners);
+    };
     expect(activeOwnerCount()).toBe(0);
-    const before = events();
+    let before = events();
 
-    const unedited = await session(block!);
+    // --- Bootstrap
+    const unedited = await session(blockNamed('bootstrap'));
     expect(unedited.code).not.toBe(0);
     expect(unedited.out).toContain('replace <your login email> first');
 
-    const bootstrap = block!.replace('<your login email>', 'second@example.test');
-    // With triggers off, neither the one-owner check nor the stamp would run: refused.
+    const bootstrap = blockNamed('bootstrap').replace('<your login email>', 'second@example.test');
+    // Every way the ledger's triggers can be off is refused, and nothing is recorded:
+    // this session,
     const replica = await session(`SET session_replication_role = replica;\n${bootstrap}`);
     expect(replica.code).not.toBe(0);
     expect(replica.out).toContain('triggers are off');
-    expect(events()).toBe(before);
-    expect(activeOwnerCount()).toBe(0);
+    unchanged(before, 0);
+    // a trigger disabled on the table,
+    sql(`ALTER TABLE public.platform_owner_grant_events DISABLE TRIGGER platform_owner_grant_events_validate`);
+    try {
+      const disabled = await session(bootstrap);
+      expect(disabled.code).not.toBe(0);
+      expect(disabled.out).toContain('a ledger trigger is disabled or missing');
+      unchanged(before, 0);
+    } finally {
+      sql(`ALTER TABLE public.platform_owner_grant_events ENABLE TRIGGER platform_owner_grant_events_validate`);
+    }
+    // and a role default (a throwaway role, so no live connection inherits it).
+    sql(`CREATE ROLE p10_replica_default NOLOGIN; ALTER ROLE p10_replica_default SET session_replication_role = replica;`);
+    try {
+      const roleDefault = await session(bootstrap);
+      expect(roleDefault.code).not.toBe(0);
+      expect(roleDefault.out).toContain('a role or database default sets session_replication_role');
+      unchanged(before, 0);
+    } finally {
+      sql(`DROP ROLE p10_replica_default`);
+    }
 
     const first = await session(bootstrap);
     expect(first.code, first.out).toBe(0);
     expect(await isOwner(OWNER_B)).toBe(true);
-    expect(activeOwnerCount()).toBe(1);
-    expect(events()).toBe(before + 1);
-    expect(sql(`SELECT recorded_by_db_role FROM public.platform_owner_grant_events ORDER BY event_seq DESC LIMIT 1`))
-      .toBe('postgres');
+    unchanged(before + 1, 1);
 
     const again = await session(bootstrap);
     expect(again.code).toBe(0);
     expect(again.out).toContain('already the platform owner');
-    expect(events()).toBe(before + 1);
+    unchanged(before + 1, 1);
+
+    // --- Hand over (OWNER_B hands to OPERATOR): guarded, then atomic revoke + grant.
+    before = events();
+    const handover = blockNamed('handover')
+      .replace('<your login email>', 'second@example.test')
+      .replace('<new owner login email>', 'op@example.test')
+      .replace('<why>', 'P10 hand-over');
+    const handoverReplica = await session(`SET session_replication_role = replica;\n${handover}`);
+    expect(handoverReplica.code).not.toBe(0);
+    expect(handoverReplica.out).toContain('triggers are off');
+    unchanged(before, 1);
+    const handed = await session(handover);
+    expect(handed.code, handed.out).toBe(0);
+    expect(await isOwner(OPERATOR)).toBe(true);
+    expect(await isOwner(OWNER_B)).toBe(false);
+    unchanged(before + 2, 1);
+    expect(sql(`SELECT string_agg(granted::text || ':' || (recorded_by = '${OWNER_B}')::text, ',' ORDER BY event_seq)
+      FROM (SELECT * FROM public.platform_owner_grant_events ORDER BY event_seq DESC LIMIT 2) l`)).toBe('false:true,true:true');
+
+    // --- Revoke: the safe direction warns instead of refusing, and always revokes.
+    before = events();
+    const revoke = blockNamed('revoke').replace('<your login email>', 'op@example.test').replace('<why>', 'P10 revoke');
+    const revoked = await session(`SET session_replication_role = replica;\n${revoke}`);
+    expect(revoked.code, revoked.out).toBe(0);
+    expect(revoked.out).toContain('ledger guard failed');
+    expect(revoked.out).toContain('revoked 1 active platform owner(s)');
+    expect(await isOwner(OPERATOR)).toBe(false);
+    unchanged(before + 1, 0);
   });
 });

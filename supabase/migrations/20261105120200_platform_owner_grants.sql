@@ -19,11 +19,15 @@
 --     under REPEATABLE READ, the one isolation level where two racing grants
 --     could both commit.
 --
--- Trust boundary: these guarantees are triggers. They bind every API role and
--- every ordinary direct session, but not a direct session that switches
--- triggers off (SET session_replication_role = replica, which Supabase allows
--- for postgres) or alters the table as its owner. That is the same boundary
--- as owning the schema. API roles cannot set session_replication_role.
+-- Trust boundary. Privileges keep every API role out: none can write the
+-- ledger or set session_replication_role. The append-only, one-owner and
+-- attribution guarantees are triggers, so they hold only while the triggers
+-- fire. The schema owner (postgres) can stop them: per session
+-- (SET session_replication_role = replica, which Supabase allows), per role
+-- (ALTER ROLE ... SET session_replication_role), per table
+-- (ALTER TABLE ... DISABLE TRIGGER), or by replacing the functions. That is
+-- the boundary of owning the schema. The runbook's write blocks refuse when
+-- any of the first three is in effect.
 --
 -- Bootstrap (owner, once, after this migration is applied): use the guarded
 -- statement in docs/runbooks/platform-owner.md. It resolves exactly one

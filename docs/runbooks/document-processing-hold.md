@@ -134,6 +134,16 @@ Every POST is audited. The same `requestKey` with the same body replays; with a 
   - clearing `request.headers`.
 
   None of these is reachable through the PostgREST table API, and no RPC calls `set_config`.
+- **A role default can switch the fence off for the application.** Supabase lets `postgres` run `ALTER ROLE authenticator SET session_replication_role = replica`.
+  - Every new PostgREST connection would then run with triggers off, so the fence, and later the A1/A2 guards, stop firing for all `service_role` writes, with no error.
+  - Only the schema owner can do this, but nothing would detect it.
+  - Before relying on the hold, and after any role change, check that this returns no rows:
+
+    ```sql
+    SELECT r.rolname, s.setconfig FROM pg_catalog.pg_db_role_setting s
+    LEFT JOIN pg_catalog.pg_roles r ON r.oid = s.setrole, unnest(s.setconfig) AS c(setting)
+    WHERE c.setting LIKE 'session_replication_role=%' AND c.setting <> 'session_replication_role=origin';
+    ```
 - **Migration order.**
   - The two hold migrations are versioned `20261105120000` / `20261105120100`. That is above the production head (`20261104120000`, inferred) and below every pending stream: #305 `1106*`/`1107*`, FDE `1108*`, A1 `1109033515`, RPC `1109120000`, A2 `1110*`/`1111*`.
   - So the hold can merge **first** without re-stamping anything.

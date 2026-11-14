@@ -15,6 +15,11 @@ CREATE TEMP TABLE preserved_extraction_status_rows AS
 SELECT id, to_jsonb(extraction) AS original_row
 FROM public.document_extractions extraction;
 
+-- Fire deferred constraint-trigger events queued by the fixture INSERT above
+-- (e.g. the processing write fence's commit-time recheck) before the replayed
+-- migration's ALTER TABLE, which PostgreSQL refuses while events are pending.
+SET CONSTRAINTS ALL IMMEDIATE;
+
 \ir ../../supabase/migrations/20261010170000_document_extraction_fact_status_compatibility.sql
 \ir ../../supabase/migrations/20261010170000_document_extraction_fact_status_compatibility.sql
 

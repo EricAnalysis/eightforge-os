@@ -111,8 +111,10 @@ function buildPlan(): RepositoryAwareImplementationPlanV2Artifact {
 }
 
 const reviewerId='96000000-0000-4000-8000-000000000001';
+// Transitional: the env allowlist authorizes on pre-platform-owner trees; platformOwner
+// authorizes once the platform-owner ledger ships. Drop the env line after that merge.
 process.env.INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS='phase11e-b3-reviewer@example.invalid';
-const actor={id:reviewerId,email:'phase11e-b3-reviewer@example.invalid',role:'member'};
+const actor={id:reviewerId,email:'phase11e-b3-reviewer@example.invalid',role:'member',platformOwner:true};
 const plan=buildPlan();
 const persisted=await recordWorkflowRepositoryPlanV2(plan,null,{admin});
 if(persisted.status!=='recorded') throw new Error(`Plan V2 persistence failed: ${persisted.status}`);

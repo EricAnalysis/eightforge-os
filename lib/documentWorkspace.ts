@@ -433,6 +433,17 @@ export function buildDocumentWorkspaceItems(params: {
   });
 }
 
+/**
+ * Row chip text for a document's blocked signals (blocked tasks, critical
+ * decisions, mismatch findings), or null when there are none. Blocked signals
+ * are review findings, not processing outcomes: a successfully processed
+ * document can carry them, so this never says "failed".
+ */
+export function formatBlockedSignalLabel(blockedCount: number): string | null {
+  if (!Number.isFinite(blockedCount) || blockedCount <= 0) return null;
+  return `${blockedCount} blocked signal${blockedCount === 1 ? '' : 's'}`;
+}
+
 export function filterDocumentWorkspaceItems(
   items: DocumentWorkspaceItem[],
   filters: DocumentWorkspaceFilters,

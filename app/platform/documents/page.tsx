@@ -14,6 +14,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import {
   buildDocumentWorkspaceItems,
   filterDocumentWorkspaceItems,
+  formatBlockedSignalLabel,
   sortDocumentWorkspaceItems,
   summarizeDocumentWorkspaceItems,
   type DocumentReviewStatus,
@@ -268,6 +269,7 @@ function DocumentRow({
     document.processingStatus === 'extracted';
   const isProjectContract =
     document.projectId != null && document.documentType === 'contract';
+  const blockedSignalLabel = formatBlockedSignalLabel(document.blockedCount);
 
   const handleChangeType = async () => {
     setSavingType(true);
@@ -326,7 +328,9 @@ function DocumentRow({
             label={document.workspaceStatusLabel}
             tone={document.workspaceTone}
           />
-          {document.blockedCount > 0 ? <StatusBadge status="failed" /> : null}
+          {blockedSignalLabel ? (
+            <WorkspaceStatusBadge label={blockedSignalLabel} tone="danger" />
+          ) : null}
         </div>
         {document.processingError ? (
           <p className="mt-2 text-[11px] text-[var(--ef-critical)]">

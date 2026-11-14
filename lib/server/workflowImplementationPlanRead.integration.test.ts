@@ -88,15 +88,12 @@ function client(input = evidence(), override: Partial<Record<number, unknown>> =
 describe('trusted implementation plan consumer with real resolver and builder', () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS', actor.email);
-    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_ROLES', '');
-    mocks.actor.mockResolvedValue({ ok: true, actor });
+    mocks.actor.mockResolvedValue({ ok: true, actor: { ...actor, platformOwner: true } });
     vi.stubGlobal('fetch', vi.fn(() => { throw new Error('Network/provider calls forbidden'); }));
   });
   afterEach(() => {
     expect(globalThis.fetch).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
-    vi.unstubAllEnvs();
   });
 
   it('loads exactly the four-part pin and preserves the real projection, readiness and both digests', async () => {
@@ -193,7 +190,7 @@ describe('trusted implementation plan consumer with real resolver and builder', 
     expect(mocks.admin).not.toHaveBeenCalled();
   });
 
-  it('rejects an authenticated tenant administrator outside the platform allowlist', async () => {
+  it('rejects an authenticated tenant administrator who is not the platform owner', async () => {
     mocks.actor.mockResolvedValue({ ok: true, actor: { ...actor, email: 'other@example.test' } });
     expect(await readWorkflowImplementationPlan(request(), pin)).toEqual({ ok: false, code: 'reviewer_not_eligible' });
     expect(mocks.admin).not.toHaveBeenCalled();

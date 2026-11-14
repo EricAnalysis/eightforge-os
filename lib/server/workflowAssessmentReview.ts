@@ -153,13 +153,15 @@ export type SessionDerivedReviewer = Readonly<{
   /** The role on the reviewer's user_profiles row, for the eligibility recheck. */
   role: string | null;
   /**
-   * The authenticated account's email, for the platform allowlist recheck.
+   * The authenticated account's email, recorded for provenance.
    *
    * Workflow assessments belong to no organization, so eligibility is
-   * platform-wide rather than a tenant role. Both fields come from the verified
-   * session; neither is accepted from the request body.
+   * platform-wide rather than a tenant role. Every field comes from the
+   * verified session; none is accepted from the request body.
    */
   email: string | null;
+  /** Platform-owner status from the grant ledger: the eligibility recheck. */
+  platformOwner?: boolean | null;
 }>;
 
 export type WorkflowAssessmentReviewInput =

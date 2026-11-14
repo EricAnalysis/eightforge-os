@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { readFrictionReport } from '@/lib/server/frictionReportRead';
 import {
@@ -12,7 +12,7 @@ const DECISION = 'b84d0000-0000-4000-8000-000000000101';
 const DEPLOYED = 'b84d0000-0000-4000-8000-000000000201';
 const ORIGIN = 'b84d0000-0000-4000-8000-000000000301';
 const SUCCESSOR = 'b84d0000-0000-4000-8000-000000000401';
-const REVIEWER = { actorId: 'b84d0000-0000-4000-8000-0000000000a1', email: 'reviewer@example.invalid', role: null };
+const REVIEWER = { actorId: 'b84d0000-0000-4000-8000-0000000000a1', email: 'reviewer@example.invalid', role: null, platformOwner: true };
 
 const payload = (occurrences: number) => ({ schemaVersion: 'friction_signal_v1', signalKind: 'recurring_deterministic_failure',
   code: 'unrecognized_reason', catalogueFingerprint: null, counts: { occurrences, documents: 2, projects: 1 },
@@ -43,11 +43,8 @@ const report = (signals: unknown[]) => (async () => ({ status: 'ok', readBounds:
   projectsTruncated: false, maxOverrides: 1, overridesRead: 0, overridesTruncated: false },
   report: { signals } })) as unknown as typeof readFrictionReport;
 
-afterEach(() => vi.unstubAllEnvs());
-
 describe('recurrence successor (B8.4d)', () => {
   it('re-submits the current allowlisted signal for the same problem, linked by the database', async () => {
-    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS', REVIEWER.email);
     const { admin: client, rpc } = admin(tables(), { data: [{ successor_id: DECISION, successor_submission_id: SUCCESSOR,
       inserted: true }], error: null });
     const result = await recordRecurrenceSuccessor({ decisionId: DECISION }, REVIEWER, { admin: client,
@@ -62,7 +59,6 @@ describe('recurrence successor (B8.4d)', () => {
   });
 
   it('creates nothing without a current signal, a recurrence decision, or review access', async () => {
-    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS', REVIEWER.email);
     const quiet = admin(tables(), { data: null, error: null });
     expect(await recordRecurrenceSuccessor({ decisionId: DECISION }, REVIEWER,
       { admin: quiet.admin, readReport: report([]) })).toEqual({ status: 'signal_not_current' });
@@ -71,13 +67,13 @@ describe('recurrence successor (B8.4d)', () => {
       { admin: deferred.admin, readReport: report([{ payload: payload(9) }]) })).toEqual({ status: 'not_current_recurrence' });
     expect(quiet.rpc).not.toHaveBeenCalled();
     expect(deferred.rpc).not.toHaveBeenCalled();
-    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS', 'someone-else@example.invalid');
-    expect(await recordRecurrenceSuccessor({ decisionId: DECISION }, REVIEWER, { admin: quiet.admin }))
-      .toEqual({ status: 'reviewer_not_eligible' });
+    for (const nonOwner of [{ ...REVIEWER, platformOwner: false }, { ...REVIEWER, platformOwner: undefined }]) {
+      expect(await recordRecurrenceSuccessor({ decisionId: DECISION }, nonOwner, { admin: quiet.admin }))
+        .toEqual({ status: 'reviewer_not_eligible' });
+    }
   });
 
   it('maps database refusals', async () => {
-    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS', REVIEWER.email);
     for (const [code, status] of [['B8409', 'not_current_recurrence'], ['B8410', 'successor_repeats_submission']] as const) {
       const refused = admin(tables(), { data: null, error: { code } });
       expect(await recordRecurrenceSuccessor({ decisionId: DECISION }, REVIEWER,

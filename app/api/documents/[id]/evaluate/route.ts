@@ -20,6 +20,17 @@ import { createDecisionsFromRules } from '@/lib/server/decisionEngine';
 import { createTasksFromDecisions } from '@/lib/server/workflowEngine';
 import { logActivityEvent } from '@/lib/server/activity/logActivityEvent';
 import { generateAndPersistCanonicalIntelligence } from '@/lib/server/intelligencePersistence';
+import {
+  admitDocumentProcessing,
+  closeDocumentProcessingAdmission,
+  documentProcessingRefusalResponse,
+  documentProcessingWriteFencedResponse,
+} from '@/lib/server/documentProcessingHold';
+import {
+  assertNoDocumentProcessingFenceRefusal,
+  DocumentProcessingWriteFencedError,
+  runWithDocumentProcessingAdmission,
+} from '@/lib/server/documentProcessingAdmissionContext';
 import type { RuleEvalResult } from '@/lib/types/rules';
 
 export async function POST(
@@ -93,11 +104,31 @@ export async function POST(
     );
   }
 
+  // ── 2b. Processing hold ──────────────────────────────────────────────
+  // Evaluation rewrites extraction diagnostics, decisions and tasks, so it is
+  // admitted like any other processing entry point. Refusal touches nothing.
+  const admission = await admitDocumentProcessing(admin, {
+    entryPoint: 'document_evaluate',
+    organizationId: document.organization_id,
+    documentId,
+  });
+  if (admission.status !== 'admitted') {
+    return documentProcessingRefusalResponse(admission);
+  }
+  let admissionOutcome: 'completed' | 'failed' = 'failed';
+
   try {
-    const canonicalResult = await generateAndPersistCanonicalIntelligence({
-      admin,
-      documentId,
-      organizationId: document.organization_id,
+    // The extraction snapshot rewrite is a protected write: it runs under the
+    // admission, and a fence refusal stops the evaluation before it records
+    // anything as decisioned.
+    const canonicalResult = await runWithDocumentProcessingAdmission(admission.admissionId, async () => {
+      const result = await generateAndPersistCanonicalIntelligence({
+        admin,
+        documentId,
+        organizationId: document.organization_id,
+      });
+      assertNoDocumentProcessingFenceRefusal();
+      return result;
     });
 
     if (canonicalResult.handled) {
@@ -131,6 +162,7 @@ export async function POST(
         // Activity logging is best-effort — don't fail the request
       }
 
+      admissionOutcome = 'completed';
       return NextResponse.json({
         document_id: documentId,
         domain: document.domain,
@@ -235,6 +267,7 @@ export async function POST(
     }
 
     // ── 10. Return summary (with debug for manual testing) ───────────────
+    admissionOutcome = 'completed';
     return NextResponse.json({
       document_id: documentId,
       domain: document.domain,
@@ -257,6 +290,11 @@ export async function POST(
       },
     });
   } catch (error) {
+    if (error instanceof DocumentProcessingWriteFencedError) {
+      // Not a document failure: the fence stopped a stale or revoked run.
+      console.warn('[evaluate] protected write fenced', { documentId, reasons: error.reasons });
+      return documentProcessingWriteFencedResponse(error.reasons);
+    }
     console.error('[evaluate] unhandled error:', error);
 
     // Mark document as failed
@@ -276,5 +314,7 @@ export async function POST(
       },
       { status: 500 },
     );
+  } finally {
+    await closeDocumentProcessingAdmission(admin, admission.admissionId, admissionOutcome);
   }
 }

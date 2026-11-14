@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const actorContext = vi.hoisted(() => vi.fn());
 const record = vi.hoisted(() => vi.fn());
@@ -26,36 +26,36 @@ const request = (payload?: unknown) => new Request('http://test/x', {
   method: payload === undefined ? 'GET' : 'POST', headers: { authorization: 'Bearer t', 'content-type': 'application/json' },
   ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
 });
-const actor = (email: string, role = 'admin') => ({ ok: true, actor: {
-  actorId: '22222222-2222-4222-8222-222222222222', organizationId: 'org-1', displayName: null, role, email } });
+const actor = (email: string, role = 'admin', platformOwner = false) => ({ ok: true, actor: {
+  actorId: '22222222-2222-4222-8222-222222222222', organizationId: 'org-1', displayName: null, role, email, platformOwner } });
 
 describe('improvement signal triage routes (B8.3c)', () => {
-  beforeEach(() => { actorContext.mockReset(); record.mockReset(); queue.mockReset();
-    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS', PLATFORM); vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_ROLES', ''); });
-  afterEach(() => { vi.unstubAllEnvs(); });
+  beforeEach(() => { actorContext.mockReset(); record.mockReset(); queue.mockReset(); });
 
   it('refuses tenant administrators who are not platform reviewers', async () => {
-    actorContext.mockResolvedValue(actor('tenant.owner@example.test', 'owner'));
-    expect((await GET(request())).status).toBe(403);
-    expect((await POST(request(body))).status).toBe(403);
+    for (const refused of [actor('tenant.owner@example.test', 'owner'), actor(PLATFORM)]) {
+      actorContext.mockResolvedValue(refused);
+      expect((await GET(request())).status).toBe(403);
+      expect((await POST(request(body))).status).toBe(403);
+    }
     expect(queue).not.toHaveBeenCalled();
     expect(record).not.toHaveBeenCalled();
   });
 
   it('records with the session identity and rejects a body that names a reviewer', async () => {
-    actorContext.mockResolvedValue(actor(PLATFORM));
+    actorContext.mockResolvedValue(actor(PLATFORM, 'admin', true));
     expect((await POST(request({ ...body, reviewerActorId: 'someone-else' }))).status).toBe(400);
     expect(record).not.toHaveBeenCalled();
     record.mockResolvedValue({ status: 'triage_recorded', triageId: 't1', triageVersion: 1, disposition: 'reject' });
     expect((await POST(request(body))).status).toBe(201);
     expect(record).toHaveBeenCalledWith(expect.objectContaining({ submissionId: body.submissionId, disposition: 'reject' }),
-      { actorId: '22222222-2222-4222-8222-222222222222', email: PLATFORM, role: 'admin' });
+      { actorId: '22222222-2222-4222-8222-222222222222', email: PLATFORM, role: 'admin', platformOwner: true });
     record.mockResolvedValue({ status: 'version_conflict', currentTriageVersion: 2 });
     expect((await POST(request(body))).status).toBe(409);
   });
 
   it('serves the queue to platform reviewers', async () => {
-    actorContext.mockResolvedValue(actor(PLATFORM));
+    actorContext.mockResolvedValue(actor(PLATFORM, 'admin', true));
     queue.mockResolvedValue({ status: 'ok', rows: [] });
     const response = await GET(request());
     expect(response.status).toBe(200);

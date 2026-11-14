@@ -354,7 +354,7 @@ describe('processDocument canonical persistence gating', () => {
   it('resolves one tenant/document-type mapping snapshot before extraction and passes the exact snapshot', async () => {
     const snapshot: CustomerHeaderMappingContext = Object.freeze({ organizationId: 'org-1', documentType: 'contract', revisions: Object.freeze([]) });
     const { processDocument, spies } = await setupProcessDocumentTest({ documentType: 'contract', customerHeaderMappings: snapshot });
-    await expect(processDocument({ organizationId: 'org-1', documentId: 'doc-1', analysisMode: 'deterministic', triggeredBy: 'manual' }))
+    await expect(processDocument({ organizationId: 'org-1', documentId: 'doc-1', analysisMode: 'deterministic', triggeredBy: 'manual', admissionId: 'admission-1' }))
       .resolves.toMatchObject({ success: true });
     expect(spies.loadActiveCustomerHeaderMappings).toHaveBeenCalledOnce();
     expect(spies.loadActiveCustomerHeaderMappings).toHaveBeenCalledWith({ organizationId: 'org-1', documentType: 'contract' }, expect.any(Object));
@@ -362,7 +362,7 @@ describe('processDocument canonical persistence gating', () => {
   });
   it('fails processing before extraction when the mapping snapshot cannot be proven', async () => {
     const { processDocument, spies } = await setupProcessDocumentTest({ documentType: 'contract', mappingLoadError: new Error('mapping_snapshot_unproven') });
-    await expect(processDocument({ organizationId: 'org-1', documentId: 'doc-1', analysisMode: 'deterministic', triggeredBy: 'manual' }))
+    await expect(processDocument({ organizationId: 'org-1', documentId: 'doc-1', analysisMode: 'deterministic', triggeredBy: 'manual', admissionId: 'admission-1' }))
       .resolves.toMatchObject({ success: false, error: 'mapping_snapshot_unproven' });
     expect(spies.extractDocument).not.toHaveBeenCalled();
     expect(spies.scheduleExtractionComplianceShadow).not.toHaveBeenCalled();
@@ -383,7 +383,7 @@ describe('processDocument canonical persistence gating', () => {
       organizationId: 'org-1',
       documentId: 'doc-1',
       analysisMode: 'ai_enriched',
-      triggeredBy: 'manual',
+      triggeredBy: 'manual', admissionId: 'admission-1',
       processingPurpose: 'recovery_reprocess',
       registerBackgroundTask,
     })).resolves.toMatchObject({ success: true });
@@ -414,7 +414,7 @@ describe('processDocument canonical persistence gating', () => {
       organizationId: 'org-1',
       documentId: 'doc-1',
       analysisMode: 'ai_enriched',
-      triggeredBy: 'manual',
+      triggeredBy: 'manual', admissionId: 'admission-1',
       processingPurpose: 'recovery_reprocess',
       registerBackgroundTask,
     })).resolves.toMatchObject({
@@ -437,7 +437,7 @@ describe('processDocument canonical persistence gating', () => {
       organizationId: 'org-1',
       documentId: 'doc-1',
       analysisMode: 'ai_enriched',
-      triggeredBy: 'manual',
+      triggeredBy: 'manual', admissionId: 'admission-1',
       registerBackgroundTask,
     })).resolves.toMatchObject({ success: true });
 
@@ -469,7 +469,7 @@ describe('processDocument canonical persistence gating', () => {
       organizationId: 'org-1',
       documentId: 'doc-1',
       analysisMode: 'ai_enriched',
-      triggeredBy: 'manual',
+      triggeredBy: 'manual', admissionId: 'admission-1',
       registerBackgroundTask,
     })).resolves.toMatchObject({ success: true });
 
@@ -492,7 +492,7 @@ describe('processDocument canonical persistence gating', () => {
       organizationId: 'org-1',
       documentId: 'doc-1',
       analysisMode: 'deterministic',
-      triggeredBy: 'manual',
+      triggeredBy: 'manual', admissionId: 'admission-1',
     });
     expect(result.success).toBe(true);
     await vi.waitFor(() => {
@@ -519,7 +519,7 @@ describe('processDocument canonical persistence gating', () => {
       organizationId: 'org-1',
       documentId: 'doc-1',
       analysisMode: 'deterministic',
-      triggeredBy: 'manual',
+      triggeredBy: 'manual', admissionId: 'admission-1',
     });
     expect(result.success).toBe(true);
     await vi.waitFor(() => {
@@ -538,7 +538,7 @@ describe('processDocument canonical persistence gating', () => {
       organizationId: 'org-1',
       documentId: 'doc-1',
       analysisMode: 'deterministic',
-      triggeredBy: 'manual',
+      triggeredBy: 'manual', admissionId: 'admission-1',
     })).resolves.toMatchObject({ success: true });
     expect(pendingStorage.spies.scheduleExtractionComplianceShadow).toHaveBeenCalledOnce();
   });
@@ -553,7 +553,7 @@ describe('processDocument canonical persistence gating', () => {
       organizationId: 'org-1',
       documentId: 'doc-1',
       analysisMode: 'deterministic',
-      triggeredBy: 'manual',
+      triggeredBy: 'manual', admissionId: 'admission-1',
       registerBackgroundTask,
     })).resolves.toMatchObject({ success: true });
     expect(pendingPublisher.spies.scheduleExtractionComplianceShadow).toHaveBeenCalledOnce();
@@ -573,7 +573,7 @@ describe('processDocument canonical persistence gating', () => {
       documentId: 'williamson-doc',
       organizationId: 'org-1',
       analysisMode: 'deterministic',
-      triggeredBy: 'manual',
+      triggeredBy: 'manual', admissionId: 'admission-1',
     });
 
     expect(result).toMatchObject({
@@ -643,7 +643,7 @@ describe('processDocument canonical persistence gating', () => {
       documentId: 'invoice-doc',
       organizationId: 'org-1',
       analysisMode: 'deterministic',
-      triggeredBy: 'manual',
+      triggeredBy: 'manual', admissionId: 'admission-1',
     });
 
     expect(result).toMatchObject({
@@ -681,7 +681,7 @@ describe('processDocument canonical persistence gating', () => {
       documentId: 'spreadsheet-doc',
       organizationId: 'org-1',
       analysisMode: 'deterministic',
-      triggeredBy: 'manual',
+      triggeredBy: 'manual', admissionId: 'admission-1',
     });
 
     expect(result).toMatchObject({
@@ -731,7 +731,7 @@ describe('processDocument canonical persistence gating', () => {
       documentId: 'notice-doc',
       organizationId: 'org-1',
       analysisMode: 'deterministic',
-      triggeredBy: 'manual',
+      triggeredBy: 'manual', admissionId: 'admission-1',
     });
 
     expect(result).toMatchObject({
@@ -770,7 +770,7 @@ describe('processDocument canonical persistence gating', () => {
       documentId: 'canonical-doc',
       organizationId: 'org-1',
       analysisMode: 'deterministic',
-      triggeredBy: 'manual',
+      triggeredBy: 'manual', admissionId: 'admission-1',
     });
 
     expect(spies.logActivityEvent).toHaveBeenCalledWith(

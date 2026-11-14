@@ -5,6 +5,11 @@ import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { createAnalysisJob } from '@/lib/server/analysisJobService';
+import {
+  admitDocumentProcessing,
+  closeDocumentProcessingAdmission,
+  documentProcessingRefusalResponse,
+} from '@/lib/server/documentProcessingHold';
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
@@ -90,30 +95,53 @@ export async function POST(
       );
     }
 
-    const job = await createAnalysisJob({
-      documentId,
+    // Processing hold: decided by the database before any job row exists.
+    const admission = await admitDocumentProcessing(admin, {
+      entryPoint: 'document_analyze',
       organizationId,
-      analysisMode,
-      triggeredBy: 'manual',
+      documentId,
     });
-
-    if (!job) {
-      return jsonError('Failed to create analysis job', 503);
+    if (admission.status !== 'admitted') {
+      return documentProcessingRefusalResponse(admission);
     }
 
-    const processorRes = await fetch(`${BASE_URL}/api/jobs/process/${job.id}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    });
-
-    const processorData = await processorRes.json().catch(() => ({}));
-
-    if (processorRes.ok && processorData.success === true) {
-      return NextResponse.json({
-        success: true,
-        extraction: processorData.extraction,
-        jobId: job.id,
+    let processorRes: Response;
+    let processorData: Record<string, unknown> & { success?: unknown; error?: unknown; extraction?: unknown };
+    try {
+      const job = await createAnalysisJob({
+        documentId,
+        organizationId,
+        analysisMode,
+        triggeredBy: 'manual',
+        admissionId: admission.admissionId,
       });
+
+      if (!job) {
+        await closeDocumentProcessingAdmission(admin, admission.admissionId, 'failed');
+        return jsonError('Failed to create analysis job', 503);
+      }
+
+      processorRes = await fetch(`${BASE_URL}/api/jobs/process/${job.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      });
+
+      processorData = await processorRes.json().catch(() => ({}));
+      await closeDocumentProcessingAdmission(
+        admin,
+        admission.admissionId,
+        processorRes.ok && processorData.success === true ? 'completed' : 'failed',
+      );
+      if (processorRes.ok && processorData.success === true) {
+        return NextResponse.json({
+          success: true,
+          extraction: processorData.extraction,
+          jobId: job.id,
+        });
+      }
+    } catch (err) {
+      await closeDocumentProcessingAdmission(admin, admission.admissionId, 'failed');
+      throw err;
     }
 
     const status = processorRes.status;

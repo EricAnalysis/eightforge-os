@@ -55,7 +55,7 @@ export const ImprovementLifecycleQuerySchema = z.object({ submissionId: z.string
 
 export async function readImprovementLifecycle(
   query: unknown,
-  reviewer: Readonly<{ email: string | null; role: string | null }>,
+  reviewer: Readonly<{ email: string | null; role: string | null; platformOwner?: boolean | null }>,
   dependencies: Readonly<{ admin?: LifecycleReadAdmin | null }> = {},
 ): Promise<Readonly<{ status: 'ok'; view: ImprovementLifecycleView }>
   | Readonly<{ status: 'reviewer_not_eligible' | 'invalid_input' | 'not_configured' | 'read_failed' }>> {

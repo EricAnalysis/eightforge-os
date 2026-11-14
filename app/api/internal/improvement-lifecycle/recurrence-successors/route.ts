@@ -24,7 +24,7 @@ export async function POST(request: Request): Promise<Response> {
   const body = RecurrenceSuccessorInputSchema.safeParse(await request.json().catch(() => null));
   if (!body.success) return Response.json({ ok: false, error: 'invalid_input' }, { status: 400 });
   const result = await recordRecurrenceSuccessor(body.data,
-    { actorId: actor.actor.actorId, email: actor.actor.email, role: actor.actor.role });
+    { actorId: actor.actor.actorId, email: actor.actor.email, role: actor.actor.role, platformOwner: actor.actor.platformOwner });
   if (result.status === 'recorded') return Response.json({ ok: true, ...result }, { status: result.inserted ? 201 : 200 });
   const status = STATUS[result.status];
   if (status === undefined) console.error('[improvementRecurrence] successor failed', { status: result.status });

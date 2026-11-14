@@ -71,8 +71,6 @@ const get = () => new Request('http://localhost/x', {
 describe('workflow review is platform scoped, not tenant scoped', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete process.env.INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS;
-    delete process.env.INTERNAL_ORCHESTRATOR_ALLOWED_ROLES;
     actorContext.mockResolvedValue(actor());
     queueRead.mockResolvedValue({ status: 'ok', rows: [] });
     packetRead.mockResolvedValue({ status: 'ok', packet: {} });
@@ -108,16 +106,15 @@ describe('workflow review is platform scoped, not tenant scoped', () => {
     expect(recordReview).not.toHaveBeenCalled();
   });
 
-  it('refuses everyone while no allowlist is configured', async () => {
+  it('refuses everyone who is not the platform owner, whatever their email', async () => {
     actorContext.mockResolvedValue(actor({ email: PLATFORM_EMAIL }));
     const response = await queueGet(get());
     expect(response.status).toBe(403);
-    await expect(response.json()).resolves.toMatchObject({ reason: 'not_configured' });
+    await expect(response.json()).resolves.toMatchObject({ reason: 'not_platform_owner' });
   });
 
-  it('allows an allowlisted platform reviewer through all three surfaces', async () => {
-    process.env.INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS = PLATFORM_EMAIL;
-    actorContext.mockResolvedValue(actor({ email: PLATFORM_EMAIL }));
+  it('allows the platform owner through all three surfaces', async () => {
+    actorContext.mockResolvedValue(actor({ email: PLATFORM_EMAIL, platformOwner: true }));
 
     expect((await queueGet(get())).status).toBe(200);
     expect((await detailGet(get(), {
@@ -133,7 +130,6 @@ describe('workflow review is platform scoped, not tenant scoped', () => {
     ['a substring email', 'reviewer@example.test'],
     ['an empty email', ''],
   ])('fails closed on %s', async (_label, email) => {
-    process.env.INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS = PLATFORM_EMAIL;
     actorContext.mockResolvedValue(actor({ email }));
     expect((await queueGet(get())).status).toBe(403);
   });
@@ -152,8 +148,7 @@ describe('workflow review is platform scoped, not tenant scoped', () => {
   });
 
   it('keeps the seam refusing even when a route would have allowed it', async () => {
-    // Allowlist configured for someone else entirely.
-    process.env.INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS = PLATFORM_EMAIL;
+    // A tenant owner who is not the platform owner: the org role grants nothing.
     const real = await vi.importActual<
       typeof import('@/lib/server/workflowAssessmentReview')
     >('@/lib/server/workflowAssessmentReview');

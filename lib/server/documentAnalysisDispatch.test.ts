@@ -12,6 +12,13 @@ vi.mock('@supabase/supabase-js', () => ({ createClient: () => ({
 }) }));
 vi.mock('@/lib/server/supabaseAdmin', () => ({ getSupabaseAdmin: () => ({
   from: () => query(async () => ({ data: { organization_id: 'org' }, error: null })),
+  rpc: async () => ({
+    data: {
+      admitted: true, admission_id: '00000000-0000-4000-8000-000000000001',
+      hold_version: 0, lease_expires_at: '2026-10-10T00:15:00Z',
+    },
+    error: null,
+  }),
 }) }));
 vi.mock('@/lib/server/analysisJobService', () => ({ createAnalysisJob: mocks.job }));
 import { POST } from '@/app/api/documents/[id]/analyze/route';
@@ -34,7 +41,10 @@ describe('authenticated analysis dispatch', () => {
       method: 'POST', headers: { Authorization: 'Bearer test-caller-token' },
     }), { params: Promise.resolve({ id: 'document' }) });
     expect(response.status).toBe(200);
-    expect(mocks.job).toHaveBeenCalledWith({ documentId: 'document', organizationId: 'org', analysisMode: 'deterministic', triggeredBy: 'manual' });
+    expect(mocks.job).toHaveBeenCalledWith({
+      documentId: 'document', organizationId: 'org', analysisMode: 'deterministic', triggeredBy: 'manual',
+      admissionId: '00000000-0000-4000-8000-000000000001',
+    });
     expect(dispatch).toHaveBeenCalledWith(expect.stringContaining('/api/jobs/process/job'), {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-caller-token' },
     });

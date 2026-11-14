@@ -37,9 +37,7 @@ const context = { params: Promise.resolve({ jobId }) };
 describe('repository Plan run operator routes', () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    process.env.INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS = actor.email;
-    delete process.env.INTERNAL_ORCHESTRATOR_ALLOWED_ROLES;
-    mocks.actor.mockResolvedValue({ ok: true, actor });
+    mocks.actor.mockResolvedValue({ ok: true, actor: { ...actor, platformOwner: true } });
     mocks.create.mockResolvedValue({ ok: true, job: { jobId, status: 'pending', classification: 'RULE' } });
     mocks.read.mockResolvedValue({ ok: true, job: { jobId, status: 'pending', classification: 'RULE' } });
   });

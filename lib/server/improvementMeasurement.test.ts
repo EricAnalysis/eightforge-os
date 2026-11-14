@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   measureImprovement,
@@ -14,7 +14,7 @@ const SUBMISSION = 'b84c0000-0000-4000-8000-000000000201';
 const SNAPSHOT = 'b84c0000-0000-4000-8000-000000000301';
 const OLD = 'a'.repeat(40);
 const NEW = 'b'.repeat(40);
-const REVIEWER = { actorId: 'b84c0000-0000-4000-8000-0000000000a1', email: 'reviewer@example.invalid', role: null };
+const REVIEWER = { actorId: 'b84c0000-0000-4000-8000-0000000000a1', email: 'reviewer@example.invalid', role: null, platformOwner: true };
 const DEPLOYED = '2026-10-01T00:00:00.000Z';
 const NOW = () => new Date('2026-10-20T00:00:00.000Z');
 
@@ -70,11 +70,8 @@ function findings(count: number, overridden: number, run: string, day: string, p
     overridden: index < overridden }));
 }
 
-afterEach(() => vi.unstubAllEnvs());
-
 describe('measure a deployed fix (B8.4c)', () => {
   it('measures a rule semantics fix from its findings and overrides, and records a policy-coherent snapshot', async () => {
-    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS', REVIEWER.email);
     const all = [...findings(20, 4, 'run-old', '2026-09-15', 'base'), ...findings(40, 1, 'run-new', '2026-10-10', 'post')];
     const tables = { ...lifecycleTables('rule_semantics_review', 'rule_x'),
       project_validation_findings: all.map((row) => ({ id: row.id, run_id: row.run_id, rule_id: row.rule_id,
@@ -101,7 +98,6 @@ describe('measure a deployed fix (B8.4c)', () => {
   });
 
   it('records an undefined exposure as unmeasurable instead of claiming no friction', async () => {
-    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS', REVIEWER.email);
     const { admin, rpc } = fakeAdmin(lifecycleTables('recurring_deterministic_failure', 'validator_rule:rule_x'),
       () => ({ data: [{ snapshot_id: SNAPSHOT, lifecycle_event_kind: 'measuring' }], error: null }));
     const result = await measureImprovement({ deployedEventId: EVENT }, REVIEWER, { admin, now: NOW });
@@ -111,12 +107,12 @@ describe('measure a deployed fix (B8.4c)', () => {
   });
 
   it('refuses non-reviewers, unknown deployments, unopened windows and completed measurements', async () => {
-    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS', 'someone-else@example.invalid');
     const tables = lifecycleTables('rule_semantics_review', 'rule_x');
     const { admin, rpc } = fakeAdmin(tables, () => ({ data: null, error: { code: 'B8405' } }));
-    expect(await measureImprovement({ deployedEventId: EVENT }, REVIEWER, { admin, now: NOW }))
-      .toEqual({ status: 'reviewer_not_eligible' });
-    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS', REVIEWER.email);
+    for (const nonOwner of [{ ...REVIEWER, platformOwner: false }, { ...REVIEWER, platformOwner: undefined }]) {
+      expect(await measureImprovement({ deployedEventId: EVENT }, nonOwner, { admin, now: NOW }))
+        .toEqual({ status: 'reviewer_not_eligible' });
+    }
     expect(await measureImprovement({ deployedEventId: SNAPSHOT }, REVIEWER, { admin, now: NOW }))
       .toEqual({ status: 'deployment_not_found' });
     expect(await measureImprovement({ deployedEventId: EVENT }, REVIEWER, { admin, now: () => new Date(DEPLOYED) }))
@@ -131,7 +127,6 @@ describe('measure a deployed fix (B8.4c)', () => {
 
 describe('a person decides (B8.4c)', () => {
   it('records the decision with the session reviewer and maps database refusals', async () => {
-    vi.stubEnv('INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS', REVIEWER.email);
     const input = { snapshotId: SNAPSHOT, expectedDecisionVersion: 0, decision: 'resolved', rationale: 'Verified on production' };
     const ok = fakeAdmin({}, () => ({ data: [{ decision_id: EVENT, decision_version: 1 }], error: null }));
     expect(await recordMeasurementDecision(input, REVIEWER, { admin: ok.admin }))

@@ -28,7 +28,7 @@ The environment must be verified before the pilot starts. See [MISSING-CAPABILIT
 2. The EightForge app at or after `2737e24`, pointed only at that project.
 3. Three synthetic users:
    - **Customer member**, in Org A, not allowlisted.
-   - **Authorized reviewer**, in Org A, listed in `INTERNAL_ORCHESTRATOR_ALLOWED_EMAILS`.
+   - **Authorized reviewer**, in Org A, granted platform owner in `platform_owner_grant_events` (`docs/runbooks/platform-owner.md`).
    - **Outsider**, in Org B, used for isolation checks.
 4. For Workflow Assessment, per `docs/runbooks/forgewing-production-env.md`:
    - Forgewing master switch on and `FORGEWING_WORKFLOW_ASSESSMENT_ENABLED=1`.

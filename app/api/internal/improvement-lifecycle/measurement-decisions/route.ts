@@ -30,7 +30,7 @@ export async function POST(request: Request): Promise<Response> {
   const body = MeasurementDecisionInputSchema.safeParse(await request.json().catch(() => null));
   if (!body.success) return Response.json({ ok: false, error: 'invalid_input' }, { status: 400 });
 
-  const reviewer = { actorId: actor.actor.actorId, email: actor.actor.email, role: actor.actor.role };
+  const reviewer = { actorId: actor.actor.actorId, email: actor.actor.email, role: actor.actor.role, platformOwner: actor.actor.platformOwner };
   const result = await recordMeasurementDecision(body.data, reviewer);
   if (result.status === 'decided') {
     const successor = body.data.decision === 'recurred_confirmed'

@@ -11,13 +11,19 @@ export type ActorContext = {
   displayName: string | null;
   role: string | null;
   /**
-   * The authenticated account's email, straight from Supabase Auth.
-   *
-   * Present so callers can evaluate explicit internal-operator allowlists,
-   * which identify people rather than organization roles. It is never taken
-   * from a request body.
+   * The authenticated account's email, straight from Supabase Auth. Recorded
+   * for provenance; it is never taken from a request body and grants nothing.
    */
   email: string | null;
+  /**
+   * Whether this account is the platform owner, resolved server-side from the
+   * append-only platform-owner grant ledger (public.is_platform_owner) for the
+   * verified user id. False when there is no grant or the lookup fails.
+   * The only authority for platform-wide tools (workflowPlatformReviewAccess).
+   * Optional in the type so tenant-scoped fixtures need not mention it; absent
+   * means not the platform owner (the resolver accepts only `true`).
+   */
+  platformOwner?: boolean;
 };
 
 export type ActorContextResult =
@@ -68,11 +74,17 @@ export async function getActorContext(req: Request): Promise<ActorContextResult>
     return { ok: false, status: 503, error: 'Server not configured' };
   }
 
-  const { data: profile, error: profileError } = await admin
-    .from('user_profiles')
-    .select('organization_id, display_name, role')
-    .eq('id', user.id)
-    .single();
+  // The platform-owner lookup runs beside the profile read (no added latency)
+  // and can never fail authentication: on any error the actor is simply not
+  // the platform owner.
+  const [{ data: profile, error: profileError }, platformOwner] = await Promise.all([
+    admin
+      .from('user_profiles')
+      .select('organization_id, display_name, role')
+      .eq('id', user.id)
+      .single(),
+    resolvePlatformOwner(admin, user.id),
+  ]);
 
   if (profileError || !profile) {
     // Diagnostic: distinguish missing row (PGRST116) from admin client misconfiguration (auth error).
@@ -101,6 +113,29 @@ export async function getActorContext(req: Request): Promise<ActorContextResult>
       displayName: (profile.display_name as string) ?? null,
       role: typeof profile.role === 'string' ? profile.role : null,
       email: typeof user.email === 'string' ? user.email : null,
+      platformOwner,
     },
   };
+}
+
+type PlatformOwnerRpcClient = {
+  rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: { message: string; code?: string } | null }>;
+};
+
+/**
+ * True only when public.is_platform_owner returns exactly `true` for the
+ * verified user id. Every other outcome (no grant, RPC missing before the
+ * migration is applied, network error, malformed reply) is `false`.
+ */
+export async function resolvePlatformOwner(admin: PlatformOwnerRpcClient, userId: string): Promise<boolean> {
+  try {
+    const { data, error } = await admin.rpc('is_platform_owner', { p_user_id: userId });
+    if (error) {
+      console.warn('[getActorContext] platform owner lookup failed', { code: error.code ?? null });
+      return false;
+    }
+    return data === true;
+  } catch {
+    return false;
+  }
 }

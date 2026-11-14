@@ -31,6 +31,15 @@ import { getProjectRerunStoredDocTypes } from '@/lib/pipeline/projectRerun';
 import { isContractInvoicePrimaryDocumentType } from '@/lib/contractInvoicePrimary';
 import { triggerProjectValidation } from '@/lib/validator/triggerProjectValidation';
 import { withStageTimeout as sharedWithStageTimeout } from '@/lib/server/stageTimeout';
+import {
+  admitDocumentProcessing,
+  closeDocumentProcessingAdmission,
+} from '@/lib/server/documentProcessingHold';
+import {
+  assertNoDocumentProcessingFenceRefusal,
+  documentProcessingFenceRefusals,
+  runWithDocumentProcessingAdmission,
+} from '@/lib/server/documentProcessingAdmissionContext';
 import type { ExtractionPayload } from '@/lib/server/documentExtraction';
 import type { JobTrigger } from '@/lib/types/analysisJob';
 import {
@@ -256,6 +265,8 @@ export async function processDocument(params: {
   triggeredBy: JobTrigger;
   registerBackgroundTask?: (task: Promise<unknown>) => void;
   processingPurpose?: 'standard' | 'recovery_reprocess';
+  /** Granted by admitDocumentProcessing before this call; the job records it. */
+  admissionId: string;
 }): Promise<ProcessDocumentResult> {
   const admin = getSupabaseAdmin();
   if (!admin) return { success: false, error: 'Server not configured' };
@@ -265,6 +276,7 @@ export async function processDocument(params: {
     organizationId: params.organizationId,
     analysisMode: params.analysisMode,
     triggeredBy: params.triggeredBy,
+    admissionId: params.admissionId,
   });
   if (!job) return { success: false, error: 'Failed to create analysis job' };
 
@@ -699,13 +711,36 @@ export async function processDocument(params: {
 
             for (const s of siblings ?? []) {
               const siblingId = (s as { id: string }).id;
-              await generateAndPersistCanonicalIntelligence({
-                admin,
-                documentId: siblingId,
+              // A rerun rewrites the sibling's own extraction snapshot, so it
+              // needs its own admission; while held it is skipped.
+              const siblingAdmission = await admitDocumentProcessing(admin, {
+                entryPoint: 'project_rerun',
                 organizationId: params.organizationId,
-                projectId,
-                providerWorkAllowed,
+                documentId: siblingId,
               });
+              if (siblingAdmission.status !== 'admitted') {
+                console.warn('[processDocument] project rerun not admitted', {
+                  documentId: params.documentId,
+                  siblingId,
+                  admission: siblingAdmission,
+                });
+                continue;
+              }
+              let siblingOutcome: 'completed' | 'failed' = 'failed';
+              try {
+                await runWithDocumentProcessingAdmission(siblingAdmission.admissionId, async () => {
+                  await generateAndPersistCanonicalIntelligence({
+                    admin,
+                    documentId: siblingId,
+                    organizationId: params.organizationId,
+                    projectId,
+                    providerWorkAllowed,
+                  });
+                  if (documentProcessingFenceRefusals().length === 0) siblingOutcome = 'completed';
+                });
+              } finally {
+                await closeDocumentProcessingAdmission(admin, siblingAdmission.admissionId, siblingOutcome);
+              }
             }
           }
         } catch {
@@ -739,6 +774,8 @@ export async function processDocument(params: {
         // Activity logging is best-effort â€” never fail the pipeline
       }
 
+      // A run whose protected writes the database refused is not a success.
+      assertNoDocumentProcessingFenceRefusal();
       await updateJobStatus({
         jobId: job.id,
         status: 'completed',
@@ -875,6 +912,7 @@ export async function processDocument(params: {
     });
 
     // ── 11. Finalize ─────────────────────────────────────────────────────────
+    assertNoDocumentProcessingFenceRefusal();
     await updateJobStatus({
       jobId: job.id,
       status: 'completed',

@@ -66,7 +66,7 @@ export type MeasurementAdmin = {
   rpc(name: string, args: Record<string, unknown>): QueryResult;
 };
 
-type Reviewer = Readonly<{ actorId: string; email: string | null; role: string | null }>;
+type Reviewer = Readonly<{ actorId: string; email: string | null; role: string | null; platformOwner?: boolean | null }>;
 type Windows = NonNullable<ReturnType<typeof measurementWindows>>;
 type UnitRead = Readonly<{ units: MeasurementUnit[]; readTruncated: boolean; exposureUndefined?: true;
   bounds: Record<string, number | boolean> }>;

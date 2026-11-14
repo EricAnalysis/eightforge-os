@@ -84,6 +84,21 @@ describe('POST /api/internal/orchestrator', () => {
     assert.deepEqual(await response.json(), { error: 'Unauthorized' });
   });
 
+  it('refuses a signed-in caller who is not the platform owner, before any AI or file work', async () => {
+    setNodeEnv('development');
+    getInternalOrchestratorAccessMock.mockResolvedValue({ ok: false, status: 403, error: 'Forbidden' });
+
+    const response = await POST(new Request('http://localhost/api/internal/orchestrator', {
+      method: 'POST',
+      body: JSON.stringify({ question: 'why did extraction fail?' }),
+    }));
+
+    assert.equal(response.status, 403);
+    assert.deepEqual(await response.json(), { error: 'Forbidden' });
+    expect(runOrchestratorMock).not.toHaveBeenCalled();
+    expect(writeOrchestratorPromptFileMock).not.toHaveBeenCalled();
+  });
+
   it('returns 400 when question input is missing', async () => {
     setNodeEnv('development');
     mockAccess();

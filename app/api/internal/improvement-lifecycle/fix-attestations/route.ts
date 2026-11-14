@@ -32,7 +32,7 @@ export async function POST(request: Request): Promise<Response> {
   if (!body.success) return Response.json({ ok: false, error: 'invalid_input' }, { status: 400 });
 
   const result = await recordImprovementFixAttestation(body.data,
-    { actorId: actor.actor.actorId, email: actor.actor.email, role: actor.actor.role });
+    { actorId: actor.actor.actorId, email: actor.actor.email, role: actor.actor.role, platformOwner: actor.actor.platformOwner });
   if (result.status === 'attested') {
     return Response.json({ ok: true, ...result }, { status: result.inserted ? 201 : 200 });
   }

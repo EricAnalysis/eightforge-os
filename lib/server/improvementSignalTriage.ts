@@ -54,7 +54,7 @@ export const improvementSignalTriageInputSchema = z.object({
 }).strict();
 export type ImprovementSignalTriageInput = z.input<typeof improvementSignalTriageInputSchema>;
 
-export type SessionDerivedTriageReviewer = Readonly<{ actorId: string; email: string | null; role: string | null }>;
+export type SessionDerivedTriageReviewer = Readonly<{ actorId: string; email: string | null; role: string | null; platformOwner?: boolean | null }>;
 
 export type ImprovementSignalTriageResult =
   | Readonly<{ status: 'triage_recorded'; triageId: string; triageVersion: number; disposition: TriageDisposition }>

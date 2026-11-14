@@ -61,7 +61,7 @@ export async function POST(request: Request): Promise<Response> {
 
   const result = await recordWorkflowAssessmentReview(
     body.data,
-    { actorId: actor.actor.actorId, role: actor.actor.role, email: actor.actor.email },
+    { actorId: actor.actor.actorId, role: actor.actor.role, email: actor.actor.email, platformOwner: actor.actor.platformOwner },
   );
 
   switch (result.status) {

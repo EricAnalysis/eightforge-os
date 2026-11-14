@@ -6,6 +6,12 @@ import { after, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { getActorContext } from '@/lib/server/getActorContext';
 import { processDocument } from '@/lib/pipeline/processDocument';
+import {
+  admitDocumentProcessing,
+  closeDocumentProcessingAdmission,
+  documentProcessingRefusalResponse,
+} from '@/lib/server/documentProcessingHold';
+import { runWithDocumentProcessingAdmission } from '@/lib/server/documentProcessingAdmissionContext';
 
 function jsonError(
   message: string,
@@ -90,20 +96,45 @@ export async function POST(req: Request) {
       );
     }
 
+    // --- Processing hold: admission is decided by the database, before the
+    // pipeline creates a job row or writes anything. Refusal touches nothing.
+    const admission = await admitDocumentProcessing(admin, {
+      entryPoint: 'documents_process',
+      organizationId,
+      documentId,
+    });
+    if (admission.status !== 'admitted') {
+      console.warn('[documents/process] not admitted', { documentId, admission });
+      return documentProcessingRefusalResponse(admission);
+    }
+
     console.log('[documents/process] starting pipeline', {
       documentId,
       organizationId,
       analysisMode,
+      admissionId: admission.admissionId,
     });
 
-    const result = await processDocument({
-      documentId,
-      organizationId,
-      analysisMode,
-      triggeredBy: 'manual',
-      registerBackgroundTask: (task) => after(task),
-      ...(processingPurpose === 'recovery_reprocess' ? { processingPurpose } : {}),
-    });
+    let result: Awaited<ReturnType<typeof processDocument>> | null = null;
+    try {
+      // Everything the pipeline starts, after() tasks and abandoned stages
+      // included, writes under this admission; the database fences it.
+      result = await runWithDocumentProcessingAdmission(admission.admissionId, () => processDocument({
+        documentId,
+        organizationId,
+        analysisMode,
+        triggeredBy: 'manual',
+        registerBackgroundTask: (task) => after(task),
+        admissionId: admission.admissionId,
+        ...(processingPurpose === 'recovery_reprocess' ? { processingPurpose } : {}),
+      }));
+    } finally {
+      await closeDocumentProcessingAdmission(
+        admin,
+        admission.admissionId,
+        result?.success ? 'completed' : 'failed',
+      );
+    }
 
     console.log('[documents/process] pipeline result', {
       documentId,

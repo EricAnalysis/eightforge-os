@@ -1,0 +1,606 @@
+{
+  "contract": "operator_guidance_qualification_v3",
+  "fixtures": {
+    "harbor_setup": "Sample Project Harbor",
+    "harbor_pricing": "Sample Project Inlet",
+    "harbor_billing": "Sample Project Marina",
+    "harbor_cleared": "Sample Project Pier",
+    "harbor_conflict": "Sample Project Dock",
+    "harbor_tickets": "Sample Project Wharf"
+  },
+  "perIntent": {
+    "whats_missing": 6,
+    "need_document": 6,
+    "why_flagged": 6,
+    "what_to_do": 6
+  },
+  "perFixture": {
+    "harbor_billing": 4,
+    "harbor_setup": 5,
+    "harbor_cleared": 3,
+    "harbor_pricing": 7,
+    "harbor_conflict": 1,
+    "harbor_tickets": 4
+  },
+  "census": [
+    {
+      "caseId": "heldout-missing-01",
+      "fixture": "harbor_billing",
+      "intent": "whats_missing",
+      "question": "What is still missing for billing review?",
+      "focusRule": null,
+      "classification": "source_missing",
+      "floorNextStep": "upload_or_request_document",
+      "openFindings": 1,
+      "openForAdjudication": null
+    },
+    {
+      "caseId": "heldout-missing-02",
+      "fixture": "harbor_setup",
+      "intent": "whats_missing",
+      "question": "What is missing from this project?",
+      "focusRule": null,
+      "classification": "not_a_source_gap",
+      "floorNextStep": "review_ticket_or_transaction",
+      "openFindings": 6,
+      "openForAdjudication": "The rule text says to attach or load transaction support, while the reading says this is not a source gap. The label follows the reading, which is what production would do."
+    },
+    {
+      "caseId": "heldout-missing-03",
+      "fixture": "harbor_cleared",
+      "intent": "whats_missing",
+      "question": "Is anything missing?",
+      "focusRule": null,
+      "classification": "no_open_findings",
+      "floorNextStep": "no_action_needed",
+      "openFindings": 0,
+      "openForAdjudication": null
+    },
+    {
+      "caseId": "heldout-missing-04",
+      "fixture": "harbor_pricing",
+      "intent": "whats_missing",
+      "question": "What is missing before we can check pricing?",
+      "focusRule": null,
+      "classification": "source_missing",
+      "floorNextStep": "upload_or_request_document",
+      "openFindings": 1,
+      "openForAdjudication": null
+    },
+    {
+      "caseId": "heldout-missing-05",
+      "fixture": "harbor_setup",
+      "intent": "whats_missing",
+      "question": "What is missing before we can start?",
+      "focusRule": null,
+      "classification": "source_missing",
+      "floorNextStep": "upload_or_request_document",
+      "openFindings": 1,
+      "openForAdjudication": null
+    },
+    {
+      "caseId": "heldout-missing-06",
+      "fixture": "harbor_billing",
+      "intent": "whats_missing",
+      "question": "What is missing from the project file?",
+      "focusRule": null,
+      "classification": "source_missing",
+      "floorNextStep": "upload_or_request_document",
+      "openFindings": 2,
+      "openForAdjudication": null
+    },
+    {
+      "caseId": "heldout-document-01",
+      "fixture": "harbor_pricing",
+      "intent": "need_document",
+      "question": "Do I need to upload the rate exhibit again?",
+      "focusRule": null,
+      "classification": "source_present_unread",
+      "floorNextStep": "review_existing_document",
+      "openFindings": 1,
+      "openForAdjudication": null
+    },
+    {
+      "caseId": "heldout-document-02",
+      "fixture": "harbor_billing",
+      "intent": "need_document",
+      "question": "Do I need another document for billing?",
+      "focusRule": null,
+      "classification": "source_missing",
+      "floorNextStep": "upload_or_request_document",
+      "openFindings": 1,
+      "openForAdjudication": null
+    },
+    {
+      "caseId": "heldout-document-03",
+      "fixture": "harbor_pricing",
+      "intent": "need_document",
+      "question": "Do we need a separate rate schedule?",
+      "focusRule": null,
+      "classification": "source_present",
+      "floorNextStep": "review_existing_document",
+      "openFindings": 1,
+      "openForAdjudication": null
+    },
+    {
+      "caseId": "heldout-document-04",
+      "fixture": "harbor_pricing",
+      "intent": "need_document",
+      "question": "Do we need another pricing document?",
+      "focusRule": null,
+      "classification": "source_missing",
+      "floorNextStep": "upload_or_request_document",
+      "openFindings": 1,
+      "openForAdjudication": "Whether Rate Information is a schedule cannot be told from its record. The label follows the reading and so allows both steps."
+    },
+    {
+      "caseId": "heldout-document-05",
+      "fixture": "harbor_cleared",
+      "intent": "need_document",
+      "question": "Do I need to upload anything else?",
+      "focusRule": null,
+      "classification": "no_open_findings",
+      "floorNextStep": "no_action_needed",
+      "openFindings": 0,
+      "openForAdjudication": null
+    },
+    {
+      "caseId": "heldout-document-06",
+      "fixture": "harbor_setup",
+      "intent": "need_document",
+      "question": "Should I request the contract again?",
+      "focusRule": "SOURCES_NO_CONTRACT",
+      "classification": "source_present_unread",
+      "floorNextStep": "review_existing_document",
+      "openFindings": 1,
+      "openForAdjudication": null
+    },
+    {
+      "caseId": "heldout-flagged-01",
+      "fixture": "harbor_setup",
+      "intent": "why_flagged",
+      "question": "Why has this not cleared?",
+      "focusRule": "FINANCIAL_RATE_BASED_SCHEDULE_REQUIRED",
+      "classification": "source_present_relationship_unresolved",
+      "floorNextStep": "link_existing_document",
+      "openFindings": 1,
+      "openForAdjudication": null
+    },
+    {
+      "caseId": "heldout-flagged-02",
+      "fixture": "harbor_conflict",
+      "intent": "why_flagged",
+      "question": "Why is this flagged?",
+      "focusRule": "TRANSACTION_TICKET_GRAIN_CONFLICT",
+      "classification": "not_a_source_gap",
+      "floorNextStep": "operator_judgment_required",
+      "openFindings": 8,
+      "openForAdjudication": null
+    },
+    {
+      "caseId": "heldout-flagged-03",
+      "fixture": "harbor_tickets",
+      "intent": "why_flagged",
+      "question": "Why is this project blocked?",
+      "focusRule": null,
+      "classification": "not_a_source_gap",
+      "floorNextStep": "correct_source_data",
+      "openFindings": 8,
+      "openForAdjudication": null
+    },
+    {
+      "caseId": "heldout-flagged-04",
+      "fixture": "harbor_pricing",
+      "intent": "why_flagged",
+      "question": "Why is the rate exhibit still flagged?",
+      "focusRule": "FINANCIAL_RATE_BASED_SCHEDULE_REQUIRED",
+      "classification": "likely_system_issue",
+      "floorNextStep": "likely_system_issue",
+      "openFindings": 1,
+      "openForAdjudication": null
+    },
+    {
+      "caseId": "heldout-flagged-05",
+      "fixture": "harbor_pricing",
+      "intent": "why_flagged",
+      "question": "Why is pricing still open?",
+      "focusRule": "FINANCIAL_RATE_BASED_PRICING_APPLICABILITY_UNCLEAR",
+      "classification": "not_a_source_gap",
+      "floorNextStep": "review_existing_document",
+      "openFindings": 1,
+      "openForAdjudication": null
+    },
+    {
+      "caseId": "heldout-flagged-06",
+      "fixture": "harbor_tickets",
+      "intent": "why_flagged",
+      "question": "Why is this line flagged?",
+      "focusRule": "TRANSACTION_QUANTITY_MATCHES_INVOICE",
+      "classification": "not_a_source_gap",
+      "floorNextStep": "review_ticket_or_transaction",
+      "openFindings": 3,
+      "openForAdjudication": null
+    },
+    {
+      "caseId": "heldout-action-01",
+      "fixture": "harbor_setup",
+      "intent": "what_to_do",
+      "question": "What is my next step?",
+      "focusRule": null,
+      "classification": "source_present_relationship_unresolved",
+      "floorNextStep": "link_existing_document",
+      "openFindings": 1,
+      "openForAdjudication": null
+    },
+    {
+      "caseId": "heldout-action-02",
+      "fixture": "harbor_pricing",
+      "intent": "what_to_do",
+      "question": "What do I do now?",
+      "focusRule": "FINANCIAL_RATE_BASED_ROWS_REQUIRED",
+      "classification": "likely_system_issue",
+      "floorNextStep": "likely_system_issue",
+      "openFindings": 3,
+      "openForAdjudication": null
+    },
+    {
+      "caseId": "heldout-action-03",
+      "fixture": "harbor_tickets",
+      "intent": "what_to_do",
+      "question": "What should we do first?",
+      "focusRule": null,
+      "classification": "not_a_source_gap",
+      "floorNextStep": "correct_source_data",
+      "openFindings": 2,
+      "openForAdjudication": null
+    },
+    {
+      "caseId": "heldout-action-04",
+      "fixture": "harbor_tickets",
+      "intent": "what_to_do",
+      "question": "What should I check on this line?",
+      "focusRule": "TRANSACTION_TOTAL_MATCHES_INVOICE_LINE",
+      "classification": "not_a_source_gap",
+      "floorNextStep": "review_ticket_or_transaction",
+      "openFindings": 3,
+      "openForAdjudication": null
+    },
+    {
+      "caseId": "heldout-action-05",
+      "fixture": "harbor_cleared",
+      "intent": "what_to_do",
+      "question": "What should we do next on this project?",
+      "focusRule": null,
+      "classification": "no_open_findings",
+      "floorNextStep": "no_action_needed",
+      "openFindings": 0,
+      "openForAdjudication": null
+    },
+    {
+      "caseId": "heldout-action-06",
+      "fixture": "harbor_billing",
+      "intent": "what_to_do",
+      "question": "What needs my attention?",
+      "focusRule": "SOURCES_NO_INVOICE_DATA",
+      "classification": "source_present_unread",
+      "floorNextStep": "review_existing_document",
+      "openFindings": 2,
+      "openForAdjudication": null
+    }
+  ],
+  "requests": [
+    {
+      "caseId": "heldout-missing-01",
+      "bodySha256": "5c2cc201b29f6f4622b0096171eb84bd7456c8fd9aa91023a600baef6c099789",
+      "floorDigest": "5b804efaf1fd0ac6d22b5ef99e537bc534f05835cb32abacf2768ba2ca47121a",
+      "contextTransmittedDigest": "6bbbcdefab15354fb8029f66ec17877496b876207930daf85dd80ddd5838ba01",
+      "chars": 3698
+    },
+    {
+      "caseId": "heldout-missing-02",
+      "bodySha256": "8b236edbab67998f8025b6d48f5a8fda508bf753471575f8981ef2da9a974854",
+      "floorDigest": "c27636d8c1f679e209d25274de2358c4c713087ee74161010f12bd70e9fbaf36",
+      "contextTransmittedDigest": "017d7e23d93cdde1b603bd7ad844b3eb227443ef12d4ffea0f0a49820442774c",
+      "chars": 9068
+    },
+    {
+      "caseId": "heldout-missing-03",
+      "bodySha256": "f09b7159c1d2e2bddc14a70495b0325709e39c17713ddc6d91c5753217b9159f",
+      "floorDigest": "002475b9709eda0d1302f6a85bf084108d2c2ddb1d45a2ce0430e8afc8292046",
+      "contextTransmittedDigest": "79fb8411c28695524cb49b7c8478fdc68c745e512d6f827239dbf2876196fefd",
+      "chars": 1941
+    },
+    {
+      "caseId": "heldout-missing-04",
+      "bodySha256": "b0f105b68f9703944b5c59c528e6c5930746542fe6b1743c4409c789686f3105",
+      "floorDigest": "49fb96802fa6d30331819dfa6bf35985637068f3f48c9b554d3ce2db25ec16ba",
+      "contextTransmittedDigest": "17c7bdd3432eff9dd7f214a20f27209136f4d99b6bda115b6b742205e55063c1",
+      "chars": 3283
+    },
+    {
+      "caseId": "heldout-missing-05",
+      "bodySha256": "9d857c52e0b07b4dce1b757e47e0265e739186693b21067d1fd433a6409007ab",
+      "floorDigest": "db83737ce8d3dd427b0818888fa6ab38884224413b6e5d9631951c17dcb6c11c",
+      "contextTransmittedDigest": "1fe26e3e57d79f02b93ade7606394b643555bb7b744726e7ae8ce7300d28ab67",
+      "chars": 2329
+    },
+    {
+      "caseId": "heldout-missing-06",
+      "bodySha256": "ca044420cbe11d846a55126724738c5dac82a9f298f63d4ca52433ec1d608705",
+      "floorDigest": "cd2ddbc81337e36b18ee0809067ed7d1d895e45a09a24a3fb8d30e8691e4f144",
+      "contextTransmittedDigest": "d42f32e6455c6935232b27e27466acd447fc183c2e412ca810c6dc7d15c3bf49",
+      "chars": 4406
+    },
+    {
+      "caseId": "heldout-document-01",
+      "bodySha256": "95a25a9a57abdef2783f5c8984cfe8213cb60d185ee3aaa0af7fc6b64fd9fa93",
+      "floorDigest": "1e7e3eca99b5db4ffd812b6433829ed9170a070b2d33b5d7b60111fd372b286d",
+      "contextTransmittedDigest": "1d5563488274bd9bc92b8fab51e54734dfac2c1fb728926f8f8912338001769c",
+      "chars": 3900
+    },
+    {
+      "caseId": "heldout-document-02",
+      "bodySha256": "a151324e9cc95b6bc3b063acb203a77aa58175267fc6a39d697c93a182f52f14",
+      "floorDigest": "b0da97449e20ee30f2e37d4cc6196b0b6ad32a15d22522de805cf60a614927d2",
+      "contextTransmittedDigest": "6bbbcdefab15354fb8029f66ec17877496b876207930daf85dd80ddd5838ba01",
+      "chars": 3696
+    },
+    {
+      "caseId": "heldout-document-03",
+      "bodySha256": "e12a5d007640a4f4cc6dc7fdd1eca47a0f4c5313556721615a194f1d669c8391",
+      "floorDigest": "b4b5823f7f33fa3843dc9f4f24252c3c511f7e185fb9c51366e6bed0b6c8fc94",
+      "contextTransmittedDigest": "fd92fa724fbf0ec09ac385432ac49523d371f685e796acb57f6ede3b33002a45",
+      "chars": 4155
+    },
+    {
+      "caseId": "heldout-document-04",
+      "bodySha256": "f9630c5c9b5ed8e0176bc6da73d05968b5c9224c7bdb0ad7bf1817d2af0cd7dc",
+      "floorDigest": "01bea6fad3e84fc7d150d4ce0d21e1617545aa994cc2a44412e4068f8f76fb9d",
+      "contextTransmittedDigest": "48c56aa67ccc8d8854ee64199dbc123d82704403b4817145dc62108002406cf6",
+      "chars": 3597
+    },
+    {
+      "caseId": "heldout-document-05",
+      "bodySha256": "9c68b6ed8fd1496f18f2506abecddb081d92a9bd6aefbeef27703fc6293f58ee",
+      "floorDigest": "e56bc32ce17f7255f68e0ec8e0f7fbc7e1679d4f2cb9b658d5e66287dd0faa2b",
+      "contextTransmittedDigest": "79fb8411c28695524cb49b7c8478fdc68c745e512d6f827239dbf2876196fefd",
+      "chars": 1955
+    },
+    {
+      "caseId": "heldout-document-06",
+      "bodySha256": "e11e3f97f9327c75e6403dccc48dd36ff085bbc7f11ddd068f00f306d3b3a801",
+      "floorDigest": "9d6becaacf0b0026b809245d8b4c3888723057d8fd6c6166e9b33a330329d5cc",
+      "contextTransmittedDigest": "0ec2b1f0c258063308d425fe2b975cbaf477d7d1d6e7e906eae44ee1a605754e",
+      "chars": 3363
+    },
+    {
+      "caseId": "heldout-flagged-01",
+      "bodySha256": "b3067aa3c35e015bf4f74ac335d0fb7d9f0949bcb08292d6bc350f207b0203ff",
+      "floorDigest": "95cc158bb71a7bbfac3b212faf84f690786b836eb72a1424ce6b9a8c46ecdd1b",
+      "contextTransmittedDigest": "030e50d18a70277de0f0e1cf14eaa5316ed42e3ad8c021a7279f0721fac7f095",
+      "chars": 4348
+    },
+    {
+      "caseId": "heldout-flagged-02",
+      "bodySha256": "d97927f574cc63d16931b0490c2b759a9b51d7cf07976ac6eb83b5c28c8d28c7",
+      "floorDigest": "28e754822f6728ad654d54e129fc92d4fc19dc81b1f9d5a02ec9878befcbd47a",
+      "contextTransmittedDigest": "a8b5bb18059b42ec35608071e2983f124217847d5dfbf3ceeba0d7fb423d82b0",
+      "chars": 11770
+    },
+    {
+      "caseId": "heldout-flagged-03",
+      "bodySha256": "6822db3d0dffa740b9a2745ad0dc7b3933e1ac2df8648c4cd9adc095cd351660",
+      "floorDigest": "dffae4ea00324df38b7be063e73adede77262b2d437902bbe1287f5c71b1f10d",
+      "contextTransmittedDigest": "141f5e606599f26bad9123c1870816364af44f608ac323b197cddfbcb9d99ae4",
+      "chars": 12167
+    },
+    {
+      "caseId": "heldout-flagged-04",
+      "bodySha256": "188b121dac2a0195b614cb4fa506bf076971311e886a6768279f26d996acb7bc",
+      "floorDigest": "b8cf960529dbc910f7b6de8d2a12b0e5113ff44c9d53dfd3fc63fa3402dbe986",
+      "contextTransmittedDigest": "3467bfa6e57128f1a94623d9a327bd07852fdc37e52432a8c38ea0c46e2bb653",
+      "chars": 4199
+    },
+    {
+      "caseId": "heldout-flagged-05",
+      "bodySha256": "0d462da98597828d8b6184931f82b1df90dbee9e3430c19cdacd410df6bc33bb",
+      "floorDigest": "6681b483ec0c3bd27c80235e01bf6656f28a093f7197f078bcb55c4ef5878a4f",
+      "contextTransmittedDigest": "e8553d062cf71123d494195b042e0869ed3fa250da030062a5195bf069c1de92",
+      "chars": 3316
+    },
+    {
+      "caseId": "heldout-flagged-06",
+      "bodySha256": "f5e5f0ba27f2c9b8f4e186edd982e49c43041c464b760cea6a119204dd50a832",
+      "floorDigest": "d32ea4b6008488bff460c80b37f9a67cee11f0a80d2782f6c4b815e84e81cd6c",
+      "contextTransmittedDigest": "761f21835e94073c3dc00a1d82c184ff569288de883d1750d4ebd1a52e3ddb0c",
+      "chars": 6107
+    },
+    {
+      "caseId": "heldout-action-01",
+      "bodySha256": "682881ec5933938d726c2b80363410d384044bc376b013ef869fcc579801b73c",
+      "floorDigest": "e50d894ae3b76fc17e1b34b3aaf0432a6a1f223389bdcff7321caf9fe9c883b0",
+      "contextTransmittedDigest": "8ec0dcbb31320ff549e10a94e201810713dca6cd744e7f932ae6da0251afdf85",
+      "chars": 3984
+    },
+    {
+      "caseId": "heldout-action-02",
+      "bodySha256": "691fbd33fbb631962e9fc8071c4544f0af9599ed4095115836afd2a0320acda0",
+      "floorDigest": "1ecc456e3b29be84edc4e5c45855360c1f29ae8c19c67ea1e1dbbd1720c9f6f8",
+      "contextTransmittedDigest": "2b00e0c7813ae130f0dfd54ef7bb94085770b57ae4825f0b5d282be12a71fa15",
+      "chars": 6291
+    },
+    {
+      "caseId": "heldout-action-03",
+      "bodySha256": "33509d041bf6cb9783c2554c82daa7167d2942f82f37d79f6fa108cac3d7b2a8",
+      "floorDigest": "ffe22807559e271fecd8034e172238c19792c676746b81c23513a5f8d8bea680",
+      "contextTransmittedDigest": "de541aeb8abc4ea93397dad7d6ec4e1cfd9d5abfb39661d169156ba5eedaa90b",
+      "chars": 5351
+    },
+    {
+      "caseId": "heldout-action-04",
+      "bodySha256": "1db3c6537a8a17454dc37701ecf3f37bc8f15c8bd755ea1c3fd26d3f9a1379a1",
+      "floorDigest": "0501cc44c20a40c71b337d3efd90d089fdc0cb48f904ca15348728bb6fc40cdc",
+      "contextTransmittedDigest": "877ee086f4fdb0e405d819b0f80c0402c0545049a3ae5a0565ebaf3eed2067b1",
+      "chars": 6114
+    },
+    {
+      "caseId": "heldout-action-05",
+      "bodySha256": "077d89d65d968161f26531c7c6cf689c564030538bdc7a12777c13ce5314ad97",
+      "floorDigest": "305edb560c71c1851ffb28aa33ba27499b838477bc0dfcacc2a52c1b6e24eb32",
+      "contextTransmittedDigest": "79fb8411c28695524cb49b7c8478fdc68c745e512d6f827239dbf2876196fefd",
+      "chars": 1957
+    },
+    {
+      "caseId": "heldout-action-06",
+      "bodySha256": "9d698637ec04225dce7ffbee9a9c81206fad5da66d74fc66799e480116fb6b67",
+      "floorDigest": "c3d524a3483c1d61f450d0a0d0741084e9dc2ecdbe4ea6f3c351cf351900f700",
+      "contextTransmittedDigest": "bc26ac0c981c61b881836c1d15c8f9e6b2009f1769858b9fa2a7c124a7bf2ae4",
+      "chars": 5096
+    }
+  ],
+  "labelSet": {
+    "version": "operator_guidance_heldout_labels_v1",
+    "digest": "559c7f3f185e2930f1ff7225331f85c58f46475aaf696a5c662e7da131232fb6"
+  },
+  "regressionLabelSet": {
+    "version": "operator_guidance_labels_v1",
+    "digest": "752b8a4d3e17092803a4f9f7e4e16482980f71cf43e8c60560c57e4ac6229bcc"
+  },
+  "bars": {
+    "scorer": "operator_guidance_scorecard_v2",
+    "cases": 24,
+    "casesPerIntent": 6,
+    "minimumFixtures": 3,
+    "maximumCasesPerFixture": 8,
+    "hardViolationsAllowed": 0,
+    "minimumAcceptedRate": 0.75,
+    "maximumFallbackRate": 0.25,
+    "spendCeilingUsd": 1,
+    "retries": 0,
+    "timeoutMs": 45000,
+    "worstCaseCharsPerToken": 3
+  },
+  "barsDigest": "e135c9462957533d6a6c94e21c77f95ae598b30e302929272edb04719b98a784",
+  "request": {
+    "requestContract": "project_ask_operator_guidance_v2",
+    "model": "claude-sonnet-4-6",
+    "temperature": 0,
+    "maxOutputTokens": 2400,
+    "timeoutMs": 45000,
+    "retries": 0,
+    "promptSha256": "18a5791440c1a9743eb7394d3e5bb5b02f93ebc07c03807b092e5578d83f92a0",
+    "outputSchemaDigest": "c767cb6f104dcd3d0420a579026eb4df0390e74f0c471473bf15fd93ba37295b",
+    "nextStepVocabularyDigest": "13a53449916c886326817a50e504e0078e2da392b6b3d1c30ba2b868296781ee",
+    "pricing": {
+      "model": "claude-sonnet-4-6",
+      "inputUsdPerMTok": 3,
+      "outputUsdPerMTok": 15
+    }
+  },
+  "pinnedSources": {
+    "app/api/projects/[id]/ask/route.ts": "7af92d4af4175cedc28d385295da1f287c72bf8eb6ac049969bc0e657399de43",
+    "lib/ask/classifier.ts": "218a6534c2cbbb0621871455b56347e9868ee73ed6007e13d05eae1523a90aea",
+    "lib/ask/retrieval.ts": "7c705bd7bd3da9437d5d2d72bdde89cf8f48856eb7aed36300f08ecdf36a81ab",
+    "lib/documentPrecedence.ts": "e2cd83683e24f56ae97573623188d721d85fcb2188bc682ded62ccd0744f1baf",
+    "lib/projectIntelligence/contextPlan.ts": "d25d17a9721de3aeb6b912b5e29f87289e7a9ecfdf55083db2bfff43d7bee7e0",
+    "lib/projectIntelligence/evidenceAssessment.ts": "cbf155c90bb944125d0798175f86f00214916e3488554127199aa10259c0ac03",
+    "lib/projectIntelligence/operatorRecommendation.ts": "19942ba1c0af418f57408f33d29a862330746d2d91431706c4fdabd99697ba1b",
+    "lib/projectIntelligence/operatorTerms.ts": "bf1101f2740b5944669d6b370a6517b47a155a904e964dcc424a75c57834f7e9",
+    "lib/projectIntelligence/projectContext.ts": "aff1c3d0fe9adf1ba7b671345e133b4f58ed63adb228e6452839085c636476fe",
+    "lib/projectIntelligence/transactionContext.ts": "25641bcd514cfc4211b509526d6fc2ba3a327d532ea60db1de91b21951e618ed",
+    "lib/server/ai/askModel.ts": "f3d55cac85de000e9b29ec7888c5e9d3dbabb4035a73f12ad20968ed4ee5c743",
+    "lib/server/ai/askProject.ts": "d014fd8563c466cdf1ed6d7477925c7b543b8752ba0b3d523a1d6e40fa675fbc",
+    "lib/server/ai/claudeRequestOptions.ts": "3e0d8cfb794a53974b434fc23d18a010d51364ab51c08e4a4b19824207f99dab",
+    "lib/server/ai/claudeSampling.ts": "08c3da6b6ff3f126d89bb5693f6165b3a323a683d9b8144bf9c80e9f33d76faa",
+    "lib/server/ai/operatorGuidance.ts": "5714a09aa117dccd4e9e4c7ee23688c341aae8655df882523cf5b62176672705",
+    "lib/server/caseInvestigationRunner.ts": "69292714b045a12fb2dfb90e18e702155055b3c3169244ba2bc335e1e6385b73",
+    "lib/server/documentPrecedence.ts": "7c8e871e43e83808a89001b9deea33c09667a4c2068891d48c84b4ea21b7da04",
+    "lib/server/projectIntelligenceRead.ts": "89d8d01ae1c0ca722e4616f8fe79e82f1d924dd5951adad43ced8a198a853e5e",
+    "lib/server/projectIntelligenceRecords.ts": "a04a4b65011a086ea04259f400254986133cecf6415ba343b9760ee474332b3f",
+    "lib/server/transactionDataPersistence.ts": "d9fe3774ec7270992541c0d46f31010e5519c66f6fff6f4c431da16b4835701f",
+    "lib/validator/projectValidator.ts": "200b43b96c65cd70266c4549e6048eba9df9234e3721f2d23507181b2bc7b36e",
+    "lib/validator/ruleExplanations.ts": "aecdb3168c6dd3dab905a266d492ed87679af29ffc6a170c526e89f184db5e03",
+    "scripts/evaluation/operator-guidance/contract.ts": "46aa51d4db87f56624ec903cdcd9bbcee1d3aa4ec7807dcf2897af6817135f2c",
+    "scripts/evaluation/operator-guidance/corpus.ts": "e0f98c71e19baee114cef15487852aef5ee23b1d35d144571c1b91b78810c463",
+    "scripts/evaluation/operator-guidance/failureClass.ts": "7f8cd0ced2116d883f48a6176199df425dc97bbc294d8fe5657e2433323ea26e",
+    "scripts/evaluation/operator-guidance/harness.ts": "8ea5b806b7019c1dcd5c5d0a42bfec2e7736f618cbd7a2d4f4f17fa24f03f4f0",
+    "scripts/evaluation/operator-guidance/labels.ts": "c27a405156626124b492d977432701f5e0a989f3223fc22c3464ae5a775caa60",
+    "scripts/evaluation/operator-guidance/qualify.ts": "086708654f271d6b1affde62dc9bc5ba504b2245ccd05a85a21286f7402211dc",
+    "scripts/evaluation/operator-guidance/regression.ts": "f82ce89537a2e45848da5be9d161f26fd85b08eb57ebc809c4221749a03e8375"
+  },
+  "projectedSpendUsd": 0.3319,
+  "worstCaseSpendUsd": 1.0136,
+  "pricing": {
+    "model": "claude-sonnet-4-6",
+    "inputUsdPerMTok": 3,
+    "outputUsdPerMTok": 15
+  },
+  "supersedes": {
+    "contract": "operator_guidance_qualification_v2",
+    "freezeSha256": "6cf9635567ef5f4278f3604134dd2e96ec0257446fd2c1e1b9f714aa64556f0c",
+    "classification": "FAIL_HARD_CORRECTNESS",
+    "resultRecordSha256": "6dc366dae48c10ca31941f0c62461554e6f39bee909ccbdc1e7099e9922726d0"
+  },
+  "parityWithV2": {
+    "requestBodiesBeforeCorrectionsIdentical": 24,
+    "transmittedContextsIdentical": 24,
+    "floorsIdentical": 22,
+    "floorsChangedInActionLinkOnly": [
+      "document-03",
+      "document-05"
+    ],
+    "identical": [
+      "regressionFixtures",
+      "regressionLabelSet",
+      "pricing",
+      "model",
+      "temperature",
+      "maxOutputTokens",
+      "timeoutMs",
+      "retries",
+      "promptSha256",
+      "outputSchemaDigest",
+      "nextStepVocabularyDigest",
+      "pricing"
+    ],
+    "caseInvestigationRunnerUnchanged": true,
+    "heldoutReuse": 0,
+    "pinsChanged": [
+      "app/api/projects/[id]/ask/route.ts",
+      "lib/projectIntelligence/operatorRecommendation.ts",
+      "lib/server/ai/askModel.ts",
+      "lib/server/ai/askProject.ts",
+      "lib/server/ai/operatorGuidance.ts",
+      "scripts/evaluation/operator-guidance/contract.ts",
+      "scripts/evaluation/operator-guidance/corpus.ts",
+      "scripts/evaluation/operator-guidance/harness.ts",
+      "scripts/evaluation/operator-guidance/labels.ts",
+      "scripts/evaluation/operator-guidance/qualify.ts"
+    ],
+    "pinsUnchanged": [
+      "lib/ask/classifier.ts",
+      "lib/ask/retrieval.ts",
+      "lib/documentPrecedence.ts",
+      "lib/projectIntelligence/contextPlan.ts",
+      "lib/projectIntelligence/evidenceAssessment.ts",
+      "lib/projectIntelligence/projectContext.ts",
+      "lib/projectIntelligence/transactionContext.ts",
+      "lib/server/ai/claudeRequestOptions.ts",
+      "lib/server/ai/claudeSampling.ts",
+      "lib/server/caseInvestigationRunner.ts",
+      "lib/server/documentPrecedence.ts",
+      "lib/server/projectIntelligenceRead.ts",
+      "lib/server/projectIntelligenceRecords.ts",
+      "lib/server/transactionDataPersistence.ts",
+      "lib/validator/projectValidator.ts",
+      "lib/validator/ruleExplanations.ts",
+      "scripts/evaluation/operator-guidance/failureClass.ts"
+    ],
+    "pinsAdded": [
+      "lib/projectIntelligence/operatorTerms.ts",
+      "scripts/evaluation/operator-guidance/regression.ts"
+    ]
+  },
+  "freezeSha256": "59c0431a00969847e582fd0163b8a58739c3b4fe36418ae0d0b495e9a13ffbe1",
+  "implementationCommit": "094b896b2de6b347a1b1eaa61f307e75fc51c357"
+}

@@ -125,7 +125,7 @@ async function handleOperatorGuidance(params: {
     providerStatus = 'model_unqualified';
   } else {
     context = assemble(true);
-    const transmitted = guidanceTransmittedContext(context, assessment);
+    const transmitted = guidanceTransmittedContext(context, assessment, recommendation);
     requestDigest = createHash('sha256').update(JSON.stringify([
       OPERATOR_GUIDANCE_REQUEST_CONTRACT, askModel.model, OPERATOR_GUIDANCE_SYSTEM_PROMPT, question, plan, context.transmittedDigest, assessment,
     ])).digest('hex');

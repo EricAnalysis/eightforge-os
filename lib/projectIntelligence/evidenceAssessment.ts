@@ -129,6 +129,8 @@ export type FindingAssessment = Readonly<{
   /** What the finding wants, in operator language; null when it is not a source gap. */
   neededSource: string | null;
   candidates: readonly AssessedDocument[];
+  /** Documents nothing classifies, which could hold the needed source. Their titles establish nothing. */
+  unclassifiedDocuments?: readonly AssessedDocument[];
   governingContract: Readonly<{ id: string; title: string }> | null;
   /** The steps this reading allows, first the one it leads with. A model may not leave this list. */
   nextSteps: readonly NextStepKind[];
@@ -218,6 +220,14 @@ function candidateDocuments(need: SourceNeed, view: PrecedenceView, sources: Pro
   }).sort((left, right) => left.id.localeCompare(right.id, 'en-US'));
 }
 
+/** On file, but in no document family, so what they hold is unknown either way. */
+function unclassifiedDocuments(view: PrecedenceView, sources: ProjectContextSources): AssessedDocument[] {
+  const classified = new Set(view.documents.map((document) => document.id));
+  return (sources.documents ?? []).filter((document) => !classified.has(document.id)).map((document) => ({
+    id: document.id, title: document.title ?? document.id, linkedToContract: false, read: isRead(document), authorityUnsettled: true, processedAt: document.processedAt ?? null,
+  })).sort((left, right) => left.id.localeCompare(right.id, 'en-US'));
+}
+
 function supportingFacts(candidates: readonly AssessedDocument[], need: SourceNeed, sources: ProjectContextSources) {
   const keys = new Set(FACT_KEYS_BY_FAMILY[need.family] ?? []);
   const ids = new Set(candidates.map((document) => document.id));
@@ -244,7 +254,7 @@ function assessSourceGap(
   finding: ValidatorFinding,
   need: SourceNeed,
   sources: ProjectContextSources,
-): Pick<FindingAssessment, 'state' | 'candidates' | 'governingContract' | 'nextSteps' | 'evidenceRecordIds' | 'supportingFactCount' | 'uncertainties' | 'confidence'> {
+): Pick<FindingAssessment, 'state' | 'candidates' | 'unclassifiedDocuments' | 'governingContract' | 'nextSteps' | 'evidenceRecordIds' | 'supportingFactCount' | 'uncertainties' | 'confidence'> {
   const precedence = sources.precedence;
   if (!precedence || !sources.documents) {
     return {
@@ -263,6 +273,17 @@ function assessSourceGap(
   const records = [finding.id, ...candidates.map((document) => document.id), ...(governingContract ? [governingContract.id] : [])];
 
   if (candidates.length === 0) {
+    const unclassified = unclassifiedDocuments(view, sources);
+    if (unclassified.length > 0) {
+      // Whether the source is absent is not established: what is on file gets inspected first.
+      return {
+        ...base, state: 'source_missing', unclassifiedDocuments: unclassified,
+        nextSteps: ['review_existing_document', 'operator_judgment_required'],
+        evidenceRecordIds: [...new Set([...records, ...unclassified.map((document) => document.id)])], supportingFactCount: 0,
+        uncertainties: unclassified.slice(0, 3).map((document) => `Whether "${document.title}" holds what this needs cannot be told from its record, and its title does not settle it.`),
+        confidence: 'low',
+      };
+    }
     const mayBeInside = need.family === 'rate_sheet' && governingContract != null;
     return {
       ...base, state: 'source_missing',
@@ -320,6 +341,10 @@ function assessSourceGap(
   };
 }
 
+/** A billed line with no ticket group: tickets on file may or may not cover it, and that is not established. */
+export const BILLED_LINE_SUPPORT_UNCERTAINTY = 'Whether the tickets on file cover this billed line, or more support is needed, has not been established.';
+const UNCERTAINTY_BY_RULE: Readonly<Record<string, string>> = Object.freeze({ TRANSACTION_GROUP_EXISTS_FOR_INVOICE_LINE: BILLED_LINE_SUPPORT_UNCERTAINTY });
+
 function assessFinding(finding: ValidatorFinding, sources: ProjectContextSources): FindingAssessment {
   const rule = validatorRuleExplanation(finding.ruleId);
   const need = finding.ruleId ? SOURCE_NEED_BY_RULE[finding.ruleId] : undefined;
@@ -336,7 +361,8 @@ function assessFinding(finding: ValidatorFinding, sources: ProjectContextSources
     nextSteps: nonGapNextSteps(finding),
     evidenceRecordIds: [...new Set([finding.id, ...(finding.evidenceDocumentIds ?? []), ...(finding.documentId ? [finding.documentId] : [])])],
     supportingFactCount: 0,
-    uncertainties: rule ? [] : ['EightForge has no explanation on file for this check.'],
+    uncertainties: !rule ? ['EightForge has no explanation on file for this check.']
+      : finding.ruleId && UNCERTAINTY_BY_RULE[finding.ruleId] ? [UNCERTAINTY_BY_RULE[finding.ruleId]!] : [],
     confidence: rule ? 'medium' : 'low',
   };
 }

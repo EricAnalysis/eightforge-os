@@ -74,7 +74,7 @@ export async function askProjectWithClaude(params: {
  * evidenceAssessment.ts), and the model explains that reading in the operator's
  * terms. What it returns is validated in operatorGuidance.ts before anyone sees it.
  */
-export const OPERATOR_GUIDANCE_REQUEST_CONTRACT = 'project_ask_operator_guidance_v1';
+export const OPERATOR_GUIDANCE_REQUEST_CONTRACT = 'project_ask_operator_guidance_v2';
 
 export const OPERATOR_GUIDANCE_SYSTEM_PROMPT = [
   'You help the operator of an EightForge project understand what their project needs and what to do next.',

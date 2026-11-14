@@ -31,7 +31,7 @@ import { DEFAULT_CLAUDE_MODEL } from '@/lib/server/ai/claudeClient';
 export const PROJECT_ASK_QUALIFIED_MODELS: readonly string[] = Object.freeze(['claude-sonnet-4-6']);
 
 /**
- * The operator-guidance request contract (`project_ask_operator_guidance_v1`:
+ * The operator-guidance request contract (`project_ask_operator_guidance_v2`:
  * structured recommendation, deterministic evidence reading, validated answer)
  * runs beneath every Ask gate on Ask's own qualified model, and has its own
  * switch because it is a different request shape from `project_ask_v1`. Off

@@ -1,0 +1,21 @@
+{
+  "status": "withdrawn_before_any_run",
+  "file": "scripts/evaluation/artifacts/operator-guidance-v3/freeze.json",
+  "fileSha256": "4bb943c9f5572feab58a755c8373cf7ab80f50a9a658c6b10c12ecbf00d3e0cd",
+  "freezeSha256": "59c0431a00969847e582fd0163b8a58739c3b4fe36418ae0d0b495e9a13ffbe1",
+  "implementationCommit": "094b896b2de6b347a1b1eaa61f307e75fc51c357",
+  "freezeCommit": "d028eadd5b2c89da8311ce85295eb012e5d1d752",
+  "withdrawnOn": "2026-11-03",
+  "providerCalls": 0,
+  "reason": "An independent review of PR #295 found defects that make this freeze unfit to authorize a paid run. No run used it. It is kept byte for byte as failed pre-run evidence.",
+  "findings": [
+    "The run compared only the digest a freeze declares, and did not authenticate the freeze body.",
+    "The $1.00 ceiling rested on an estimate of characters per token, and a failed call was not charged a full bound.",
+    "The scorer did not require exactly one record per frozen case, and regrading did not check sealed evidence.",
+    "An answer with no returned model passed the wrong_model bar.",
+    "The held-out cohort carried Golden-derived content, and two requests carried a customer name.",
+    "Six labels set sourceAlreadyPresent false where the source is on file, which disabled a hard bar.",
+    "heldout-missing-02 and heldout-document-04 needed owner adjudication."
+  ],
+  "successor": "scripts/evaluation/artifacts/operator-guidance-v3/freeze-r2.json"
+}

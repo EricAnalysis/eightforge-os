@@ -105,7 +105,7 @@ export const VALIDATOR_RULE_EXPLANATIONS: Readonly<Record<string, ValidatorRuleE
     category: CONTRACT,
     explanation: 'The contract is priced by unit rates, but no rate schedule was found in its canonical contract truth, so billed rates cannot be checked against contract pricing.',
     requiredAction: 'Attach or extract the contract rate schedule before reviewing billed rates.',
-    actions: ['open_evidence_inspector', 'open_linked_documents'],
+    actions: ['open_evidence_inspector', 'upload_document', 'open_linked_documents'],
   },
   FINANCIAL_RATE_BASED_ROWS_REQUIRED: {
     title: 'Too few contract rate rows extracted',

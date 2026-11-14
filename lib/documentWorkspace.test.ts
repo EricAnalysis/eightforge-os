@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   buildDocumentWorkspaceItems,
   filterDocumentWorkspaceItems,
+  formatBlockedSignalLabel,
   groupDocumentWorkspaceItems,
   summarizeDocumentWorkspaceItems,
   type DocumentWorkspaceDecisionRow,
@@ -176,6 +177,49 @@ describe('document workspace', () => {
       workspaceStatusLabel: 'Blocked',
       workspaceTone: 'danger',
     });
+  });
+
+  it('labels blocked signals on a processed document without calling it failed', () => {
+    const items = buildDocumentWorkspaceItems({
+      documents,
+      reviews,
+      decisions: [
+        { id: 'critical-1', document_id: 'doc-2', status: 'open', severity: 'critical' },
+      ],
+    });
+    const invoice = items.find((item) => item.id === 'doc-2');
+
+    expect(invoice).toMatchObject({
+      processingStatus: 'decisioned',
+      blockedCount: 1,
+      workspaceStatusLabel: 'Blocked',
+    });
+    const chip = formatBlockedSignalLabel(invoice?.blockedCount ?? 0);
+    expect(chip).toBe('1 blocked signal');
+    expect(chip?.toLowerCase()).not.toContain('fail');
+  });
+
+  it('formats the blocked-signal chip only when there are blocked signals', () => {
+    expect(formatBlockedSignalLabel(0)).toBeNull();
+    expect(formatBlockedSignalLabel(-1)).toBeNull();
+    expect(formatBlockedSignalLabel(Number.NaN)).toBeNull();
+    expect(formatBlockedSignalLabel(1)).toBe('1 blocked signal');
+    expect(formatBlockedSignalLabel(3)).toBe('3 blocked signals');
+  });
+
+  it('still reports Failed from processing status, not from blocked signals', () => {
+    const items = buildDocumentWorkspaceItems({
+      documents: [{ ...documents[1], processing_status: 'failed', processing_error: 'parse error' }],
+      reviews: [],
+    });
+
+    expect(items[0]).toMatchObject({
+      processingStatus: 'failed',
+      blockedCount: 0,
+      workspaceStatusLabel: 'Failed',
+      workspaceTone: 'danger',
+    });
+    expect(formatBlockedSignalLabel(items[0]?.blockedCount ?? 0)).toBeNull();
   });
 
   it('agrees with the Forge document rollup for the same document state', () => {

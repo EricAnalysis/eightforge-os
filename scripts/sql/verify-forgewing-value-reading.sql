@@ -32,6 +32,12 @@ INSERT INTO public.extraction_source_artifacts (id, organization_id, source_docu
   ('b4200000-0000-4000-8000-0000000000f3', 'b4200000-0000-4000-8000-000000000002',
    'b4200000-0000-4000-8000-0000000000d3', repeat('3', 64), 'b42-d3:1', 'application/pdf', 1);
 
+-- The reviewed value must retain the extraction that produced its source region.
+INSERT INTO public.document_extractions (id, organization_id, document_id, data) VALUES
+  ('b4200000-0000-4000-8000-0000000000c1', 'b4200000-0000-4000-8000-000000000001',
+   'b4200000-0000-4000-8000-0000000000d1',
+   '{"extraction":{"content_layers_v1":{"pdf":{"layout_observations_v1":{"source_artifact_id":"b4200000-0000-4000-8000-0000000000f1"}}}}}');
+
 -- A proposal for document 1, page 8, anchor p8:line:300. p_key names the
 -- request and output digests; the proposal digest is derived from both.
 CREATE FUNCTION pg_temp.propose(
@@ -44,7 +50,7 @@ CREATE FUNCTION pg_temp.propose(
   p_output text DEFAULT NULL)
 RETURNS TABLE(proposal_row_id uuid, inserted boolean) LANGUAGE sql AS $$
   SELECT * FROM public.record_forgewing_value_reading_proposal(
-    p_org, p_project, p_document, p_artifact, 'extraction-snapshot-1', 'case:unreadable-line:p8:300',
+    p_org, p_project, p_document, p_artifact, 'b4200000-0000-4000-8000-0000000000c1', 'case:unreadable-line:p8:300',
     8, repeat('a', 64), 'contract_rate_row', p_anchor, ARRAY['obs-1', 'obs-2'],
     '{"coordinate_space":"source","boxes":[{"x_min":440,"x_max":520,"y_min":300,"y_max":312}]}',
     p_outcome, p_rate_row, 'region_image', NULL, 'priced_value_reading', 'v1',
@@ -80,7 +86,8 @@ RETURNS TABLE(assertion_id uuid, inserted boolean) LANGUAGE sql AS $$
     'Rate cell OCR damaged; value read from source', p_artifact, 8,
     '{"coordinate_space":"source","boxes":[{"x_min":440,"x_max":520,"y_min":300,"y_max":312}]}',
     p_page_digest, 'priced_schedule_reconstruction_v2', p_observations, 'sia 50', p_anchor,
-    p_origin, p_proposal, p_supersedes, p_request) $$;
+    p_origin, p_proposal, p_supersedes, p_request, NULL,
+    'b4200000-0000-4000-8000-0000000000c1') $$;
 -- Request and review digests are unique across each whole table, so these
 -- fixtures use their own namespace rather than ones other suites may hold.
 CREATE FUNCTION pg_temp.rq(p_key text) RETURNS text LANGUAGE sql AS $$

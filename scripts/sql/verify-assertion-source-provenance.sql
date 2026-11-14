@@ -3,10 +3,9 @@
 -- B8.4b: manual correction provenance. A reviewed value records the historical
 -- producer of the evidence it corrected (source extraction + the revision that
 -- extraction recorded), derived from the corrected object, never from the
--- deployment running now. Unprovable provenance stays NULL and the correction
--- still succeeds. Generic, disposable fixtures only; every check raises.
--- Runs after the B3, B4.2 and B8.2 verifications, whose positional calls of
--- the record function (19 and 20 arguments) are the old-caller regression.
+-- deployment running now. A new correction without a verified producer fails
+-- closed. Generic, disposable fixtures only; every check raises.
+-- Runs after the B3, B4.2 and B8.2 verifications.
 
 INSERT INTO public.organizations (id, name) VALUES
   ('b84c0000-0000-4000-8000-000000000001', 'B8.4b provenance organization'),
@@ -20,7 +19,9 @@ INSERT INTO public.documents (id, organization_id, project_id, name, storage_pat
   ('b84c0000-0000-4000-8000-0000000000d1', 'b84c0000-0000-4000-8000-000000000001',
    'b84c0000-0000-4000-8000-0000000000e1', 'generic.pdf', 'b84c/generic.pdf'),
   ('b84c0000-0000-4000-8000-0000000000d2', 'b84c0000-0000-4000-8000-000000000002',
-   NULL, 'generic-other.pdf', 'b84c/generic-other.pdf');
+   NULL, 'generic-other.pdf', 'b84c/generic-other.pdf'),
+  ('b84c0000-0000-4000-8000-0000000000d3', 'b84c0000-0000-4000-8000-000000000001',
+   NULL, 'generic-same-org-other-document.pdf', 'b84c/generic-same-org-other-document.pdf');
 INSERT INTO public.extraction_source_artifacts (id, organization_id, source_document_id, source_sha256,
   storage_object_version, media_type_sniffed, byte_length) VALUES
   ('b84c0000-0000-4000-8000-0000000000f1', 'b84c0000-0000-4000-8000-000000000001',
@@ -51,7 +52,9 @@ FROM (VALUES
   ('b84c0000-0000-4000-8000-000000000074', 'b84c0000-0000-4000-8000-000000000001',
    'b84c0000-0000-4000-8000-0000000000d1', 'b84c0000-0000-4000-8000-0000000000f2', repeat('4', 40)),
   ('b84c0000-0000-4000-8000-000000000075', 'b84c0000-0000-4000-8000-000000000002',
-   'b84c0000-0000-4000-8000-0000000000d2', 'b84c0000-0000-4000-8000-0000000000f1', repeat('5', 40))
+   'b84c0000-0000-4000-8000-0000000000d2', 'b84c0000-0000-4000-8000-0000000000f1', repeat('5', 40)),
+  ('b84c0000-0000-4000-8000-000000000076', 'b84c0000-0000-4000-8000-000000000001',
+   'b84c0000-0000-4000-8000-0000000000d3', 'b84c0000-0000-4000-8000-0000000000f1', repeat('6', 40))
 ) AS fixture(id, org, doc, artifact, revision);
 
 -- One manual correction per anchor, so each is its own chain head.
@@ -92,12 +95,32 @@ SET ROLE service_role;
 SELECT set_config('request.jwt.claim.role', 'service_role', false);
 INSERT INTO b84c_ids VALUES
   ('pinned',          pg_temp.b84c_correct('pinned', 'b84c0000-0000-4000-8000-000000000071')),
-  ('no-identity',     pg_temp.b84c_correct('no-identity', 'b84c0000-0000-4000-8000-000000000073')),
-  ('other-artifact',  pg_temp.b84c_correct('other-artifact', 'b84c0000-0000-4000-8000-000000000074')),
-  ('other-org',       pg_temp.b84c_correct('other-org', 'b84c0000-0000-4000-8000-000000000075')),
-  ('missing',         pg_temp.b84c_correct('missing', 'b84c0000-0000-4000-8000-0000000000ff')),
-  ('none',            pg_temp.b84c_correct('none', NULL)),
-  ('positional',      pg_temp.b84c_correct('positional', NULL, false));
+  ('no-identity',     pg_temp.b84c_correct('no-identity', 'b84c0000-0000-4000-8000-000000000073'));
+-- Every unusable producer and a legacy positional call must fail, leaving
+-- neither an assertion nor an idempotency result behind.
+DO $b84c_reject$
+DECLARE v text;
+BEGIN
+  FOREACH v IN ARRAY ARRAY['other-artifact','other-org','other-document','missing','none','positional'] LOOP
+    BEGIN
+      CASE v
+        WHEN 'other-artifact' THEN PERFORM pg_temp.b84c_correct(v, 'b84c0000-0000-4000-8000-000000000074');
+        WHEN 'other-org' THEN PERFORM pg_temp.b84c_correct(v, 'b84c0000-0000-4000-8000-000000000075');
+        WHEN 'other-document' THEN PERFORM pg_temp.b84c_correct(v, 'b84c0000-0000-4000-8000-000000000076');
+        WHEN 'missing' THEN PERFORM pg_temp.b84c_correct(v, 'b84c0000-0000-4000-8000-0000000000ff');
+        WHEN 'none' THEN PERFORM pg_temp.b84c_correct(v, NULL);
+        WHEN 'positional' THEN PERFORM pg_temp.b84c_correct(v, NULL, false);
+      END CASE;
+      RAISE EXCEPTION 'B8.4b FAIL: unverified producer accepted for %', v;
+    EXCEPTION WHEN check_violation THEN NULL;
+    END;
+    IF EXISTS (SELECT 1 FROM public.human_fact_assertions WHERE anchor_key = v)
+       OR EXISTS (SELECT 1 FROM b84c_ids WHERE anchor = v) THEN
+      RAISE EXCEPTION 'B8.4b FAIL: rejected producer wrote assertion for %', v;
+    END IF;
+  END LOOP;
+END
+$b84c_reject$;
 -- A cited Forgewing proposal: the pin is the proposal's own extraction (x1),
 -- even though the server names a newer one (x2).
 SELECT 1 FROM public.record_forgewing_value_reading_proposal(
@@ -117,7 +140,7 @@ INSERT INTO b84c_ids SELECT 'proposal', assertion_id FROM public.record_region_b
   p_source_document_id => 'b84c0000-0000-4000-8000-0000000000d1',
   p_fact_key => 'contract_rate_row', p_asserted_value => '{"description":"Generic line","unit_type":"CY","rate_amount":15}',
   p_status => 'active', p_reason => 'reviewed suggestion', p_source_artifact_id => 'b84c0000-0000-4000-8000-0000000000f1',
-  p_physical_page_number => 1, p_source_region => '{"boxes":[{"x_min":1,"x_max":2,"y_min":1,"y_max":2}]}',
+  p_physical_page_number => 1, p_source_region => '{"coordinate_space":"source","boxes":[{"x_min":1,"x_max":2,"y_min":1,"y_max":2}]}',
   p_page_representation_digest => repeat('b', 64), p_parser_version => 'priced_schedule_reconstruction_v6',
   p_source_observation_ids => ARRAY['obs-1'], p_original_source_text => 'generic', p_anchor_key => 'proposal-anchor',
   p_review_origin => 'ai_proposed',
@@ -125,14 +148,13 @@ INSERT INTO b84c_ids SELECT 'proposal', assertion_id FROM public.record_region_b
   p_supersedes_assertion_id => NULL,
   p_request_digest_sha256 => encode(sha256(convert_to('b84c:proposal-assertion', 'UTF8')), 'hex'),
   p_source_extraction_id => 'b84c0000-0000-4000-8000-000000000072');
--- An idempotent retry after a newer extraction exists returns the original
--- row unchanged: the pin is provenance, not request identity.
+-- Reusing a manual correction key with a different verified producer must
+-- conflict; the original source remains pinned and append-only.
 DO $b84c_replay$
 BEGIN
-  IF pg_temp.b84c_correct('pinned', 'b84c0000-0000-4000-8000-000000000072')
-     IS DISTINCT FROM (SELECT id FROM b84c_ids WHERE anchor = 'pinned') THEN
-    RAISE EXCEPTION 'B8.4b FAIL: replay with another extraction created or collided';
-  END IF;
+  PERFORM pg_temp.b84c_correct('pinned', 'b84c0000-0000-4000-8000-000000000072');
+  RAISE EXCEPTION 'B8.4b FAIL: changed producer replay accepted';
+EXCEPTION WHEN unique_violation THEN NULL;
 END
 $b84c_replay$;
 RESET ROLE;
@@ -141,9 +163,9 @@ DO $b84c_provenance$
 DECLARE
   v record;
 BEGIN
-  -- Every correction succeeded, whatever its provenance.
-  IF (SELECT count(*) FROM b84c_ids WHERE id IS NOT NULL) <> 8 THEN
-    RAISE EXCEPTION 'B8.4b FAIL: a correction was blocked by provenance';
+  -- Only source-bound corrections succeeded, including the cited proposal.
+  IF (SELECT count(*) FROM b84c_ids WHERE id IS NOT NULL) <> 3 THEN
+    RAISE EXCEPTION 'B8.4b FAIL: verified corrections were not recorded';
   END IF;
   FOR v IN SELECT ids.anchor, a.source_extraction_id, a.source_deployment_revision, a.source_deployment_environment
            FROM b84c_ids ids JOIN public.human_fact_assertions a ON a.id = ids.id LOOP
@@ -157,9 +179,6 @@ BEGIN
     ELSIF v.anchor = 'no-identity' AND (v.source_extraction_id IS DISTINCT FROM 'b84c0000-0000-4000-8000-000000000073'
         OR v.source_deployment_revision IS NOT NULL OR v.source_deployment_environment IS NOT NULL) THEN
       RAISE EXCEPTION 'B8.4b FAIL: an unrecorded producer was invented: %', v;
-    ELSIF v.anchor IN ('other-artifact', 'other-org', 'missing', 'none', 'positional')
-        AND (v.source_extraction_id IS NOT NULL OR v.source_deployment_revision IS NOT NULL) THEN
-      RAISE EXCEPTION 'B8.4b FAIL: unproven provenance recorded for %: %', v.anchor, v;
     END IF;
   END LOOP;
   -- A revision never exists without its source extraction (only that
@@ -195,4 +214,4 @@ BEGIN
 END
 $b84c_provenance$;
 
-SELECT 'B8.4B MANUAL CORRECTION PROVENANCE / SERVER-DERIVED SOURCE EXTRACTION / NO INVENTED PRODUCER / OLD CALLERS: PASS' AS result;
+SELECT 'C1B MANUAL CORRECTION PROVENANCE / VERIFIED SOURCE EXTRACTION / LEGACY CALL REJECTION: PASS' AS result;

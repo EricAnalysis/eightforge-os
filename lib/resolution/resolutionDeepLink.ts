@@ -24,16 +24,15 @@ export function resolutionWorkspaceHref(projectId: string, link: ResolutionDeepL
   return `/platform/projects/${encodeURIComponent(projectId)}/resolve${search ? `?${search}` : ''}`;
 }
 
-/** The linked case in queue order, or the first case when the link matches none. */
+/** The linked server-derived case. Explicit, unmatched context never opens another case. */
 export function selectDeepLinkedCase(queue: ResolutionQueue, link: ResolutionDeepLink): string | null {
   const order = queue.groups.flatMap((group) => group.caseIds);
   const byId = new Map(queue.cases.map((entry) => [entry.caseId, entry]));
   const ordered = order.flatMap((caseId) => (byId.has(caseId) ? [byId.get(caseId)!] : []));
-  const match = (link.caseId ? ordered.find((entry) => entry.caseId === link.caseId) : undefined)
-    ?? (link.findingId ? ordered.find((entry) => entry.sourceRefs.findingId === link.findingId) : undefined)
-    ?? (link.documentId && link.anchorKey
-      ? ordered.find((entry) => entry.documentId === link.documentId && entry.sourceRefs.anchorKey === link.anchorKey)
-      : undefined)
-    ?? (link.documentId ? ordered.find((entry) => entry.documentId === link.documentId) : undefined);
-  return match?.caseId ?? ordered[0]?.caseId ?? null;
+  const hasContext = Boolean(link.caseId || link.findingId || link.documentId || link.anchorKey);
+  if (!hasContext) return ordered[0]?.caseId ?? null;
+  return ordered.find((entry) => (!link.caseId || entry.caseId === link.caseId)
+    && (!link.findingId || entry.sourceRefs.findingId === link.findingId)
+    && (!link.documentId || entry.documentId === link.documentId)
+    && (!link.anchorKey || entry.sourceRefs.anchorKey === link.anchorKey))?.caseId ?? null;
 }

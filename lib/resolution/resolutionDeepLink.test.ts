@@ -35,9 +35,13 @@ describe('resolution workspace deep links (B5-B)', () => {
     expect(selectDeepLinkedCase(queue, { documentId: 'doc-1' })).toBe('unreadable:doc-1:a');
   });
 
-  it('falls back to the first queued case for a link that matches nothing', () => {
-    expect(selectDeepLinkedCase(queue, { findingId: 'missing' })).toBe('unreadable:doc-1:a');
-    expect(selectDeepLinkedCase(queue, { caseId: 'invented' })).toBe('unreadable:doc-1:a');
+  it('rejects unmatched or cross-document context instead of opening another case', () => {
+    expect(selectDeepLinkedCase(queue, { findingId: 'missing' })).toBeNull();
+    expect(selectDeepLinkedCase(queue, { caseId: 'invented' })).toBeNull();
+    expect(selectDeepLinkedCase(queue, { documentId: 'doc-1', findingId: 'f1' })).toBeNull();
+    expect(selectDeepLinkedCase(queue, { documentId: 'doc-2', anchorKey: 'a' })).toBeNull();
+    expect(selectDeepLinkedCase(queue, { anchorKey: 'missing' })).toBeNull();
+    expect(selectDeepLinkedCase(queue, {})).toBe('unreadable:doc-1:a');
     expect(selectDeepLinkedCase({ ...queue, cases: [], groups: [] }, {})).toBeNull();
   });
 

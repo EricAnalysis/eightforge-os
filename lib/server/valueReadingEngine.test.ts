@@ -126,6 +126,7 @@ function fake(overrides: Partial<Store> = {}) {
                     sanitized_reason: row.p_sanitized_reason, provider_invoked: row.p_provider_invoked,
                     proposal_id: row.p_proposal_id, anchor_key: row.p_anchor_key, requested_by: row.p_requested_by,
                     source_document_id: row.p_source_document_id, source_artifact_id: row.p_source_artifact_id,
+                    extraction_snapshot_id: row.p_extraction_snapshot_id,
                     physical_page_number: row.p_physical_page_number, page_representation_digest: row.p_page_representation_digest,
                     observed_at: '2026-10-04T02:00:00Z' })) : [];
             return source.filter((row) => filters.every(([column, value]) =>
@@ -255,6 +256,18 @@ describe('value-reading engine (B4.3)', () => {
     expect(store.outcomes).toHaveLength(1);
   });
 
+  it('refuses request-key replay for a new extraction snapshot with identical page evidence', async () => {
+    const { client, store } = fake();
+    const { port, calls } = provider(VALUE_OUTPUT);
+    const d = deps({ provider: port });
+    await runValueReading(client, input({ requestKey: 'snapshot-bound' }), d.value);
+    store.extractions = [{ id: 'extraction-2', document_id: DOC, created_at: '2026-10-05T00:00:00Z', data: extractionData() }];
+    expect(await runValueReading(client, input({ requestKey: 'snapshot-bound' }), d.value))
+      .toEqual({ status: 'not_resolved', reason: 'request_key_collision' });
+    expect(calls).toHaveLength(1);
+    expect(store.outcomes).toHaveLength(1);
+  });
+
   it('sends text excerpts only when asked, and then needs the text_excerpts approval too', async () => {
     const { client } = fake();
     const { port, calls } = provider(VALUE_OUTPUT);
@@ -355,6 +368,8 @@ describe('value-reading engine (B4.3)', () => {
         rationale: 'r' }), 'structured_output_invalid', 'invalid_proposal'],
       [JSON.stringify({ reading: 'value', description: 'x', unit_type: 'CY', rate_amount: -1, category: null, rationale: 'r' }),
         'deterministic_validation_failed', 'proposal_value_validation_failed'],
+      [JSON.stringify({ reading: 'value', description: 'x', unit_type: 'CY', rate_amount: 14.5,
+        category: 'Equipment', rationale: 'r' }), 'deterministic_validation_failed', 'proposal_value_validation_failed'],
     ] as const) {
       const { client, store } = fake();
       const result = await runValueReading(client, input(), deps({ provider: provider(output).port }).value);
@@ -488,9 +503,9 @@ describe('value-reading request and output contracts (B4.3)', () => {
       renderDigestSha256: 'e'.repeat(64) };
     const digest = buildValueReadingRequest(base).requestDigestSha256;
     expect(buildValueReadingRequest(base).requestDigestSha256).toBe(digest);
-    // A new extraction run of an identical page is the same request.
+    // A new extraction snapshot must have a new request identity even when its page bytes match.
     expect(buildValueReadingRequest({ ...base, binding: { ...binding, extractionSnapshotId: 'extraction-9' } })
-      .requestDigestSha256).toBe(digest);
+      .requestDigestSha256).not.toBe(digest);
     for (const changed of [
       { ...base, binding: { ...binding, pageRepresentationDigest: 'b'.repeat(64) },
         crop: { ...crop, pageRepresentationDigest: 'b'.repeat(64) } },

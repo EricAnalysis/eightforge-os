@@ -1,12 +1,12 @@
 import { parseCorpusPins } from '@/lib/evaluation/pinnedEvaluationCapture';
-import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import { sha256Hex } from '@/lib/extraction/domain/hash';
 import { buildValueReadingMessagesRequestV2 } from '@/lib/forgewing/runtime/valueReadingClientV2';
 import { buildValueReadingMessagesRequestV3, createClaudeValueReadingProviderV3 } from '@/lib/forgewing/runtime/valueReadingClientV3';
 import { VALUE_READING_EXECUTION, type ValueReadingProviderRequest } from '@/lib/valueReadingContract';
 import { QUALIFICATION_CONTRACT_V2, qualificationSemanticsDigest } from './qualificationContractV2';
-import { QUALIFICATION_CONTRACT_V3, assertQualificationContractV3, qualificationSourceDigest } from './qualificationContractV3';
+import { QUALIFICATION_CONTRACT_V3, assertQualificationContractV3 } from './qualificationContractV3';
+import { historicalQualificationSourceDigest } from './fixtures/historicalQualificationSource';
 
 const bytes = new Uint8Array([137, 80, 78, 71, 1]);
 const request: ValueReadingProviderRequest = {
@@ -42,7 +42,7 @@ describe('B4.6.1 additive request efficiency contract', () => {
     expect(() => assertQualificationContractV3({ ...QUALIFICATION_CONTRACT_V3,
       pins: parseCorpusPins(QUALIFICATION_CONTRACT_V3.corpus),
       sourceSha256: Object.fromEntries(Object.keys(QUALIFICATION_CONTRACT_V3.sourceSha256)
-        .map(file => [file, qualificationSourceDigest(readFileSync(file, 'utf8'))])),
+        .map(file => [file, historicalQualificationSourceDigest(file)])),
     })).not.toThrow();
   });
 

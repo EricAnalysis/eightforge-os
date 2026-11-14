@@ -9,6 +9,7 @@ import type { DocumentIntelligenceViewModel } from '@/lib/documentIntelligenceVi
 import { deriveLedgerInsightSignals, type LedgerInsightSignals } from '@/lib/invoiceLedgerInsights';
 import { DocumentIntelligenceStrip } from '@/components/document-intelligence/DocumentIntelligenceStrip';
 import { DocumentIntelligenceWorkspace } from '@/components/document-intelligence/DocumentIntelligenceWorkspace';
+import { DocumentResolutionEntryPoints } from '@/components/document-intelligence/DocumentResolutionEntryPoints';
 import { InvoiceSurface } from '@/components/document-intelligence/InvoiceSurface';
 import { SpreadsheetReviewSurface } from '@/components/document-intelligence/SpreadsheetReviewSurface';
 import { DiagnosticsDrawer } from '@/components/document-intelligence/DiagnosticsDrawer';
@@ -524,6 +525,7 @@ export function DocumentDetailExperience({
   navigationProjectId,
   navigationDecisionHref,
   navigationValidatorHref,
+  resolutionProjectId,
 }: {
   breadcrumbs: BreadcrumbItem[];
   contextLabel: string;
@@ -614,6 +616,7 @@ export function DocumentDetailExperience({
   navigationProjectId?: string | null;
   navigationDecisionHref?: string | null;
   navigationValidatorHref?: string | null;
+  resolutionProjectId?: string | null;
 }) {
   const headerEntities = entities.slice(0, 6);
   const hasAuditData =
@@ -871,6 +874,10 @@ export function DocumentDetailExperience({
               </div>
             </div>
           </section>
+
+          {activeTab === 'extraction' || activeTab === 'evidence' ? (
+            <DocumentResolutionEntryPoints projectId={resolutionProjectId ?? null} documentId={documentId} />
+          ) : null}
 
           {/* Single SpreadsheetReviewSurface instance hoisted above tab conditionals.
               CSS-hidden (display:none via HTML hidden attribute) when not on Extraction

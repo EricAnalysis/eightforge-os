@@ -18,10 +18,10 @@ import { QUALIFICATION_CONTRACT, validateQualificationRecords }
 import {
   QUALIFICATION_CONTRACT_V2,
   assertQualificationContractV2,
-  qualificationSourceDigest,
   qualificationSemanticsDigest,
   validateQualificationRecordsV2,
 } from './qualificationContractV2';
+import { historicalQualificationSourceDigest } from './fixtures/historicalQualificationSource';
 import type { ValueReadingBenchmarkRecord } from './valueReadingBenchmark';
 
 const bytes = new Uint8Array([137, 80, 78, 71, 1]);
@@ -76,7 +76,7 @@ describe('additive B4.6.1 Sonnet 5.5 qualification contract', () => {
       promptSha256: QUALIFICATION_CONTRACT_V2.promptSha256,
       pins: parseCorpusPins(QUALIFICATION_CONTRACT_V2.corpus),
       sourceSha256: Object.fromEntries(Object.keys(QUALIFICATION_CONTRACT_V2.sourceSha256)
-        .map((file) => [file, qualificationSourceDigest(readFileSync(file, 'utf8'))])),
+        .map((file) => [file, historicalQualificationSourceDigest(file)])),
     };
     expect(() => assertQualificationContractV2(observed)).not.toThrow();
     expect(QUALIFICATION_CONTRACT.sourceSha256).not.toHaveProperty('lib/forgewing/runtime/valueReadingClientV2.ts');

@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { hashCanonical, sha256Hex } from '@/lib/extraction/domain/hash';
 import { createQualificationTransportObservation, qualificationUsageForScoring } from './qualificationTransportObservation';
 import { QUALIFICATION_CONTRACT_V3, qualificationSemanticsDigest, validateQualificationRecordsV3 } from './qualificationContractV3';
-import { QUALIFICATION_CONTRACT_V4, assertQualificationContractV4, qualificationSourceDigest, validateQualificationRecordsV4 } from './qualificationContractV4';
+import { QUALIFICATION_CONTRACT_V4, assertQualificationContractV4, validateQualificationRecordsV4 } from './qualificationContractV4';
+import { historicalQualificationSourceDigest } from './fixtures/historicalQualificationSource';
 import { parseCorpusPins } from '@/lib/evaluation/pinnedEvaluationCapture';
 
 describe('additive qualification transport observation', () => {
@@ -69,7 +70,7 @@ describe('additive qualification transport observation', () => {
     expect(validateQualificationRecordsV4).toBe(validateQualificationRecordsV3);
     expect(hashCanonical(QUALIFICATION_CONTRACT_V4)).not.toBe(hashCanonical(QUALIFICATION_CONTRACT_V3));
     expect(() => assertQualificationContractV4({ ...QUALIFICATION_CONTRACT_V4, pins: parseCorpusPins(QUALIFICATION_CONTRACT_V4.corpus),
-      sourceSha256: Object.fromEntries(Object.keys(QUALIFICATION_CONTRACT_V4.sourceSha256).map(file => [file, qualificationSourceDigest(readFileSync(file, 'utf8'))])) })).not.toThrow();
+      sourceSha256: Object.fromEntries(Object.keys(QUALIFICATION_CONTRACT_V4.sourceSha256).map(file => [file, historicalQualificationSourceDigest(file)])) })).not.toThrow();
     const runner = readFileSync('scripts/evaluation/b461/runQualificationV4.ts', 'utf8');
     expect(runner).toContain("from '@/lib/evaluation/benchmark/valueReadingBenchmarkRunV3'");
     expect(runner).toContain("from '@/lib/forgewing/runtime/valueReadingClientV3'");

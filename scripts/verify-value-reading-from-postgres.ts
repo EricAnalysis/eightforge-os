@@ -48,7 +48,8 @@ const REGION = { coordinate_space: 'source', boxes: [{ x_min: 440, x_max: 520, y
 const draft: ValueReadingProposalDraft = {
   binding: {
     organizationId: ORG, projectId: 'b4200000-0000-4000-8000-0000000000e1', sourceDocumentId: DOCUMENT,
-    sourceArtifactId: 'b4200000-0000-4000-8000-0000000000f1', extractionSnapshotId: 'extraction-snapshot-1',
+    sourceArtifactId: 'b4200000-0000-4000-8000-0000000000f1',
+    extractionSnapshotId: 'b4200000-0000-4000-8000-0000000000c1',
     resolutionCaseId: 'case:unreadable-line:p8:700', physicalPageNumber: 8, pageRepresentationDigest: PAGE_DIGEST,
     factKey: 'contract_rate_row', anchorKey: ANCHOR, sourceObservationIds: ['obs-7a', 'obs-7b'], sourceRegion: REGION,
   },

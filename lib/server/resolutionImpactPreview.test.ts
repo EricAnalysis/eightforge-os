@@ -156,12 +156,14 @@ describe('resolution impact preview (B5-C)', () => {
     await recordRegionBoundAssertion({ rpc, from: vi.fn() } as unknown as RegionAssertionClient, {
       organizationId: ORG, actorId: ACTOR, sourceDocumentId: DOC, factKey: 'contract_rate_row',
       assertedValue: { description: 'Hauling', unit_type: 'TON', rate_amount: 13 }, status: 'active',
-      reason: 'Impact preview (not recorded)', sourceArtifactId: 'artifact-1', physicalPageNumber: 3,
+      reason: 'Impact preview (not recorded)', sourceArtifactId: 'artifact-1',
+      sourceExtractionId: '00000000-0000-4000-8000-000000000004', physicalPageNumber: 3,
       sourceRegion: TARGET.sourceRegion, pageRepresentationDigest: DIGEST, parserVersion: 'priced_schedule_reconstruction_v2',
       sourceObservationIds: ['o1', 'o2'], originalSourceText: 'Hauling $ 13', anchorKey: TARGET.anchorKey,
       supersedesAssertionId: null, idempotencyKey: 'k',
     });
     const args = (rpc.mock.calls[0] as unknown as [string, Record<string, unknown>])[1];
+    expect(args.p_source_extraction_id).toBe('00000000-0000-4000-8000-000000000004');
     expect({
       organization_id: row.organization_id, actor_id: row.actor_id, source_document_id: row.source_document_id,
       fact_key: row.fact_key, asserted_value: row.asserted_value, status: row.status,

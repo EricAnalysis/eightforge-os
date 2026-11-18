@@ -244,4 +244,78 @@ describe('FDE plan server authorization',()=>{
     expect(response.status).toBe(409);
     expect(db.rpc).not.toHaveBeenCalled();
   });
+
+  describe('need identity and structural refusals',()=>{
+    // Real builder output: one described document (waivable) and one HUMAN step (structural).
+    const needPlan=buildFdeIntakePlan({
+      assessmentId:ASSESSMENT,assessmentVersion:1,sourceSubmissionId:SUBMISSION,
+      intake:{workflowDescription:'Review invoices',successOutcome:'Reviewed invoice'},
+      assessment:{schemaVersion:'workflow_assessment_v2',workflowSteps:[{
+        stepId:'extract',classification:'EXTRACT',description:'Read invoice',proposedOutput:'Rows',
+        requiredInputs:[],unresolvedAssumptions:[],determinismGaps:[]},{
+        stepId:'approve',classification:'HUMAN',description:'Supervisor approves the invoice',proposedOutput:'Approval',
+        requiredInputs:[],unresolvedAssumptions:[],determinismGaps:[]}],
+        documents:[{documentId:'rates',name:'Rate schedule PDF',role:'Pricing'}],limitations:[]},
+      suppliedFiles:[],answers:[],existingReview:{reviewId:REVIEW_ID,reviewVersion:1,overallDisposition:'accepted'},
+    })!;
+    const described=needPlan.informationNeeds.find((need)=>need.needKind==='described_document')!;
+    const human=needPlan.informationNeeds.find((need)=>need.needKind==='human_step')!;
+    const intakeRef={kind:'intake' as const,id:SUBMISSION,digest:hashCanonical(needPlan.pinnedInputs.intakeDigest)};
+    const resolution=(needId:string,disposition:'confirmed'|'unresolved')=>({needId,disposition,
+      conclusion:'Reviewer conclusion',rationale:'Reviewer rationale',sourceRefs:[intakeRef]});
+    const waiver={needId:described.needId,requirement:described.description,customerStatement:'Supplied later.',
+      reason:'Proceed under uncertainty.',acknowledgmentText:FDE_WAIVER_ACKNOWLEDGMENT_TEXT,
+      acknowledgmentVersion:FDE_WAIVER_ACKNOWLEDGMENT_VERSION,acknowledged:true,sourceRefs:[intakeRef]};
+    const submit=(disposition:'approved'|'rejected'|'changes_requested',resolutions:unknown[],waivers:unknown[])=>{
+      mocks.packet.mockResolvedValue({status:'ok',packet:{fdeIntakePlan:needPlan,followUpAnswers:[],intake:{}}});
+      const db=admin({snapshotPlan:needPlan});mocks.admin.mockReturnValue(db);
+      return {db,response:recordFdePlanReview(new Request('http://localhost'),ASSESSMENT,{
+        baseDigest:hashCanonical(needPlan),expectedReviewVersion:0,disposition,rationale:'Reviewed',resolutions,waivers})};
+    };
+
+    it('uses real builder output with a structural and a waivable need',()=>{
+      expect(described.state).toBe('not_supplied');
+      expect(human.state).toBe('missing_human_decision');
+    });
+
+    it.each([
+      {name:'a need outside the plan',resolutions:()=>[resolution('need_'+'b'.repeat(64),'unresolved')],waivers:()=>[]},
+      {name:'a duplicated resolution',resolutions:()=>[resolution(human.needId,'unresolved'),resolution(human.needId,'unresolved')],waivers:()=>[]},
+      {name:'a duplicated waiver',resolutions:()=>[],waivers:()=>[waiver,waiver]},
+      {name:'a need both resolved and waived',resolutions:()=>[resolution(described.needId,'unresolved')],waivers:()=>[waiver]},
+    ])('refuses $name as a 422 client error before any write',async({resolutions,waivers})=>{
+      const {db,response}=submit('rejected',resolutions(),waivers());
+      const result=await response;
+      expect(result.status).toBe(422);
+      expect(await result.json()).toEqual({ok:false,error:'invalid_need_identity'});
+      expect(db.rpc).not.toHaveBeenCalled();
+      expect(db.sources.fde_plan_snapshots.insert).not.toHaveBeenCalled();
+    });
+
+    it.each(['approved','rejected','changes_requested'] as const)('refuses a confirmed structural need on %s before any write',async(disposition)=>{
+      const {db,response}=submit(disposition,[resolution(human.needId,'confirmed')],[]);
+      const result=await response;
+      expect(result.status).toBe(422);
+      expect(await result.json()).toEqual({ok:false,error:'structural_need_not_confirmable'});
+      expect(db.rpc).not.toHaveBeenCalled();
+      expect(db.sources.fde_plan_snapshots.insert).not.toHaveBeenCalled();
+    });
+
+    it('still records a structural need left unresolved',async()=>{
+      const {db,response}=submit('rejected',[resolution(human.needId,'unresolved')],[]);
+      expect((await response).status).toBe(201);
+      expect(db.rpc).toHaveBeenCalledWith('record_fde_plan_review',expect.objectContaining({p_disposition:'rejected',
+        p_resolutions:[resolution(human.needId,'unresolved')]}));
+    });
+
+    it('keeps a server-side plan defect a 503, not a client error',async()=>{
+      const broken={...needPlan,informationNeeds:[described,described]};
+      mocks.packet.mockResolvedValue({status:'ok',packet:{fdeIntakePlan:broken,followUpAnswers:[],intake:{}}});
+      const db=admin({snapshotPlan:broken});mocks.admin.mockReturnValue(db);
+      const response=await recordFdePlanReview(new Request('http://localhost'),ASSESSMENT,{
+        baseDigest:hashCanonical(broken),expectedReviewVersion:0,disposition:'rejected',rationale:'Reviewed',resolutions:[],waivers:[]});
+      expect(response.status).toBe(503);
+      expect(db.rpc).not.toHaveBeenCalled();
+    });
+  });
 });

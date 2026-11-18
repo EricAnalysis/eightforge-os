@@ -67,6 +67,16 @@ const interpretableKinds = new Set<FdeInformationNeed['needKind']>([
   'follow_up', 'described_document', 'unmatched_file', 'limited_file', 'relationship', 'assessment_limitation',
 ]);
 
+/** A caller-supplied resolution or waiver that does not name a distinct need of the frozen plan. */
+export class FdeNeedIdentityError extends Error {
+  constructor(message: string) { super(message); this.name = 'FdeNeedIdentityError'; }
+}
+
+/** Authority, integrity, and human-decision gaps are never confirmed by reviewer interpretation. */
+export function isFdeStructuralNeed(need: FdeInformationNeed): boolean {
+  return !interpretableKinds.has(need.needKind);
+}
+
 export function isFdeConfirmableNeed(need: FdeInformationNeed, base: FdeIntakePlan): boolean {
   if (!interpretableKinds.has(need.needKind)) return false;
   const availableIds = new Set([
@@ -119,11 +129,11 @@ export function resolveFdePlan(
   const resolutionByNeed = new Map<string, FdeNeedResolution>();
   const waiverByNeed = new Map<string, FdeEvidenceWaiver>();
   for (const resolution of resolutions) {
-    if (!byNeed.has(resolution.needId) || resolutionByNeed.has(resolution.needId)) throw new Error('Invalid FDE need resolution identity');
+    if (!byNeed.has(resolution.needId) || resolutionByNeed.has(resolution.needId)) throw new FdeNeedIdentityError('Invalid FDE need resolution identity');
     resolutionByNeed.set(resolution.needId, resolution);
   }
   for (const waiver of waivers) {
-    if (!byNeed.has(waiver.needId) || waiverByNeed.has(waiver.needId) || resolutionByNeed.has(waiver.needId)) throw new Error('Invalid FDE evidence waiver identity');
+    if (!byNeed.has(waiver.needId) || waiverByNeed.has(waiver.needId) || resolutionByNeed.has(waiver.needId)) throw new FdeNeedIdentityError('Invalid FDE evidence waiver identity');
     waiverByNeed.set(waiver.needId, waiver);
   }
   const blockers: string[] = [];

@@ -8,7 +8,7 @@ import { parseAssessmentSupportingFileContext } from '@/lib/workflowAssessmentEv
 import { getActorContext } from '@/lib/server/getActorContext';
 import { getSupabaseAdmin } from '@/lib/server/supabaseAdmin';
 import { readWorkflowReviewPacket } from '@/lib/server/workflowAssessmentReviewRead';
-import { resolveFdePlan, isFdeWaiverEligibleNeed, isFdeConfirmableNeed, FDE_WAIVER_ACKNOWLEDGMENT_TEXT,
+import { resolveFdePlan, isFdeWaiverEligibleNeed, isFdeConfirmableNeed, isFdeStructuralNeed, FdeNeedIdentityError, FDE_WAIVER_ACKNOWLEDGMENT_TEXT,
   FDE_WAIVER_ACKNOWLEDGMENT_VERSION, type FdeEvidenceRef } from '@/lib/projectIntelligence/fdeResolvedPlan';
 import type { FdeIntakeFile, FdeIntakePlan } from '@/lib/projectIntelligence/fdeIntakePlan';
 
@@ -183,9 +183,15 @@ export async function recordFdePlanReview(req:Request,assessmentId:string,input:
     const currentDigest=hashCanonical(current.plan);
     if(parsed.data.baseDigest!==currentDigest || !access.assessment.isCurrentVersion) return error('stale_or_unavailable_plan',409);
     if(parsed.data.disposition==='approved' && current.unavailable) return error('plan_evidence_unavailable',409);
+    // A request that names no distinct need of the current plan is a client error, refused before any write.
+    let result:ReturnType<typeof resolveFdePlan>;
+    try { result=resolveFdePlan(current.plan,parsed.data.resolutions,parsed.data.waivers); }
+    catch(cause){ if(cause instanceof FdeNeedIdentityError) return error('invalid_need_identity',422); throw cause; }
+    const needs=new Map(current.plan.informationNeeds.map(need=>[need.needId,need]));
+    if(parsed.data.resolutions.some(resolution=>resolution.disposition==='confirmed' && isFdeStructuralNeed(needs.get(resolution.needId)!)))
+      return error('structural_need_not_confirmable',422);
     const pinned=await snapshot(access.admin,access.actor,access.assessment,current.plan);
     if(parsed.data.baseSnapshotId && parsed.data.baseSnapshotId!==pinned.id) return error('stale_snapshot',409);
-    const result=resolveFdePlan(current.plan,parsed.data.resolutions,parsed.data.waivers);
     if(parsed.data.disposition==='approved' && !result.eligible) return Response.json({ok:false,error:'approval_blocked',blockers:result.blockers},{status:409});
     const requestDigest=hashCanonical({actorId:access.actor.actorId,snapshotId:pinned.id,
       expectedReviewVersion:parsed.data.expectedReviewVersion,baseDigest:pinned.digest,disposition:parsed.data.disposition,rationale:parsed.data.rationale,
